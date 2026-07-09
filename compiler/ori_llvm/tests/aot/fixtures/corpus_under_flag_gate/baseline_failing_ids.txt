@@ -31,7 +31,6 @@
 # successor edges of the may-unwind call (set_algebra_relocation_names) — 47->46.
 aims_interactions::test_h6_callee_returns_unique_for_caller_reuse
 arc::test_arc_borrowed_param_cow_push_diamond
-fat_ptr_iter::cow::test_push_element_borrowed_param_two_calls
 fat_ptr_iter::function_param::test_borrowed_param_then_cow_mutation
 fat_ptr_iter::function_param::test_borrowed_str_list_called_in_loop
 fat_ptr_iter::str_list::test_split_first_to_lowercase

@@ -131,7 +131,14 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
-                let r = emitter.emit_list_push_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm, ctx.receiver_ty);
+                // Same discriminator as the Phase-6.68b element-escape keep-alive:
+                // a RETURNED receiver's result buffer carries the elem header (its
+                // elem_dec_fn is the keep-alive's balancing release in the caller).
+                let receiver_returned = ori_arc::push_receiver_lineage_returned(
+                    ctx.arc_func,
+                    ctx.arc_args[0],
+                );
+                let r = emitter.emit_list_push_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm, ctx.receiver_ty, receiver_returned);
                 if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
                 r
             } else {
@@ -323,6 +330,14 @@ declare_builtins! { emitter, ctx;
             // outer container's elem_dec_fn frees the buffer exactly once.
             let owns_data = !emitter.is_var_borrowed_rooted(ctx.arc_args[0])
                 || emitter.iter_receiver_owns_via_contract(ctx.arc_args[0]);
+            tracing::trace!(
+                target: "ori_llvm::codegen",
+                receiver = ctx.arc_args[0].index(),
+                owns_data,
+                borrowed_rooted = emitter.is_var_borrowed_rooted(ctx.arc_args[0]),
+                owns_via_contract = emitter.iter_receiver_owns_via_contract(ctx.arc_args[0]),
+                "list iter owns_data decision"
+            );
             emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element, owns_data)
         } else {
             None

@@ -3602,6 +3602,20 @@ fn emit_iter_element_pushed_into_returned_collection_keepalive_inc(
     }
 }
 
+/// Whether `recv`'s jump-threaded collection lineage is RETURNED from `func` —
+/// the SAME discriminator the Phase-6.68b element-escape keep-alive gates on
+/// ([`collection_receiver_returned`]). Consumed by the LLVM emitter's paired
+/// elem-header store on push results: the keep-alive inc's balancing release is
+/// the receiving collection's `elem_dec_fn`, which exists only when the result
+/// buffer's header is populated; an in-scope (non-returned) receiver holds
+/// UNFUNDED element views and must NOT dec them at free.
+/// Spec: Annex E §AIMS RL-1 + RL-2.
+pub fn push_receiver_lineage_returned(func: &ArcFunction, recv: ArcVarId) -> bool {
+    let jt_reps = compute_jump_threaded_reps(func, None);
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    collection_receiver_returned(rep_of(recv), func, &rep_of)
+}
+
 /// Whether collection-receiver lineage `recv_rep` (a jump-threaded rep of a
 /// `@push`/`ori_list_push` arg-0 collection) is RETURNED from the function — its
 /// lineage flows to a `Return` value.

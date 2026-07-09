@@ -69,7 +69,23 @@ pub(super) fn extract_return_info(
                 all_preserve_freshness = false;
             }
 
-            if !var_is_fresh_self_alloc(*value, &def_map, &param_vars, list_take_name, sigs) {
+            // Env: ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE — declines the
+            // loop-threaded fresh-lineage return certification for bisection,
+            // debug-only
+            let lineage_trace_disabled =
+                std::env::var_os("ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE").is_some();
+            if !var_is_fresh_self_alloc(*value, &def_map, &param_vars, list_take_name, sigs)
+                && (lineage_trace_disabled
+                    || !fresh_lineage_vars(
+                        func,
+                        &def_map,
+                        &param_vars,
+                        list_take_name,
+                        sigs,
+                        interner,
+                    )
+                    .contains(value))
+            {
                 all_return_fresh_self_alloc = false;
             }
         }
@@ -85,6 +101,125 @@ pub(super) fn extract_return_info(
         // No Return terminators (e.g., infinite loop) — conservative.
         None => ReturnContract::CONSERVATIVE,
     }
+}
+
+/// Receiver-rooted COW list mutators whose result is the receiver's own logical
+/// buffer (in-place at rc=1, or a fresh COW replacement at rc=1) — freshness of
+/// the receiver lineage carries to the result. Concat is excluded (two-operand).
+const COW_RECEIVER_MUTATORS: &[&str] = &["push", "pop", "set", "insert", "remove", "updated"];
+
+/// The fresh-lineage var set: every var whose value is provably THIS function's
+/// own fresh collection allocation (or its COW replacement), never a
+/// caller-visible buffer. Greatest fixpoint — start from the optimistic
+/// closure, remove any member with counterevidence:
+///  - seeds: collection `Construct`/`Reuse`/`CollectionReuse` dsts, the
+///    `@ori_list_take` finalizer, callee-certified fresh returns;
+///  - `Let { Var }` aliases of members;
+///  - receiver-rooted COW mutator results ([`COW_RECEIVER_MUTATORS`]) whose
+///    receiver is a member;
+///  - block params ALL of whose incoming `Jump`-arg feeders are members (the
+///    loop-threaded rebuild: a self-consistent cycle stays; one non-member
+///    feeder evicts — per `AimsProof.Partition::scc_external_source_determines`,
+///    the external feeders determine the family's birth site).
+fn fresh_lineage_vars(
+    func: &ArcFunction,
+    def_map: &FxHashMap<ArcVarId, &ArcInstr>,
+    param_vars: &rustc_hash::FxHashSet<ArcVarId>,
+    list_take_name: Name,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
+) -> rustc_hash::FxHashSet<ArcVarId> {
+    let cow_mutator = |callee: Name| {
+        interner
+            .try_lookup(callee)
+            .is_some_and(|n| COW_RECEIVER_MUTATORS.contains(&n))
+    };
+    let callee_certified = |callee: Name| {
+        callee == list_take_name
+            || sigs
+                .get(&callee)
+                .is_some_and(|c| c.return_info.returns_fresh_self_alloc)
+    };
+    // Optimistic start: every var is a candidate. Function params are never
+    // fresh (caller-visible); everything else is refuted by its definition
+    // shape below.
+    let n_vars = func.var_types.len();
+    let mut fresh = vec![true; n_vars];
+    for p in param_vars {
+        fresh[p.index()] = false;
+    }
+    // Invoke-terminator results: certified callee OR COW mutator over a
+    // member receiver.
+    let invoke_defs = build_invoke_def_map(func);
+    // Block-param incoming feeders: (param -> Vec<feeder arg>).
+    let mut param_feeders: FxHashMap<ArcVarId, Vec<ArcVarId>> = FxHashMap::default();
+    let mut block_params: rustc_hash::FxHashSet<ArcVarId> = rustc_hash::FxHashSet::default();
+    for block in &func.blocks {
+        for &(p, _) in &block.params {
+            block_params.insert(p);
+            param_feeders.entry(p).or_default();
+        }
+        if let ArcTerminator::Jump { target, args } = &block.terminator {
+            let target_params = &func.blocks[target.index()].params;
+            for (&arg, &(p, _)) in args.iter().zip(target_params.iter()) {
+                param_feeders.entry(p).or_default().push(arg);
+            }
+        }
+    }
+    // Invoke receiver map: dst -> first arg (the COW receiver position).
+    let mut invoke_receivers: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
+    for block in &func.blocks {
+        if let ArcTerminator::Invoke { dst, args, .. } = &block.terminator {
+            if let Some(&recv) = args.first() {
+                invoke_receivers.insert(*dst, recv);
+            }
+        }
+    }
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for raw in 0..n_vars {
+            if !fresh[raw] {
+                continue;
+            }
+            let var = ArcVarId::new(u32::try_from(raw).unwrap_or(u32::MAX));
+            let ok = if let Some(instr) = def_map.get(&var) {
+                match instr {
+                    ArcInstr::Construct { ctor, .. } => ctor.is_collection_literal(),
+                    ArcInstr::CollectionReuse { .. } | ArcInstr::Reuse { .. } => true,
+                    ArcInstr::Apply {
+                        func: callee, args, ..
+                    } => {
+                        callee_certified(*callee)
+                            || (cow_mutator(*callee)
+                                && args.first().is_some_and(|r| fresh[r.index()]))
+                    }
+                    ArcInstr::Let {
+                        value: crate::ir::ArcValue::Var(source),
+                        ..
+                    } => fresh[source.index()],
+                    _ => false,
+                }
+            } else if let Some(callee) = invoke_defs.get(&var) {
+                callee_certified(*callee)
+                    || (cow_mutator(*callee)
+                        && invoke_receivers.get(&var).is_some_and(|r| fresh[r.index()]))
+            } else if block_params.contains(&var) {
+                let feeders = param_feeders.get(&var);
+                feeders.is_some_and(|fs| !fs.is_empty() && fs.iter().all(|f| fresh[f.index()]))
+            } else {
+                false
+            };
+            if !ok {
+                fresh[raw] = false;
+                changed = true;
+            }
+        }
+    }
+    (0..n_vars)
+        .filter(|&raw| fresh[raw])
+        .map(|raw| ArcVarId::new(u32::try_from(raw).unwrap_or(u32::MAX)))
+        .collect()
 }
 
 /// `true` iff `var` is defined (tracing through `Let { Var }` aliases) by a

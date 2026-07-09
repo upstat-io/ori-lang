@@ -4,6 +4,7 @@
 //! owned (RC == 1), mutation happens in-place; when shared, a copy is made
 //! first. Each method returns a `{i64 len, i64 cap, ptr data}` struct.
 
+use ori_ir::{FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
 use crate::codegen::value_id::{FunctionId, ValueId};
@@ -47,6 +48,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem_ty: Idx,
         cow_mode: ValueId,
         list_ty: Idx,
+        receiver_returned: bool,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_push_cow");
 
@@ -55,7 +57,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        self.emit_list_cow_call(
+        let result = self.emit_list_cow_call(
             func_id,
             "push",
             vec![
@@ -68,7 +70,38 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 inc_fn,
                 cow_mode,
             ],
-        )
+        )?;
+        // Store elem_dec_fn and elem_count in the result buffer's RC header —
+        // ONLY for a RETURNED receiver lineage (the Phase-6.68b element-escape
+        // keep-alive's balancing release is this collection's `elem_dec_fn` run
+        // by the CALLER's drop; the runtime slow path cannot propagate a header
+        // when the source list is empty/null). An in-scope receiver holds
+        // UNFUNDED element views (the base accounting balances the source
+        // iter-drop against it) and MUST NOT dec them at free — no header.
+        // Same store discipline as the collect / list_take result sites.
+        // Env: ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE — restores the header-less
+        // push-grown buffer for bisection, debug-only
+        if !receiver_returned
+            || std::env::var_os("ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE").is_some()
+        {
+            return Some(result);
+        }
+        let result_data = self
+            .builder
+            .extract_value(result, FIELD_DATA, "push.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let result_len = self
+            .builder
+            .extract_value(result, FIELD_LEN, "push.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+        let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+        self.builder
+            .call(store_dec, &[result_data, elem_dec_fn], "");
+        let store_count = self.builder.runtime_fn("ori_buffer_store_elem_count");
+        self.builder
+            .call(store_count, &[result_data, result_len], "");
+        Some(result)
     }
 
     /// Emit `list.pop()` — COW pop returning the list with last element removed.

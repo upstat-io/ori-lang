@@ -2299,3 +2299,198 @@ fn extract_contract_branchy_wrap_keeps_all_paths_conservative() {
         "a non-wrapping return path keeps the per-path proof conservative"
     );
 }
+
+#[test]
+fn loop_threaded_push_rebuild_return_certifies_fresh_self_alloc() {
+    // fn f() -> [T] {
+    //   bb0: %0 = Construct List(); %4 = 1 (cond); Jump bb1(%0)
+    //   bb1(%1): Branch %4 ? bb2 : bb3
+    //   bb2: %2 = Apply push(%1, %5); %5 = lit; Jump bb1(%2)   [backedge]
+    //   bb3: Return %1
+    // }
+    // The loop-threaded rebuild: %1's feeders are {%0 fresh, %2 = push(%1)} —
+    // the greatest-fixpoint fresh-lineage trace keeps the self-consistent
+    // cycle, so the threaded return certifies `returns_fresh_self_alloc`.
+    let interner = ori_ir::StringInterner::new();
+    let push = interner.intern("push");
+    let func = ArcFunction {
+        name: name(90),
+        params: vec![],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(0), ty(0), ty(0), ty(1), ty(1)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Construct {
+                        dst: var(0),
+                        ty: ty(0),
+                        ctor: CtorKind::ListLiteral,
+                        args: vec![],
+                    },
+                    ArcInstr::Let {
+                        dst: var(4),
+                        ty: ty(1),
+                        value: ArcValue::Literal(LitValue::Int(1)),
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(0)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(1), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: var(4),
+                    then_block: block_id(2),
+                    else_block: block_id(3),
+                },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: var(5),
+                        ty: ty(1),
+                        value: ArcValue::Literal(LitValue::Int(7)),
+                    },
+                    ArcInstr::Apply {
+                        dst: var(2),
+                        ty: ty(0),
+                        func: push,
+                        args: vec![var(1), var(5)],
+                        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+                        mono_instance_id: None,
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(2)],
+                },
+            },
+            ArcBlock {
+                id: block_id(3),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(1) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(6).with_scalar(4).with_scalar(5);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &interner,
+    );
+
+    assert!(
+        contract.return_info.returns_fresh_self_alloc,
+        "loop-threaded push rebuild of a fresh list is a fresh self-alloc return"
+    );
+}
+
+#[test]
+fn loop_threaded_param_rooted_return_stays_conservative() {
+    // Same CFG shape, but bb0 threads the function PARAM (caller-visible)
+    // instead of a fresh Construct — the fresh-lineage trace must evict the
+    // whole cycle (one non-member external feeder) and the return stays
+    // uncertified.
+    let interner = ori_ir::StringInterner::new();
+    let push = interner.intern("push");
+    let func = ArcFunction {
+        name: name(91),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(0), ty(0), ty(0), ty(1), ty(1)],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: var(4),
+                    ty: ty(1),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(0)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(1), ty(0))],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: var(4),
+                    then_block: block_id(2),
+                    else_block: block_id(3),
+                },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: var(5),
+                        ty: ty(1),
+                        value: ArcValue::Literal(LitValue::Int(7)),
+                    },
+                    ArcInstr::Apply {
+                        dst: var(2),
+                        ty: ty(0),
+                        func: push,
+                        args: vec![var(1), var(5)],
+                        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+                        mono_instance_id: None,
+                    },
+                ],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(2)],
+                },
+            },
+            ArcBlock {
+                id: block_id(3),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(1) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(6).with_scalar(4).with_scalar(5);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &interner,
+    );
+
+    assert!(
+        !contract.return_info.returns_fresh_self_alloc,
+        "a param-rooted threaded return is caller-visible, never a fresh self-alloc"
+    );
+}

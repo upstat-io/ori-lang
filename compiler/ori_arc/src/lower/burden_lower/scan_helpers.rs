@@ -90,6 +90,25 @@ pub(super) struct OwnedRcFilter {
 /// initial owned set, apply every exclusion retain + lineage suppression, and
 /// merge the placed releases. Returns the settled [`OwnedRcFilter`]. The caller
 /// owns `ctx` (the function's return value); this borrows it `&mut`.
+// Env: ORI_TRACE_BURDEN_VAR — trace one ArcVarId's owned-set membership across
+// every exclusion site in `compute_owned_rc_filter` (debug-only bisection).
+fn probe_owned_membership(site: &str, func: &ArcFunction, set: &FxHashSet<ArcVarId>) {
+    let Ok(raw) = std::env::var("ORI_TRACE_BURDEN_VAR") else {
+        return;
+    };
+    let Ok(idx) = raw.parse::<u32>() else {
+        return;
+    };
+    tracing::trace!(
+        target: "ori_arc::aims::realize",
+        fn_name = ?func.name,
+        site,
+        var = idx,
+        present = set.contains(&ArcVarId::new(idx)),
+        "owned-set membership probe"
+    );
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "single contiguous suppression-filter prologue: the exclusion \
@@ -178,6 +197,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
     });
     // Exclude immortals (empty-string literals) — no RC, so no burden ops at all.
     owned_vars_needing_rc.retain(|v| !immortals.get(v.index()).copied().unwrap_or(false));
+    probe_owned_membership("site-01", func, &owned_vars_needing_rc);
     // Exclude borrowed-derived locals: a `Let { Var(src) }` alias of a borrowed
     // value is itself a borrow (TF-2 propagates the source's Access; a borrowed
     // source yields a borrowed alias). Borrowed values carry NO RC obligation
@@ -188,6 +208,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // borrow forward through every Let-Var hop to a fixpoint and exclude the set.
     let borrowed_aliases = compute_borrowed_alias_vars(func);
     owned_vars_needing_rc.retain(|v| !borrowed_aliases.contains(v));
+    probe_owned_membership("site-02", func, &owned_vars_needing_rc);
     // A `Let { Var(src) }` alias whose sole use is a BORROWED terminator-Invoke
     // arg is a borrow-view of an owned source: per RL-1 the dup-inc is
     // Owned-param-only, so `f(x, x)` over Borrowed params creates no reference at
@@ -205,6 +226,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
         ownership_scans::compute_funded_call_arg_dup_aliases(func, contracts, interner);
     borrowed_arg_aliases.retain(|v| !call_arg_dup_aliases.contains(v));
     owned_vars_needing_rc.retain(|v| !borrowed_arg_aliases.contains(v));
+    probe_owned_membership("site-03", func, &owned_vars_needing_rc);
     // RL-2 / TF-4: a `Project` dst used only at borrow positions is a borrow-view
     // of the parent aggregate's field — the parent owns + drops the field via
     // whole-var drop-glue, so the borrowed projection gets NO dec. Pairs with the
@@ -213,6 +235,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // would leak; without this exclusion, both would dec and double-free.
     let borrowed_projection_dsts = compute_borrowed_projection_dsts(func);
     owned_vars_needing_rc.retain(|v| !borrowed_projection_dsts.contains(v));
+    probe_owned_membership("site-04", func, &owned_vars_needing_rc);
     // Exclude scalar-`Literal`-defined vars: a var whose definition is a
     // `Let { value: Literal(lit) }` with `lit != String` is a scalar sentinel
     // (`Int`/`Float`/`Bool`/`Char`/`Duration`/`Size`/`Unit`/`Null`) carrying NO
@@ -225,6 +248,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // The exclusion restores INC/DEC symmetry on the DEFINITION grain.
     let scalar_literal_vars = compute_scalar_literal_vars(func);
     owned_vars_needing_rc.retain(|v| !scalar_literal_vars.contains(v));
+    probe_owned_membership("site-05", func, &owned_vars_needing_rc);
     // Exclude iterator-element borrow-views: a `Project { field: 1 }` of an
     // `Apply @__iter_next` result (and its Let/Project/block-param closure) is
     // a BORROWED view into the collection buffer (`Spec: Annex E §AIMS Protocol
@@ -241,6 +265,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
     // iterator-element tracker) to exclude the element-view lineage.
     let iter_element_defs = crate::aims::emit_rc::collect_iter_element_defs(func, interner);
     owned_vars_needing_rc.retain(|v| !iter_element_defs.contains(v));
+    probe_owned_membership("site-06", func, &owned_vars_needing_rc);
     // RL-1 + RL-34 forwarder-identity alias transparency: a `Let { Var(src) }`
     // alias of an Owned param that transfers through the return (per THIS
     // function's own contract) with a read-only-or-move-out lineage is a
@@ -259,6 +284,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
         compute_forwarder_identity_transparent_aliases(func, contracts)
     };
     owned_vars_needing_rc.retain(|v| !forwarder_identity_transparent_aliases.contains(v));
+    probe_owned_membership("site-07", func, &owned_vars_needing_rc);
     // RL-2 final-read release designation: a MULTI-read element of a fresh
     // caller-owned call-result aggregate (a returned tuple's `Project` view
     // with no burden carrier anywhere on its lineage) gets its execution-final
@@ -273,6 +299,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
             &owned_vars_needing_rc,
         );
     owned_vars_needing_rc.extend(final_read_release_aliases.iter().copied());
+    probe_owned_membership("site-08", func, &owned_vars_needing_rc);
     // RL-5 + RL-2: a SUM-AGGREGATE-`Construct`-fed allocation threaded (via Let-Var
     // aliases) to a merge/return block's DEAD block-param OVER-emits — a FRESH-site
     // `BurdenInc` on the Construct + a dup-alias `BurdenInc` on the Let-Var alias
@@ -295,6 +322,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
         compute_construct_fed_dead_param_lineage(func, contracts, &owned_vars_needing_rc, interner)
     };
     owned_vars_needing_rc.retain(|v| !construct_fed_dead_param.suppressed_lineage_vars.contains(v));
+    probe_owned_membership("site-09", func, &owned_vars_needing_rc);
     // RL-1 + RL-2 fresh-sum live-extract treatment: a FRESH niche-family sum
     // (sum-aggregate Construct, or an Apply/Invoke result the callee hands the
     // caller as an owned reference) read through Let-Var aliases + a niche-payload
@@ -545,6 +573,7 @@ pub(super) fn compute_owned_rc_filter<'a>(
         interner,
     );
     owned_vars_needing_rc.retain(|v| !sole_carrier_claims.contains(v));
+    probe_owned_membership("site-10", func, &owned_vars_needing_rc);
     claimed_no_sink_vars.extend(sole_carrier_claims.iter().copied());
     // RL-2 forwarder-result release: a transfer-through-return forwarder RESULT whose
     // monomorphized result-type burden is EMPTY (`burden_carries_rc == false`) is never
@@ -755,6 +784,7 @@ fn apply_borrowed_invoke_collection_lineage(
         interner,
     );
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    probe_owned_membership("site-11", func, owned_vars_needing_rc);
     (treatment.releases, treatment.claimed_no_sink_vars)
 }
 
@@ -780,6 +810,7 @@ fn apply_fresh_sum_live_extract(
         type_registry,
     );
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    probe_owned_membership("site-12", func, owned_vars_needing_rc);
     (treatment.suppressed_lineage_vars, treatment.releases)
 }
 
@@ -800,6 +831,7 @@ fn apply_catch_recover_release(
     }
     let treatment = compute_catch_recover_release_lineage(func, owned_vars_needing_rc, interner);
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    probe_owned_membership("site-13", func, owned_vars_needing_rc);
     treatment.releases
 }
 
@@ -828,6 +860,7 @@ fn apply_retain_aliasing(
         interner,
     );
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    probe_owned_membership("site-14", func, owned_vars_needing_rc);
     treatment.releases
 }
 
@@ -847,6 +880,7 @@ fn apply_multi_exit_borrow_view(
     }
     let treatment = compute_multi_exit_borrow_view_lineage(func, contracts, owned_vars_needing_rc);
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    probe_owned_membership("site-15", func, owned_vars_needing_rc);
     treatment.releases
 }
 
@@ -867,6 +901,7 @@ fn apply_closure_extract_borrow_view(
     let treatment =
         compute_closure_extract_borrow_view_lineage(func, contracts, owned_vars_needing_rc);
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    probe_owned_membership("site-16", func, owned_vars_needing_rc);
 }
 
 /// Toggle-gated application of the RL-5 loop-closure dead-param treatment
@@ -885,6 +920,7 @@ fn apply_loop_closure_dead_param(
     }
     let treatment = compute_loop_closure_dead_param_lineage(func, owned_vars_needing_rc);
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    probe_owned_membership("site-17", func, owned_vars_needing_rc);
     treatment.releases
 }
 
@@ -906,6 +942,7 @@ fn apply_loop_carried_dead_collection_param(
     let treatment =
         compute_loop_carried_dead_collection_param_lineage(func, owned_vars_needing_rc, interner);
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    probe_owned_membership("site-18", func, owned_vars_needing_rc);
     treatment.releases
 }
 
@@ -927,6 +964,7 @@ fn apply_lazy_iter_closure_borrow(
     }
     let treatment = compute_lazy_iter_closure_borrow_lineage(func, owned_vars_needing_rc, interner);
     owned_vars_needing_rc.retain(|v| !treatment.suppressed_lineage_vars.contains(v));
+    probe_owned_membership("site-19", func, owned_vars_needing_rc);
     treatment.releases
 }
 
@@ -953,7 +991,18 @@ fn apply_iter_consume_dead_thread_orphan_inc(
         owned_vars_needing_rc,
         interner,
     );
+    if !suppressed.is_empty() {
+        let mut vars: Vec<usize> = suppressed.iter().map(|v| v.index()).collect();
+        vars.sort_unstable();
+        tracing::trace!(
+            target: "ori_arc::aims::realize",
+            fn_name = ?func.name,
+            ?vars,
+            "iter-consume dead-thread lineage suppressed"
+        );
+    }
     owned_vars_needing_rc.retain(|v| !suppressed.contains(v));
+    probe_owned_membership("site-20", func, owned_vars_needing_rc);
 }
 
 /// Toggle-gated application of the RL-2 in-callee container-passthrough
@@ -979,6 +1028,7 @@ fn apply_nested_construct_return_passthrough(
         type_registry,
     );
     owned_vars_needing_rc.retain(|v| !suppressed.contains(v));
+    probe_owned_membership("site-21", func, owned_vars_needing_rc);
 }
 
 /// Populate `func.burden_emitted` from the just-emitted burden ops. Walks

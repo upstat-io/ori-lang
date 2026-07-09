@@ -69,10 +69,18 @@ pub(in crate::lower::burden_lower) fn compute_loop_invariant_dead_local_releases
         .iter()
         .flat_map(|b| b.body.iter())
         .filter_map(|instr| match instr {
-            ArcInstr::Construct { dst, ctor, .. }
-                if ctor.is_collection_literal() && owned_vars_needing_rc.contains(dst) =>
-            {
-                Some(*dst)
+            ArcInstr::Construct { dst, ctor, .. } if ctor.is_collection_literal() => {
+                if owned_vars_needing_rc.contains(dst) {
+                    Some(*dst)
+                } else {
+                    tracing::trace!(
+                        target: "ori_arc::aims::realize",
+                        fn_name = ?func.name,
+                        dst = dst.index(),
+                        "loop-invariant dead-local root skipped: collection-literal dst not in owned set"
+                    );
+                    None
+                }
             }
             _ => None,
         })
@@ -102,6 +110,14 @@ pub(in crate::lower::burden_lower) fn compute_loop_invariant_dead_local_releases
                 admit_borrow_only_lineage(func, root, &param_loc, owned_vars_needing_rc)
             }
         });
+        if admitted.is_none() {
+            tracing::trace!(
+                target: "ori_arc::aims::realize",
+                fn_name = ?func.name,
+                root = root.index(),
+                "loop-invariant dead-local root declined (both families)"
+            );
+        }
         if let Some((block_idx, param)) = admitted {
             let entry = out.entry(block_idx).or_default();
             if !entry.contains(&param) {
@@ -146,6 +162,15 @@ fn admit_borrow_only_lineage(
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
 ) -> Option<(usize, ArcVarId)> {
     let members = grow_lineage_with_aliases(func, root);
+    let decline = |gate: &str| {
+        tracing::trace!(
+            target: "ori_arc::aims::realize",
+            fn_name = ?func.name,
+            root = root.index(),
+            gate,
+            "loop-invariant borrow-only lineage declined"
+        );
+    };
     // CLOSURE gate (the loop-INVARIANT discriminator): every member block-param's
     // EVERY incoming `Jump`-arg MUST itself be a member. A reassigned loop local
     // (`s = [i,i+1]; s = s.push(7)`) feeds a FRESH per-iteration value back into
@@ -155,12 +180,18 @@ fn admit_borrow_only_lineage(
     // dead-at-entry single-reference premise; a reassigned slot carries a fresh
     // allocation per iteration whose release the base walk already owns.
     if !lineage_is_closed_under_feeders(func, &members, param_loc) {
+        decline("closure-under-feeders");
         return None;
     }
     if !lineage_is_borrow_only_dead(func, &members) {
+        decline("borrow-only-dead");
         return None;
     }
-    find_sole_terminal(func, &members, param_loc, owned_vars_needing_rc)
+    let terminal = find_sole_terminal(func, &members, param_loc, owned_vars_needing_rc);
+    if terminal.is_none() {
+        decline("sole-terminal");
+    }
+    terminal
 }
 
 /// True iff every member that is a block-param has ALL its incoming `Jump`-args

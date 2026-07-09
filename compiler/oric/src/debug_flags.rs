@@ -465,6 +465,41 @@ flags! {
     /// Usage: `ORI_DISABLE_ITER_CONSUME_FRESH_INVOKE_RESULT_ROOT=1 ori build file.ori`
     ORI_DISABLE_ITER_CONSUME_FRESH_INVOKE_RESULT_ROOT
 
+    /// Decline the loop-threaded fresh-lineage return certification (default:
+    /// a return value threaded through loop block-params whose every feeder
+    /// resolves — via `Let` aliases, receiver-rooted COW mutator results, and
+    /// block-param feeders — to this function's own fresh collection allocation
+    /// certifies `ReturnContract.returns_fresh_self_alloc`). `=1` restores the
+    /// conservative block-param bail (the pre-cure cross-call keep-alive leak
+    /// on an iter-consumed returned rebuild).
+    ///
+    /// Consumed in `ori_arc::aims::interprocedural::extract`. Bisects a
+    /// returned-rebuild contract change to the lineage trace.
+    /// Usage: `ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE=1 ori build file.ori`
+    ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE
+
+    /// Restore the header-less push-grown list buffer (default: a `push` result
+    /// whose receiver lineage is RETURNED from the function gets `elem_dec_fn` +
+    /// `elem_count` stored in its buffer's RC header, so the caller-side free
+    /// releases the funded element refs — the balancing release of the
+    /// element-escape keep-alive). `=1` skips the store; the returned buffer
+    /// frees without element cleanup (the pre-cure element leak).
+    ///
+    /// Consumed in `ori_llvm::codegen::arc_emitter` (list push emission).
+    /// Bisects a pushed-element leak / double-free to the header store.
+    /// Usage: `ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE=1 ori build file.ori`
+    ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE
+
+    /// Trace one `ArcVarId`'s `owned_vars_needing_rc` membership across every
+    /// exclusion site in the Phase-5 suppression-filter prologue (one trace
+    /// event per site, target `ori_arc::aims::realize`). Value = the raw var
+    /// index to trace; pairs with `ORI_LOG=ori_arc::aims::realize=trace`.
+    ///
+    /// Consumed in `ori_arc::lower::burden_lower` (Phase 5). Bisects which
+    /// exclusion site removed a var from the owned set.
+    /// Usage: `ORI_TRACE_BURDEN_VAR=2 ORI_LOG=ori_arc::aims::realize=trace ori build file.ori`
+    ORI_TRACE_BURDEN_VAR
+
     /// Restore the single-block over-approximation in the dup'd terminal-move
     /// gate (default: a dup'd cross-block move source whose `Let { Var }` alias
     /// is its proven global final use — successor-reachability proof, loop
