@@ -501,6 +501,7 @@ fn elide_redundant_fresh_inc_for_read_only_self_alloc() {
         &ori_ir::StringInterner::new(),
         &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
     );
     assert!(
         elidable.contains(&v(0)),
@@ -547,6 +548,7 @@ fn keep_fresh_inc_for_cow_mutated_self_alloc() {
         &reps,
         &ori_ir::StringInterner::new(),
         &rustc_hash::FxHashMap::default(),
+        &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
     );
     assert!(
@@ -689,6 +691,7 @@ fn keep_fresh_inc_when_net_not_one_move_alias_dec() {
         &ori_ir::StringInterner::new(),
         &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
     );
     assert!(
         !elidable.contains(&v(0)),
@@ -830,6 +833,7 @@ fn elide_fresh_inc_for_invoke_terminator_self_alloc_result() {
         &interner,
         &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
     );
     assert!(
         elidable.contains(&v(1)),
@@ -916,6 +920,7 @@ fn keep_fresh_inc_for_invoke_terminator_result_owned_consumed() {
         &interner,
         &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
     );
     assert!(
         !elidable.contains(&v(1)),
@@ -988,6 +993,7 @@ fn elide_fresh_inc_for_for_yield_list_take_result_dup_indexed() {
         &interner,
         &rustc_hash::FxHashMap::default(),
         &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
     );
     assert!(
         elidable.contains(&v(0)),
@@ -1045,6 +1051,7 @@ fn keep_fresh_inc_for_single_use_list_take_result() {
         &reps,
         &interner,
         &rustc_hash::FxHashMap::default(),
+        &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
     );
     assert!(
@@ -1147,6 +1154,7 @@ fn keep_fresh_inc_for_jump_threaded_list_take_result() {
         &reps,
         &interner,
         &rustc_hash::FxHashMap::default(),
+        &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
     );
     assert!(

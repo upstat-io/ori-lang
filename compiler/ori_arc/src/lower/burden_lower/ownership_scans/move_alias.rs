@@ -546,12 +546,15 @@ pub(crate) fn compute_iter_consume_funding_incs(
                 continue;
             }
             let r = root_of(arg);
-            // Lineage survival: any member (same root) read in a block
-            // forward-reachable from the call's successors — the loop
-            // back-edge re-reach counts.
             let reachable = reach_cache
                 .entry(block_idx)
                 .or_insert_with(|| crate::graph::forward_reachable(func, &[normal.index()]));
+            if !funding_lineage_is_loop_invariant(func, r, &root_of, reachable) {
+                continue;
+            }
+            // Lineage survival: any member (same root) read in a block
+            // forward-reachable from the call's successors — the loop
+            // back-edge re-reach counts.
             let survives = func.blocks.iter().enumerate().any(|(b, blk)| {
                 if !reachable.contains(&b) {
                     return false;
@@ -567,4 +570,53 @@ pub(crate) fn compute_iter_consume_funding_incs(
         }
     }
     out
+}
+
+/// LOOP-INVARIANT classification for a funding candidate's lineage: resolve
+/// the root through the Jump-arg phi web (union every block param with its
+/// feeder roots), then require the class's body definer to sit OUTSIDE the
+/// cycle (not re-reached from the call). A class defined inside the cycle is
+/// fresh per iteration — its per-iteration birth matches the callee's
+/// per-iteration release, so a funding inc would leak.
+fn funding_lineage_is_loop_invariant(
+    func: &ArcFunction,
+    r: ArcVarId,
+    root_of: &impl Fn(ArcVarId) -> ArcVarId,
+    reachable: &FxHashSet<usize>,
+) -> bool {
+    let mut class: FxHashSet<ArcVarId> = FxHashSet::default();
+    class.insert(r);
+    loop {
+        let mut grew = false;
+        for blk in &func.blocks {
+            if let ArcTerminator::Jump {
+                target,
+                args: jargs,
+            } = &blk.terminator
+            {
+                let Some(tb) = func.blocks.get(target.index()) else {
+                    continue;
+                };
+                for (pi, &(pv, _)) in tb.params.iter().enumerate() {
+                    let Some(&a) = jargs.get(pi) else { continue };
+                    let ar = root_of(a);
+                    if (class.contains(&pv) && class.insert(ar))
+                        || (class.contains(&ar) && class.insert(pv))
+                    {
+                        grew = true;
+                    }
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    let root_def_block = func.blocks.iter().position(|b| {
+        b.body.iter().any(|i| match i {
+            ArcInstr::Construct { dst, .. } | ArcInstr::Let { dst, .. } => class.contains(dst),
+            _ => false,
+        })
+    });
+    root_def_block.is_some_and(|db| !reachable.contains(&db))
 }
