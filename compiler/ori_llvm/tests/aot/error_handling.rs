@@ -411,6 +411,20 @@ fn test_catch_index_oob_returns_err() {
     );
 }
 
+/// Parity: str index OOB inside `catch` returns Err — the Invoke-terminator
+/// dispatch path (BUG-04-152 RCA sec 3.1: both emit_apply and emit_invoke
+/// route through try_emit_protocol).
+#[test]
+fn test_catch_str_index_oob_returns_err() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/error_handling/catch_str_index_oob_returns_err.ori"
+    ));
+    assert_eq!(
+        exit_code, 0,
+        "catch must capture the in-frame str-index-OOB panic:\n{stderr}"
+    );
+}
+
 /// RC pin: the indexed list (heap str elements) survives the caught OOB
 /// panic — the unwind-edge cleanup must not release a value still live
 /// after the catch.

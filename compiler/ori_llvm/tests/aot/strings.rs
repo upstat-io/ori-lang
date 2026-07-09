@@ -10,7 +10,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // ─── length / len ───
 
@@ -330,4 +330,24 @@ fn test_str_repeat() {
 #[test]
 fn test_str_chars() {
     assert_aot_success(include_str!("fixtures/strings/str_chars.ori"), "str_chars");
+}
+
+// ─── String indexing (BUG-04-152: str[i] via [...] failed to compile under LLVM) ───
+
+#[test]
+fn test_str_index_variable() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_variable.ori"),
+        "str_index_variable",
+    );
+}
+
+#[test]
+fn test_str_index_oob_panics() {
+    let (exit_code, _, _) =
+        compile_and_run_capture(include_str!("fixtures/strings/str_index_oob_panics.ori"));
+    assert_ne!(
+        exit_code, 0,
+        "OOB string index should panic (non-zero exit)"
+    );
 }

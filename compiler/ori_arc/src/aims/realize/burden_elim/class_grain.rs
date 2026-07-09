@@ -184,9 +184,18 @@ fn collect_candidates(
 ) -> FxHashMap<ArcVarId, Candidate> {
     let mut candidates: FxHashMap<ArcVarId, Candidate> = FxHashMap::default();
     for (var, balance) in balances {
-        if rebalanced_vars.contains(var) || alias_dsts.contains(var) {
+        if rebalanced_vars.contains(var) {
             continue;
         }
+        // A pair-atomic ALIAS dst is admissible ONLY as a COMPLETE balanced
+        // pair (inc AND dec both present + kept): T3 licenses removing a
+        // balanced keep-alive bracket WHOLE under root-liveness evidence —
+        // the root IS the same-class sibling. An inc-ONLY alias (its dec
+        // transfer-suppressed at Phase 5; the inc funds a consumer's
+        // cross-var release) has empty dec_sites and is excluded by the
+        // pair-completeness gate below, never elided (RL-1
+        // `RL1_duplication_balanced`).
+        let _ = alias_dsts;
         if balance.inc_sites.is_empty() || balance.dec_sites.is_empty() {
             continue;
         }
