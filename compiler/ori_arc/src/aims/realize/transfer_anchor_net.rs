@@ -245,6 +245,7 @@ pub(crate) fn compute_transfer_anchor_credit_repairs(
         }
         trace_verdict(func, interner, rep, verdict);
     }
+
     repairs
 }
 

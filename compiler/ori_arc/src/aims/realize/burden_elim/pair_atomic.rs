@@ -87,6 +87,15 @@ pub(super) fn collect_pair_atomic_alias_dsts(func: &ArcFunction) -> FxHashSet<Ar
             }
         }
     }
+    // Pass 3b: borrow-only COMPARE aliases of storeless local `Construct`
+    // roots (the derived-Eq operand shape: `let a = root; a == other`). The
+    // alias's every use is a `PrimOp` operand — a pure borrow read; its
+    // inc/dec pair is keep-alive bookkeeping on the root's allocation and a
+    // DP-3 split nets -1 per alias against the still-live root (the
+    // recursive-derive compare double-free). Storeless-Construct-rooted
+    // aliases used at CALL args stay decoupled (their splits compensate the
+    // borrowed-call-arg lineage arrangements).
+    extend_with_primop_compare_aliases(func, &root, &mut pair_atomic);
     // Pass 4: loop-carried pure-borrow-view aliases (RL-1 pair atomicity) —
     // see `super::loop_carried::extend_with_loop_carried_borrow_view_aliases`.
     super::loop_carried::extend_with_loop_carried_borrow_view_aliases(
@@ -95,6 +104,93 @@ pub(super) fn collect_pair_atomic_alias_dsts(func: &ArcFunction) -> FxHashSet<Ar
         &mut pair_atomic,
     );
     pair_atomic
+}
+
+/// `Let { Var }` alias dsts of a LOCAL `Construct` root where EVERY use of
+/// the alias is a `PrimOp` operand (a borrow-read compare/arith read) —
+/// admitted pair-atomic per `RL1_duplication_balanced` (the alias pair is
+/// keep-alive bookkeeping; the root's own release owns the birth ref).
+fn extend_with_primop_compare_aliases(
+    func: &ArcFunction,
+    root: &FxHashMap<ArcVarId, ArcVarId>,
+    pair_atomic: &mut FxHashSet<ArcVarId>,
+) {
+    let root_of = |v: ArcVarId| root.get(&v).copied().unwrap_or(v);
+    let mut construct_dsts: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Construct { dst, .. } = instr {
+                construct_dsts.insert(*dst);
+            }
+        }
+    }
+    if construct_dsts.is_empty() {
+        return;
+    }
+    // Candidate aliases of Construct roots + per-alias use classification.
+    let mut candidates: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if construct_dsts.contains(&root_of(*src)) || construct_dsts.contains(src) {
+                    candidates.insert(*dst);
+                }
+            }
+        }
+    }
+    if candidates.is_empty() {
+        return;
+    }
+    let mut disqualified: FxHashSet<ArcVarId> = FxHashSet::default();
+    let mut primop_read: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Let {
+                    value: ArcValue::PrimOp { args, .. },
+                    ..
+                } => {
+                    for a in args {
+                        if candidates.contains(a) {
+                            primop_read.insert(*a);
+                        }
+                    }
+                }
+                // The alias's own definition edge + RC bookkeeping are not
+                // uses of the alias.
+                ArcInstr::Let {
+                    value: ArcValue::Var(_) | ArcValue::Literal(_),
+                    ..
+                }
+                | ArcInstr::BurdenInc { .. }
+                | ArcInstr::BurdenDec { .. }
+                | ArcInstr::RcInc { .. }
+                | ArcInstr::RcDec { .. } => {}
+                _ => {
+                    for v in &instr.used_vars() {
+                        if candidates.contains(v) {
+                            disqualified.insert(*v);
+                        }
+                    }
+                }
+            }
+        }
+        for v in block.terminator.used_vars() {
+            if candidates.contains(&v) {
+                disqualified.insert(v);
+            }
+        }
+    }
+    for &a in &candidates {
+        if primop_read.contains(&a) && !disqualified.contains(&a) {
+            pair_atomic.insert(a);
+        }
+    }
 }
 
 /// Local `Construct` roots whose alias lineage TERMINALLY moves into an

@@ -98,6 +98,8 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
     if has_catch_recover {
         return;
     }
+    let burden_sole = super::rc_remark::on_burden_sole_path();
+
     // Step 1: identify project-only classes that qualify for cleanup.
     let qualified_classes: FxHashSet<u32> = identify_qualified_classes(func, state_map, pool);
     if qualified_classes.is_empty() {
@@ -240,6 +242,24 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
         let mut candidates: Vec<(usize, usize)> = decs
             .iter()
             .copied()
+            // Burden-sole path: every surviving dec is a placed RL-2/RL-4
+            // release, so only the pass's namesake redundancy — a dec on a
+            // var that IS a Project alias of a transitive-drop source — is
+            // removable; a root / Let-alias dec is the lineage's genuine
+            // release. The ledger (N/K/surplus) stays class-wide; this
+            // restricts only WHICH decs the surplus may remove. The default
+            // (legacy co-emission) path is unchanged.
+            .filter(|&(b_idx, i_idx)| {
+                if !burden_sole {
+                    return true;
+                }
+                let Some(ArcInstr::RcDec { var, .. }) =
+                    func.blocks.get(b_idx).and_then(|b| b.body.get(i_idx))
+                else {
+                    return false;
+                };
+                is_project_alias_of_transitive_drop(func, state_map, pool, *var)
+            })
             .filter(|&(b2_idx, _i2_idx)| {
                 let Ok(b2_u32) = u32::try_from(b2_idx) else {
                     return false;
@@ -395,4 +415,29 @@ fn identify_qualified_classes(
         qualified.insert(class_id);
     }
     qualified
+}
+
+/// Whether `var` is STRUCTURALLY the dst of a `Project` instruction whose
+/// projected source carries a transitive-drop RC strategy. Only such decs are
+/// burden-sole suppression candidates: the source's drop glue walks the
+/// projected slot, making the explicit dec the namesake redundancy. The
+/// `project_alias_sources` map is NOT consulted (its Apply-arg seeding
+/// pollutes it with non-Project provenance).
+fn is_project_alias_of_transitive_drop(
+    func: &ArcFunction,
+    _state_map: &AimsStateMap,
+    pool: &Pool,
+    var: ArcVarId,
+) -> bool {
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Project { dst, value, .. } = instr {
+                if *dst == var {
+                    return rc_strategy(func, *value, pool)
+                        .is_some_and(is_transitive_drop_strategy);
+                }
+            }
+        }
+    }
+    false
 }
