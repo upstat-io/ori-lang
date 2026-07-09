@@ -7979,13 +7979,17 @@ fn run_move_alias_scan(func: &ArcFunction, owned: &[u32]) -> FxHashSet<ArcVarId>
     );
     let registry = TypeRegistry::new();
     let empty_aliases = FxHashMap::default();
+    let no_iter_consume = FxHashSet::default();
     super::ownership_scans::compute_transfer_via_move_alias(
         func,
         &terminator_transfer,
         &use_counts,
         ctx.last_use_points(),
         &owned,
-        &[],
+        &super::ownership_scans::TransferEvidence {
+            invoke_ttr_edges: &[],
+            iter_consume_transfer_args: &no_iter_consume,
+        },
         &super::ownership_scans::SameAllocIdentity {
             genuine_same_alloc_reps: &alias_table.genuine_same_alloc_reps,
             apply_result_aliases: &empty_aliases,

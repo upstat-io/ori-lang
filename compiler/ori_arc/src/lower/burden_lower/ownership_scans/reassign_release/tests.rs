@@ -111,8 +111,14 @@ fn reassign_release_emits_dec_for_kept_inc_suppressed_dec() {
     let inc_suppressed: FxHashSet<ArcVarId> = FxHashSet::default();
     let full_move: FxHashSet<ArcVarId> = FxHashSet::default();
 
-    let releases =
-        compute_reassign_rebind_releases(&func, &owned, &move_alias, &inc_suppressed, &full_move);
+    let releases = compute_reassign_rebind_releases(
+        &func,
+        &owned,
+        &move_alias,
+        &inc_suppressed,
+        &full_move,
+        &FxHashSet::default(),
+    );
 
     let key = (1usize, ForwarderReleasePos::AfterInstr(0));
     assert_eq!(
@@ -139,8 +145,14 @@ fn reassign_release_no_dec_when_inc_suppressed() {
     let inc_suppressed: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
     let full_move: FxHashSet<ArcVarId> = FxHashSet::default();
 
-    let releases =
-        compute_reassign_rebind_releases(&func, &owned, &move_alias, &inc_suppressed, &full_move);
+    let releases = compute_reassign_rebind_releases(
+        &func,
+        &owned,
+        &move_alias,
+        &inc_suppressed,
+        &full_move,
+        &FxHashSet::default(),
+    );
 
     assert!(
         releases.is_empty(),
@@ -158,8 +170,14 @@ fn reassign_release_no_dec_when_full_move() {
     let inc_suppressed: FxHashSet<ArcVarId> = FxHashSet::default();
     let full_move: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
 
-    let releases =
-        compute_reassign_rebind_releases(&func, &owned, &move_alias, &inc_suppressed, &full_move);
+    let releases = compute_reassign_rebind_releases(
+        &func,
+        &owned,
+        &move_alias,
+        &inc_suppressed,
+        &full_move,
+        &FxHashSet::default(),
+    );
 
     assert!(
         releases.is_empty(),
@@ -183,8 +201,14 @@ fn reassign_release_no_dec_for_aggregate_repr() {
     let inc_suppressed: FxHashSet<ArcVarId> = FxHashSet::default();
     let full_move: FxHashSet<ArcVarId> = FxHashSet::default();
 
-    let releases =
-        compute_reassign_rebind_releases(&func, &owned, &move_alias, &inc_suppressed, &full_move);
+    let releases = compute_reassign_rebind_releases(
+        &func,
+        &owned,
+        &move_alias,
+        &inc_suppressed,
+        &full_move,
+        &FxHashSet::default(),
+    );
 
     assert!(
         releases.is_empty(),
@@ -203,8 +227,14 @@ fn reassign_release_no_dec_when_dec_not_suppressed() {
     let inc_suppressed: FxHashSet<ArcVarId> = FxHashSet::default();
     let full_move: FxHashSet<ArcVarId> = FxHashSet::default();
 
-    let releases =
-        compute_reassign_rebind_releases(&func, &owned, &move_alias, &inc_suppressed, &full_move);
+    let releases = compute_reassign_rebind_releases(
+        &func,
+        &owned,
+        &move_alias,
+        &inc_suppressed,
+        &full_move,
+        &FxHashSet::default(),
+    );
 
     assert!(
         releases.is_empty(),

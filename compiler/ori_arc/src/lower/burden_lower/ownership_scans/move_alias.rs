@@ -73,7 +73,7 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
     // this edge the move-chain breaks at the `Invoke` (the result is a fresh SSA
     // var, not a Let-alias of the arg), leaving the value-copy aggregate's
     // intermediate decs/incs un-suppressed (double-free on the forwarder lineage).
-    invoke_ttr_edges: &[(ArcVarId, ArcVarId)],
+    evidence: &TransferEvidence<'_>,
     // Same-allocation identity inputs consumed by the surplus-dec suppression
     // arms (`collect_surplus_dec_srcs`): the `genuine_same_alloc_reps` union-find
     // (Let{Var} + apply-Direct/Conditional edges) + the `apply_result_aliases`
@@ -114,6 +114,7 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
             transferred.extend(instr_transfer_vars(instr, func).iter().copied());
         }
     }
+
     // Move-alias edges `dst -> src`. A use-once source is the unchanged pure-move
     // case. A dup'd source qualifies at its TERMINAL `Let { Var }` use AND
     // only when it has NO dead duplicate alias (a dead alias's reference is
@@ -186,7 +187,7 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
         }
     }
     // Invoke transfer-through-return edges: `%result` is the moved `%arg`.
-    move_edges.extend(invoke_ttr_edges.iter().copied());
+    move_edges.extend(evidence.invoke_ttr_edges.iter().copied());
     // Seed: a move-alias source `%s` (`%d = %s`, `%s` used once) whose dst `%d`
     // is owned-RC has its SINGLE release discharged BY `%d` — either `%d`
     // transfers out (seeded above) OR `%d` gets its own last-use dec. The move
@@ -222,7 +223,12 @@ pub(in crate::lower::burden_lower) fn compute_transfer_via_move_alias(
     // Fixpoint: a move source transfers out when its dst transfers out (monotone
     // over `transferred`; both move + cross-block hand-off edge kinds terminate).
     // See `run_move_transfer_fixpoint`.
-    run_move_transfer_fixpoint(&mut transferred, &move_edges, &handoff_edges);
+    run_move_transfer_fixpoint(
+        &mut transferred,
+        &move_edges,
+        &handoff_edges,
+        evidence.iter_consume_transfer_args,
+    );
     transferred
 }
 
@@ -234,18 +240,25 @@ fn run_move_transfer_fixpoint(
     transferred: &mut FxHashSet<ArcVarId>,
     move_edges: &[(ArcVarId, ArcVarId)],
     handoff_edges: &[HandoffEdge],
+    // RL-2 iter-consume borrowed-arg transfers: DISCHARGE evidence only —
+    // consulted by the membership tests, never inserted into the returned
+    // suppression set (an iter-consumed arg's own last-use dec stays governed
+    // by its own scans; only downstream hand-off cancellation reads this).
+    discharge_only: &FxHashSet<ArcVarId>,
 ) {
+    let discharged =
+        |set: &FxHashSet<ArcVarId>, v: &ArcVarId| set.contains(v) || discharge_only.contains(v);
     let mut changed = true;
     while changed {
         changed = false;
         for &(dst, src) in move_edges {
-            if transferred.contains(&dst) && transferred.insert(src) {
+            if discharged(transferred, &dst) && transferred.insert(src) {
                 changed = true;
             }
         }
         for edge in handoff_edges {
-            if transferred.contains(&edge.dst)
-                && edge.required.iter().all(|d| transferred.contains(d))
+            if discharged(transferred, &edge.dst)
+                && edge.required.iter().all(|d| discharged(transferred, d))
                 && transferred.insert(edge.src)
             {
                 changed = true;
@@ -417,4 +430,53 @@ fn is_cross_block_final_use(
     use_blocks
         .get(&src)
         .is_none_or(|blocks| blocks.iter().all(|ub| !reach.contains(ub)))
+}
+
+/// Cross-call transfer evidence for [`compute_transfer_via_move_alias`]:
+/// contract-proven edges + RL-2 iter-consume discharge args.
+pub(in crate::lower::burden_lower) struct TransferEvidence<'a> {
+    /// `Invoke @callee(%arg [own]) -> %result` transfer-through-return edges:
+    /// `%result` IS the forwarded `%arg` (a move across the call).
+    pub invoke_ttr_edges: &'a [(ArcVarId, ArcVarId)],
+    /// Vars passed at a call-arg position whose callee param `iter_consumes`
+    /// — an RL-2 ownership transfer (the callee's iterator machinery releases
+    /// the funded duplicate). Discharge-only fixpoint evidence.
+    pub iter_consume_transfer_args: &'a FxHashSet<ArcVarId>,
+}
+
+/// Args at `ParamContract.iter_consumes` positions across body `Apply`s and
+/// `Invoke` terminators — RL-2 ownership transfers whose release the callee's
+/// iterator machinery owns (`RL2_iter_consuming_no_caller_dec`).
+pub(in crate::lower::burden_lower) fn compute_iter_consume_transfer_args(
+    func: &ArcFunction,
+    contracts: &FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+) -> FxHashSet<ArcVarId> {
+    let mut out: FxHashSet<ArcVarId> = FxHashSet::default();
+    let mut admit = |callee: &ori_ir::Name, args: &[ArcVarId]| {
+        let Some(c) = contracts.get(callee) else {
+            return;
+        };
+        for (pos, &arg) in args.iter().enumerate() {
+            if c.params.get(pos).is_some_and(|p| p.iter_consumes) {
+                out.insert(arg);
+            }
+        }
+    };
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                admit(callee, args);
+            }
+        }
+        if let crate::ir::ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            admit(callee, args);
+        }
+    }
+    out
 }

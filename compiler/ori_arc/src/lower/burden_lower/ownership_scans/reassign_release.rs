@@ -60,7 +60,11 @@ use super::forwarder_release::ForwarderReleasePos;
 /// aliasing being traversed, not borrow reads); every other non-owned-position
 /// use (a `[borrow]` call arg, `Project`, `IsShared`, `Set` base) counts.
 /// Spec: Annex E §AIMS RL-2 (transfer vs surviving-borrow last use).
-fn old_var_alias_closure_has_borrow_couse(func: &ArcFunction, old_var: ArcVarId) -> bool {
+fn old_var_alias_closure_has_borrow_couse(
+    func: &ArcFunction,
+    old_var: ArcVarId,
+    iter_consume_transfer_args: &FxHashSet<ArcVarId>,
+) -> bool {
     // Forward `Let { Var }` alias closure of `old_var` (fixpoint over alias edges).
     let mut closure: FxHashSet<ArcVarId> = FxHashSet::default();
     closure.insert(old_var);
@@ -109,7 +113,13 @@ fn old_var_alias_closure_has_borrow_couse(func: &ArcFunction, old_var: ArcVarId)
                 continue;
             }
             for (pos, var) in instr.used_vars().into_iter().enumerate() {
-                if closure.contains(&var) && !instr.is_owned_position(pos) {
+                if closure.contains(&var)
+                    && !instr.is_owned_position(pos)
+                    // An iter-consumed borrowed arg is an RL-2 ownership
+                    // transfer (the callee's iterator machinery releases the
+                    // retained reference), not a surviving borrow.
+                    && !iter_consume_transfer_args.contains(&var)
+                {
                     return true;
                 }
             }
@@ -124,7 +134,10 @@ fn old_var_alias_closure_has_borrow_couse(func: &ArcFunction, old_var: ArcVarId)
                 | crate::ir::ArcTerminator::InvokeIndirect { .. }
         ) {
             for (pos, var) in block.terminator.used_vars().into_iter().enumerate() {
-                if closure.contains(&var) && !block.terminator.is_owned_position(pos) {
+                if closure.contains(&var)
+                    && !block.terminator.is_owned_position(pos)
+                    && !iter_consume_transfer_args.contains(&var)
+                {
                     return true;
                 }
             }
@@ -154,6 +167,7 @@ pub(in crate::lower::burden_lower) fn compute_reassign_rebind_releases(
     transfer_via_move_alias: &FxHashSet<ArcVarId>,
     inc_suppressed_vars: &FxHashSet<ArcVarId>,
     full_move_vars: &FxHashSet<ArcVarId>,
+    iter_consume_transfer_args: &FxHashSet<ArcVarId>,
 ) -> PlacedReleaseMap {
     let mut releases: PlacedReleaseMap = PlacedReleaseMap::default();
     if reassign_rebind_release_disabled() {
@@ -194,7 +208,7 @@ pub(in crate::lower::burden_lower) fn compute_reassign_rebind_releases(
         // IS new_var's allocation, so the rebind dec double-frees what the call
         // already consumed (the rc_matrix loop-carried-list UAF under
         // `ORI_DISABLE_PREDICATE_STACK_RC=1`). Spec: Annex E §AIMS RL-2.
-        if !old_var_alias_closure_has_borrow_couse(func, old_var) {
+        if !old_var_alias_closure_has_borrow_couse(func, old_var, iter_consume_transfer_args) {
             continue;
         }
 

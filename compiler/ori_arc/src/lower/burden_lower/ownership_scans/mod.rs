@@ -93,9 +93,11 @@ pub(super) use loop_carried_dead_param::{
     compute_loop_carried_dead_collection_param_lineage, compute_loop_closure_dead_param_lineage,
 };
 pub(super) use loop_invariant_dead_local::compute_loop_invariant_dead_local_releases;
+pub(in crate::lower::burden_lower) use move_alias::TransferEvidence;
 pub(super) use move_alias::{
-    compute_multi_borrow_view_alias_surplus, compute_readonly_borrow_orphan_inc_suppression,
-    compute_transfer_via_move_alias, SameAllocIdentity,
+    compute_iter_consume_transfer_args, compute_multi_borrow_view_alias_surplus,
+    compute_readonly_borrow_orphan_inc_suppression, compute_transfer_via_move_alias,
+    SameAllocIdentity,
 };
 pub(super) use multi_exit_borrow_view::compute_multi_exit_borrow_view_lineage;
 pub(super) use nested_construct_return_passthrough::compute_nested_construct_return_passthrough;

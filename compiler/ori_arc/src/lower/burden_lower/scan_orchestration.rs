@@ -33,7 +33,7 @@ use super::ownership_scans::{
     compute_branch_exclusive_edge_releases, compute_collection_literal_dead_source_suppression,
     compute_cow_terminal_concat_inc_dsts, compute_dead_forwarder_block_param_releases,
     compute_dead_owned_param_branch_releases, compute_fresh_call_result_borrowed_arg_inc_dsts,
-    compute_genuine_dup_move_aliases, compute_live_out_owned,
+    compute_genuine_dup_move_aliases, compute_iter_consume_transfer_args, compute_live_out_owned,
     compute_loop_invariant_dead_local_releases, compute_multi_borrow_view_alias_surplus,
     compute_readonly_borrow_orphan_inc_suppression, compute_reassign_rebind_releases,
     compute_rebuild_lineage_dead_param_releases, compute_sharing_view_surplus_inc_dsts,
@@ -434,13 +434,20 @@ pub(crate) fn emit_burden_ops<'a>(
     // transfers an owned param THROUGH its return, the call result IS the
     // forwarded arg (a move across the call), so the move-chain must span it.
     let invoke_ttr_edges = collect_invoke_ttr_edges(func, contracts);
+    // RL-2 iter-consume transfer seed (DISCHARGE evidence for the move-alias
+    // hand-off + the rebind borrow-co-use gate). SSOT:
+    // `compute_iter_consume_transfer_args`.
+    let iter_consume_transfer_args = compute_iter_consume_transfer_args(func, contracts);
     let mut transfer_via_move_alias = compute_transfer_via_move_alias(
         func,
         &terminator_transfer_per_block,
         &use_counts,
         ctx.last_use_points(),
         &owned_vars_needing_rc,
-        &invoke_ttr_edges,
+        &super::ownership_scans::TransferEvidence {
+            invoke_ttr_edges: &invoke_ttr_edges,
+            iter_consume_transfer_args: &iter_consume_transfer_args,
+        },
         &super::ownership_scans::SameAllocIdentity {
             genuine_same_alloc_reps: &alias_table.genuine_same_alloc_reps,
             apply_result_aliases,
@@ -581,6 +588,7 @@ pub(crate) fn emit_burden_ops<'a>(
         &transfer_via_move_alias,
         &inc_suppressed_vars,
         &full_move_vars,
+        &iter_consume_transfer_args,
     );
     merge_release_vars(&mut forwarder_result_releases, reassign_rebind_releases);
 
