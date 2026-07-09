@@ -500,6 +500,18 @@ flags! {
     /// Usage: `ORI_TRACE_BURDEN_VAR=2 ORI_LOG=ori_arc::aims::realize=trace ori build file.ori`
     ORI_TRACE_BURDEN_VAR
 
+    /// Restore the pre-K3 conservative class-ledger `TrmcContext` decline
+    /// (default: a TRMC `ContextHole`-shaped function is ELIGIBLE for
+    /// class-ledger replacement — the fill-at-recursive-call's `Set`
+    /// classifies as mutate(context) + consume(filled value), the proven
+    /// hole-fill derivation whose release-after-fill is rejected). `=1`
+    /// restores the blanket fallback for bisection.
+    ///
+    /// Consumed in `ori_arc::aims::class_ledger` (replacement gating).
+    /// Bisects a TRMC-function class-ledger regression to the admission.
+    /// Usage: `ORI_DISABLE_TRMC_CONTEXT_LEDGER=1 ORI_CLASS_LEDGER_EMITTER=1 ori build file.ori`
+    ORI_DISABLE_TRMC_CONTEXT_LEDGER
+
     /// Restore the single-block over-approximation in the dup'd terminal-move
     /// gate (default: a dup'd cross-block move source whose `Let { Var }` alias
     /// is its proven global final use — successor-reachability proof, loop

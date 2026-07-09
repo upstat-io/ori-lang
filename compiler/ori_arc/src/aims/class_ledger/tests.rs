@@ -1151,22 +1151,22 @@ fn replacement_declines_reuse_shapes() {
     assert_eq!(gated, func);
 }
 
-/// A function whose state map carries a TRMC `ContextHole`-shaped variable
-/// falls back: context-hole threading (fill-at-recursive-call) is the
-/// protocol-loop surface the class model does not represent yet.
+/// A TRMC `ContextHole`-shaped variable no longer declines replacement: the
+/// fill-at-recursive-call is modeled (the fill's `Set` classifies as
+/// mutate(context) + consume(filled value) — the K3 derivation; the fill IS
+/// the filled value's release per `holeFill_is_the_release`). The fixture
+/// replaces on its own merits — the `TrmcContext` reason never fires.
 #[test]
-fn replacement_declines_trmc_context_hole() {
+fn trmc_context_hole_admitted_post_k3() {
     let func = one_block_func(1, vec![construct(0, vec![])], ret(0));
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_var_shape(v(0), crate::aims::lattice::ShapeClass::ContextHole);
     let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
     let registry = ori_types::TypeRegistry::default();
 
-    let mut gated = func.clone();
+    let mut gated = func;
     let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
-    assert_eq!(outcome.mode, EmissionMode::Fallback);
-    assert_eq!(outcome.fallback_reason, Some(FallbackReason::TrmcContext));
-    assert_eq!(gated, func);
+    assert_ne!(outcome.fallback_reason, Some(FallbackReason::TrmcContext));
 }
 
 // Field-view hazard cures across loop / merge / select liveness shapes

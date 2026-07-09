@@ -210,13 +210,19 @@ fn gate_rejection(
     if !analysis.readiness.all_classes_clean {
         return Some(FallbackReason::ReadinessNotClean);
     }
-    // Unmodeled shapes stay on the legacy walk: a Reset/Reuse pairing
-    // rebirths the DYING value's allocation (no fresh birth site); a TRMC
-    // context hole threads a fill-at-recursive-call obligation - neither is modeled here.
+    // Unmodeled shape stays on the legacy walk: a Reset/Reuse pairing
+    // rebirths the DYING value's allocation (no fresh birth site).
     if has_reuse_shape(func) {
         return Some(FallbackReason::ReuseShape);
     }
-    if has_context_hole(func, state_map) {
+    // The TRMC ContextHole fill-at-recursive-call IS modeled: the fill's
+    // `Set` classifies as mutate(context) + consume(filled value) — the K3
+    // derivation (`AimsProof.Ledger::holeFill_is_the_release`; a release
+    // placed after the fill is rejected, the fill IS the filled value's
+    // release). Spec: Annex E §AIMS §12 (compositional placement, K3).
+    // Env: ORI_DISABLE_TRMC_CONTEXT_LEDGER — restores the pre-K3
+    // conservative TrmcContext decline for bisection, debug-only
+    if trmc_context_ledger_disabled() && has_context_hole(func, state_map) {
         return Some(FallbackReason::TrmcContext);
     }
     if analysis.indirect_arg_handoff {
@@ -294,6 +300,10 @@ fn has_reuse_shape(func: &ArcFunction) -> bool {
 }
 
 /// Whether any variable carries the TRMC `ContextHole` shape.
+fn trmc_context_ledger_disabled() -> bool {
+    std::env::var("ORI_DISABLE_TRMC_CONTEXT_LEDGER").as_deref() == Ok("1")
+}
+
 fn has_context_hole(func: &ArcFunction, state_map: &AimsStateMap) -> bool {
     (0..func.var_types.len()).any(|raw| {
         let Ok(raw) = u32::try_from(raw) else {
