@@ -2206,6 +2206,30 @@ fn class_grain_alias_sibling_funded_mid_span_keeps_pair() {
     assert_eq!(census(&func), [2, 2, 0, 0, 0]);
 }
 
+/// Net-at-span-entry: a sibling that both funded AND released before the
+/// span enters it at count 0 — its second kept release after the span is
+/// no evidence; the pair is kept whole.
+#[test]
+fn class_grain_sibling_net_zero_at_span_entry_keeps_pair() {
+    let body = vec![
+        ArcInstr::Let {
+            dst: v(0),
+            ty: ty(0),
+            value: ArcValue::Var(v(2)),
+        },
+        ArcInstr::BurdenInc { var: v(0) },
+        ArcInstr::BurdenDec { var: v(0) },
+        ArcInstr::BurdenInc { var: v(1) },
+        ArcInstr::BurdenDec { var: v(1) },
+        ArcInstr::BurdenDec { var: v(0) },
+    ];
+    let mut func = one_block_func(3, body);
+    run_elim_class_grain(&mut func, true);
+    // %0's before-span inc is cancelled by its before-span dec (net 0 at
+    // span entry); the after-span dec alone supplies no T3 evidence.
+    assert_eq!(census(&func), [2, 3, 0, 0, 0]);
+}
+
 /// T3 live-across-the-span premise: a sibling releasing INSIDE the pair's
 /// span (multi-release sibling) supplies no evidence even though another
 /// kept release lands after the span — the interior count may hit zero

@@ -161,20 +161,33 @@ pub(super) fn mark_class_grain_whole_pair_removals_gated(
             if !born_before {
                 return false;
             }
-            // +1-establishment (T3's dominating-inc): an allocation-born
-            // sibling (empty inc_sites — birth IS the +1) qualifies by
-            // definition-position alone; an ALIAS sibling's +1 is its kept
-            // dup inc, which must land strictly BEFORE the span in this
-            // block — a mid-span or post-span funding inc leaves the class
-            // count uncovered at span entry.
-            if !sib_bal.inc_sites.is_empty() {
-                let funded_before_span = sib_bal
-                    .inc_sites
-                    .iter()
-                    .any(|&(b, i)| b == cand.block && i < cand.first_site && !remove[b][i]);
-                if !funded_before_span {
-                    return false;
-                }
+            // +1-establishment (T3's dominating-inc): the sibling's NET kept
+            // contribution at span entry must be >= 1. Birth counts +1 for a
+            // param or an owning (non-alias) def; each kept inc before the
+            // span adds +1; each kept dec before the span subtracts 1 — a
+            // sibling that both funded AND released before the span may
+            // enter it at 0, and a later kept dec alone is no evidence.
+            let birth: i64 = if params.contains(sib) {
+                1
+            } else if sib_bal.inc_sites.is_empty() {
+                // No dup incs: the before-span def IS the allocation birth.
+                1
+            } else {
+                // Alias-shaped sibling (its +1s are its dup incs).
+                0
+            };
+            let incs_before: i64 = sib_bal
+                .inc_sites
+                .iter()
+                .filter(|&&(b, i)| b == cand.block && i < cand.first_site && !remove[b][i])
+                .count() as i64;
+            let decs_before: i64 = sib_bal
+                .dec_sites
+                .iter()
+                .filter(|&&(b, i)| b == cand.block && i < cand.first_site && !remove[b][i])
+                .count() as i64;
+            if birth + incs_before - decs_before < 1 {
+                return false;
             }
             // T3's live-across-the-span premise: the sibling holds the
             // interior count >= 1 for the WHOLE span — any kept release
