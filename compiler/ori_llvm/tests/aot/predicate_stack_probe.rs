@@ -5135,6 +5135,11 @@ fn assert_double_free_without_lineage_rebalance(source: &str, label: &str) {
         ],
     );
     assert!(
+        exit != -1,
+        "[{label}] build FAILED under the ablation mask — the mutation pin never ran, so \
+         no double-free verdict exists\nbuild stderr:\n{_stderr}"
+    );
+    assert!(
         exit != 0,
         "[{label}] expected a double-free / crash with the lineage re-balance DISABLED \
          (the re-balance is the cure) but the program exited 0 — the positive pin may be \
@@ -5189,6 +5194,11 @@ fn assert_broken_without_multi_borrow_view_alias_surplus(source: &str, label: &s
         ],
     );
     assert!(
+        exit != -1,
+        "[{label}] build FAILED under the ablation mask — the mutation pin never ran, so \
+         no leak verdict exists\nbuild stderr:\n{stderr}"
+    );
+    assert!(
         exit != 0 || stderr.to_lowercase().contains("leak"),
         "[{label}] expected a leak / double-free with the multi-borrow-view-alias \
          surplus suppression DISABLED (the Phase-5 RL-2 release-once arm is the cure) \
@@ -5208,6 +5218,11 @@ fn assert_leak_without_construct_fed_dead_param_release(source: &str, label: &st
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         source,
         &[("ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE", "1")],
+    );
+    assert!(
+        exit != -1,
+        "[{label}] build FAILED under the ablation mask — the mutation pin never ran, so \
+         no leak verdict exists\nbuild stderr:\n{stderr}"
     );
     assert!(
         exit != 0 || stderr.to_lowercase().contains("leak"),
