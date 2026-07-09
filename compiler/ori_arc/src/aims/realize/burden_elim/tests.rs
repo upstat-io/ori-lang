@@ -2002,6 +2002,8 @@ fn construct_rooted_store_in_loop_with_reread_keeps_split() {
 /// births. Exit states seed BOTH vars (Many, Unrestricted) so the per-var
 /// DP-2/DP-3 pass KEEPS every op and the class-grain pass owns the verdict.
 fn run_elim_class_grain(func: &mut ArcFunction, union_them: bool) {
+    use crate::aims::intraprocedural::birth_site_partition::FieldPath;
+
     let mut state_map = AimsStateMap::new(func);
     seed_exit_state(
         &mut state_map,
@@ -2022,7 +2024,6 @@ fn run_elim_class_grain(func: &mut ArcFunction, union_them: bool) {
     // case exercises the same-rep comparison (an unregistered var would
     // decline at the class-unknown gate instead, leaving the SAME-CLASS-ONLY
     // boundary unpinned); union only when the test wants one class.
-    use crate::aims::intraprocedural::birth_site_partition::FieldPath;
     let a = partition.register_node(v(0), FieldPath::whole_var());
     let b = partition.register_node(v(1), FieldPath::whole_var());
     if union_them {

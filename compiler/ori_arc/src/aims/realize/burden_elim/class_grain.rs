@@ -142,74 +142,14 @@ pub(super) fn mark_class_grain_whole_pair_removals_gated(
     let params: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
     let candidate_vars: FxHashSet<ArcVarId> = candidates.keys().copied().collect();
     for (var, cand) in &candidates {
-        let block = &func.blocks[cand.block];
-        let evidence = balances.iter().any(|(sib, sib_bal)| {
-            if sib == var || candidate_vars.contains(sib) {
-                return false;
-            }
-            let Some(&sib_node) = whole_node.get(sib) else {
-                return false;
-            };
-            if partition.rep_of(sib_node) != cand.rep {
-                return false;
-            }
-            // Dominating birth: param, or defined in this block before the span.
-            let born_before = params.contains(sib)
-                || block.body[..cand.first_site]
-                    .iter()
-                    .any(|instr| instr.defined_var() == Some(*sib));
-            if !born_before {
-                return false;
-            }
-            // +1-establishment (T3's dominating-inc): the sibling's NET kept
-            // contribution at span entry must be >= 1. Birth counts +1 for a
-            // param or an owning (non-alias) def; each kept inc before the
-            // span adds +1; each kept dec before the span subtracts 1 — a
-            // sibling that both funded AND released before the span may
-            // enter it at 0, and a later kept dec alone is no evidence.
-            let birth: i64 = if params.contains(sib) {
-                1
-            } else if sib_bal.inc_sites.is_empty() {
-                // No dup incs: the before-span def IS the allocation birth.
-                1
-            } else {
-                // Alias-shaped sibling (its +1s are its dup incs).
-                0
-            };
-            let incs_before: i64 = sib_bal
-                .inc_sites
-                .iter()
-                .filter(|&&(b, i)| b == cand.block && i < cand.first_site && !remove[b][i])
-                .count() as i64;
-            let decs_before: i64 = sib_bal
-                .dec_sites
-                .iter()
-                .filter(|&&(b, i)| b == cand.block && i < cand.first_site && !remove[b][i])
-                .count() as i64;
-            if birth + incs_before - decs_before < 1 {
-                return false;
-            }
-            // T3's live-across-the-span premise: the sibling holds the
-            // interior count >= 1 for the WHOLE span — any kept release
-            // landing inside the span (a multi-release sibling) breaks it,
-            // so the evidence demands: no kept dec within the span, and a
-            // kept plain whole-var dec strictly after it (same block; a
-            // single basic block executes straight-line, so no other
-            // block's dec can interleave).
-            let released_within_span = sib_bal.dec_sites.iter().any(|&(b, i)| {
-                b == cand.block && i >= cand.first_site && i <= cand.last_site && !remove[b][i]
-            });
-            if released_within_span {
-                return false;
-            }
-            sib_bal.dec_sites.iter().any(|&site| {
-                let (b, i) = site;
-                b == cand.block
-                    && i > cand.last_site
-                    && !remove[b][i]
-                    && is_plain_burden_dec(func, site)
-            })
-        });
+        let ctx = SiblingEvidenceCtx {
+            func,
+            whole_node: &whole_node,
+            candidate_vars: &candidate_vars,
+            params: &params,
+            remove: &*remove,
+        };
+        let evidence = has_sibling_liveness_evidence(&ctx, &mut partition, *var, cand, balances);
         if evidence {
             let balance = &balances[var];
             for &(b, i) in balance.inc_sites.iter().chain(&balance.dec_sites) {
@@ -222,6 +162,101 @@ pub(super) fn mark_class_grain_whole_pair_removals_gated(
             );
         }
     }
+}
+
+/// Shared read-only per-call context for T3 sibling-liveness evidence checks
+/// — bundled to keep the per-candidate call site under the clippy arg cap.
+struct SiblingEvidenceCtx<'a> {
+    func: &'a ArcFunction,
+    whole_node: &'a FxHashMap<ArcVarId, NodeIdx>,
+    candidate_vars: &'a FxHashSet<ArcVarId>,
+    params: &'a FxHashSet<ArcVarId>,
+    remove: &'a [Vec<bool>],
+}
+
+/// T3 sibling-liveness evidence: a NON-candidate same-class var defined
+/// before the span (same block, or a function param) whose KEPT whole-var
+/// dec sits strictly after the span in the same block. Non-candidate
+/// siblings only — no mutual justification.
+fn has_sibling_liveness_evidence(
+    ctx: &SiblingEvidenceCtx,
+    partition: &mut BirthSitePartition,
+    var: ArcVarId,
+    cand: &Candidate,
+    balances: &FxHashMap<ArcVarId, WholeVarBalance>,
+) -> bool {
+    let block = &ctx.func.blocks[cand.block];
+    balances.iter().any(|(sib, sib_bal)| {
+        if *sib == var || ctx.candidate_vars.contains(sib) {
+            return false;
+        }
+        let Some(&sib_node) = ctx.whole_node.get(sib) else {
+            return false;
+        };
+        if partition.rep_of(sib_node) != cand.rep {
+            return false;
+        }
+        // Dominating birth: param, or defined in this block before the span.
+        let born_before = ctx.params.contains(sib)
+            || block.body[..cand.first_site]
+                .iter()
+                .any(|instr| instr.defined_var() == Some(*sib));
+        if !born_before {
+            return false;
+        }
+        // +1-establishment (T3's dominating-inc): the sibling's NET kept
+        // contribution at span entry must be >= 1. Birth counts +1 for a
+        // param or an owning (non-alias) def; each kept inc before the
+        // span adds +1; each kept dec before the span subtracts 1 — a
+        // sibling that both funded AND released before the span may
+        // enter it at 0, and a later kept dec alone is no evidence.
+        let birth: i64 = if ctx.params.contains(sib) {
+            1
+        } else {
+            // No dup incs: the before-span def IS the allocation birth (1).
+            // Alias-shaped sibling (its +1s are its dup incs) otherwise (0).
+            i64::from(sib_bal.inc_sites.is_empty())
+        };
+        let incs_before: i64 = i64::try_from(
+            sib_bal
+                .inc_sites
+                .iter()
+                .filter(|&&(b, i)| b == cand.block && i < cand.first_site && !ctx.remove[b][i])
+                .count(),
+        )
+        .unwrap_or(i64::MAX);
+        let decs_before: i64 = i64::try_from(
+            sib_bal
+                .dec_sites
+                .iter()
+                .filter(|&&(b, i)| b == cand.block && i < cand.first_site && !ctx.remove[b][i])
+                .count(),
+        )
+        .unwrap_or(i64::MAX);
+        if birth + incs_before - decs_before < 1 {
+            return false;
+        }
+        // T3's live-across-the-span premise: the sibling holds the
+        // interior count >= 1 for the WHOLE span — any kept release
+        // landing inside the span (a multi-release sibling) breaks it,
+        // so the evidence demands: no kept dec within the span, and a
+        // kept plain whole-var dec strictly after it (same block; a
+        // single basic block executes straight-line, so no other
+        // block's dec can interleave).
+        let released_within_span = sib_bal.dec_sites.iter().any(|&(b, i)| {
+            b == cand.block && i >= cand.first_site && i <= cand.last_site && !ctx.remove[b][i]
+        });
+        if released_within_span {
+            return false;
+        }
+        sib_bal.dec_sites.iter().any(|&site| {
+            let (b, i) = site;
+            b == cand.block
+                && i > cand.last_site
+                && !ctx.remove[b][i]
+                && is_plain_burden_dec(ctx.func, site)
+        })
+    })
 }
 
 /// A site is a plain whole-var `BurdenDec` — NOT a `BurdenDecPartial` /
