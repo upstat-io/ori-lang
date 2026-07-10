@@ -258,14 +258,14 @@ fn gate_rejection(
     None
 }
 
-/// Whether every planned `DecPartial`'s skip set names only the container
-/// type's OWN named top-level owned fields (struct field indices) — the
-/// grain the drop glue walks. The cure ladder declines sum containers
-/// (`FieldViewHazard::sum_container`), so a variant-ordinal skip is
-/// unproducible; extending the producer to sums requires extending this
-/// gate deliberately. A skip index outside the named surface (or a
-/// container with no burden) declines the function; the interior walk
-/// would silently mis-skip at runtime.
+/// Whether every planned `DecPartial`'s skip set names only indices the
+/// container's drop glue walks: the type's OWN named top-level owned fields
+/// (struct field indices), or — for a variant-carrying sum burden — its
+/// variant ORDINALS (the tag-switched enum glue skips by ordinal; the sum
+/// cure produces exactly that grain per the uniform single-payload-variant
+/// admission). A skip index outside the walked surface (or a container with
+/// no burden) declines the function; the interior walk would silently
+/// mis-skip at runtime.
 fn dec_partial_skips_valid(
     func: &ArcFunction,
     ops: &[PlannedOp],
@@ -287,6 +287,17 @@ fn dec_partial_skips_valid(
         let Some(burden) = lookup_burden(idx_to_type_ref(ty, type_registry), type_registry) else {
             return false;
         };
+        // Variant IDs are 1-indexed (NonZeroU32); the glue's skip grain is
+        // the 0-based ordinal.
+        let variant_ordinals: Vec<u32> = burden
+            .variant_burdens()
+            .map(|variant| variant.variant_id.get().get().saturating_sub(1))
+            .collect();
+        if !variant_ordinals.is_empty() {
+            return skip_fields
+                .iter()
+                .all(|field| variant_ordinals.contains(field));
+        }
         let named: Vec<u32> = burden
             .owned_fields()
             .filter_map(|field| field.field_path.first().copied())

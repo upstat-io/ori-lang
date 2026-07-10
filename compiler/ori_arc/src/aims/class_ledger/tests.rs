@@ -2800,14 +2800,140 @@ fn sum_container_view_declines_field_decomposition() {
             }
             assert!(
                 !matches!(op.kind, PlannedOpKind::DecPartial { .. }),
-                "a sum container must never decompose: variant-conditional \
-                 books are unmodeled by the per-class walk"
+                "a sum view outside the uniform single-payload slot must \
+                 never decompose: variant-conditional books are unmodeled"
             );
         }
     }
     assert!(
         saw_container_release,
         "the sum container must still get its plain whole-var release"
+    );
+}
+
+/// A sum built at its sole construct site as variant 9 with ONE payload
+/// (slot 1; slot 0 is the tag), matched on the tag, the payload extracted
+/// and moved out to an owned consumer on the matching arm.
+fn uniform_variant_sum_func() -> ArcFunction {
+    let mut func = func_with_blocks(
+        9,
+        vec![
+            block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![
+                    ArcInstr::Construct {
+                        dst: v(1),
+                        ty: ty(0),
+                        ctor: CtorKind::EnumVariant {
+                            enum_name: Name::from_raw(9),
+                            variant: 9,
+                        },
+                        args: vec![v(0)],
+                    },
+                    ArcInstr::Project {
+                        dst: v(2),
+                        ty: ty(0),
+                        value: v(1),
+                        field: 0,
+                    },
+                ],
+                ArcTerminator::Switch {
+                    scrutinee: v(2),
+                    cases: vec![(9, ArcBlockId::new(3))],
+                    default: ArcBlockId::new(4),
+                },
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(
+                3,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(3),
+                        ty: ty(70),
+                        value: v(1),
+                        field: 1,
+                    },
+                    apply(4, vec![(3, ArgOwnership::Owned)]),
+                    ArcInstr::Let {
+                        dst: v(5),
+                        ty: ty(0),
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                    },
+                ],
+                jump(5, vec![5]),
+            ),
+            block(
+                4,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(6),
+                    ty: ty(0),
+                    value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+                }],
+                jump(5, vec![6]),
+            ),
+            block(5, vec![7], vec![], ret(7)),
+        ],
+    );
+    // The payload type is an unregistered user index: no burden, so
+    // extraction funding cannot fire — decomposition is the only cure.
+    func.var_types[0] = ty(70);
+    func.var_types[3] = ty(70);
+
+    func
+}
+
+/// The explicit-tag iterator-payload shape: a sum whose EVERY construct site
+/// builds the SAME single-payload variant, the payload extracted through the
+/// tag match and moved out to an owned consumer. The extraction-funding cure
+/// cannot fire (the payload type carries no burden), but the field
+/// decomposition CAN: the container's release decomposes to
+/// `DecPartial(skip = [variant ordinal])` — the tag-switched glue skips
+/// exactly the moved-out variant's payload.
+#[test]
+fn uniform_variant_sum_payload_decomposes_container_release() {
+    let func = uniform_variant_sum_func();
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [2u32, 4, 5, 6, 7] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "a uniform single-payload-variant sum's moved-out payload must cure \
+         via decomposition; declined={:?} verdicts={:?}",
+        analysis.readiness.declined, analysis.readiness.verdicts,
+    );
+    assert!(analysis.readiness.all_classes_clean);
+
+    let container_node = partition.register_node(v(1), FieldPath::whole_var());
+    let container_rep = partition.rep_of(container_node);
+    let mut saw_variant_skip = false;
+    for plan in &analysis.plan.classes {
+        let ClassOutcome::Planned(ops) = &plan.outcome else {
+            continue;
+        };
+        if partition.rep_of(plan.class) != container_rep {
+            continue;
+        }
+        for op in ops {
+            if let PlannedOpKind::DecPartial { skip_fields } = &op.kind {
+                assert_eq!(
+                    skip_fields,
+                    &vec![9u32],
+                    "the sum skip set names the VARIANT ordinal, not the slot"
+                );
+                saw_variant_skip = true;
+            }
+        }
+    }
+    assert!(
+        saw_variant_skip,
+        "the container's release must decompose to skip the moved variant"
     );
 }
 

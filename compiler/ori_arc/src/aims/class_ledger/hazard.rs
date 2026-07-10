@@ -29,6 +29,12 @@ pub(crate) struct FieldViewHazard {
     skip_fields: Vec<u32>,
     nested_path: bool,
     sum_container: bool,
+    /// `Some(ordinal)` when EVERY construct site of the container builds the
+    /// SAME single-payload enum variant — the sole sum shape whose skip is
+    /// arm-safe (the moved-out slot exists only in that variant; every other
+    /// arm's skip is vacuous). The `DecPartial` skip then names this variant
+    /// ordinal per the tag-switched enum drop glue.
+    sum_variant: Option<u32>,
     consume_marked: bool,
 }
 
@@ -144,8 +150,6 @@ pub(crate) fn field_view_hazard_classes(
     partition: &mut BirthSitePartition,
     class_facts: &[ClassHazardFacts],
 ) -> Vec<FieldViewHazard> {
-    use crate::ir::ArcInstr;
-
     let released: Vec<NodeIdx> = class_facts
         .iter()
         .filter(|facts| facts.released)
@@ -165,21 +169,8 @@ pub(crate) fn field_view_hazard_classes(
             .filter(|&&(_, _, node)| partition.rep_of(node) == container_rep)
             .map(|&(var, _, _)| var)
             .collect();
-        // The container class's own Construct sites: a view's Consume at one
-        // of these is the move-in store the container's release pays for.
-        let mut construct_sites: Vec<(usize, EventSite)> = Vec::new();
-        let mut sum_container = false;
-        for (block_idx, arc_block) in func.blocks.iter().enumerate() {
-            for (index, instr) in arc_block.body.iter().enumerate() {
-                let ArcInstr::Construct { dst, ctor, .. } = instr else {
-                    continue;
-                };
-                if member_vars.contains(dst) {
-                    construct_sites.push((block_idx, EventSite::Body(index)));
-                    sum_container |= matches!(ctor, crate::ir::CtorKind::EnumVariant { .. });
-                }
-            }
-        }
+        let (construct_sites, sum_container, sum_variant) =
+            container_construct_sites(func, &member_vars);
         for (var, path, node) in &nodes {
             if path.is_whole_var() || !member_vars.contains(var) {
                 continue;
@@ -237,12 +228,56 @@ pub(crate) fn field_view_hazard_classes(
                 skip_fields,
                 nested_path,
                 sum_container,
+                sum_variant,
                 consume_marked,
             });
         }
     }
     hazards.sort_unstable_by_key(|hazard| (hazard.view, hazard.container));
     hazards
+}
+
+/// The container class's own Construct sites (a view's Consume at one of
+/// these is the move-in store the container's release pays for), whether any
+/// site is a sum-variant ctor, and — when EVERY site builds the SAME
+/// single-payload variant — that uniform variant's ordinal.
+fn container_construct_sites(
+    func: &ArcFunction,
+    member_vars: &[crate::ir::ArcVarId],
+) -> (Vec<(usize, EventSite)>, bool, Option<u32>) {
+    use crate::ir::ArcInstr;
+
+    let mut construct_sites: Vec<(usize, EventSite)> = Vec::new();
+    let mut sum_container = false;
+    // Unset -> Some(site) on the first ctor; a divergent later site (or a
+    // non-variant / multi-payload ctor) poisons to Some(None).
+    let mut uniform_variant: Option<Option<u32>> = None;
+    for (block_idx, arc_block) in func.blocks.iter().enumerate() {
+        for (index, instr) in arc_block.body.iter().enumerate() {
+            let ArcInstr::Construct {
+                dst, ctor, args, ..
+            } = instr
+            else {
+                continue;
+            };
+            if member_vars.contains(dst) {
+                construct_sites.push((block_idx, EventSite::Body(index)));
+                sum_container |= matches!(ctor, crate::ir::CtorKind::EnumVariant { .. });
+                let site_variant = match ctor {
+                    crate::ir::CtorKind::EnumVariant { variant, .. } if args.len() == 1 => {
+                        Some(*variant)
+                    }
+                    _ => None,
+                };
+                uniform_variant = Some(match uniform_variant {
+                    None => site_variant,
+                    Some(prev) if prev == site_variant => prev,
+                    Some(_) => None,
+                });
+            }
+        }
+    }
+    (construct_sites, sum_container, uniform_variant.flatten())
 }
 
 /// Cure one endangered view class by funding it at its extraction sites: an
@@ -431,14 +466,32 @@ fn cure_view_with_field_decomposition(
 ) -> bool {
     // A sum container's skip is a variant ordinal whose safety is
     // discriminant- and arm-conditional (the payload-less arm's books are
-    // asymmetric); per-arm state is unmodeled, so sum containers decline (fail-closed).
+    // asymmetric); per-arm state is unmodeled, so sum containers decline
+    // (fail-closed) EXCEPT the uniform single-payload-variant shape: every
+    // construct site builds the SAME one-payload variant and the view is its
+    // sole payload slot (slot 1; slot 0 is the tag), so the skip is vacuous
+    // on every other arm and the `DecPartial` names the variant ordinal per
+    // the tag-switched enum drop glue.
     // A container with NO local Construct site (a call result / param) has no
     // move-in store cell to re-book — the IA-T6 payload model's store event is
     // its precondition — and its ctor-derived sum discriminator is blind, so it
     // declines too.
+    let sum_skip = match (hazard.sum_container, hazard.sum_variant) {
+        (false, _) => None,
+        (true, Some(variant)) if hazard.skip_fields == [1] => Some(vec![variant]),
+        (true, _) => {
+            tracing::trace!(
+                target: "ori_arc::aims::class_ledger",
+                view = ?partition.node_key(hazard.view),
+                sum_variant = ?hazard.sum_variant,
+                skip_fields = ?hazard.skip_fields,
+                "field-decomposition cure declined: sum skip not arm-safe"
+            );
+            return false;
+        }
+    };
     if !hazard.consume_marked
         || hazard.nested_path
-        || hazard.sum_container
         || hazard.construct_sites.is_empty()
         || hazard.skip_fields.is_empty()
     {
@@ -483,15 +536,18 @@ fn cure_view_with_field_decomposition(
     let ClassOutcome::Planned(container_ops) = &mut container_entry.outcome else {
         return false;
     };
+    // Struct/tuple skips name top-level field indices; the admitted sum
+    // shape's skip names the moved-out VARIANT ordinal instead.
+    let dec_skip = sum_skip.as_ref().unwrap_or(&hazard.skip_fields);
     for op in container_ops.iter_mut() {
         match &mut op.kind {
             emit::PlannedOpKind::Dec => {
                 op.kind = emit::PlannedOpKind::DecPartial {
-                    skip_fields: hazard.skip_fields.clone(),
+                    skip_fields: dec_skip.clone(),
                 };
             }
             emit::PlannedOpKind::DecPartial { skip_fields } => {
-                for &field in &hazard.skip_fields {
+                for &field in dec_skip {
                     if !skip_fields.contains(&field) {
                         skip_fields.push(field);
                     }
