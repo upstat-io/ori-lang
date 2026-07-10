@@ -382,6 +382,49 @@ fn dead_on_arrival_owned_param_released_at_entry() {
     );
 }
 
+/// A BORROWED param stored into a LOCALLY-RELEASED container while the
+/// param stays demanded (read after the store): the store hand-off is
+/// funded by the borrowed-rooted duplication inc (`plan_incs`), and the
+/// param's demand rides the CALLER's reference (RL-2 borrowed-param
+/// discipline — the caller retains + releases after the call), which no
+/// callee-local container release can strand. NO hazard; every class
+/// Clean. The `[value, ...recurse(value:)]` list-build shape.
+#[test]
+fn borrowed_store_into_released_container_with_later_read_no_hazard() {
+    let mut func = one_block_func(
+        4,
+        vec![
+            ArcInstr::Let {
+                dst: v(1),
+                ty: ty(0),
+                value: ArcValue::Var(v(0)),
+            },
+            construct(2, vec![1]),
+            is_shared(3, 0),
+        ],
+        ret(3),
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Borrowed,
+    }];
+    func.var_types[0] = Idx::STR;
+    func.var_types[1] = Idx::STR;
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "a Clean borrowed-rooted class's demand rides the caller's reference; \
+         the funded store into a released container endangers nothing"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+    let borrowed = class_rep(&mut partition, 0);
+    assert_eq!(verdict_for(&analysis, borrowed), ClassVerdict::Clean);
+}
+
 /// A borrowed-rooted class consumed at a Construct store gets a funding
 /// `BurdenInc` before the consume (the caller retains ownership).
 #[test]

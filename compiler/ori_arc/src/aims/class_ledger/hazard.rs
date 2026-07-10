@@ -71,6 +71,14 @@ pub(crate) struct ClassHazardFacts {
     /// reference that post-dates any move-in consume, so its demand stays
     /// self-funded even after its birth reference moved into a container.
     pub(crate) has_credit: bool,
+    /// BORROWED-origin class verified `Clean`: its demand rides the
+    /// CALLER's reference (RL-2 borrowed-param discipline,
+    /// `RL2_borrowed_param_emits_caller_dec` — the caller retains and
+    /// releases after the call), which no callee-local container release
+    /// can strand, and every container-store hand-off carries its own
+    /// borrowed-rooted funding inc (`plan_incs`), so a released container
+    /// frees only the funded duplicate.
+    pub(crate) borrowed_rooted_clean: bool,
     /// Planned funding `Inc` ops in the class's own outcome — each covers
     /// one consume beyond the birth-funded one (RL-1 duplication funding).
     pub(crate) planned_inc_count: usize,
@@ -190,6 +198,39 @@ fn facts_consume_marked(
     !(all_extra_at_released_constructs && funded)
 }
 
+/// Whether a view class's DEMAND is endangered by a released container.
+/// Demand endangers ONLY a view whose floors ride the container's reference:
+/// a self-funded Clean view's demand is covered by its own acquired
+/// reference, and a Clean BORROWED-rooted view's demand rides the CALLER's
+/// reference with every store hand-off funded
+/// (see `ClassHazardFacts::borrowed_rooted_clean`). A birth CONSUMED at a
+/// SUM container's own construct site is NOT self-funding — the reference
+/// moved INTO the container (the multi-payload match shape); nested STRUCT
+/// chains interleave fund-before-release per level and stay balanced.
+fn view_demand_endangered(
+    class_facts: &[ClassHazardFacts],
+    partition: &mut BirthSitePartition,
+    view_rep: NodeIdx,
+    sum_container: bool,
+    construct_sites: &[(usize, EventSite)],
+) -> bool {
+    class_facts.iter().any(|facts| {
+        if partition.rep_of(facts.class) != view_rep || !facts.has_demand {
+            return false;
+        }
+        if facts.borrowed_rooted_clean {
+            return false;
+        }
+        let funding_moved_in = sum_container
+            && !facts.has_credit
+            && facts
+                .consume_sites
+                .iter()
+                .any(|site| construct_sites.contains(site));
+        !facts.self_funded_clean || funding_moved_in
+    })
+}
+
 /// The field-path VIEW classes endangered by a locally-released container:
 /// the container's recursive release would free the view's allocation while
 /// the view still uses it (a demand event), or after the view moved OUT to a
@@ -271,23 +312,13 @@ pub(crate) fn field_view_hazard_classes(
             // reference after all. Consume marks endanger regardless
             // (double-ownership is about the move-out, not funding).
             let endangered = consume_marked
-                || class_facts.iter().any(|facts| {
-                    if partition.rep_of(facts.class) != view_rep || !facts.has_demand {
-                        return false;
-                    }
-                    // Scoped to SUM containers: a variant arm's whole-var
-                    // release lands on the extracting arm before the sibling
-                    // views' reads (the multi-payload match shape); nested
-                    // STRUCT chains interleave fund-before-release per level
-                    // and stay balanced without the extra cure.
-                    let funding_moved_in = sum_container
-                        && !facts.has_credit
-                        && facts
-                            .consume_sites
-                            .iter()
-                            .any(|site| construct_sites.contains(site));
-                    !facts.self_funded_clean || funding_moved_in
-                });
+                || view_demand_endangered(
+                    class_facts,
+                    partition,
+                    view_rep,
+                    sum_container,
+                    &construct_sites,
+                );
             if !endangered {
                 continue;
             }

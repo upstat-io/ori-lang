@@ -20,6 +20,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `bisect-passes.sh` | Identify which AIMS pipeline phase introduced an RC or structural change | After `diagnose-aot.sh` finds a leak/crash (`--function`, `--rc-only`) |
 | `burden-balance.sh` | VF-1 `verify_burden_balance` imbalance count (default, per-var) OR per-same-alloc-lineage post-lowering RC-net (`--lineage-net`, cross-var) over a corpus | Measuring faithful Phase-5 burden-emission residual (`--files`, `--raw`, `--release`); `--lineage-net` surfaces dup-alias double-frees (net<0) VF-1's per-var count is blind to (a lineage nets 0 per-var, -N cross-var); REBUILD the dev binary first — a stale binary yields false counts |
 | `debug-release-compare.sh` | Compare debug vs release build output | FastISel-only bugs, optimization divergences |
+| `class-ledger-census.sh` | Single-leg readiness census: per-function replaced vs fallback counts + ranked fallback-reason table over a corpus, under the gated burden-sole env; `--run` adds plain + leak-check behavior verdicts | The drain worklist for retiring the legacy fallback walk (`--limit`, `--family`, `--run`, `--timeout`) |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
 | `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |
 | `verify-build-stamp-freshness.sh` | Verify `oric`'s `build.rs` re-executes and refreshes its git-identity stamp on an ordinary rebuild | After touching `compiler/oric/build.rs` or its `git()`-based stamping logic |
@@ -178,6 +179,27 @@ diagnostics/bisect-passes.sh --rc-only file.ori            # Suppress structural
 Compiles with `ORI_LOG=ori_arc::aims::pipeline=info`, captures per-phase checkpoint events, and displays a table showing how RC counts and structural metrics (block count, var count) evolve across AIMS pipeline phases. The first phase where RC balance changes from 0 is flagged as the potential divergence point; phases with structural changes (block merging, var count changes) are also highlighted. After compilation, runs the binary with `ORI_CHECK_LEAKS=1` to check for runtime leaks.
 
 **Workflow integration**: Use after `diagnose-aot.sh` identifies a leak or crash to narrow down to the specific pipeline phase.
+
+### class-ledger-census.sh — Class-Ledger Readiness Census
+
+```bash
+diagnostics/class-ledger-census.sh                        # Default: tests/spec @main programs (limit 100)
+diagnostics/class-ledger-census.sh --limit 2500 tests/spec
+diagnostics/class-ledger-census.sh compiler/ori_llvm/tests/aot/fixtures --limit 2500
+diagnostics/class-ledger-census.sh --family traits -v     # Filter corpus + show every result
+diagnostics/class-ledger-census.sh --run                  # Also execute: plain run + ORI_CHECK_LEAKS=1 run
+```
+
+Single-leg readiness census for the (unconditional) class-ledger emitter: builds each corpus program under the gated burden-sole env (`ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) with `ORI_LOG=ori_arc::aims::class_ledger=debug`, then tallies per-function `mode=replaced` vs `mode=fallback` counts and a ranked `fallback_reason` table with per-site detail — the drain worklist for retiring the legacy fallback walk. `--run` adds a behavior verdict per program: a plain run AND an `ORI_CHECK_LEAKS=1` run (leak checking can mask use-after-free, so both runs are required for a verdict).
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | Census completed (fallbacks are the worklist, not failures) |
+| `1` | Behavior failures under `--run` |
+| `2` | Infrastructure error (binary not found, bad arguments) |
+| `3` | Zero programs censused — misleading "all clear" |
 
 ### debug-release-compare.sh — Debug vs Release Comparison
 

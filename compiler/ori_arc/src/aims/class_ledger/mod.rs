@@ -144,6 +144,10 @@ fn hazard_facts_for(
         }
     }
     let self_funded_clean = !class_events.is_externally_funded() && verdict == ClassVerdict::Clean;
+    let borrowed_rooted_clean = class_events.origin
+        == Some(crate::aims::intraprocedural::ledger_events::ClassOrigin::Borrowed)
+        && class_events.is_externally_funded()
+        && verdict == ClassVerdict::Clean;
     let has_credit = class_events.per_block.iter().flatten().any(|ev| {
         matches!(
             ev.kind,
@@ -163,6 +167,7 @@ fn hazard_facts_for(
         has_demand,
         self_funded_clean,
         has_credit,
+        borrowed_rooted_clean,
         planned_inc_count,
         consume_sites,
     }

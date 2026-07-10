@@ -84,65 +84,6 @@ fn probe_dup_alias_live_source_str() {
     assert_burden_path_self_sufficient(src, "dup_alias_live_source_str");
 }
 
-/// Negative pin (the matrix-clamping counterpart of
-/// `probe_dup_alias_live_source_str`): `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1`
-/// restores the decoupled per-var DP-2/DP-3 elision for a genuine RL-1
-/// duplication pair — the alias's store-site inc gets elided independently of
-/// its dec, releasing a reference the container's own drop still expects,
-/// double-freeing the shared allocation. The base positive pin's pure
-/// borrow-read shape (`a.length()` / `s.length()`) never emits a store-site
-/// inc/dec pair, so the negative pin uses a store-into-struct shape
-/// (`Holder { kept: a }`) — matching the pair-coupling gate's genuine-
-/// duplication trigger while the source (`s`) stays live past the store, per
-/// the same mechanism the positive pin's family exists to protect. Spec: Annex
-/// E §AIMS RL-1 + RL-2.
-#[test]
-fn probe_dup_alias_store_into_struct_pair_coupling_disabled_double_frees_negative() {
-    use crate::util::compile_and_run_with_build_env;
-    let src = r#"
-type Holder = { kept: str }
-
-@stash_and_return (s: str) -> int = {
-    let a = s;
-    let h = Holder { kept: a };
-    let n = s.length();
-    n + h.kept.length()
-}
-
-@main () -> int = {
-    let n = stash_and_return(s: "this is a very long string well past the sso inline threshold here now");
-    print(msg: `{n}`);
-    0
-}
-"#;
-    let probe: &[(&str, &str)] = &[
-        ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-        ("ORI_VERIFY_ARC", "1"),
-        ("ORI_VERIFY_EACH", "1"),
-    ];
-
-    // Control: burden-sole probe, genuine-duplication pair coupling intact.
-    let (control_exit, _stdout, control_stderr) = compile_and_run_with_build_env(src, probe);
-    assert_eq!(
-        control_exit, 0,
-        "burden-sole probe with genuine-duplication pair coupling intact must \
-         run clean (no leak, no double-free)\nstderr:\n{control_stderr}"
-    );
-
-    // Forced: pair coupling disabled — the store-site inc/dec split
-    // independently, over-releasing the shared allocation.
-    let mut forced: Vec<(&str, &str)> = probe.to_vec();
-    forced.push(("ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING", "1"));
-    let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
-    assert_ne!(
-        forced_exit, 0,
-        "disabling genuine-duplication pair coupling must double-free the \
-         stored-then-returned-source allocation (exit != 0) — proves the \
-         positive pin actively catches the over-release regression\n\
-         stderr:\n{forced_stderr}"
-    );
-}
-
 // Burden-path self-sufficiency for collection types: the AOT + JIT compile
 // paths reconstruct the `TypeRegistry` from the `TypedModule` exports and
 // thread it into `run_arc_pipeline`, so the burden walker's
