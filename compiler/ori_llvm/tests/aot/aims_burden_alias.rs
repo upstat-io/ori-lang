@@ -87,3 +87,71 @@ fn force_overeliminate_inner_survives_result_leaks_negative_pin() {
          catches the over-elimination regression\nstderr:\n{forced_stderr}"
     );
 }
+
+/// Semantic pin: `ORI_DISABLE_RESULT_ROOT_PROJECT_VIEW_PAIR_COUPLING=1`
+/// restores the decoupled DP-2/DP-3 split on the callee-returns-unique
+/// multi-read shape (`@build_bundle` — per-block Project-view aliases of the
+/// certified-fresh call result each lose their inc while keeping their dec,
+/// net -1 per read block: the double-free returns). Proves the Pass 3c
+/// pair-atomic admission is the cure surface for this cell.
+#[test]
+fn toggle_disables_result_root_project_view_coupling_h6_crashes_again() {
+    use crate::util::compile_and_run_with_build_env;
+    let src =
+        include_str!("fixtures/aims_interactions/h6_callee_returns_unique_for_caller_reuse.ori");
+    let probe: &[(&str, &str)] = &[
+        ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+        ("ORI_VERIFY_ARC", "1"),
+        ("ORI_VERIFY_EACH", "1"),
+    ];
+
+    // Control: coupling + elision active — the cell runs clean.
+    let (control_exit, _stdout, control_stderr) = compile_and_run_with_build_env(src, probe);
+    assert_eq!(
+        control_exit, 0,
+        "burden-sole probe with the Pass 3c coupling active must run clean\nstderr:\n{control_stderr}"
+    );
+
+    let mut forced: Vec<(&str, &str)> = probe.to_vec();
+    forced.push(("ORI_DISABLE_RESULT_ROOT_PROJECT_VIEW_PAIR_COUPLING", "1"));
+    let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
+    assert_ne!(
+        forced_exit, 0,
+        "with the Pass 3c coupling disabled, the per-read-block alias splits \
+         must over-release the fresh aggregate (exit != 0)\nstderr:\n{forced_stderr}"
+    );
+}
+
+/// Semantic pin: `ORI_DISABLE_CERTIFIED_FRESH_USER_RESULT_INC_ELISION=1`
+/// restores the surplus fresh-site keep-alive inc on a certified-fresh
+/// user-callee result (`@build_bundle` — every path then nets +1: the heap
+/// field leaks under `ORI_CHECK_LEAKS`). Proves the certified-fresh alloc-root
+/// admission of the M1 fresh-inc elision is the cure surface for this cell.
+#[test]
+fn toggle_disables_certified_fresh_user_result_inc_elision_h6_leaks_again() {
+    use crate::util::compile_and_run_with_build_env;
+    let src =
+        include_str!("fixtures/aims_interactions/h6_callee_returns_unique_for_caller_reuse.ori");
+    let probe: &[(&str, &str)] = &[
+        ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+        ("ORI_VERIFY_ARC", "1"),
+        ("ORI_VERIFY_EACH", "1"),
+    ];
+
+    // Control: elision active — clean.
+    let (control_exit, _stdout, control_stderr) = compile_and_run_with_build_env(src, probe);
+    assert_eq!(
+        control_exit, 0,
+        "burden-sole probe with the certified-fresh inc elision active must run \
+         clean\nstderr:\n{control_stderr}"
+    );
+
+    let mut forced: Vec<(&str, &str)> = probe.to_vec();
+    forced.push(("ORI_DISABLE_CERTIFIED_FRESH_USER_RESULT_INC_ELISION", "1"));
+    let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
+    assert_ne!(
+        forced_exit, 0,
+        "with the certified-fresh inc elision disabled, the surplus fresh-site \
+         inc must leak the bundle's heap field (exit != 0)\nstderr:\n{forced_stderr}"
+    );
+}

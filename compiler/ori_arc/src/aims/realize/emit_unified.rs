@@ -9227,12 +9227,15 @@ fn compute_elidable_fresh_self_alloc_incs(
     // lineage back to 0. A net != 1 means the fresh inc is balancing a
     // COW-consume / move-alias dec (e.g. `length_one`: net 0 with all incs →
     // eliding drops to −1, a double-free) → keep.
+    let certified_fresh_user_dsts =
+        certified_fresh_user_result_dsts(func, interner, contracts, list_take_name);
     let lineage_net = compute_lineage_alloc_aware_net(
         func,
         same_alloc_reps,
         interner,
         conversion_source_reps,
         funding_neutral,
+        &certified_fresh_user_dsts,
     );
 
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
@@ -9375,26 +9378,42 @@ fn compute_elidable_fresh_self_alloc_incs(
             elidable.insert(c);
         }
     };
+    for_each_fresh_alloc_root(
+        func,
+        interner,
+        list_take_name,
+        &certified_fresh_user_dsts,
+        |dst| decide(dst, &mut elidable),
+    );
+    elidable
+}
+
+/// Enumerate every fresh-alloc root the elision decides on: block-body
+/// `Construct`/literal/`ori_list_take`/builtin-collection-source `Apply`
+/// results, `Invoke`-terminator self-allocating builtin results, and
+/// USER-callee results certified fresh by contract — each a fresh rc=1 unit
+/// whose Phase-5 fresh-site inc the M1 alloc-aware-net elision can drop when
+/// the lineage net is +1. Spec: Annex E §AIMS RL-1.
+fn for_each_fresh_alloc_root(
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+    list_take_name: ori_ir::Name,
+    certified_fresh_user_dsts: &FxHashSet<ArcVarId>,
+    mut decide: impl FnMut(ArcVarId),
+) {
     for block in &func.blocks {
         for instr in &block.body {
-            // A FRESH self-alloc is either a `Construct`/literal/`ori_list_take`
-            // (`fresh_self_alloc_dst`) or a self-allocating builtin collection-source
-            // `Apply` result (`fresh_collection_source_apply_dst`) — both create a
-            // fresh rc=1 buffer whose Phase-5 fresh-site inc the M1 alloc-aware-net
-            // elision can drop when the lineage net is +1 (Spec: Annex E §AIMS RL-1).
             if let Some(dst) = fresh_rc_alloc_dst(instr, func, interner, list_take_name) {
-                decide(dst, &mut elidable);
+                decide(dst);
             }
         }
-        // An `Invoke`-terminator self-allocating builtin result (`s.insert(..)`
-        // COW-result) is the same fresh-rc=1 shape via the may-unwind terminator;
-        // its surplus fresh-site inc is elidable on the identical net == 1 ∧ !cow
-        // verdict. Spec: Annex E §AIMS RL-1.
         if let Some((dst, _)) = fresh_rc_alloc_dst_terminator(&block.terminator, func, interner) {
-            decide(dst, &mut elidable);
+            decide(dst);
         }
     }
-    elidable
+    for &dst in certified_fresh_user_dsts {
+        decide(dst);
+    }
 }
 
 /// Per-block burden delta + alloc-site bitmap for ONE lineage (selected by the
@@ -9423,6 +9442,9 @@ fn compute_lineage_block_deltas(
     // -1 the static in-function net cannot see) — skipped from the tally so
     // the lineage net stays the elision verdict for the OTHER incs.
     funding_neutral: &FxHashSet<ArcVarId>,
+    // USER-callee results certified fresh by contract (disjoint from the
+    // instruction-form classifiers by construction) — counted as alloc sites.
+    certified_fresh_user_dsts: &FxHashSet<ArcVarId>,
 ) -> (Vec<i64>, Vec<bool>) {
     let n = func.blocks.len();
     let mut delta: Vec<i64> = vec![0; n];
@@ -9431,6 +9453,11 @@ fn compute_lineage_block_deltas(
         for instr in &block.body {
             if let Some(dst) = fresh_rc_alloc_dst(instr, func, interner, list_take_name) {
                 if belongs(dst) {
+                    delta[b] += 1;
+                    alloc_in_block[b] = true;
+                }
+            } else if let ArcInstr::Apply { dst, .. } = instr {
+                if certified_fresh_user_dsts.contains(dst) && belongs(*dst) {
                     delta[b] += 1;
                     alloc_in_block[b] = true;
                 }
@@ -9448,6 +9475,14 @@ fn compute_lineage_block_deltas(
             fresh_rc_alloc_dst_terminator(&block.terminator, func, interner)
         {
             if belongs(dst) {
+                let nb = normal.index();
+                if nb < n {
+                    delta[nb] += 1;
+                    alloc_in_block[nb] = true;
+                }
+            }
+        } else if let ArcTerminator::Invoke { dst, normal, .. } = &block.terminator {
+            if certified_fresh_user_dsts.contains(dst) && belongs(*dst) {
                 let nb = normal.index();
                 if nb < n {
                     delta[nb] += 1;
@@ -9506,6 +9541,8 @@ pub(super) fn compute_lineage_alloc_aware_net(
     conversion_source_reps: &FxHashSet<ArcVarId>,
     // Net-neutral RL-1 iter-consume funding incs (callee-released).
     funding_neutral: &FxHashSet<ArcVarId>,
+    // USER-callee results certified fresh by contract — additional alloc roots.
+    certified_fresh_user_dsts: &FxHashSet<ArcVarId>,
 ) -> FxHashMap<ArcVarId, i64> {
     let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
     let preds = crate::graph::compute_predecessors(func);
@@ -9583,6 +9620,9 @@ pub(super) fn compute_lineage_alloc_aware_net(
             reps.insert(rep_of(dst));
         }
     }
+    for &dst in certified_fresh_user_dsts {
+        reps.insert(rep_of(dst));
+    }
 
     let mut result: FxHashMap<ArcVarId, i64> = FxHashMap::default();
     for rep in reps {
@@ -9599,8 +9639,14 @@ pub(super) fn compute_lineage_alloc_aware_net(
                 rep_of(var) == rep
             }
         };
-        let (delta, alloc_in_block) =
-            compute_lineage_block_deltas(func, interner, list_take_name, &belongs, funding_neutral);
+        let (delta, alloc_in_block) = compute_lineage_block_deltas(
+            func,
+            interner,
+            list_take_name,
+            &belongs,
+            funding_neutral,
+            certified_fresh_user_dsts,
+        );
         if let Some(n) = agreed_alloc_reachable_terminal_net(func, &preds, &delta, &alloc_in_block)
         {
             result.insert(rep, n);
@@ -9830,8 +9876,17 @@ fn compute_dup_funded_debited_net(
     let mut result: FxHashMap<ArcVarId, i64> = FxHashMap::default();
     for &rep in dup_funded_reps {
         let belongs = |var: ArcVarId| rep_of(var) == rep;
-        let (mut delta, alloc_in_block) =
-            compute_lineage_block_deltas(func, interner, list_take_name, &belongs, funding_neutral);
+        let (mut delta, alloc_in_block) = compute_lineage_block_deltas(
+            func,
+            interner,
+            list_take_name,
+            &belongs,
+            funding_neutral,
+            // The debited net keeps the instruction-form alloc classification
+            // only — a dup-funded certified-fresh user result stays declined
+            // (leak-side conservative).
+            &FxHashSet::default(),
+        );
         let debits = compute_lineage_handoff_debits(func, contracts, interner, &belongs);
         for (d, debit) in delta.iter_mut().zip(debits) {
             *d += debit;
@@ -11235,6 +11290,79 @@ pub(super) fn fresh_rc_alloc_dst(
             )
         })
         .or_else(|| fresh_collection_source_apply_dst(instr, func, interner))
+}
+
+/// USER-callee call results certified fresh by contract — every dst of a body
+/// `Apply` / terminator `Invoke` whose callee's `ReturnContract` proves
+/// `returns_fresh_self_alloc ∧ uniqueness == Unique` (every return path a
+/// fresh rc=1 self-alloc; a param-returning / view-returning callee never
+/// qualifies) on an RC-carrying repr. The fresh-alloc classification the M1
+/// alloc-aware-net + fresh-inc elision extend to user callees
+/// (`@build_bundle (seed) = Bundle { .. }` — the callee-returns-unique
+/// multi-read shape whose surplus fresh-site inc otherwise survives → leak).
+/// EXCLUDES dsts the instruction-form classifiers already recognize
+/// ([`fresh_rc_alloc_dst`] / [`fresh_rc_alloc_dst_terminator`]) so a delta
+/// tally consuming both never double-counts an alloc. Empty under
+/// `ORI_DISABLE_CERTIFIED_FRESH_USER_RESULT_INC_ELISION=1`.
+/// Spec: Annex E §AIMS RL-1.
+/// Contract-level fresh certification for a named callee: every return path a
+/// fresh rc=1 self-alloc (`returns_fresh_self_alloc`) at `Unique` uniqueness —
+/// the discriminator shared by the fresh-inc elision root set and the Phase-6
+/// pair-atomic Pass 3c admission. Spec: Annex E §AIMS RL-1 + §1.9.
+pub(super) fn callee_certified_fresh(
+    contracts: &FxHashMap<Name, MemoryContract>,
+    callee: Name,
+) -> bool {
+    contracts.get(&callee).is_some_and(|c| {
+        c.return_info.returns_fresh_self_alloc
+            && c.return_info.uniqueness == crate::aims::lattice::Uniqueness::Unique
+    })
+}
+
+fn certified_fresh_user_result_dsts(
+    func: &ArcFunction,
+    interner: &ori_ir::StringInterner,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    list_take_name: ori_ir::Name,
+) -> FxHashSet<ArcVarId> {
+    let mut out: FxHashSet<ArcVarId> = FxHashSet::default();
+    if crate::lower::burden_lower::certified_fresh_user_result_inc_elision_disabled() {
+        return out;
+    }
+    let certified = |callee: &Name| -> bool { callee_certified_fresh(contracts, *callee) };
+    let rc_repr = |d: ArcVarId| -> bool {
+        matches!(
+            func.var_repr(d),
+            Some(ValueRepr::RcPointer | ValueRepr::FatValue | ValueRepr::Aggregate)
+        )
+    };
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if certified(callee)
+                    && rc_repr(*dst)
+                    && fresh_rc_alloc_dst(instr, func, interner, list_take_name).is_none()
+                {
+                    out.insert(*dst);
+                }
+            }
+        }
+        if let ArcTerminator::Invoke {
+            dst, func: callee, ..
+        } = &block.terminator
+        {
+            if certified(callee)
+                && rc_repr(*dst)
+                && fresh_rc_alloc_dst_terminator(&block.terminator, func, interner).is_none()
+            {
+                out.insert(*dst);
+            }
+        }
+    }
+    out
 }
 
 /// Per-position may-COW verdict for a named-callee call arg — the SSOT

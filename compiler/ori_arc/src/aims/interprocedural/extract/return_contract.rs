@@ -257,6 +257,35 @@ fn var_is_fresh_self_alloc(
     };
     match instr {
         ArcInstr::Construct { ctor, .. } if ctor.is_collection_literal() => true,
+        // A SELF-CONTAINED named-struct / tuple `Construct` — every arg is
+        // itself a fresh self-alloc or a scalar producer (`PrimOp` /
+        // non-string literal) — is a fresh whole-var unit: its ref-bundle
+        // consumes only refs this function birthed. A construct threading a
+        // param / alias / extracted view (`Wrapper { inner: p }` — the
+        // aggregate-transfer-forwarder shape) stays uncertified: its
+        // whole-var accounting composes with the caller's transfer machinery.
+        // An `EnumVariant` (niche-family sum: the payload's OWN allocation)
+        // and a `Closure` stay uncertified — their whole-var accounting is
+        // shared with the payload / env lineage. Spec: Annex E §AIMS TF-3 +
+        // §1.9.
+        ArcInstr::Construct {
+            ctor: crate::ir::CtorKind::Struct(_) | crate::ir::CtorKind::Tuple,
+            args,
+            ..
+        } => args.iter().all(|&a| {
+            let scalar_producer = match def_map.get(&a) {
+                Some(ArcInstr::Let {
+                    value: crate::ir::ArcValue::PrimOp { .. },
+                    ..
+                }) => true,
+                Some(ArcInstr::Let {
+                    value: crate::ir::ArcValue::Literal(lit),
+                    ..
+                }) => !matches!(lit, crate::ir::LitValue::String(_)),
+                _ => false,
+            };
+            scalar_producer || var_is_fresh_self_alloc(a, def_map, param_vars, list_take_name, sigs)
+        }),
         ArcInstr::CollectionReuse { .. } | ArcInstr::Reuse { .. } => true,
         ArcInstr::Apply { func: callee, .. } => {
             *callee == list_take_name

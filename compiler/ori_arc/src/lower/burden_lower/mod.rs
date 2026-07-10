@@ -553,6 +553,52 @@ pub(crate) fn loop_carried_pair_coupling_disabled() -> bool {
     *LOOP_CARRIED_PAIR_COUPLING_DISABLED
 }
 
+/// `ORI_DISABLE_RESULT_ROOT_PROJECT_VIEW_PAIR_COUPLING=1` restores the
+/// decoupled DP-2/DP-3 split for `Let { Var }` alias dsts whose alias-chain
+/// root is an `Apply` / `Invoke` RESULT and whose EVERY use is a `Project`
+/// read (a pure borrow view: `let $b = call(); b.field` per read block).
+/// Default (unset): such alias pairs are ATOMIC in the Phase-6 per-var
+/// elision — a Project-only alias of a call result is a same-allocation view,
+/// never a birth site, so splitting its inc/dec pair (DP-3 elides the inc on
+/// the alias's own `Once` view, DP-2 keeps the dec) releases the result
+/// lineage's still-live reference once per read block (net -N — the
+/// fresh-aggregate multi-read double-free). Result-rooted aliases with any
+/// NON-Project use (call arg / store / return) stay on the decoupled split.
+/// Bisection surface: isolates a call-result borrow-alias double-free to the
+/// pair coupling vs the rest of the elimination. Spec: Annex E §AIMS RL-1 +
+/// RL-2.
+static RESULT_ROOT_PROJECT_VIEW_PAIR_COUPLING_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_RESULT_ROOT_PROJECT_VIEW_PAIR_COUPLING").as_deref() == Ok("1")
+});
+
+/// Read-only accessor for the `ORI_DISABLE_RESULT_ROOT_PROJECT_VIEW_PAIR_COUPLING`
+/// toggle — consumed by the Phase-6 per-var elision
+/// (`aims::realize::burden_elim::collect_pair_atomic_alias_dsts`).
+pub(crate) fn result_root_project_view_pair_coupling_disabled() -> bool {
+    *RESULT_ROOT_PROJECT_VIEW_PAIR_COUPLING_DISABLED
+}
+
+/// `ORI_DISABLE_CERTIFIED_FRESH_USER_RESULT_INC_ELISION=1` declines admitting
+/// a USER-callee `Apply` / `Invoke` result certified fresh by contract
+/// (`ReturnContract.returns_fresh_self_alloc ∧ uniqueness == Unique`) as a
+/// fresh-alloc root of the Phase-7 alloc-aware fresh-inc elision. Default
+/// (unset): such a result joins the M1 net, so its surplus fresh-site
+/// keep-alive `BurdenInc` elides when every path nets +1 (the
+/// callee-returns-unique multi-read shape leaks the result's heap fields
+/// without it). W/ the toggle set, the pre-cure leak returns. Bisects a
+/// call-result fresh-inc leak / double-free to this admission vs the rest of
+/// the Phase-7 accounting. Spec: Annex E §AIMS RL-1 + RL-2.
+static CERTIFIED_FRESH_USER_RESULT_INC_ELISION_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    std::env::var("ORI_DISABLE_CERTIFIED_FRESH_USER_RESULT_INC_ELISION").as_deref() == Ok("1")
+});
+
+/// Read-only accessor for the `ORI_DISABLE_CERTIFIED_FRESH_USER_RESULT_INC_ELISION`
+/// toggle — consumed by the Phase-7 fresh-inc elision
+/// (`aims::realize::emit_unified::certified_fresh_user_result_dsts`).
+pub(crate) fn certified_fresh_user_result_inc_elision_disabled() -> bool {
+    *CERTIFIED_FRESH_USER_RESULT_INC_ELISION_DISABLED
+}
+
 use super::burden::{Burden, BurdenRef};
 
 /// True iff `burden` carries any RC-tracked dimension. Used by the filter at

@@ -571,6 +571,29 @@ flags! {
     /// Usage: `ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING=1 ori build file.ori`
     ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING
 
+    /// Restore the decoupled DP-2/DP-3 split for `Let { Var }` alias dsts
+    /// rooted at an `Apply` / `Invoke` RESULT whose every use is a `Project`
+    /// read (default: such Project-only view alias pairs are atomic in the
+    /// Phase-6 per-var elision — elided whole or kept whole, never split).
+    ///
+    /// Consumed in the Phase-6 per-var elision
+    /// (`ori_arc::aims::realize::burden_elim`). Bisects a call-result
+    /// borrow-alias double-free to the pair coupling.
+    /// Usage: `ORI_DISABLE_RESULT_ROOT_PROJECT_VIEW_PAIR_COUPLING=1 ori build file.ori`
+    ORI_DISABLE_RESULT_ROOT_PROJECT_VIEW_PAIR_COUPLING
+
+    /// Decline admitting a user-callee `Apply` / `Invoke` result certified
+    /// fresh by contract (`ReturnContract.returns_fresh_self_alloc` at
+    /// `Unique`) as a fresh-alloc root of the Phase-7 alloc-aware fresh-inc
+    /// elision (default: such a result joins the M1 net so its surplus
+    /// fresh-site keep-alive inc elides when every path nets +1).
+    ///
+    /// Consumed in the Phase-7 fresh-inc elision
+    /// (`ori_arc::aims::realize::emit_unified`). Bisects a call-result
+    /// fresh-inc leak to this admission.
+    /// Usage: `ORI_DISABLE_CERTIFIED_FRESH_USER_RESULT_INC_ELISION=1 ori build file.ori`
+    ORI_DISABLE_CERTIFIED_FRESH_USER_RESULT_INC_ELISION
+
     /// Restore the RL-1 inc on a fresh self-alloc `Invoke`-terminator result
     /// used exactly once at a borrowed (non-owned) arg position of a body
     /// `Apply` / `ApplyIndirect` (default: the FRESH + ONCE + AFFINE-borrowed

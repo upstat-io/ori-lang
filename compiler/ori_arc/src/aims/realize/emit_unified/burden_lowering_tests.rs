@@ -489,6 +489,7 @@ fn elide_redundant_fresh_inc_for_read_only_self_alloc() {
         &ori_ir::StringInterner::new(),
         &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
     );
     assert_eq!(
         net.get(&v(0)).copied(),
@@ -679,6 +680,7 @@ fn keep_fresh_inc_when_net_not_one_move_alias_dec() {
         &ori_ir::StringInterner::new(),
         &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
     );
     assert_eq!(
         net.get(&v(0)).copied(),
@@ -818,6 +820,7 @@ fn elide_fresh_inc_for_invoke_terminator_self_alloc_result() {
         &func,
         &reps,
         &interner,
+        &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
     );
@@ -981,6 +984,7 @@ fn elide_fresh_inc_for_for_yield_list_take_result_dup_indexed() {
         &interner,
         &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
+        &rustc_hash::FxHashSet::default(),
     );
     assert_eq!(
         net.get(&v(0)).copied(),
@@ -1038,6 +1042,7 @@ fn keep_fresh_inc_for_single_use_list_take_result() {
         &func,
         &reps,
         &interner,
+        &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
     );
@@ -1140,6 +1145,7 @@ fn keep_fresh_inc_for_jump_threaded_list_take_result() {
         &func,
         &reps,
         &interner,
+        &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
         &rustc_hash::FxHashSet::default(),
     );

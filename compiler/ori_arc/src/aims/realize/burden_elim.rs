@@ -276,7 +276,7 @@ fn eliminate_whole_function(
             .into_values()
             .flatten()
             .collect();
-    let mut alias_dsts = collect_pair_atomic_alias_dsts(func);
+    let mut alias_dsts = collect_pair_atomic_alias_dsts(func, contracts);
     // RL-1 owned-call-arg duplication aliases are pair-atomic regardless of
     // root kind: their kept alias-site inc is inc-ONLY (the dec was
     // transfer-suppressed at Phase 5 — the consumer's release is the matched

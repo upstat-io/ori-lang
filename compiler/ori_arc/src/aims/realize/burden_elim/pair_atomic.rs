@@ -28,17 +28,22 @@ use crate::lower::burden_lower::{
 /// the `@stash_and_return` double-free for param roots; the local
 /// terminal-move-store double-free for Construct roots).
 ///
-/// Aliases rooted at an `Apply` / `Invoke` RESULT stay on the decoupled path:
-/// their splits are load-bearing compensation for pre-existing
-/// under-emissions, coupled only WITH the matching under-emission cure (each
-/// its own cycle). Construct-rooted lineages WITHOUT a store consume likewise
+/// Aliases rooted at an `Apply` / `Invoke` RESULT stay on the decoupled path
+/// EXCEPT the Project-only view subset (Pass 3c — every alias use a `Project`
+/// read, the fresh-aggregate multi-read shape): the remaining result-rooted
+/// splits are load-bearing compensation for pre-existing under-emissions,
+/// coupled only WITH the matching under-emission cure (each its own cycle).
+/// Construct-rooted lineages WITHOUT a store consume likewise
 /// stay decoupled — their splits compensate borrowed-call-arg lineage
 /// arrangements the same way. The Construct-rooted admission is gated by
 /// `ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING=1` independently of the
 /// param-rooted admission (master toggle:
 /// `ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1` gates the whole pair-atomic
 /// guard in `mark_whole_var_removals`).
-pub(super) fn collect_pair_atomic_alias_dsts(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+pub(super) fn collect_pair_atomic_alias_dsts(
+    func: &ArcFunction,
+    contracts: &FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+) -> FxHashSet<ArcVarId> {
     // Pass 1: resolve every `Let { Var }` alias chain to its root (vars are
     // defined before use within the function walk).
     let mut root: FxHashMap<ArcVarId, ArcVarId> = FxHashMap::default();
@@ -96,6 +101,18 @@ pub(super) fn collect_pair_atomic_alias_dsts(func: &ArcFunction) -> FxHashSet<Ar
     // aliases used at CALL args stay decoupled (their splits compensate the
     // borrowed-call-arg lineage arrangements).
     extend_with_primop_compare_aliases(func, &root, &mut pair_atomic);
+    // Pass 3c: Project-only view aliases of an `Apply` / `Invoke` RESULT root
+    // (the fresh-aggregate multi-read shape: `let $b = call(); b.field` per
+    // read block). Every use of the alias is a `Project` — a pure borrow view
+    // — so its inc/dec pair is keep-alive bookkeeping on the result's
+    // allocation and a DP-3 split nets -1 per read block against the
+    // still-live root (the callee-returns-unique multi-read double-free).
+    // Result-rooted aliases with ANY non-Project use (call arg / store /
+    // return / terminator operand) stay decoupled — those splits compensate
+    // the borrowed-call-arg lineage arrangements.
+    if !crate::lower::burden_lower::result_root_project_view_pair_coupling_disabled() {
+        extend_with_result_root_project_view_aliases(func, &root, contracts, &mut pair_atomic);
+    }
     // Pass 4: loop-carried pure-borrow-view aliases (RL-1 pair atomicity) —
     // see `super::loop_carried::extend_with_loop_carried_borrow_view_aliases`.
     super::loop_carried::extend_with_loop_carried_borrow_view_aliases(
@@ -104,6 +121,101 @@ pub(super) fn collect_pair_atomic_alias_dsts(func: &ArcFunction) -> FxHashSet<Ar
         &mut pair_atomic,
     );
     pair_atomic
+}
+
+/// `Let { Var }` alias dsts whose alias-chain root is an `Apply` / `Invoke`
+/// RESULT and whose EVERY use is a `Project` read — admitted pair-atomic per
+/// `RL1_duplication_balanced` (the alias pair is keep-alive bookkeeping; the
+/// root's own release owns the birth ref).
+fn extend_with_result_root_project_view_aliases(
+    func: &ArcFunction,
+    root: &FxHashMap<ArcVarId, ArcVarId>,
+    contracts: &FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    pair_atomic: &mut FxHashSet<ArcVarId>,
+) {
+    // Result roots: dsts of a body `Apply` / `Invoke` terminator whose callee
+    // contract CERTIFIES a fresh rc=1 result (`callee_certified_fresh`) — the
+    // proven-fresh provenance the coupling is sound on. An uncertified result
+    // (a ttr forwarder acquire, a view-returning callee) stays decoupled: the
+    // Phase-6 lineage re-balance owns those arrangements.
+    let certified = |callee: &ori_ir::Name| -> bool {
+        crate::aims::realize::emit_unified::callee_certified_fresh(contracts, *callee)
+    };
+    let mut result_roots: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                dst, func: callee, ..
+            } = instr
+            {
+                if certified(callee) {
+                    result_roots.insert(*dst);
+                }
+            }
+        }
+        if let crate::ir::ArcTerminator::Invoke {
+            dst, func: callee, ..
+        } = &block.terminator
+        {
+            if certified(callee) {
+                result_roots.insert(*dst);
+            }
+        }
+    }
+    let root_of = |v: ArcVarId| root.get(&v).copied().unwrap_or(v);
+    // Candidate aliases: Let-Var dsts whose chain root is a result root.
+    let mut candidates: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                if result_roots.contains(&root_of(*src)) || result_roots.contains(src) {
+                    candidates.insert(*dst);
+                }
+            }
+        }
+    }
+    if candidates.is_empty() {
+        return;
+    }
+    // Keep only candidates whose EVERY use (body + terminator) is a `Project`
+    // read. The alias's own definition edge + RC bookkeeping are not uses of
+    // the alias (a re-alias hop chains to the same root and is vetted as its
+    // own candidate); a call arg, a store, or any terminator operand
+    // disqualifies the candidate.
+    let mut disqualified: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Project { .. }
+                | ArcInstr::Let {
+                    value: ArcValue::Var(_) | ArcValue::Literal(_),
+                    ..
+                }
+                | ArcInstr::BurdenInc { .. }
+                | ArcInstr::BurdenDec { .. }
+                | ArcInstr::RcInc { .. }
+                | ArcInstr::RcDec { .. } => {}
+                _ => {
+                    for v in instr.used_vars() {
+                        if candidates.contains(&v) {
+                            disqualified.insert(v);
+                        }
+                    }
+                }
+            }
+        }
+        for v in block.terminator.used_vars() {
+            if candidates.contains(&v) {
+                disqualified.insert(v);
+            }
+        }
+    }
+    pair_atomic.extend(candidates.difference(&disqualified).copied());
 }
 
 /// `Let { Var }` alias dsts of a LOCAL `Construct` root where EVERY use of

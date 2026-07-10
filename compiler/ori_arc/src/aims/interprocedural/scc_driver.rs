@@ -131,6 +131,9 @@ pub fn analyze_program(
                 transfers_through_return_params = ?ttr,
                 param_dims = ?param_dims,
                 may_deallocate = contract.effects.may_deallocate,
+                return_uniqueness = ?contract.return_info.uniqueness,
+                returns_fresh_self_alloc = contract.return_info.returns_fresh_self_alloc,
+                preserves_freshness = contract.return_info.preserves_freshness,
                 "AIMS contract computed",
             );
         }
