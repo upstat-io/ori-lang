@@ -153,8 +153,11 @@ pub(crate) fn plan_class(
     // them from the DEMAND surface so a store-consume whose only surviving
     // reads are seed-funded takes no duplication inc (the seed IS that
     // funding). The ACTIVITY surface keeps every event — release placement
-    // still sees the funded reads.
-    let seed_vars: rustc_hash::FxHashSet<ArcVarId> = seed_ops.iter().map(|op| op.var).collect();
+    // still sees the funded reads. The seed set closes over `Let { Var }`
+    // aliases: a read through an alias of the seeded var reads the SAME
+    // seed-funded reference.
+    let seed_vars: rustc_hash::FxHashSet<ArcVarId> =
+        close_over_let_aliases(func, seed_ops.iter().map(|op| op.var).collect());
     let demand_seed = if seed_vars.is_empty() {
         event_blocks(events, true)
     } else {
@@ -242,6 +245,41 @@ pub(crate) fn plan_class(
         return ClassOutcome::Declined(reason);
     }
     ClassOutcome::Planned(ops)
+}
+
+/// The transitive `Let { Var }` alias closure of `vars`: every binding
+/// renaming a member of the set joins it (fixpoint over the body streams —
+/// forward block order does not bound alias chains threaded through jumps).
+fn close_over_let_aliases(
+    func: &ArcFunction,
+    mut vars: rustc_hash::FxHashSet<ArcVarId>,
+) -> rustc_hash::FxHashSet<ArcVarId> {
+    use crate::ir::{ArcInstr, ArcValue};
+
+    if vars.is_empty() {
+        return vars;
+    }
+    loop {
+        let mut changed = false;
+        for arc_block in &func.blocks {
+            for instr in &arc_block.body {
+                let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                else {
+                    continue;
+                };
+                if vars.contains(src) && vars.insert(*dst) {
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return vars;
+        }
+    }
 }
 
 /// Whether any INSTANCE-CREATING event of the class sits inside a CFG

@@ -1946,6 +1946,105 @@ fn extract_then_move_out_decomposes_container_release() {
     );
 }
 
+/// A demand-endangered view (field borrowed and READ while the container
+/// is locally released) cures via extraction funding: the seed inc after
+/// the `Project` funds the read, and the view's single owed reference
+/// releases after its last read.
+#[test]
+fn demand_endangered_view_cures_via_extraction_funding() {
+    // %0 = Let "first" (str literal, moved into the pair)
+    // %1 = Construct pair(%0)
+    // %2 = Project %1.0            (the borrowed view)
+    // %3 = Apply eq(%2 [borrow])   (the read)
+    // %4 = IsShared %1             (container last use; container then dies)
+    // ret %3
+    let mut func = one_block_func(
+        5,
+        vec![
+            ArcInstr::Let {
+                dst: v(0),
+                ty: Idx::STR,
+                value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+            },
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: Idx::STR,
+                value: v(1),
+                field: 0,
+            },
+            apply(3, vec![(2, ArgOwnership::Borrowed)]),
+            is_shared(4, 1),
+        ],
+        ret(3),
+    );
+    func.var_types[0] = Idx::STR;
+    func.var_types[2] = Idx::STR;
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    state_map.set_permanent_scalar(v(4));
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "a demand-endangered borrow view must cure via extraction funding"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
+
+/// Same demand-endangered shape, but the read goes through a `Let` ALIAS of
+/// the extracted view: the seed still funds that read (the alias names the
+/// seed-funded reference), so the move-in consume takes NO second funding
+/// inc and the single owed reference releases after the aliased read.
+#[test]
+fn demand_endangered_view_alias_read_cures_without_double_funding() {
+    // %0 = Let "first" (str literal, moved into the pair)
+    // %1 = Construct pair(%0)
+    // %2 = Project %1.0            (the borrowed view)
+    // %3 = Let Var(%2)             (alias of the view)
+    // %4 = Apply eq(%3 [borrow])   (the read, through the alias)
+    // %5 = IsShared %1             (container last use)
+    // ret %4
+    let mut func = one_block_func(
+        6,
+        vec![
+            ArcInstr::Let {
+                dst: v(0),
+                ty: Idx::STR,
+                value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+            },
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: Idx::STR,
+                value: v(1),
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v(3),
+                ty: Idx::STR,
+                value: ArcValue::Var(v(2)),
+            },
+            apply(4, vec![(3, ArgOwnership::Borrowed)]),
+            is_shared(5, 1),
+        ],
+        ret(4),
+    );
+    func.var_types[0] = Idx::STR;
+    func.var_types[2] = Idx::STR;
+    func.var_types[3] = Idx::STR;
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(4));
+    state_map.set_permanent_scalar(v(5));
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "an alias read of the seeded view is seed-funded; the cure must land"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
+
 /// Ops sharing one insertion point apply Inc BEFORE Dec regardless of plan
 /// order: a container release and its endangered view's funding inc both
 /// land after the extracting `Project`, and dec-first frees the payload the
