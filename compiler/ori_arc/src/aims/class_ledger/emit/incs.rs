@@ -6,31 +6,20 @@ use crate::aims::intraprocedural::ledger_events::EventSite;
 use crate::ir::ArcFunction;
 
 use super::super::events::{
-    live_out_forward_killing, live_out_killing, ClassEvent, ClassEvents, EventKind,
+    demand_blocks_of_vars, live_from_forward_killing, live_out_forward_killing, live_out_killing,
+    ClassEvent, ClassEvents, EventKind,
 };
 use super::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
-
-/// Empty seed-var set: the `suffix_exclusions` a consume OF a seeded member
-/// passes, so nothing is excluded from the suffix demand scan (the seed funds
-/// exactly one reference at extraction; the member's own hand-offs keep normal
-/// duplication funding).
-static EMPTY_SEED_VARS: std::sync::LazyLock<rustc_hash::FxHashSet<crate::ir::ArcVarId>> =
-    std::sync::LazyLock::new(rustc_hash::FxHashSet::default);
 
 /// `BurdenInc` before every CONSUME that duplicates: the class stays live
 /// past the hand-off (a later Read / Mutate / Consume in the stream or a
 /// successor), or the class is borrowed-rooted. A consume refunded by a
 /// same-site CREDIT (the passthrough return leg) transfers the existing
 /// reference and needs no inc on an owned-rooted class.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "internal funding pass over plan_class's own dataflow vectors"
-)]
 pub(super) fn plan_incs(
     func: &ArcFunction,
     events: &ClassEvents,
     demand_live: &[bool],
-    demand_live_full: &[bool],
     credit_kills: &[bool],
     seed_vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
     full_closure: bool,
@@ -43,35 +32,41 @@ pub(super) fn plan_incs(
             if ev.kind != EventKind::Consume {
                 continue;
             }
-            // Same discriminator as plan_class's liveness vectors: the
-            // per-block query mode must match the vector's closure mode.
-            // A consume OF a seeded member prices against the FULL demand
-            // surface (the seed funds one reference at extraction; the
-            // member's own hand-offs keep normal funding); every other
-            // consume prices against the seed-filtered surface.
+            // A consume OF a seeded member prices against SAME-REFERENCE
+            // demand only (the seed var's own alias closure), FORWARD-only:
+            // the seed funds exactly one reference per extraction, so a
+            // hand-off keeps duplication funding only when THAT reference
+            // is read past the consume — another seeded extraction (a later
+            // iteration's) is a different reference, and a back-edge suffix
+            // is the next iteration's ledger. Every other consume prices
+            // against the seed-filtered class surface.
             let consume_of_seeded = ev.var.is_some_and(|v| seed_vars.contains(&v));
-            let live_vec = if consume_of_seeded {
-                demand_live_full
-            } else {
-                demand_live
-            };
             // Entry-credit successors are KILLED for the funding decision:
             // their demand (at/after the credit re-acquisition) is funded
             // by the credit, never by a pre-consume duplication inc here.
-            let demand_out = if full_closure {
-                live_out_killing(func, block, live_vec, credit_kills)
+            let (demand_out, suffix_demand) = if consume_of_seeded {
+                let var = ev
+                    .var
+                    .unwrap_or_else(|| unreachable!("consume_of_seeded checked is_some"));
+                let closure = super::close_over_let_aliases(func, std::iter::once(var).collect());
+                let blocks = demand_blocks_of_vars(events, &closure);
+                let live = live_from_forward_killing(func, &blocks, credit_kills, dom);
+                (
+                    live_out_forward_killing(func, block, &live, credit_kills, dom),
+                    suffix_has_demand_of_vars(evs, position, &closure),
+                )
             } else {
-                live_out_forward_killing(func, block, live_vec, credit_kills, dom)
-            };
-            let suffix_exclusions = if consume_of_seeded {
-                &EMPTY_SEED_VARS
-            } else {
-                seed_vars
+                let demand_out = if full_closure {
+                    live_out_killing(func, block, demand_live, credit_kills)
+                } else {
+                    live_out_forward_killing(func, block, demand_live, credit_kills, dom)
+                };
+                (demand_out, suffix_has_demand(evs, position, seed_vars))
             };
             if !borrowed
                 && (same_site_credit_follows(evs, position)
                     || invoke_refund_credit_follows(func, events, block, ev)
-                    || !(suffix_has_demand(evs, position, suffix_exclusions) || demand_out))
+                    || !(suffix_demand || demand_out))
             {
                 continue;
             }
@@ -159,6 +154,21 @@ fn same_site_credit_follows(evs: &[ClassEvent], position: usize) -> bool {
     evs[position + 1..]
         .iter()
         .any(|ev| ev.kind == EventKind::Credit && ev.site == current.site)
+}
+
+/// Whether a later same-reference value use exists in the block: demand on
+/// the given vars only (a seeded member's own alias closure).
+fn suffix_has_demand_of_vars(
+    evs: &[ClassEvent],
+    position: usize,
+    vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
+) -> bool {
+    evs[position + 1..].iter().any(|ev| {
+        matches!(
+            ev.kind,
+            EventKind::Read | EventKind::Mutate | EventKind::Consume
+        ) && ev.var.is_some_and(|v| vars.contains(&v))
+    })
 }
 
 /// Whether a later value use (Read / Mutate / Consume) exists in the block.

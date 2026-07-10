@@ -163,28 +163,24 @@ pub(crate) fn plan_class(
     } else {
         super::events::demand_blocks_excluding_seeded(events, &seed_vars)
     };
-    // TWO demand surfaces: the FILTERED one (seed-funded member reads
-    // excluded) prices consumes of NON-seeded vars — the container-transit
-    // store whose post-store member demand the seeds already fund. The FULL
-    // one prices consumes OF a seeded member var: the seed funds exactly ONE
-    // reference at its extraction site, so the member's own hand-offs keep
-    // normal duplication funding.
-    let demand_full = event_blocks(events, true);
+    // The FILTERED demand surface (seed-funded member reads excluded)
+    // prices consumes of NON-seeded vars — the container-transit store
+    // whose post-store member demand the seeds already fund. A consume OF
+    // a seeded member prices per-reference inside `plan_incs` (the seed
+    // var's own alias closure, forward-only).
     // Entry-credit blocks KILL backward demand propagation for funding
     // decisions: demand at/after a Credit re-acquisition is funded by the
     // credit, never by a pre-consume duplication inc. Release placement
     // (activity) keeps the full picture.
     let credit_kills = super::events::entry_credit_blocks(events);
-    let (demand_live, demand_live_full, activity_live) = if full_closure {
+    let (demand_live, activity_live) = if full_closure {
         (
             super::events::live_from_killing(func, &demand_seed, &credit_kills),
-            super::events::live_from_killing(func, &demand_full, &credit_kills),
             live_from(func, &event_blocks(events, false)),
         )
     } else {
         (
             super::events::live_from_forward_killing(func, &demand_seed, &credit_kills, dom),
-            super::events::live_from_forward_killing(func, &demand_full, &credit_kills, dom),
             live_from_forward(func, &event_blocks(events, false), dom),
         )
     };
@@ -194,7 +190,6 @@ pub(crate) fn plan_class(
         func,
         events,
         &demand_live,
-        &demand_live_full,
         &credit_kills,
         &seed_vars,
         full_closure,

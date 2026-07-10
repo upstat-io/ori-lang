@@ -3292,3 +3292,67 @@ fn release_never_names_borrowed_param_var() {
     }
     assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
 }
+
+/// A loop-carried rebuild: the container is re-Constructed each iteration
+/// from a view of the loop block-param, and the view's back-edge hand-off
+/// is its LAST use — the extraction-funding seed IS the hand-off's funding,
+/// so the planner adds no duplication inc (per-reference forward-only
+/// pricing; another iteration's extraction is a different reference).
+/// Before the pricing fix the completed plan double-funded the hand-off and
+/// declined `MergeDisagree` at the loop header.
+#[test]
+fn loop_carried_rebuild_seeded_handoff_not_double_funded() {
+    // bb0: %0 = Construct(); Jump bb1(%0)
+    // bb1(%1): Branch %6 ? bb2 : bb3
+    // bb2: %2 = Project %1.0 ; %3 = Construct(%2) ; Jump bb1(%3)
+    // bb3: %4 = Project %1.0 ; %5 = IsShared %4 ; Return %7
+    let mut func = func_with_blocks(
+        8,
+        vec![
+            block(0, vec![], vec![construct(0, vec![])], jump(1, vec![0])),
+            block(1, vec![1], vec![], branch(6, 2, 3)),
+            block(
+                2,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(2),
+                        ty: ty(0),
+                        value: v(1),
+                        field: 0,
+                    },
+                    construct(3, vec![2]),
+                ],
+                jump(1, vec![3]),
+            ),
+            block(
+                3,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(4),
+                        ty: ty(0),
+                        value: v(1),
+                        field: 0,
+                    },
+                    is_shared(5, 4),
+                ],
+                ret(7),
+            ),
+        ],
+    );
+    func.var_types[2] = ty(0);
+    func.var_types[4] = ty(0);
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [5u32, 6, 7] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, _partition) = analyze(&func, &state_map);
+    assert!(
+        analysis.readiness.all_classes_clean,
+        "loop-carried rebuild must verify clean: {:?}",
+        analysis.readiness.verdicts
+    );
+    assert!(analysis.readiness.declined.is_empty());
+    assert!(!analysis.field_view_hazard, "views must be cured");
+}

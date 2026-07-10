@@ -120,6 +120,17 @@ fi
 WORK_DIR=$(mktemp -d)
 cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
+
+# --- Snapshot the binary + staticlib into WORK_DIR ---
+# A parallel cargo build/clean replacing target/ mid-run otherwise turns the
+# tail of the corpus into phantom build-fail-both records; the census runs
+# from an immutable per-run copy (mirrors the aot harness's staged snapshot).
+cp "$ORI" "$WORK_DIR/ori-census"
+ORI_DIR=$(dirname "$ORI")
+if [[ -f "$ORI_DIR/libori_rt.a" ]]; then
+    cp "$ORI_DIR/libori_rt.a" "$WORK_DIR/libori_rt.a"
+fi
+ORI="$WORK_DIR/ori-census"
 RECORDS="$WORK_DIR/records.tsv"
 > "$RECORDS"
 

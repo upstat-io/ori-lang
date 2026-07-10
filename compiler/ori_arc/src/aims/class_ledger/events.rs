@@ -365,6 +365,27 @@ pub(crate) fn demand_blocks_excluding_seeded(
         .collect()
 }
 
+/// Demand blocks restricted to the given vars (a seeded member's own alias
+/// closure): only same-reference demand — a different seeded extraction is a
+/// different iteration's reference and never keeps THIS one alive.
+pub(crate) fn demand_blocks_of_vars(
+    events: &ClassEvents,
+    vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
+) -> Vec<bool> {
+    events
+        .per_block
+        .iter()
+        .map(|evs| {
+            evs.iter().any(|ev| {
+                matches!(
+                    ev.kind,
+                    EventKind::Read | EventKind::Mutate | EventKind::Consume
+                ) && ev.var.is_some_and(|v| vars.contains(&v))
+            })
+        })
+        .collect()
+}
+
 /// Blocks whose ENTRY carries a Credit re-acquisition: demand at/after such
 /// a block is credit-funded and never propagates back past it.
 pub(crate) fn entry_credit_blocks(events: &ClassEvents) -> Vec<bool> {
