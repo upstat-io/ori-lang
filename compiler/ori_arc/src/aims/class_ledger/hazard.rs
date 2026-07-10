@@ -38,6 +38,11 @@ pub(crate) struct ClassHazardFacts {
     class: NodeIdx,
     released: bool,
     has_demand: bool,
+    /// The class's own books fund its demand: NOT externally funded
+    /// (real floors, never the container-held floor-0 discipline) AND
+    /// verified `Clean`. A self-funded view's demand rides its own
+    /// acquired reference, so a container release cannot strand it.
+    self_funded_clean: bool,
     consume_sites: Vec<(usize, EventSite)>,
 }
 
@@ -46,12 +51,14 @@ impl ClassHazardFacts {
         class: NodeIdx,
         released: bool,
         has_demand: bool,
+        self_funded_clean: bool,
         consume_sites: Vec<(usize, EventSite)>,
     ) -> Self {
         Self {
             class,
             released,
             has_demand,
+            self_funded_clean,
             consume_sites,
         }
     }
@@ -188,10 +195,18 @@ pub(crate) fn field_view_hazard_classes(
                         .iter()
                         .any(|site| !construct_sites.contains(site))
             });
+            // Demand endangers ONLY a view whose floors ride the
+            // container's reference; a self-funded Clean view's demand is
+            // covered by its own acquired reference (a credit / birth the
+            // per-class verify already floored), so the container's
+            // release cannot strand it. Consume marks endanger regardless
+            // (double-ownership is about the move-out, not funding).
             let endangered = consume_marked
-                || class_facts
-                    .iter()
-                    .any(|facts| partition.rep_of(facts.class) == view_rep && facts.has_demand);
+                || class_facts.iter().any(|facts| {
+                    partition.rep_of(facts.class) == view_rep
+                        && facts.has_demand
+                        && !facts.self_funded_clean
+                });
             if !endangered {
                 continue;
             }

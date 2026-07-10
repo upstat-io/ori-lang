@@ -187,10 +187,15 @@ pub(crate) fn analyze_class_ledger(
                 }
             }
         }
+        let self_funded_clean = !class_events.is_externally_funded()
+            && verdicts
+                .last()
+                .is_some_and(|&(_, verdict)| verdict == ClassVerdict::Clean);
         class_facts.push(hazard::ClassHazardFacts::new(
             class,
             released,
             has_demand,
+            self_funded_clean,
             consume_sites,
         ));
         classes.push(ClassPlan { class, outcome });

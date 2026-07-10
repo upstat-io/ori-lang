@@ -5,7 +5,9 @@
 use crate::aims::intraprocedural::ledger_events::EventSite;
 use crate::ir::ArcFunction;
 
-use super::super::events::{live_out, live_out_forward, ClassEvent, ClassEvents, EventKind};
+use super::super::events::{
+    live_out_forward_killing, live_out_killing, ClassEvent, ClassEvents, EventKind,
+};
 use super::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
 
 /// Empty seed-var set: the `suffix_exclusions` a consume OF a seeded member
@@ -20,11 +22,16 @@ static EMPTY_SEED_VARS: std::sync::LazyLock<rustc_hash::FxHashSet<crate::ir::Arc
 /// successor), or the class is borrowed-rooted. A consume refunded by a
 /// same-site CREDIT (the passthrough return leg) transfers the existing
 /// reference and needs no inc on an owned-rooted class.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal funding pass over plan_class's own dataflow vectors"
+)]
 pub(super) fn plan_incs(
     func: &ArcFunction,
     events: &ClassEvents,
     demand_live: &[bool],
     demand_live_full: &[bool],
+    credit_kills: &[bool],
     seed_vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
     full_closure: bool,
     dom: &crate::graph::DominatorTree,
@@ -48,10 +55,13 @@ pub(super) fn plan_incs(
             } else {
                 demand_live
             };
+            // Entry-credit successors are KILLED for the funding decision:
+            // their demand (at/after the credit re-acquisition) is funded
+            // by the credit, never by a pre-consume duplication inc here.
             let demand_out = if full_closure {
-                live_out(func, block, live_vec)
+                live_out_killing(func, block, live_vec, credit_kills)
             } else {
-                live_out_forward(func, block, live_vec, dom)
+                live_out_forward_killing(func, block, live_vec, credit_kills, dom)
             };
             let suffix_exclusions = if consume_of_seeded {
                 &EMPTY_SEED_VARS

@@ -194,6 +194,7 @@ pub(crate) fn plan_class(
         events,
         &demand_live,
         &demand_live_full,
+        &credit_kills,
         &seed_vars,
         full_closure,
         dom,

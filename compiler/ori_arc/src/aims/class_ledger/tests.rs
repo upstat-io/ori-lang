@@ -2086,6 +2086,84 @@ fn diverging_function_verifies_by_reachable_terminals() {
     assert!(analysis.readiness.all_classes_clean);
 }
 
+/// An apply-alias projection through a BORROWED call (`@unwrap(b) = b.inner`;
+/// the caller re-acquires the box's field allocation as a same-allocation
+/// CREDIT at the call's normal successor) releases the credited reference
+/// after its last read.
+#[test]
+fn apply_alias_credit_releases_after_terminator_read() {
+    // bb0: %0 = "boxed str"; %1 = Construct Box(%0); %3 = %1;
+    //      Invoke unwrap(%3 [borrow]) -> %4, normal bb1, unwind bb2
+    // bb1: %6 = %4; Invoke len(%6 [borrow]) -> %7, normal bb3, unwind bb4
+    // bb2: Resume    bb3: Return %7    bb4: Resume
+    let mut func = func_with_blocks(
+        8,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    ArcInstr::Let {
+                        dst: v(0),
+                        ty: Idx::STR,
+                        value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+                    },
+                    construct(1, vec![0]),
+                    ArcInstr::Let {
+                        dst: v(3),
+                        ty: ty(0),
+                        value: ArcValue::Var(v(1)),
+                    },
+                ],
+                invoke(4, vec![(3, ArgOwnership::Borrowed)], 1, 2),
+            ),
+            block(
+                1,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(6),
+                    ty: Idx::STR,
+                    value: ArcValue::Var(v(4)),
+                }],
+                invoke(7, vec![(6, ArgOwnership::Borrowed)], 3, 4),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(3, vec![], vec![], ret(7)),
+            block(4, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.var_types[0] = Idx::STR;
+    func.var_types[4] = Idx::STR;
+    func.var_types[6] = Idx::STR;
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(7));
+    let mut aliases: FxHashMap<
+        ArcVarId,
+        crate::aims::intraprocedural::state_map::ApplyAliasSource,
+    > = FxHashMap::default();
+    aliases.insert(
+        v(4),
+        crate::aims::intraprocedural::state_map::ApplyAliasSource::Project {
+            arg: v(3),
+            field: 0,
+        },
+    );
+    state_map.set_apply_result_aliases(aliases);
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        analysis.readiness.all_classes_clean,
+        "the credited apply-alias reference must plan a post-read release; \
+         declined={:?} verdicts={:?} plans={:?}",
+        analysis.readiness.declined, analysis.readiness.verdicts, analysis.plan.classes,
+    );
+    assert!(
+        !analysis.field_view_hazard,
+        "a SELF-funded view (real floors, verified Clean) is not endangered \
+         by the container's release - its credited reference survives it"
+    );
+}
+
 /// Ops sharing one insertion point apply Inc BEFORE Dec regardless of plan
 /// order: a container release and its endangered view's funding inc both
 /// land after the extracting `Project`, and dec-first frees the payload the

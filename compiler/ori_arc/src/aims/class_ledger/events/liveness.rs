@@ -93,6 +93,38 @@ pub(crate) fn live_out(func: &ArcFunction, block: usize, live: &[bool]) -> bool 
         .any(|&s| live.get(s).copied().unwrap_or(false))
 }
 
+/// [`live_out`] with entry-credit KILLS for FUNDING decisions: a killed
+/// successor's demand (at/after its entry-credit re-acquisition) is funded
+/// by the credit, never by a pre-consume duplication inc in `block`.
+pub(crate) fn live_out_killing(
+    func: &ArcFunction,
+    block: usize,
+    live: &[bool],
+    kills: &[bool],
+) -> bool {
+    successors_of(func, block)
+        .iter()
+        .any(|&s| live.get(s).copied().unwrap_or(false) && !kills.get(s).copied().unwrap_or(false))
+}
+
+/// [`live_out_forward`] with entry-credit KILLS (see [`live_out_killing`]).
+pub(crate) fn live_out_forward_killing(
+    func: &ArcFunction,
+    block: usize,
+    live: &[bool],
+    kills: &[bool],
+    dom: &crate::graph::DominatorTree,
+) -> bool {
+    successors_of(func, block).iter().any(|&s| {
+        live.get(s).copied().unwrap_or(false)
+            && !kills.get(s).copied().unwrap_or(false)
+            && match (func.blocks.get(block), func.blocks.get(s)) {
+                (Some(from), Some(to)) => !dom.dominates(to.id, from.id),
+                _ => false,
+            }
+    })
+}
+
 /// [`live_out`] restricted to FORWARD out-edges: a back-edge continuation
 /// (successor dominates the block) is the next iteration, never continued
 /// use of the current reference.

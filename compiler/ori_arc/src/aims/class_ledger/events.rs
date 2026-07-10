@@ -16,7 +16,7 @@ use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
 
 pub(crate) use liveness::{
     live_from, live_from_forward, live_from_forward_killing, live_from_killing, live_out,
-    live_out_forward,
+    live_out_forward, live_out_forward_killing, live_out_killing,
 };
 use resolve::resolve_event_var;
 
