@@ -56,6 +56,93 @@ pub(super) fn plan_dead_class_releases(
     Ok(ops)
 }
 
+/// RL-2 arm-local pairing for multi-arm extraction funding: when seeds fund
+/// the SAME class in two or more distinct blocks, each seed whose
+/// (alias-closed) events are pure reads confined to its own block gets its
+/// release planned right there — after the last body read, or at every
+/// single-pred successor front when the last read is the block terminator —
+/// so each arm nets zero and no funded reference crosses a merge the bypass
+/// path reaches unfunded. Seeds that do not qualify stay unpaired for the
+/// pooled death-frontier walk.
+pub(in super::super) fn pair_arm_local_seed_releases(
+    func: &ArcFunction,
+    preds: &[Vec<usize>],
+    events: &ClassEvents,
+    ops: &mut Vec<PlannedOp>,
+) {
+    let seed_blocks: FxHashSet<usize> = ops
+        .iter()
+        .filter(|op| op.kind == PlannedOpKind::Inc)
+        .map(|op| op.slot.block())
+        .collect();
+    if seed_blocks.len() < 2 {
+        return;
+    }
+    let seeds: Vec<PlannedOp> = ops
+        .iter()
+        .filter(|op| op.kind == PlannedOpKind::Inc)
+        .cloned()
+        .collect();
+    for seed in seeds {
+        let block = seed.slot.block();
+        let closure =
+            super::super::emit::close_over_let_aliases(func, std::iter::once(seed.var).collect());
+        let mut last_body: Option<usize> = None;
+        let mut terminator_read = false;
+        let mut arm_local = true;
+        let mut any_read = false;
+        'scan: for (event_block, evs) in events.per_block.iter().enumerate() {
+            for ev in evs {
+                let Some(var) = ev.var else { continue };
+                if !closure.contains(&var) {
+                    continue;
+                }
+                if event_block != block || ev.delta != 0 || ev.floor == 0 {
+                    arm_local = false;
+                    break 'scan;
+                }
+                any_read = true;
+                match ev.site {
+                    EventSite::Body(index) => {
+                        last_body = Some(last_body.map_or(index, |prev| prev.max(index)));
+                    }
+                    EventSite::Terminator => terminator_read = true,
+                    EventSite::BlockEntry => {
+                        arm_local = false;
+                        break 'scan;
+                    }
+                }
+            }
+        }
+        if !arm_local || !any_read {
+            continue;
+        }
+        if terminator_read {
+            let successors = successors_of(func, block);
+            if successors.is_empty()
+                || successors
+                    .iter()
+                    .any(|&s| s == block || preds.get(s).is_none_or(|p| p.len() != 1))
+            {
+                continue;
+            }
+            for successor in successors {
+                ops.push(PlannedOp {
+                    slot: PlanSlot::BlockFront { block: successor },
+                    kind: PlannedOpKind::Dec,
+                    var: seed.var,
+                });
+            }
+        } else if let Some(index) = last_body {
+            ops.push(PlannedOp {
+                slot: PlanSlot::AfterBody { block, index },
+                kind: PlannedOpKind::Dec,
+                var: seed.var,
+            });
+        }
+    }
+}
+
 /// Release placement at the class's death frontier, one walk over the
 /// pre-release entry nets: per-edge (RL-4) releases for dead successors of
 /// live-out blocks; within-block (RL-2 / RL-5) releases after the class's
@@ -77,7 +164,15 @@ pub(super) fn plan_releases(
     dom: &crate::graph::DominatorTree,
     ops: &mut Vec<PlannedOp>,
 ) -> Result<(), DeclineReason> {
-    let mut fronts: FxHashSet<usize> = FxHashSet::default();
+    // Arm-local paired front decs already release at these fronts; the
+    // pooled walk must not double-release there.
+    let mut fronts: FxHashSet<usize> = ops
+        .iter()
+        .filter(|op| {
+            op.kind == PlannedOpKind::Dec && matches!(op.slot, PlanSlot::BlockFront { .. })
+        })
+        .map(|op| op.slot.block())
+        .collect();
     // RL-2 block-local: every event of the class in ONE block, netting one
     // owed reference, last event a body instruction — the class is born and
     // last-used there; the release lands right after the last event

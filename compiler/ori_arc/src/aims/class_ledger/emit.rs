@@ -189,6 +189,7 @@ pub(crate) fn plan_class(
         )
     };
     let mut ops = seed_ops.to_vec();
+    releases::pair_arm_local_seed_releases(func, preds, events, &mut ops);
     match incs::plan_incs(
         func,
         events,

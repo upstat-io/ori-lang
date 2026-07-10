@@ -2299,6 +2299,138 @@ fn funded_view_branch_read_releases_on_dead_edge_via_seed_var() {
     assert!(analysis.readiness.all_classes_clean);
 }
 
+/// TWO same-class extractions funded in DISTINCT short-circuit arms, each
+/// read only within its own arm: each seed's release pairs inside its arm
+/// (after the last read), so every arm nets zero and the merge agrees with
+/// the bypass path that never extracted.
+#[test]
+fn arm_local_funded_views_in_two_arms_release_within_each_arm() {
+    // Constructless container (Invoke result) — the field payload has no
+    // in-function birth, so the views are container-held and endangered.
+    let mut func = func_with_blocks(
+        9,
+        vec![
+            block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                    str_lit(2, 31),
+                    eq_read(3, 1, 2),
+                ],
+                branch(3, 3, 4),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(
+                3,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(4),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                    str_lit(5, 32),
+                    eq_read(6, 4, 5),
+                ],
+                jump(5, vec![6]),
+            ),
+            block(
+                4,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(7),
+                    ty: ty(0),
+                    value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                }],
+                jump(5, vec![7]),
+            ),
+            block(5, vec![8], vec![], ret(8)),
+        ],
+    );
+    for var in [1u32, 2, 4, 5] {
+        func.var_types[var as usize] = Idx::STR;
+    }
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3u32, 6, 7, 8] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "arm-local funded views must pair their releases per arm; \
+         declined={:?} verdicts={:?} plans={:?}",
+        analysis.readiness.declined, analysis.readiness.verdicts, analysis.plan.classes,
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
+
+/// An arm-local funded view whose last read is the block TERMINATOR (a
+/// borrowed `Invoke` arg) pairs its release at every successor front — the
+/// normal edge too, not just the dead unwind edge — so the funded reference
+/// never leaks across the downstream merge.
+#[test]
+fn arm_local_funded_view_terminator_read_releases_at_successor_fronts() {
+    let mut func = func_with_blocks(
+        6,
+        vec![
+            block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![ArcInstr::Project {
+                    dst: v(1),
+                    ty: Idx::STR,
+                    value: v(0),
+                    field: 0,
+                }],
+                invoke(2, vec![(1, ArgOwnership::Borrowed)], 3, 4),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(
+                3,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(3),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                    str_lit(4, 32),
+                    eq_read(5, 3, 4),
+                ],
+                ret(5),
+            ),
+            block(4, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    for var in [1u32, 3, 4] {
+        func.var_types[var as usize] = Idx::STR;
+    }
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [2u32, 5] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "a terminator-read funded view must release at both successor \
+         fronts; declined={:?} verdicts={:?}",
+        analysis.readiness.declined, analysis.readiness.verdicts,
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
+
 /// Ops sharing one insertion point apply Inc BEFORE Dec regardless of plan
 /// order: a container release and its endangered view's funding inc both
 /// land after the extracting `Project`, and dec-first frees the payload the
