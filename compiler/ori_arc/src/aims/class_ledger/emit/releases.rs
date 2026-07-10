@@ -44,6 +44,7 @@ pub(super) fn plan_dead_class_releases(
                 EventSite::Terminator => {
                     let successors = successors_of(func, block);
                     if successors.is_empty() {
+                        trace_unplaceable("releases.rs#1", block);
                         return Err(DeclineReason::UnplaceableRelease);
                     }
                     for successor in successors {
@@ -239,6 +240,16 @@ pub(super) fn plan_releases(
     Ok(())
 }
 
+/// One-line decline attribution for every `UnplaceableRelease` site.
+fn trace_unplaceable(site: &'static str, block: usize) {
+    tracing::trace!(
+        target: "ori_arc::aims::class_ledger",
+        site,
+        block,
+        "release placement declined"
+    );
+}
+
 /// RL-4 per-edge releases for `block`'s dead successors: the class stays
 /// live at the block exit but is dead at a successor — the dec is
 /// attributed to that edge, materialized at the dead successor's front
@@ -263,6 +274,7 @@ fn plan_edge_releases(
             continue;
         }
         if exit != 1 && !(events.books_runtime_grounded && exit > 1) {
+            trace_unplaceable("releases.rs#2", block);
             return Err(DeclineReason::UnplaceableRelease);
         }
         // Runtime-grounded books MAY owe several REAL references to one
@@ -346,6 +358,7 @@ fn plan_block_release(
     };
     if let Some(successor) = forward_credit_target {
         if residue + edge_credits != 1 {
+            trace_unplaceable("releases.rs#3", block);
             return Err(DeclineReason::UnplaceableRelease);
         }
         if !regions.is_in_cycle(successor) {
@@ -358,6 +371,7 @@ fn plan_block_release(
         // one exit executes per path).
         for &exit in regions.exit_frontier(successor) {
             if preds.get(exit).is_none_or(|p| p.len() != 1) {
+                trace_unplaceable("releases.rs#4", block);
                 return Err(DeclineReason::UnplaceableRelease);
             }
             push_front_dec(ctx, events, block, exit, ops, fronts)?;
@@ -377,6 +391,7 @@ fn plan_block_release(
         // Cure-inflated books only ever take the single-reference path.
         let successors = successors_of(func, block);
         if successors.is_empty() {
+            trace_unplaceable("releases.rs#5", block);
             return Err(DeclineReason::UnplaceableRelease);
         }
         for successor in successors {
@@ -385,6 +400,7 @@ fn plan_block_release(
         return Ok(());
     }
     if residue != 1 {
+        trace_unplaceable("releases.rs#6", block);
         return Err(DeclineReason::UnplaceableRelease);
     }
     let last_pre = evs.iter().rev().find(|ev| ev.site != EventSite::Terminator);
