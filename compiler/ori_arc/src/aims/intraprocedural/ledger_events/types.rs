@@ -231,4 +231,9 @@ pub(crate) struct LedgerClassification {
     /// planned op naming it violates VF-2 (`AbsentParamHasUses`) and the
     /// caller-retains-release ABI — the readiness gate falls back.
     pub(crate) absent_owned_param: bool,
+    /// Every variable is excluded under the CLASSIFIER's own semantics
+    /// (state-map scalar/immortal OR placeholder alias-closure): a
+    /// zero-class function with this set carries no RC-bearing value and
+    /// the empty plan is the correct emission.
+    pub(crate) all_vars_excluded: bool,
 }

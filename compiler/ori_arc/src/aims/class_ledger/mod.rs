@@ -83,6 +83,10 @@ pub(crate) struct ClassLedgerPlan {
 
 /// Insertion plan plus the per-class readiness verdicts for one function.
 #[derive(Debug)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent poison/admission facts; no two flags encode one state machine"
+)]
 pub(crate) struct ClassLedgerAnalysis {
     pub(crate) plan: ClassLedgerPlan,
     pub(crate) readiness: ReadinessSummary,
@@ -97,6 +101,9 @@ pub(crate) struct ClassLedgerAnalysis {
     /// An OWNED param's own contract cardinality is `Absent` (per the
     /// classification flag) — the replacement gate declines (VF-2).
     pub(crate) absent_owned_param: bool,
+    /// Every variable excluded under the classifier's own semantics (per
+    /// the classification flag) — the zero-class empty plan is admitted.
+    pub(crate) all_vars_excluded: bool,
 }
 
 /// Run classification, planning, and per-class verification from the
@@ -251,6 +258,7 @@ pub(crate) fn analyze_class_ledger(
         field_view_hazard,
         indirect_arg_handoff: classification.indirect_arg_handoff,
         absent_owned_param: classification.absent_owned_param,
+        all_vars_excluded: classification.all_vars_excluded,
     }
 }
 

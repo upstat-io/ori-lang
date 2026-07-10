@@ -285,6 +285,8 @@ pub(crate) fn classify_function(
         classifier.out.blocks.push(stream);
         classifier.out.sites.push(sites);
     }
+    classifier.out.all_vars_excluded = (0..func.var_types.len())
+        .all(|raw| u32::try_from(raw).is_ok_and(|raw| classifier.excluded(ArcVarId::new(raw))));
     classifier.out
 }
 

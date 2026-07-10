@@ -221,7 +221,18 @@ fn gate_rejection(
     // emission would mis-handle. A zero-class function with ANY non-excluded
     // variable stays on the fallback — the classifier missing a live heap
     // value is a coverage gap the legacy walk must keep owning.
-    if analysis.plan.classes.is_empty() && !all_vars_excluded(func, state_map) {
+    if analysis.plan.classes.is_empty() && !analysis.all_vars_excluded {
+        if tracing::enabled!(target: "ori_arc::aims::class_ledger", tracing::Level::TRACE) {
+            let non_excluded: Vec<u32> = (0..func.var_types.len())
+                .filter_map(|raw| u32::try_from(raw).ok())
+                .filter(|&raw| !state_map.is_excluded(ArcVarId::new(raw)))
+                .collect();
+            tracing::trace!(
+                target: "ori_arc::aims::class_ledger",
+                ?non_excluded,
+                "zero-classes decline: classifier evented no class but these vars are not state-map-excluded"
+            );
+        }
         return Some(FallbackReason::ZeroClasses);
     }
     if !analysis.readiness.all_classes_clean {
@@ -319,15 +330,6 @@ fn dec_partial_skips_valid(
 /// (scalar or immortal) — the empty-surface admission predicate for the
 /// zero-classes gate. Params are variables too (`ArcParam.var` indexes the
 /// same space), so the sweep covers them.
-fn all_vars_excluded(func: &ArcFunction, state_map: &AimsStateMap) -> bool {
-    (0..func.var_types.len()).all(|raw| {
-        let Ok(raw) = u32::try_from(raw) else {
-            return false;
-        };
-        state_map.is_excluded(ArcVarId::new(raw))
-    })
-}
-
 /// Whether any instruction is a `Reset` / `Reuse` / `CollectionReuse`
 /// (FBIP allocation-reuse pairing).
 fn has_reuse_shape(func: &ArcFunction) -> bool {

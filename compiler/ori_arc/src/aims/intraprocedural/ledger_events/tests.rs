@@ -1741,3 +1741,38 @@ fn borrowed_rooted_concat_operand_reads_not_consumes() {
     );
     assert!(!classification.indirect_arg_handoff);
 }
+
+/// The classifier's all-excluded verdict covers the placeholder
+/// alias-closure: a `Let Var` alias of an immortal literal is excluded
+/// (the state map marks only the literal's def var), so an
+/// immortal-empty-string function admits the empty plan instead of
+/// declining zero-classes.
+#[test]
+fn all_vars_excluded_covers_immortal_alias_closure() {
+    let func = one_block_func(
+        2,
+        vec![
+            ArcInstr::Let {
+                dst: v(0),
+                ty: ty(0),
+                value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+            },
+            ArcInstr::Let {
+                dst: v(1),
+                ty: ty(0),
+                value: ArcValue::Var(v(0)),
+            },
+        ],
+        ArcTerminator::Return { value: v(1) },
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_immortals(vec![true, false]);
+    let (classification, _partition) = classify(&func, &state_map, &no_facts());
+    assert!(classification.all_vars_excluded);
+    assert!(classification.blocks.iter().flatten().next().is_none());
+
+    // A live (non-immortal) literal keeps the verdict false via its class.
+    let state_map = AimsStateMap::new(&func);
+    let (classification, _partition) = classify(&func, &state_map, &no_facts());
+    assert!(!classification.all_vars_excluded);
+}
