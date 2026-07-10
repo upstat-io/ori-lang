@@ -27,7 +27,9 @@ fn emit_burden_ops<'a>(
     derived_ownership: &[DerivedOwnership],
     immortals: &[bool],
     contracts: &FxHashMap<Name, crate::aims::contract::MemoryContract>,
-    predicate_stack_rc_disabled: bool,
+    // Collapsed: the burden walk is the sole emitter; the flag is retained on
+    // the wrapper signature only to avoid whole-suite call-site churn.
+    _predicate_stack_rc_disabled: bool,
 ) -> BurdenLowerCtx<'a> {
     let interner = ori_ir::StringInterner::new();
     emit_burden_ops_impl(
@@ -37,7 +39,6 @@ fn emit_burden_ops<'a>(
         immortals,
         contracts,
         &FxHashMap::default(),
-        predicate_stack_rc_disabled,
         &interner,
     )
 }
@@ -51,7 +52,7 @@ fn emit_burden_ops_with_interner<'a>(
     derived_ownership: &[DerivedOwnership],
     immortals: &[bool],
     contracts: &FxHashMap<Name, crate::aims::contract::MemoryContract>,
-    predicate_stack_rc_disabled: bool,
+    _predicate_stack_rc_disabled: bool,
     interner: &ori_ir::StringInterner,
 ) -> BurdenLowerCtx<'a> {
     emit_burden_ops_impl(
@@ -61,7 +62,6 @@ fn emit_burden_ops_with_interner<'a>(
         immortals,
         contracts,
         &FxHashMap::default(),
-        predicate_stack_rc_disabled,
         interner,
     )
 }
@@ -1483,13 +1483,10 @@ fn construct_multi_arg_emits_burden_inc_per_arg_in_iteration_order() {
     };
     let _ctx = emit_burden_ops(&mut func, &registry, &[], &[], &FxHashMap::default(), false);
     let body = &func.blocks[0].body;
-    // Default path (predicate_stack_rc_disabled=false): per-arg owned-position
-    // BurdenInc(0..=2) emit first (`emit_owned_position_incs`), THEN the
-    // FRESH-site BurdenInc(dst=3); ALL Incs precede the Construct (burden ops
-    // are codegen no-op markers here, never lowered to real RC at this site).
-    // The probe path reorders the FRESH-site Inc to AFTER the instruction (so
-    // the lowered RcInc sees a defined dst); covered by the predicate_stack_probe
-    // AOT suite. Order: 0, 1, 2, then 3 — all before the Construct.
+    // Per-arg owned-position BurdenInc(0..=2) emit first
+    // (`emit_owned_position_incs`), THEN the Construct, THEN the FRESH-site
+    // BurdenInc(dst=3) — the FRESH-site Inc follows the defining instruction so
+    // the lowered RcInc sees a defined dst. Order: 0, 1, 2, then 3.
     let expected = [
         ArcVarId::new(0),
         ArcVarId::new(1),
@@ -1506,20 +1503,24 @@ fn construct_multi_arg_emits_burden_inc_per_arg_in_iteration_order() {
     assert_eq!(
         inc_vars,
         expected,
-        "Construct with 3 Owned args MUST emit per-arg BurdenInc(0..=2) THEN FRESH-site BurdenInc(dst=3), all before the Construct, on the default path; got {inc_vars:?}; body={body:?}",
+        "Construct with 3 Owned args MUST emit per-arg BurdenInc(0..=2) before it and the FRESH-site BurdenInc(dst=3) after it; got {inc_vars:?}; body={body:?}",
     );
-    // Verify all BurdenInc emissions precede the Construct on the default path.
+    // Per-arg incs precede the Construct; the FRESH-site inc (dst) follows it.
     let construct_pos = body
         .iter()
         .position(|i| matches!(i, ArcInstr::Construct { .. }))
         .unwrap_or_else(|| panic!("Construct MUST appear in body"));
-    let last_inc_pos = body
+    let last_arg_inc_pos = body
         .iter()
-        .rposition(|i| matches!(i, ArcInstr::BurdenInc { .. }))
-        .unwrap_or_else(|| panic!("BurdenInc emissions MUST appear in body"));
+        .rposition(|i| matches!(i, ArcInstr::BurdenInc { var } if var.index() < 3))
+        .unwrap_or_else(|| panic!("per-arg BurdenInc emissions MUST appear in body"));
+    let fresh_inc_pos = body
+        .iter()
+        .position(|i| matches!(i, ArcInstr::BurdenInc { var } if var.index() == 3))
+        .unwrap_or_else(|| panic!("FRESH-site BurdenInc MUST appear in body"));
     assert!(
-        last_inc_pos < construct_pos,
-        "ALL BurdenInc emissions MUST precede Construct on the default path; last_inc_pos={last_inc_pos}, construct_pos={construct_pos}; body={body:?}",
+        last_arg_inc_pos < construct_pos && construct_pos < fresh_inc_pos,
+        "per-arg BurdenIncs MUST precede the Construct and the FRESH-site inc MUST follow it; last_arg_inc_pos={last_arg_inc_pos}, construct_pos={construct_pos}, fresh_inc_pos={fresh_inc_pos}; body={body:?}",
     );
 }
 
@@ -1710,30 +1711,34 @@ fn apply_three_args_with_non_adjacent_owned_positions_emits_burden_inc_per_owned
             _ => None,
         })
         .collect();
-    // Default path: per-arg owned-position BurdenInc(0), BurdenInc(2) emit
-    // first (`emit_owned_position_incs`; [Owned, Borrowed, Owned] skips
-    // BurdenInc(1)), THEN the FRESH-site BurdenInc(dst=3) [Apply no contract →
-    // MaybeShared return per TF-5]; all Incs precede the Apply. The probe path
-    // reorders the FRESH-site Inc to AFTER the Apply (covered by the
-    // predicate_stack_probe AOT suite). Order: 0, 2, then 3.
+    // Per-arg owned-position BurdenInc(0), BurdenInc(2) emit first
+    // (`emit_owned_position_incs`; [Owned, Borrowed, Owned] skips
+    // BurdenInc(1)), THEN the Apply, THEN the FRESH-site BurdenInc(dst=3)
+    // [Apply no contract → MaybeShared return per TF-5] — the FRESH-site Inc
+    // follows the defining instruction so the lowered RcInc sees a defined
+    // dst. Order: 0, 2, then 3.
     let expected = [ArcVarId::new(0), ArcVarId::new(2), ArcVarId::new(3)];
     assert_eq!(
         inc_vars,
         expected,
-        "Apply [Owned, Borrowed, Owned] MUST emit BurdenInc(0), BurdenInc(2) (skip 1) THEN FRESH-site BurdenInc(dst=3), all before the Apply, on the default path; got {inc_vars:?}; body={body:?}",
+        "Apply [Owned, Borrowed, Owned] MUST emit BurdenInc(0), BurdenInc(2) (skip 1) before it and FRESH-site BurdenInc(dst=3) after it; got {inc_vars:?}; body={body:?}",
     );
-    // Verify all BurdenInc emissions precede the Apply on the default path.
+    // Per-arg incs precede the Apply; the FRESH-site inc (dst) follows it.
     let apply_pos = body
         .iter()
         .position(|i| matches!(i, ArcInstr::Apply { .. }))
         .unwrap_or_else(|| panic!("Apply MUST appear in body"));
-    let last_inc_pos = body
+    let last_arg_inc_pos = body
         .iter()
-        .rposition(|i| matches!(i, ArcInstr::BurdenInc { .. }))
-        .unwrap_or_else(|| panic!("BurdenInc emissions MUST appear in body"));
+        .rposition(|i| matches!(i, ArcInstr::BurdenInc { var } if var.index() < 3))
+        .unwrap_or_else(|| panic!("per-arg BurdenInc emissions MUST appear in body"));
+    let fresh_inc_pos = body
+        .iter()
+        .position(|i| matches!(i, ArcInstr::BurdenInc { var } if var.index() == 3))
+        .unwrap_or_else(|| panic!("FRESH-site BurdenInc MUST appear in body"));
     assert!(
-        last_inc_pos < apply_pos,
-        "ALL BurdenInc emissions MUST precede Apply on the default path; last_inc_pos={last_inc_pos}, apply_pos={apply_pos}",
+        last_arg_inc_pos < apply_pos && apply_pos < fresh_inc_pos,
+        "per-arg BurdenIncs MUST precede the Apply and the FRESH-site inc MUST follow it; last_arg_inc_pos={last_arg_inc_pos}, apply_pos={apply_pos}, fresh_inc_pos={fresh_inc_pos}",
     );
 }
 
@@ -6437,97 +6442,6 @@ fn borrowed_alias_at_read_only_position_emits_no_cow_inc() {
         count_burden_incs(&func, ArcVarId::new(1)),
         0,
         "borrowed-alias at a READ-ONLY (@len, borrowed) position MUST get zero COW-inc (preserves borrowed-alias exclusion); body={:?}",
-        func.blocks[0].body,
-    );
-}
-
-/// A' default-path pin: the COW-inc is PROBE-ONLY. On the default path
-/// (`predicate_stack_rc_disabled = false`) the predicate stack emits the
-/// equivalent `RcInc`, so the burden walk emits NO COW-inc — keeping default
-/// AOT codegen byte-identical. Would FAIL if `compute_cow_inc_borrowed_aliases`
-/// were not gated on the probe flag.
-#[test]
-fn cow_inc_is_probe_only_no_inc_on_default_path() {
-    let registry = TypeRegistry::new();
-    let interner = ori_ir::StringInterner::new();
-    let push = interner.intern("push");
-    let mut func = ArcFunction {
-        params: vec![ArcParam {
-            var: ArcVarId::new(0),
-            ty: Idx::from_raw(100),
-            ownership: Ownership::Borrowed,
-        }],
-        var_types: vec![
-            Idx::from_raw(100),
-            Idx::from_raw(100),
-            Idx::INT,
-            Idx::from_raw(100),
-        ],
-        var_reprs: vec![
-            ValueRepr::RcPointer,
-            ValueRepr::RcPointer,
-            ValueRepr::Scalar,
-            ValueRepr::RcPointer,
-        ],
-        blocks: vec![
-            ArcBlock {
-                id: ArcBlockId::new(0),
-                params: Vec::new(),
-                body: vec![
-                    ArcInstr::Let {
-                        dst: ArcVarId::new(1),
-                        ty: Idx::from_raw(100),
-                        value: ArcValue::Var(ArcVarId::new(0)),
-                    },
-                    ArcInstr::Let {
-                        dst: ArcVarId::new(2),
-                        ty: Idx::INT,
-                        value: ArcValue::Literal(LitValue::Int(99)),
-                    },
-                ],
-                terminator: ArcTerminator::Invoke {
-                    dst: ArcVarId::new(3),
-                    ty: Idx::from_raw(100),
-                    func: push,
-                    args: vec![ArcVarId::new(1), ArcVarId::new(2)],
-                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
-                    normal: ArcBlockId::new(1),
-                    unwind: ArcBlockId::new(2),
-                    mono_instance_id: None,
-                },
-            },
-            ArcBlock {
-                id: ArcBlockId::new(1),
-                params: Vec::new(),
-                body: Vec::new(),
-                terminator: ArcTerminator::Return {
-                    value: ArcVarId::new(3),
-                },
-            },
-            ArcBlock {
-                id: ArcBlockId::new(2),
-                params: Vec::new(),
-                body: Vec::new(),
-                terminator: ArcTerminator::Resume,
-            },
-        ],
-        entry: ArcBlockId::new(0),
-        name: Name::from_raw(0),
-        ..ArcFunction::default()
-    };
-    emit_burden_ops_with_interner(
-        &mut func,
-        &registry,
-        &[],
-        &[],
-        &FxHashMap::default(),
-        false, // default path
-        &interner,
-    );
-    assert_eq!(
-        count_burden_incs(&func, ArcVarId::new(1)),
-        0,
-        "COW-inc MUST be probe-only — zero BurdenInc on the default path (predicate stack emits the RcInc); body={:?}",
         func.blocks[0].body,
     );
 }

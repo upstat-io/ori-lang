@@ -873,47 +873,6 @@ fn preserve_inc_on_dead_absent() {
     ));
 }
 
-// Predicate-stack decision pins.
-//
-// `decide()` produces the predicate-stack RC decisions from a managed
-// `DecisionSite`. These pins exercise it directly at the unit level.
-
-/// Pin: a managed Use-site with a future use emits `RcInc`; a managed
-/// `DefinedDead` site emits `RcDec`.
-#[test]
-fn managed_site_emits_normal_decisions() {
-    use crate::aims::realize::decide::{
-        decide, DecisionContext, DecisionSite, RcDecision, UseSemantics,
-    };
-
-    // Use-site with future use → predicate stack emits the normal RcInc.
-    let decision = decide(&DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: true,
-            semantics: UseSemantics::Normal,
-        },
-        is_rc_managed: true,
-    });
-    assert_eq!(
-        decision.rc,
-        RcDecision::Inc,
-        "managed Use site with future use must emit RcInc (got {:?})",
-        decision.rc
-    );
-
-    // Defined-dead site → predicate stack emits Dec.
-    let decision = decide(&DecisionContext {
-        site: DecisionSite::DefinedDead,
-        is_rc_managed: true,
-    });
-    assert_eq!(
-        decision.rc,
-        RcDecision::Dec,
-        "managed DefinedDead site must emit RcDec (got {:?})",
-        decision.rc
-    );
-}
-
 /// Helper test: `ArcFunction::burden_emitted` records the
 /// vars touched by burden-op emission. Pin proves the populate pass sets
 /// the bit for each Burden* instruction's target var.

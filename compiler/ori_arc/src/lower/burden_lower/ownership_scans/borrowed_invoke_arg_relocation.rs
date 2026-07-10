@@ -46,16 +46,13 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeRelocation {
 pub(in crate::lower::burden_lower) fn compute_relocated_borrowed_invoke_arg_decs(
     func: &ArcFunction,
     inputs: &BorrowedInvokeRelocationInputs<'_>,
-    predicate_stack_rc_disabled: bool,
 ) -> BorrowedInvokeRelocation {
     let mut relocation = BorrowedInvokeRelocation {
         relocated_by_block: FxHashMap::default(),
         entry_releases: Vec::new(),
         suppressed_fresh_root_incs: Vec::new(),
     };
-    if !predicate_stack_rc_disabled
-        || std::env::var_os("ORI_DISABLE_BORROWED_INVOKE_ARG_DEC_RELOCATION").is_some()
-    {
+    if std::env::var_os("ORI_DISABLE_BORROWED_INVOKE_ARG_DEC_RELOCATION").is_some() {
         return relocation;
     }
     let preds = crate::graph::compute_predecessors(func);

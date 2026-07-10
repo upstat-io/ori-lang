@@ -65,7 +65,6 @@ pub(super) fn emit_burden_ops_step(
         &immortals,
         config.contracts,
         state_map.apply_result_aliases(),
-        true,
         config.interner,
     );
 }
