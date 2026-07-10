@@ -26,7 +26,8 @@ pub(crate) enum ClassVerdict {
     /// unreleased reference); everything else holds.
     LeakOnly,
     /// Non-convergence, merge disagreement, a floor violation, a negative
-    /// terminal net, or no reachable Return.
+    /// terminal net, or no reachable terminal walked at all (a diverging
+    /// function verifies by its Resume/Unreachable terminals).
     Unprovable,
 }
 
@@ -88,7 +89,7 @@ fn walk_paths(
     entry_net: &[Option<i64>],
     walks: &[Vec<WalkItem>],
 ) -> ClassVerdict {
-    let mut saw_return = false;
+    let mut saw_terminal = false;
     let mut leak = false;
     for (block, arc_block) in func.blocks.iter().enumerate() {
         let Some(Some(entry)) = entry_net.get(block) else {
@@ -112,7 +113,7 @@ fn walk_paths(
         }
         match arc_block.terminator {
             ArcTerminator::Return { .. } => {
-                saw_return = true;
+                saw_terminal = true;
                 if running > 0 {
                     tracing::trace!(
                         target: "ori_arc::aims::class_ledger",
@@ -134,6 +135,7 @@ fn walk_paths(
                 }
             }
             ArcTerminator::Resume | ArcTerminator::Unreachable => {
+                saw_terminal = true;
                 if running > 0 {
                     tracing::trace!(
                         target: "ori_arc::aims::class_ledger",
@@ -157,11 +159,11 @@ fn walk_paths(
             _ => {}
         }
     }
-    if !saw_return {
+    if !saw_terminal {
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
-            gate = "no-reachable-return",
-            "class verdict Unprovable: no reachable Return terminal"
+            gate = "no-reachable-terminal",
+            "class verdict Unprovable: no reachable terminal was walked"
         );
         return ClassVerdict::Unprovable;
     }

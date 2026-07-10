@@ -2045,6 +2045,47 @@ fn demand_endangered_view_alias_read_cures_without_double_funding() {
     assert!(analysis.readiness.all_classes_clean);
 }
 
+/// A DIVERGING function (every reachable terminal is Resume/Unreachable —
+/// the uncaught-panic shape) verifies by its reachable terminals alone:
+/// the message births and transfers into the panic call on both paths
+/// (net 0 at every terminal), so the class is Clean — never Unprovable
+/// for the mere absence of a reachable Return.
+#[test]
+fn diverging_function_verifies_by_reachable_terminals() {
+    // bb0: %0 = Let "msg"; Invoke panic(%0 [own]) normal bb1 unwind bb2
+    // bb1: Unreachable   bb2: Resume   bb3 (unreachable): Return %1
+    let mut func = func_with_blocks(
+        2,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(0),
+                    ty: Idx::STR,
+                    value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+                }],
+                invoke(1, vec![(0, ArgOwnership::Owned)], 1, 2),
+            ),
+            block(1, vec![], vec![], ArcTerminator::Unreachable),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(3, vec![], vec![], ret(1)),
+        ],
+    );
+    func.var_types[0] = Idx::STR;
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let msg = class_rep(&mut partition, 0);
+    assert_eq!(
+        verdict_for(&analysis, msg),
+        ClassVerdict::Clean,
+        "a diverging function's balanced class verifies by its reachable terminals"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
+
 /// Ops sharing one insertion point apply Inc BEFORE Dec regardless of plan
 /// order: a container release and its endangered view's funding inc both
 /// land after the extracting `Project`, and dec-first frees the payload the
