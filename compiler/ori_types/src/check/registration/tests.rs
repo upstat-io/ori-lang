@@ -1725,3 +1725,64 @@ fn drop_impl_for_non_value_type_registers_user_drop_no_e2049() {
         "Drop type's user_drop must be set by populate_drop_burden_if_applicable"
     );
 }
+
+#[test]
+fn error_struct_registers_heap_field_burden() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    register_builtin_types(&mut checker);
+
+    let error_idx = checker
+        .pool()
+        .error_struct_idx()
+        .unwrap_or_else(|| panic!("Error struct idx must be recorded"));
+    let burden = checker
+        .type_registry()
+        .burden(error_idx)
+        .unwrap_or_else(|| {
+            panic!("Error owns message: str + trace: [TraceEntry] — burden required")
+        });
+    let mut paths: Vec<u32> = burden
+        .owned_fields
+        .iter()
+        .map(|f| f.field_path[0])
+        .collect();
+    paths.sort_unstable();
+    assert_eq!(
+        paths,
+        vec![0, 1],
+        "Error burden must own both message (field 0) and trace (field 1)"
+    );
+}
+
+#[test]
+fn trace_entry_registers_heap_field_burden() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    register_builtin_types(&mut checker);
+
+    let te_name = interner.intern("TraceEntry");
+    let entry = checker
+        .type_registry()
+        .get_by_name(te_name)
+        .unwrap_or_else(|| panic!("TraceEntry must be registered"));
+    let burden = checker
+        .type_registry()
+        .burden(entry.idx)
+        .unwrap_or_else(|| panic!("TraceEntry owns function: str + file: str — burden required"));
+    let mut paths: Vec<u32> = burden
+        .owned_fields
+        .iter()
+        .map(|f| f.field_path[0])
+        .collect();
+    paths.sort_unstable();
+    assert_eq!(
+        paths,
+        vec![0, 1],
+        "TraceEntry burden must own function (field 0) and file (field 1)"
+    );
+}

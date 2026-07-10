@@ -156,7 +156,11 @@ for file in "${CORPUS_FILES[@]}"; do
         timeout -k 5 "$STEP_TIMEOUT" env ORI_CHECK_LEAKS=1 "$bin" >"$leak_out" 2>&1 || leak_exit=$?
         leak_hit=0
         grep -qiE "not freed|leak" "$leak_out" && leak_hit=1
-        if [[ $plain_exit -ne 0 || $leak_exit -ne 0 || $leak_hit -eq 1 ]]; then
+        # Verdict: crash signal (>=124 covers timeout/SIGABRT/SIGSEGV via
+        # shell 128+N encoding), a leak report, or plain/leak exit divergence.
+        # A program whose @main deliberately returns nonzero exits identically
+        # on both legs and is NOT a failure.
+        if [[ $plain_exit -ge 124 || $leak_exit -ge 124 || $leak_hit -eq 1 || $plain_exit -ne $leak_exit ]]; then
             ((RUN_FAILS++))
             RUN_FAIL_DETAILS+=("$rel — plain=$plain_exit leak_exit=$leak_exit leak_report=$leak_hit")
             printf "  %s ... RUN FAIL (plain=%s leak=%s report=%s)\n" "$rel" "$plain_exit" "$leak_exit" "$leak_hit"

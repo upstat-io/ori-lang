@@ -81,8 +81,15 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 visibility,
                 hash,
                 None, // repr set after validation below
-                burden,
+                burden.clone(),
             );
+            // Inv: burden is keyed under BOTH the decl idx and its resolved pool
+            // idx — ARC var types carry the resolved idx.
+            if let Some(spec) = burden {
+                checker
+                    .type_registry_mut()
+                    .register_user_burden(struct_idx, spec);
+            }
         }
 
         ori_ir::TypeDeclKind::Sum(variants) => {
@@ -148,8 +155,15 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 visibility,
                 hash,
                 None, // repr set after validation below
-                burden,
+                burden.clone(),
             );
+            // Inv: burden is keyed under BOTH the decl idx and its resolved pool
+            // idx — ARC var types carry the resolved idx.
+            if let Some(spec) = burden {
+                checker
+                    .type_registry_mut()
+                    .register_user_burden(enum_idx, spec);
+            }
         }
 
         ori_ir::TypeDeclKind::Newtype(underlying) => {

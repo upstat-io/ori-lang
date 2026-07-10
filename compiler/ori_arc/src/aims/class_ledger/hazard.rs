@@ -526,6 +526,7 @@ fn cure_view_with_extraction_funding(
                     target: "ori_arc::aims::class_ledger",
                     view = ?partition.node_key(view),
                     seed_var = ?dst,
+                    seed_ty = ?func.var_types.get(dst.index()),
                     "view cure declined: seed type carries no burden (inc cannot fund)"
                 );
                 return false;
@@ -1290,8 +1291,9 @@ fn apply_container_skip_conversion(
 /// RE-BOOKED with the move-in store non-consuming (ownership never enters
 /// the container's release path), then re-planned + re-verified. The skip
 /// set derives solely from the partition's consume marks — the UNIQUE
-/// clause-preserving skip set per IA-T6 `FD_skipset_sound` (`aims-rules.md
-/// §12` PV-6). A merely-read view is never consume-marked, never skipped (over-skip = leak).
+/// clause-preserving skip set per `FD_skipset_sound`
+/// (`AimsProof.FieldDecomposition`; Spec: Annex E §AIMS §12). A merely-read
+/// view is never consume-marked, never skipped (over-skip = leak).
 #[expect(
     clippy::too_many_arguments,
     reason = "internal cure pass over analyze_class_ledger's own accumulators"

@@ -8,6 +8,7 @@
 
 use ori_ir::{Name, Span};
 
+use super::burden_compute::{compute_enum_burden, compute_struct_burden};
 use crate::{EnumVariant, FieldDef, Idx, ModuleChecker, VariantDef, VariantFields, Visibility};
 
 /// Register built-in types that user code may reference.
@@ -69,6 +70,7 @@ fn register_error_type(checker: &mut ModuleChecker<'_>) {
     ];
 
     let hash = checker.pool().hash(named_idx);
+    let burden = compute_struct_burden(&field_defs, checker.pool());
     checker.type_registry_mut().register_struct(
         error_name,
         named_idx,
@@ -78,8 +80,15 @@ fn register_error_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
-        None, // burden: builtin types carry no UserBurdenSpec
+        burden.clone(),
     );
+    // Inv: burden is keyed under BOTH the decl idx and its resolved pool
+    // idx — ARC var types carry the resolved idx.
+    if let Some(spec) = burden {
+        checker
+            .type_registry_mut()
+            .register_user_burden(struct_idx, spec);
+    }
 }
 
 /// Register the `Ordering` enum (Less, Equal, Greater).
@@ -129,6 +138,7 @@ fn register_ordering_type(checker: &mut ModuleChecker<'_>) {
     let _enum_idx = checker.pool_mut().enum_type(ordering_name, &pool_variants);
 
     let hash = checker.pool().hash(ordering_idx);
+    let burden = compute_enum_burden(&variants, checker.pool());
     checker.type_registry_mut().register_enum(
         ordering_name,
         ordering_idx,
@@ -138,7 +148,7 @@ fn register_ordering_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
-        None, // burden: builtin types carry no UserBurdenSpec (composition owned by the burden-composition pass)
+        burden,
     );
 }
 
@@ -196,6 +206,7 @@ fn register_trace_entry_type(checker: &mut ModuleChecker<'_>) {
     ];
 
     let hash = checker.pool().hash(named_idx);
+    let burden = compute_struct_burden(&field_defs, checker.pool());
     checker.type_registry_mut().register_struct(
         te_name,
         named_idx,
@@ -205,8 +216,15 @@ fn register_trace_entry_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
-        None, // burden: builtin types carry no UserBurdenSpec (composition owned by the burden-composition pass)
+        burden.clone(),
     );
+    // Inv: burden is keyed under BOTH the decl idx and its resolved pool
+    // idx — ARC var types carry the resolved idx.
+    if let Some(spec) = burden {
+        checker
+            .type_registry_mut()
+            .register_user_burden(struct_idx, spec);
+    }
 }
 
 /// Register the `Alignment` enum (Left, Center, Right) for the Formattable trait.
@@ -254,6 +272,7 @@ fn register_alignment_type(checker: &mut ModuleChecker<'_>) {
     ];
 
     let hash = checker.pool().hash(named_idx);
+    let burden = compute_enum_burden(&variants, checker.pool());
     checker.type_registry_mut().register_enum(
         type_name,
         named_idx,
@@ -263,7 +282,7 @@ fn register_alignment_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
-        None, // burden: builtin types carry no UserBurdenSpec (composition owned by the burden-composition pass)
+        burden,
     );
 }
 
@@ -312,6 +331,7 @@ fn register_sign_type(checker: &mut ModuleChecker<'_>) {
     ];
 
     let hash = checker.pool().hash(named_idx);
+    let burden = compute_enum_burden(&variants, checker.pool());
     checker.type_registry_mut().register_enum(
         type_name,
         named_idx,
@@ -321,7 +341,7 @@ fn register_sign_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
-        None, // burden: builtin types carry no UserBurdenSpec (composition owned by the burden-composition pass)
+        burden,
     );
 }
 
@@ -360,6 +380,7 @@ fn register_format_type_type(checker: &mut ModuleChecker<'_>) {
         .collect();
 
     let hash = checker.pool().hash(named_idx);
+    let burden = compute_enum_burden(&variants, checker.pool());
     checker.type_registry_mut().register_enum(
         type_name,
         named_idx,
@@ -369,7 +390,7 @@ fn register_format_type_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
-        None, // burden: builtin types carry no UserBurdenSpec (composition owned by the burden-composition pass)
+        burden,
     );
 }
 
@@ -452,6 +473,7 @@ fn register_format_spec_type(checker: &mut ModuleChecker<'_>) {
     ];
 
     let hash = checker.pool().hash(named_idx);
+    let burden = compute_struct_burden(&field_defs, checker.pool());
     checker.type_registry_mut().register_struct(
         spec_name,
         named_idx,
@@ -461,6 +483,13 @@ fn register_format_spec_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
-        None, // burden: builtin types carry no UserBurdenSpec (composition owned by the burden-composition pass)
+        burden.clone(),
     );
+    // Inv: burden is keyed under BOTH the decl idx and its resolved pool
+    // idx — ARC var types carry the resolved idx.
+    if let Some(spec) = burden {
+        checker
+            .type_registry_mut()
+            .register_user_burden(struct_idx, spec);
+    }
 }

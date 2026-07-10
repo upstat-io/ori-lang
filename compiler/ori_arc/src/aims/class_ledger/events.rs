@@ -204,8 +204,8 @@ pub(crate) fn extract_class_events_with_extraction_credits(
 /// [`extract_class_events`] with the store-consumes at the given sites
 /// RE-BOOKED as non-consuming: a consume-marked field skipped by the
 /// container's `DecPartial` never enters the container's release books, so
-/// its move-in store is not an ownership handoff (IA-T6 `payloadEvents`
-/// skipped cell; per `aims-rules.md §12` PV-6).
+/// its move-in store is not an ownership handoff (`payloadEvents` skipped
+/// cell, `AimsProof.FieldDecomposition`; Spec: Annex E §AIMS §12).
 pub(crate) fn extract_class_events_rebooked(
     func: &ArcFunction,
     classification: &LedgerClassification,
