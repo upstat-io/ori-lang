@@ -564,6 +564,18 @@ fn sum_release_sites_safe(
     safe
 }
 
+/// Per-site arm verdict for a variant-ordinal skip (PV-6 per-site
+/// refinement, `FD_site_uniform_projection`): SKIP when every path through
+/// the release site moved the payload out (extraction-dominated) or no such
+/// payload exists there (tag-excluded); WHOLE when the site is untouched by
+/// any extraction (not forward-reachable from one — the bypass edge keeps
+/// the recursive release); MIXED (None) when paths disagree — decline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SiteVerdict {
+    Skip,
+    Whole,
+}
+
 /// Whether every container release site is arm-safe for a variant-ordinal
 /// skip: dominated by an extraction of the view's payload (the reference
 /// moved out before the release), or dominated by a tag-switch arm entry

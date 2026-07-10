@@ -162,4 +162,39 @@ theorem FD_moveout_is_committed_transfer :
 theorem FD_read_is_not_transfer :
     rl2_use_transfers_ownership .ApplyToBorrowedParam = false := by rfl
 
+/-! ## §T6 — per-SITE skip refinement (path-dependent move marks) -/
+
+/-- §T6 (P5) per-SITE skip soundness: over a path universe where each path
+    carries its own moved mark and passes exactly one release site, the
+    per-path clause verdict holds exactly when each path's site skip verdict
+    matches that path's move mark — the pathwise generalization of
+    `FD_skipset_sound` for shapes whose move is path-DEPENDENT (a
+    take-project source enum: the payload moves out on the extraction path
+    and stays on the bypass path). -/
+theorem FD_per_site_skipset_sound {P : Type} (paths : List P)
+    (moved : P → Bool) (site_skip : P → Bool) :
+    (∀ p ∈ paths, threeClauses (payloadEvents (moved p) (site_skip p)) = true)
+      ↔ (∀ p ∈ paths, site_skip p = moved p) := by
+  constructor
+  · intro h p hp
+    have hc := h p hp
+    rw [FD_cell_balanced_iff] at hc
+    exact eq_of_beq hc
+  · intro h p hp
+    rw [FD_cell_balanced_iff, h p hp]
+    simp
+
+/-- §T6 (P5) the site-verdict projection: when every path through a release
+    site shares one move mark (the per-site arm-safety condition — a skip
+    site is extraction-dominated, a whole-var site is extraction-free), a
+    per-site skip assignment matching each site's uniform mark balances
+    every path. -/
+theorem FD_site_uniform_projection {P S : Type} (paths : List P)
+    (moved : P → Bool) (site_of : P → S) (skip_at : S → Bool)
+    (uniform : ∀ p ∈ paths, skip_at (site_of p) = moved p) :
+    ∀ p ∈ paths, threeClauses (payloadEvents (moved p) (skip_at (site_of p))) = true := by
+  intro p hp
+  rw [FD_cell_balanced_iff, uniform p hp]
+  simp
+
 end AimsProof

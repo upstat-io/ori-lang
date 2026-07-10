@@ -1966,6 +1966,18 @@
       "note": ""
     },
     {
+      "proof_id": "T6",
+      "proof_path": "proofs/12-provenance/T6-per-field-decomposition.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.FieldDecomposition",
+      "lean_theorem": "FD_per_site_skipset_sound",
+      "parity_tokens": [
+        "payloadevents",
+        "threeclauses"
+      ],
+      "note": "P5 per-site pathwise refinement"
+    },
+    {
       "proof_id": "CH-comp-PV",
       "proof_path": "proofs/12-provenance/comp-partition-side-table.proof",
       "kind": "theorem",

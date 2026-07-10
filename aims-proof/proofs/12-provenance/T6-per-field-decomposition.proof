@@ -51,6 +51,16 @@ Theorem IA-T6: Per-field release decomposition — skip-set derivation soundness
         instantiation: cured skip-set accepted, whole-var release rejected)
       FD_moveout_is_committed_transfer, FD_read_is_not_transfer (P4 the
         consume mark computed through the committed RL-2 table)
+      FD_per_site_skipset_sound (P5 per-SITE pathwise iff: over a path
+        universe with path-dependent move marks and one release site per
+        path, each path's clause verdict holds exactly when its site skip
+        verdict matches its move mark - the take-project source-enum shape,
+        payload moved on the extraction path and kept on the bypass path)
+      FD_site_uniform_projection (P5 the site-verdict projection: when
+        every path through a release site shares one move mark - skip
+        sites extraction-dominated, whole-var sites extraction-free - the
+        per-site assignment matching each site's uniform mark balances
+        every path)
     Bridged committed theorems and carriers consumed: LedgerEvent,
       LedgerInstr, deriveLedger, runLedger, threeClauses, ledgerSafe,
       three_clauses_iff_ledger_safe (AimsProof.Ledger);
