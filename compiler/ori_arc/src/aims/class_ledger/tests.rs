@@ -215,28 +215,16 @@ fn dec(slot: PlanSlot, var: u32) -> PlannedOp {
     }
 }
 
-// Toggle
+// Unconditional emitter
 
-/// The toggle changes the code path: the emitter is ON by default
-/// (`ORI_CLASS_LEDGER_EMITTER=0` is the explicit opt-out), and an explicit
-/// `false` makes the Step-4b dispatch a no-op (no analysis, no mutation, no
-/// replacement) while the enabled path produces a plan on the same inputs.
+/// Fresh `str` construct, read once, dead — the fully-clean class-ledger
+/// skeleton: the analysis produces a non-empty plan (the emitter is
+/// UNCONDITIONAL; the legacy opt-out toggle no longer exists).
 #[test]
-fn toggle_off_pipeline_entry_is_noop_and_default_is_on() {
+fn unconditional_emitter_produces_plan() {
     let func = one_block_func(1, vec![construct(0, vec![])], ret(0));
     let state_map = AimsStateMap::new(&func);
     let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
-    let registry = ori_types::TypeRegistry::default();
-    let interner = ori_ir::StringInterner::new();
-
-    assert!(class_ledger_emitter_enabled());
-    let mut gated = func.clone();
-    let replaced = apply_class_ledger_replacement(
-        &mut gated, &state_map, &contracts, &registry, &interner, false, true,
-    );
-    assert!(!replaced);
-    assert_eq!(gated, func);
-
     let registry = ori_types::TypeRegistry::default();
     let analysis =
         analyze_from_state_map(&func, &state_map, &contracts, &registry, &test_interner());

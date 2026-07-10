@@ -509,7 +509,7 @@ flags! {
     ///
     /// Consumed in `ori_arc::aims::class_ledger` (replacement gating).
     /// Bisects a TRMC-function class-ledger regression to the admission.
-    /// Usage: `ORI_DISABLE_TRMC_CONTEXT_LEDGER=1 ORI_CLASS_LEDGER_EMITTER=1 ori build file.ori`
+    /// Usage: `ORI_DISABLE_TRMC_CONTEXT_LEDGER=1 ori build file.ori`
     ORI_DISABLE_TRMC_CONTEXT_LEDGER
 
     /// Restore the pre-terminator placement of a borrowed-`Invoke`-arg
@@ -1479,20 +1479,6 @@ flags! {
     /// Usage: `ORI_FORCE_OVERELIMINATE=1 ori build file.ori`
     ORI_FORCE_OVERELIMINATE
 
-    /// Enable the class-ledger alternate Phase-5 emitter at the Step-4b
-    /// slot: per-function REPLACEMENT behind a readiness gate. A function
-    /// whose class-ledger analysis verifies fully clean takes its burden
-    /// ops from the class-ledger plan and skips legacy emission plus the
-    /// Phase-6 elimination/repair passes; any declined / non-clean /
-    /// user-drop / zero-class function falls back to the legacy path
-    /// unchanged. Default (unset) is byte-identical.
-    ///
-    /// Consumed directly in `ori_arc::aims::class_ledger` (which can't
-    /// depend on `oric`). Defined here for documentation and
-    /// `check-debug-flags.sh` consistency. Experimental until the
-    /// differential-harness cutover (`diagnostics/class-ledger-diff.sh`).
-    /// Usage: `ORI_CLASS_LEDGER_EMITTER=1 ori build file.ori`
-    ORI_CLASS_LEDGER_EMITTER
 
     // Runtime Trace Flags
     // Note: These are checked directly in `ori_rt` (which can't depend on `oric`).

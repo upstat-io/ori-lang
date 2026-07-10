@@ -26,10 +26,6 @@ fn rc_remarks_survivor_fixture_emits_nonempty_stream() {
         &[
             ("ORI_RC_REMARKS", remarks_path_str),
             ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-            // The remark disposition seam lives in the legacy Phase-6
-            // elimination; a ledger-replaced function bypasses it, so the
-            // survivor pin runs the legacy walk explicitly.
-            ("ORI_CLASS_LEDGER_EMITTER", "0"),
         ],
     );
 
@@ -84,7 +80,6 @@ fn rc_remarks_cli_flag_emits_stream_to_file() {
             binary_path.to_str().expect("utf-8 binary path"),
         ])
         .env("ORI_STDLIB", stdlib_path())
-        .env("ORI_CLASS_LEDGER_EMITTER", "0")
         .output()
         .expect("execute ori build --emit-rc-remarks");
 

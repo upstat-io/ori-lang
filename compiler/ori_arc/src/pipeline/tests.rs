@@ -764,9 +764,9 @@ fn aims_pipeline_panics_on_synthetic_invariant_break() {
 
 // Class-ledger Step-4b replacement (pipeline-level)
 
-/// Drive `run_aims_pipeline_gated` with the class-ledger toggle threaded
-/// explicitly (no process-wide env mutation).
-fn run_gated_pipeline(func: &mut ArcFunction, class_ledger_enabled: bool) {
+/// Drive `run_aims_pipeline` over a minimal config (the class-ledger
+/// emitter is unconditional; a declined function falls back per-function).
+fn run_pipeline(func: &mut ArcFunction) {
     let interner = ori_ir::StringInterner::new();
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
     let mut contracts = rustc_hash::FxHashMap::default();
@@ -789,7 +789,7 @@ fn run_gated_pipeline(func: &mut ArcFunction, class_ledger_enabled: bool) {
         sigs: &sigs,
         type_registry: &type_registry,
     };
-    let result = super::aims_pipeline::run_aims_pipeline_gated(func, &config, class_ledger_enabled);
+    let result = super::aims_pipeline::run_aims_pipeline(func, &config);
     assert!(
         result.is_ok(),
         "pipeline must succeed for the class-ledger fixtures"
@@ -906,13 +906,13 @@ fn count_rc_shape(func: &ArcFunction, dec_var: ArcVarId) -> (usize, usize, usize
     (incs, decs_on_var, burden)
 }
 
-/// Toggle ON + fully-clean function: the class-ledger plan replaces the
-/// legacy emission — exactly ONE lowered release after the last read, no
+/// Fully-clean function: the class-ledger plan replaces the legacy
+/// emission — exactly ONE lowered release after the last read, no
 /// duplicate legacy ops, no burden residue, edge machinery unmarked.
 #[test]
 fn class_ledger_replaces_clean_function_with_lowered_plan() {
     let mut func = class_ledger_clean_fixture();
-    run_gated_pipeline(&mut func, true);
+    run_pipeline(&mut func);
 
     assert!(func.class_ledger_emission, "replacement must commit");
     let (incs, decs_on_v0, burden) = count_rc_shape(&func, v(0));
@@ -932,63 +932,34 @@ fn class_ledger_replaces_clean_function_with_lowered_plan() {
     );
 }
 
-/// Toggle ON + a declined class: the function falls back to the legacy
-/// path, byte-identical (instruction streams) to a toggle-OFF run.
+/// A declined class: the function falls back to the legacy walk
+/// per-function (the readiness gate stays fail-closed until the walk is
+/// deleted); the legacy path marks `burden_emitted`.
 #[test]
-fn class_ledger_declined_function_falls_back_byte_identical_to_legacy() {
-    let mut gated = class_ledger_declined_fixture();
-    let mut legacy = class_ledger_declined_fixture();
-    run_gated_pipeline(&mut gated, true);
-    run_gated_pipeline(&mut legacy, false);
+fn class_ledger_declined_function_falls_back_to_legacy() {
+    let mut func = class_ledger_declined_fixture();
+    run_pipeline(&mut func);
 
+    assert!(!func.class_ledger_emission, "declined class must fall back");
     assert!(
-        !gated.class_ledger_emission,
-        "declined class must fall back"
+        func.burden_emitted.iter().any(|marked| *marked),
+        "the legacy fallback marks burden_emitted"
     );
-    assert_eq!(gated.blocks, legacy.blocks);
-    assert_eq!(gated.burden_emitted, legacy.burden_emitted);
-}
-
-/// Toggle OFF: byte-identical (instruction streams) across runs on both
-/// fixtures; the replacement flag never flips.
-#[test]
-fn class_ledger_toggle_off_is_byte_identical_on_both_fixtures() {
-    for fixture in [class_ledger_clean_fixture, class_ledger_declined_fixture] {
-        let mut first = fixture();
-        let mut second = fixture();
-        run_gated_pipeline(&mut first, false);
-        run_gated_pipeline(&mut second, false);
-        assert!(!first.class_ledger_emission);
-        assert_eq!(first.blocks, second.blocks);
-        assert_eq!(first.burden_emitted, second.burden_emitted);
-    }
 }
 
 /// Double-emission guard: the replaced output carries the plan's single
-/// release and nothing else; the legacy path independently converges to the
-/// same single release (two emitters on one function would double it).
+/// release and nothing else (two emitters on one function would double it);
+/// replacement never marks `burden_emitted`.
 #[test]
 fn class_ledger_replaced_function_carries_no_legacy_ops() {
     let mut replaced = class_ledger_clean_fixture();
-    let mut legacy = class_ledger_clean_fixture();
-    run_gated_pipeline(&mut replaced, true);
-    run_gated_pipeline(&mut legacy, false);
+    run_pipeline(&mut replaced);
 
     let (replaced_incs, replaced_decs, replaced_burden) = count_rc_shape(&replaced, v(0));
     assert_eq!(
         (replaced_incs, replaced_decs, replaced_burden),
         (0, 1, 0),
         "replaced output is exactly the lowered plan"
-    );
-    let (_, legacy_decs, legacy_burden) = count_rc_shape(&legacy, v(0));
-    assert_eq!(
-        legacy_decs, 1,
-        "legacy converges to the same single release"
-    );
-    assert_eq!(legacy_burden, 0);
-    assert!(
-        legacy.burden_emitted.iter().any(|marked| *marked),
-        "legacy marks burden_emitted; replacement leaves it unmarked"
     );
     assert!(replaced.burden_emitted.iter().all(|marked| !marked));
 }

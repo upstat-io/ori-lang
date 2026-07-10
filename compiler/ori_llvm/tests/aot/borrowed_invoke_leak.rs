@@ -157,30 +157,6 @@ fn multi_variant_nonheap_arm_unperturbed_clean() {
     );
 }
 
-/// EV semantic pin: `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1` restores the
-/// recursive-tree crasher — proves the no-sink edge-death mode (now reaching
-/// `EnumVariant` roots) is the cure surface for the bare-dec UAF.
-#[test]
-fn toggle_disables_release_recursive_tree_crashes_again() {
-    use crate::util::compile_and_run_with_build_env;
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        include_str!("fixtures/borrowed_invoke_leak/recursive_tree_no_sink.ori"),
-        &[
-            ("ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE", "1"),
-            ("ORI_CLASS_LEDGER_EMITTER", "0"),
-            // Isolate the lineage-release bisection axis: the borrowed-Invoke-arg
-            // dec relocation independently covers this shape, so it is disabled
-            // here.
-            ("ORI_DISABLE_BORROWED_INVOKE_ARG_DEC_RELOCATION", "1"),
-        ],
-    );
-    assert_ne!(
-        exit, 0,
-        "with the borrowed-Invoke lineage release disabled, the recursive-tree pin \
-         must regress (crash/leak, exit != 0)\nstderr:\n{stderr}"
-    );
-}
-
 // ----- Original (collection-family) positive pins (the no-sink edge-death cure) -----
 
 /// Pin 1: single-param list-Eq. The minimal repro — a fresh `[int]` borrowed
@@ -283,27 +259,3 @@ fn non_collection_struct_root_unperturbed_clean() {
 }
 
 // ----- Semantic pin: the toggle restores the leak (load-bearing) -----
-
-/// Semantic pin: `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1` restores the
-/// pin-1 minimal leak — proves the no-sink edge-death mode is the cure surface.
-/// The toggle gates the WHOLE scan (dead-param + no-sink modes), so disabling it
-/// reverts the inline-before-terminator dec placement.
-#[test]
-fn toggle_disables_no_sink_release_pin1_leaks_again() {
-    use crate::util::compile_and_run_with_build_env;
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        include_str!("fixtures/borrowed_invoke_leak/single_param_eq.ori"),
-        &[
-            ("ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE", "1"),
-            ("ORI_CLASS_LEDGER_EMITTER", "0"),
-            // Isolate the lineage-release bisection axis: the borrowed-Invoke-arg
-            // dec relocation independently covers this shape, so it is disabled
-            // here.
-            ("ORI_DISABLE_BORROWED_INVOKE_ARG_DEC_RELOCATION", "1"),
-        ],
-    );
-    assert_eq!(
-        exit, 2,
-        "with the borrowed-Invoke lineage release disabled, pin-1 must leak (exit 2)\nstderr:\n{stderr}"
-    );
-}

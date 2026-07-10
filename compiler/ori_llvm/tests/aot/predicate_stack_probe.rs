@@ -63,61 +63,6 @@ fn probe_move_alias_chain_str() {
     assert_burden_path_self_sufficient(src, "move_alias_chain_str");
 }
 
-/// Negative pin (the matrix-clamping counterpart of
-/// `probe_move_alias_chain_str`): `ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP=1`
-/// restores the RL-1 duplication classification for a `Let { Var(src) }` alias
-/// of a `transfers_through_return` param — a spurious last-use dec fires on an
-/// alias of the moved-through allocation before the final `Return`, double-
-/// freeing it. The move-alias chain must include a borrow-read (`a.length()`)
-/// so the base walk actually has a duplication classification to restore; a
-/// pure move-through chain with no read emits zero burden ops either way.
-/// Spec: Annex E §AIMS RL-1 + RL-34 + RL-2.
-#[test]
-fn probe_move_alias_chain_str_forwarder_dedup_disabled_double_frees_negative() {
-    use crate::util::compile_and_run_with_build_env;
-    let src = r#"
-@id_chain (s: str) -> str = {
-    let a = s;
-    let n = a.length();
-    let b = a;
-    let c = b;
-    c
-}
-
-@main () -> int = {
-    let r = id_chain(s: "this is a very long string well past the sso inline threshold");
-    print(msg: r);
-    0
-}
-"#;
-    let probe: &[(&str, &str)] = &[
-        ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-        ("ORI_VERIFY_ARC", "1"),
-        ("ORI_VERIFY_EACH", "1"),
-    ];
-
-    // Control: burden-sole probe, forwarder-identity alias dedup intact.
-    let (control_exit, _stdout, control_stderr) = compile_and_run_with_build_env(src, probe);
-    assert_eq!(
-        control_exit, 0,
-        "burden-sole probe with forwarder-identity alias dedup intact must run \
-         clean (no leak, no double-free)\nstderr:\n{control_stderr}"
-    );
-
-    // Forced: dedup disabled — the alias reverts to a duplication classification
-    // and emits a spurious pre-Return dec on the moved-through allocation.
-    let mut forced: Vec<(&str, &str)> = probe.to_vec();
-    forced.push(("ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP", "1"));
-    forced.push(("ORI_CLASS_LEDGER_EMITTER", "0"));
-    let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
-    assert_ne!(
-        forced_exit, 0,
-        "disabling forwarder-identity alias dedup must double-free the moved-\
-         through allocation (exit != 0) — proves the positive pin actively \
-         catches the over-release regression\nstderr:\n{forced_stderr}"
-    );
-}
-
 #[test]
 fn probe_dup_alias_live_source_str() {
     // Duplication: a Let-Var alias whose SOURCE stays live afterward — RL-1
@@ -188,7 +133,6 @@ type Holder = { kept: str }
     // independently, over-releasing the shared allocation.
     let mut forced: Vec<(&str, &str)> = probe.to_vec();
     forced.push(("ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING", "1"));
-    forced.push(("ORI_CLASS_LEDGER_EMITTER", "0"));
     let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
     assert_ne!(
         forced_exit, 0,
@@ -339,7 +283,6 @@ fn probe_closure_capture_last_use_str_burden_ops_disabled_leaks_negative() {
     // never lands, leaking the captured heap string.
     let mut forced: Vec<(&str, &str)> = probe.to_vec();
     forced.push(("ORI_DISABLE_BURDEN_OPS", "1"));
-    forced.push(("ORI_CLASS_LEDGER_EMITTER", "0"));
     let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
     assert_ne!(
         forced_exit, 0,
@@ -3698,10 +3641,6 @@ type Config = { settings: {str: int}, name: str }
 }
 "#;
     assert_burden_path_self_sufficient(src, "config_projected_fields_compared");
-    // NEGATIVE half: the same program leaks / double-frees with the
-    // multi-borrow-view-alias surplus suppression DISABLED — the arm is the cure,
-    // not an incidental pass.
-    assert_broken_without_multi_borrow_view_alias_surplus(src, "config_projected_fields_compared");
 }
 
 #[test]
@@ -5124,123 +5063,6 @@ fn probe_transfer_through_return_param_borrowed_does_not_leak_negative() {
     );
 }
 
-/// Compile `source` on the burden-only path WITH the Phase-6 lineage re-balance
-/// DISABLED (`ORI_DISABLE_LINEAGE_REBALANCE=1`) and assert it DOUBLE-FREES /
-/// crashes (exit != 0). The negative half of a re-balance semantic pin: it
-/// proves the cure is LOAD-BEARING — without the re-balance the same program is
-/// broken, so the positive (re-balance ON) pin is not passing by accident.
-fn assert_double_free_without_lineage_rebalance(source: &str, label: &str) {
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        source,
-        &[
-            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-            ("ORI_DISABLE_LINEAGE_REBALANCE", "1"),
-            ("ORI_CLASS_LEDGER_EMITTER", "0"),
-        ],
-    );
-    assert!(
-        exit != -1,
-        "[{label}] build FAILED under the ablation mask — the mutation pin never ran, so \
-         no double-free verdict exists\nbuild stderr:\n{stderr}"
-    );
-    assert!(
-        exit != 0,
-        "[{label}] expected a double-free / crash with the lineage re-balance DISABLED \
-         (the re-balance is the cure) but the program exited 0 — the positive pin may be \
-         passing for an unrelated reason"
-    );
-}
-
-// Mutation-verify for the Phase-5 RL-5 dead-forwarder-param release on the
-// UNPRUNED shape: both cures over the dead-merge-param leak class are ablated
-// together — match-merge mutable-param pruning (the default lowering-time cure
-// that dissolves never-reassigned bindings from the merge signature) AND the
-// RL-5 dead-forwarder-param release (the Phase-5 cure for whatever dead-param
-// shape survives). With pruning disabled the dead params exist and the RL-5
-// dec is their sole release, so ablating it too must leak / crash. Proves the
-// dead-param release is the cure, not an incidental pass (same composed
-// dual-cure ablation practice as the burden_match_release.rs pins).
-fn assert_leak_with_pruning_and_dead_forwarder_release_disabled(source: &str, label: &str) {
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        source,
-        &[
-            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-            ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
-            ("ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE", "1"),
-            ("ORI_CLASS_LEDGER_EMITTER", "0"),
-        ],
-    );
-    assert!(
-        exit != -1,
-        "[{label}] build FAILED under the composed ablation mask — the mutation pin never \
-         ran, so no leak verdict exists\nbuild stderr:\n{stderr}"
-    );
-    assert!(
-        exit != 0 || stderr.to_lowercase().contains("leak"),
-        "[{label}] expected a leak / crash with the dead-forwarder-param release DISABLED \
-         on the unpruned shape (the Phase-5 RL-5 dec is the sole release there) but the \
-         program exited 0 with no leak — the positive pin may be passing for an unrelated \
-         reason"
-    );
-}
-
-/// Mutation-verify for the Phase-5 multi-borrow-view-alias surplus suppression:
-/// with the arm DISABLED the fresh `Construct` owner consumed only through >= 2
-/// same-allocation whole-var borrow-view aliases keeps its surplus per-alias
-/// decs + keep-alive inc, so the burden-only run leaks (cleanup-on) or
-/// double-frees (cleanup-off). Proves the arm is the cure, not an incidental
-/// pass.
-fn assert_broken_without_multi_borrow_view_alias_surplus(source: &str, label: &str) {
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        source,
-        &[
-            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-            ("ORI_DISABLE_MULTI_BORROW_VIEW_ALIAS_SURPLUS", "1"),
-            ("ORI_CLASS_LEDGER_EMITTER", "0"),
-        ],
-    );
-    assert!(
-        exit != -1,
-        "[{label}] build FAILED under the ablation mask — the mutation pin never ran, so \
-         no leak verdict exists\nbuild stderr:\n{stderr}"
-    );
-    assert!(
-        exit != 0 || stderr.to_lowercase().contains("leak"),
-        "[{label}] expected a leak / double-free with the multi-borrow-view-alias \
-         surplus suppression DISABLED (the Phase-5 RL-2 release-once arm is the cure) \
-         but the program exited 0 with no leak — the positive pin may be passing for \
-         an unrelated reason"
-    );
-}
-
-// Mutation-verify for the Phase-5 construct-fed dead-param lineage cure: with the
-// pass DISABLED the sum-aggregate-`Construct`-fed allocation reaching the dead
-// merge-block param over-emits (2 spurious keep-alive incs + 1 misplaced release)
-// → +1 leak on the burden-only path. Proves the suppression + dead-param release
-// is the cure, not an incidental pass. Run on the DEFAULT backend (not the probe):
-// these are both-paths-fail lineages whose default-path leak the cure also clears,
-// so toggling the cure off on the default path restores the leak.
-fn assert_leak_without_construct_fed_dead_param_release(source: &str, label: &str) {
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        source,
-        &[
-            ("ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE", "1"),
-            ("ORI_CLASS_LEDGER_EMITTER", "0"),
-        ],
-    );
-    assert!(
-        exit != -1,
-        "[{label}] build FAILED under the ablation mask — the mutation pin never ran, so \
-         no leak verdict exists\nbuild stderr:\n{stderr}"
-    );
-    assert!(
-        exit != 0 || stderr.to_lowercase().contains("leak"),
-        "[{label}] expected a leak / crash with the construct-fed dead-param release \
-         DISABLED (the Phase-5 suppression + RL-5 dec is the cure) but the program exited \
-         0 with no leak — the positive pin may be passing for an unrelated reason"
-    );
-}
-
 #[test]
 fn probe_aggregate_transfer_forwarder_box_no_double_free() {
     // POSITIVE PIN (the §09.2 generics-forwarder transfer-through-return cure):
@@ -5267,9 +5089,6 @@ type Box<T> = { value: T };
 }
 "#;
     assert_burden_path_self_sufficient(src, "aggregate_transfer_forwarder_box");
-    // NEGATIVE half: the same program double-frees with the re-balance OFF — the
-    // re-balance is the cure, not an incidental pass.
-    assert_double_free_without_lineage_rebalance(src, "aggregate_transfer_forwarder_box");
 }
 
 #[test]
@@ -5301,45 +5120,6 @@ fn probe_aggregate_transfer_forwarder_option_no_double_free() {
 }
 "#;
     assert_burden_path_self_sufficient(src, "aggregate_transfer_forwarder_option");
-    // Matrix cell 2 backstop: pruning ON (default) + RL-5 release OFF stays clean —
-    // merge-param pruning alone dissolves this program's dead-param shape at
-    // lowering, an independent layered cure over the same leak class.
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        src,
-        &[
-            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-            ("ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE", "1"),
-            ("ORI_CLASS_LEDGER_EMITTER", "0"),
-        ],
-    );
-    assert!(
-        exit == 0 && !stderr.to_lowercase().contains("leak"),
-        "[aggregate_transfer_forwarder_option] pruning alone must cure the pruned-default \
-         shape with the RL-5 release disabled\nexit={exit} stderr:\n{stderr}"
-    );
-    // Matrix cell 3 paired positive: pruning OFF + RL-5 release ON stays clean —
-    // the RL-5 dead-at-entry release alone cures the unpruned shape (the
-    // should-work partner of the composed-ablation mutation-verify below).
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        src,
-        &[
-            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-            ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
-            ("ORI_CLASS_LEDGER_EMITTER", "0"),
-        ],
-    );
-    assert!(
-        exit == 0 && !stderr.to_lowercase().contains("leak"),
-        "[aggregate_transfer_forwarder_option] the RL-5 release alone must cure the \
-         unpruned shape\nexit={exit} stderr:\n{stderr}"
-    );
-    // NEGATIVE half (matrix cell 4): the same program leaks with the Phase-5
-    // dead-forwarder-param release DISABLED on the unpruned shape — the release
-    // is the cure, not an incidental pass.
-    assert_leak_with_pruning_and_dead_forwarder_release_disabled(
-        src,
-        "aggregate_transfer_forwarder_option",
-    );
 }
 
 #[test]
@@ -5400,13 +5180,6 @@ fn probe_construct_fed_dead_param_for_yield_option_str_no_leak() {
 }
 "#;
     assert_burden_path_self_sufficient(src, "construct_fed_dead_param_for_yield_option_str");
-    // NEGATIVE half (mutation-verify): the same program LEAKS with the construct-fed
-    // dead-param release DISABLED — the cure is the suppression + release, not an
-    // incidental pass. Run on the DEFAULT backend (both-paths-fail lineage).
-    assert_leak_without_construct_fed_dead_param_release(
-        src,
-        "construct_fed_dead_param_for_yield_option_str",
-    );
 }
 
 #[test]

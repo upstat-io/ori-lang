@@ -39,38 +39,6 @@ fn test_yield_identity_str_list_two_calls() {
     );
 }
 
-/// Toggle-parity semantic pin for the `two_calls` surface-(a) cure:
-/// `ORI_DISABLE_ITER_CONSUME_FRESH_INVOKE_RESULT_ROOT=1` declines admitting the
-/// fresh-self-alloc `@clone_list` Invoke result (certified by the new
-/// `ReturnContract.returns_fresh_self_alloc` contract field) as an iter-consume
-/// dead-thread orphan-inc root, restoring the pre-cure `a`-buffer + element leak
-/// (exit 2). Proves the fresh-Invoke-result root admission is the load-bearing
-/// cure surface. Run under the gated burden-only env so the predicate stack does
-/// not mask the burden-path leak.
-#[test]
-fn test_yield_identity_two_calls_with_fresh_invoke_root_disabled_leaks_again() {
-    use crate::util::compile_and_run_with_build_env;
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        include_str!("../fixtures/fat_ptr_iter/for_yield/yield_identity_str_list_two_calls.ori"),
-        &[
-            ("ORI_DISABLE_ITER_CONSUME_FRESH_INVOKE_RESULT_ROOT", "1"),
-            ("ORI_CLASS_LEDGER_EMITTER", "0"),
-            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-        ],
-    );
-    assert_ne!(
-        exit, 0,
-        "with the fresh-Invoke-result dead-thread root disabled, the two_calls \
-         cell must regress (the a-buffer orphan inc leaks, exit != 0)\n\
-         stderr:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("memory leak"),
-        "the regression is the pre-cure orphan-inc leak shape\nexit={exit}\n\
-         stderr:\n{stderr}"
-    );
-}
-
 // For-yield with non-scalar elements — elem_dec_fn correctness
 
 /// `[str]` for-yield identity — borrowed str elements yielded into new list.

@@ -327,6 +327,26 @@ fn eliminate_whole_function(
     compact_removed(func, &remove);
 }
 
+/// Emit one observability-only `missed` remark per VAR carrying a planned
+/// `BurdenInc` in a class-ledger-replaced function. A replaced function skips
+/// Phase-6 elimination and lowers its plan mechanically, so EVERY planned inc
+/// is a surviving RC op. No-op (zero walk) when `ORI_RC_REMARKS` is unset.
+pub(crate) fn emit_survivor_remarks_all_kept(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    interner: &ori_ir::StringInterner,
+) {
+    if !rc_remarks_enabled() {
+        return;
+    }
+    let remove: Vec<Vec<bool>> = func
+        .blocks
+        .iter()
+        .map(|block| vec![false; block.body.len()])
+        .collect();
+    emit_survivor_remarks(func, state_map, &remove, interner);
+}
+
 /// Emit one observability-only `missed` remark per VAR whose `BurdenInc`
 /// survives Phase-6 elimination (its op is kept — `remove` is false). Per-VAR,
 /// not per-op: a var's whole-var incs are kept/elided atomically, so one remark

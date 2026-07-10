@@ -8,18 +8,16 @@
 //! calculus (`AimsProof.Ledger`): the owed count agrees on every edge into
 //! every merge block; a release is never hoisted past a merge point.
 //!
-//! Staging: with `ORI_CLASS_LEDGER_EMITTER=1` the pipeline runs the analysis
-//! (classification + insertion plan + per-class readiness verdict) and, per
-//! function, REPLACES the legacy Step-4b emission with the applied plan when
-//! the replacement gate holds (`replace` module: FULLY CLEAN readiness with
-//! one class or more, no user-`@drop` type in the function, dominance-checked
-//! op placement, and a VF-1 structural check on a clone — commit-or-discard).
-//! Any function failing a gate falls back to the legacy walk unchanged; the
-//! per-function mode + readiness verdict are reported on the
-//! `ori_arc::aims::class_ledger` tracing target. Toggle off, the pipeline is
-//! byte-identical to the legacy path. Corpus-level default-on cutover is
-//! deferred to the differential harness. A class whose per-class net
-//! dataflow cannot be proven (non-converged, merge-disagreeing, or an
+//! The pipeline runs the analysis (classification + insertion plan +
+//! per-class readiness verdict) and, per function, REPLACES the legacy
+//! Step-4b emission with the applied plan when the replacement gate holds
+//! (`replace` module: FULLY CLEAN readiness with one class or more, no
+//! user-`@drop` type in the function, dominance-checked op placement, and a
+//! VF-1 structural check on a clone — commit-or-discard). Any function
+//! failing a gate falls back to the legacy walk unchanged; the per-function
+//! mode + readiness verdict are reported on the
+//! `ori_arc::aims::class_ledger` tracing target. A class whose per-class
+//! net dataflow cannot be proven (non-converged, merge-disagreeing, or an
 //! inexpressible release) is DECLINED — no ops are planned for it and the
 //! readiness summary reports it (fail-closed, never a wrong placement).
 
@@ -37,8 +35,6 @@ pub(crate) use verify::{ClassVerdict, ReadinessSummary};
 #[cfg(test)]
 pub(crate) use emit::{DeclineReason, PlanSlot, PlannedOpKind};
 
-use std::sync::LazyLock;
-
 use ori_ir::Name;
 use rustc_hash::FxHashMap;
 
@@ -52,21 +48,6 @@ use crate::aims::intraprocedural::ledger_events::{
 use crate::aims::intraprocedural::AimsStateMap;
 use crate::graph::compute_predecessors;
 use crate::ir::ArcFunction;
-
-// Env: ORI_CLASS_LEDGER_EMITTER — the class-ledger Phase-5 emitter
-// (insertion plan + per-class verification + readiness report +
-// per-function replacement of the legacy Step-4b emission behind the
-// readiness gate; non-clean functions fall back to the legacy walk).
-// Default ON; `ORI_CLASS_LEDGER_EMITTER=0` restores the legacy walk for
-// every function (bisection escape while the legacy walk still exists),
-// stable.
-static CLASS_LEDGER_EMITTER: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_CLASS_LEDGER_EMITTER").as_deref() != Ok("0"));
-
-/// Whether the class-ledger emitter analysis is enabled for this process.
-pub(crate) fn class_ledger_emitter_enabled() -> bool {
-    *CLASS_LEDGER_EMITTER
-}
 
 /// One class's planning outcome, keyed by its partition representative.
 #[derive(Debug)]
@@ -297,9 +278,7 @@ pub(crate) fn analyze_class_ledger(
 /// the readiness verdict + emission mode on the `ori_arc::aims::class_ledger`
 /// tracing target, and return whether the plan replaced the legacy emission.
 ///
-/// `class_ledger_enabled` carries the toggle read at the pipeline's outer
-/// entry (`class_ledger_emitter_enabled`); off = no analysis, no report,
-/// `false`. `legacy_emission_enabled = false` (Step-4b emission disabled)
+/// `legacy_emission_enabled = false` (Step-4b emission disabled)
 /// keeps the analysis-only readiness report and never replaces.
 pub(crate) fn apply_class_ledger_replacement(
     func: &mut ArcFunction,
@@ -307,12 +286,8 @@ pub(crate) fn apply_class_ledger_replacement(
     contracts: &FxHashMap<Name, MemoryContract>,
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
-    class_ledger_enabled: bool,
     legacy_emission_enabled: bool,
 ) -> bool {
-    if !class_ledger_enabled {
-        return false;
-    }
     let outcome = attempt_replacement(
         func,
         state_map,

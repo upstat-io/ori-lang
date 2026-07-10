@@ -175,21 +175,6 @@ pub(crate) fn run_aims_pipeline(
     func: &mut ArcFunction,
     config: &AimsPipelineConfig<'_>,
 ) -> Result<AimsPipelineResult, Vec<crate::verify::VerifyError>> {
-    run_aims_pipeline_gated(
-        func,
-        config,
-        crate::aims::class_ledger::class_ledger_emitter_enabled(),
-    )
-}
-
-/// [`run_aims_pipeline`] body with the class-ledger toggle threaded as an
-/// explicit parameter — the env read stays at the outer entry so tests can
-/// drive both Step-4b emission paths without process-wide env mutation.
-pub(crate) fn run_aims_pipeline_gated(
-    func: &mut ArcFunction,
-    config: &AimsPipelineConfig<'_>,
-    class_ledger_enabled: bool,
-) -> Result<AimsPipelineResult, Vec<crate::verify::VerifyError>> {
     // Steps 3–3a: compute var_reprs, detect immortals, normalize with
     // TRMC rewrite loop (idempotent — at most 2 iterations).
     let (norm_result, immortals, did_trmc_transform, pre_trmc_func) =
@@ -261,8 +246,8 @@ pub(crate) fn run_aims_pipeline_gated(
         config.observer,
     );
 
-    // Step 4b dispatch: class-ledger replacement (gated on the toggle + the
-    // per-function readiness gate) or the legacy burden walk. The analysis
+    // Step 4b dispatch: class-ledger replacement (gated on the per-function
+    // readiness gate) or the legacy burden walk. The analysis
     // reads the pre-burden IR + converged state map (before any legacy ops
     // enter the class event streams); a replaced function carries the applied
     // plan and skips the legacy emission entirely (never both emitters).
@@ -272,12 +257,16 @@ pub(crate) fn run_aims_pipeline_gated(
         config.contracts,
         config.type_registry,
         config.interner,
-        class_ledger_enabled,
         burden_emission::legacy_emission_enabled(),
     );
 
     // Step 4b: emit BurdenInc/BurdenDec ops based on converged state map.
-    if !class_ledger_replaced {
+    if class_ledger_replaced {
+        // A replaced function skips Phase-6 elimination (its plan lowers
+        // mechanically), so every planned inc is a surviving RC op — emit the
+        // observability remarks here, at the disposition seam it bypasses.
+        crate::aims::realize::emit_survivor_remarks_all_kept(func, &state_map, config.interner);
+    } else {
         burden_emission::emit_burden_ops_step(func, config, &derived_ownership, &state_map);
     }
     trace_pipeline_checkpoint(func, "emit_burden_ops", config.interner, config.observer);
