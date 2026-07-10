@@ -335,7 +335,7 @@ impl Classifier<'_> {
         default_owned: bool,
     ) {
         self.classify_call_args(stream, Some(callee), args, arg_ownership, default_owned);
-        if let Some(event) = self.call_result_event(dst, Some(callee)) {
+        if let Some(event) = self.call_result_event(dst, Some(callee), args.first().copied()) {
             stream.push(event);
         }
     }
@@ -407,6 +407,7 @@ impl Classifier<'_> {
         &mut self,
         dst: ArcVarId,
         callee: Option<Name>,
+        receiver: Option<ArcVarId>,
     ) -> Option<ClassInstr> {
         if self.excluded(dst) {
             return None;
@@ -426,13 +427,18 @@ impl Classifier<'_> {
             }
             Some(ApplyAliasSource::Wrapped(_)) | None => false,
         };
-        // Retain-less borrow-view accessor: the runtime returns the interior
-        // pointer with NO reference minted — a pure view of the receiver's
-        // allocation graph (a credit OR birth here books an owed reference
-        // no runtime release matches; the receiver's own release covers the
-        // viewed interior).
+        // Retain-less borrow-view accessor: the runtime returns an INTERIOR
+        // allocation's pointer with NO reference minted — the receiver's
+        // aggregate keeps it alive and its own recursive release frees it.
+        // The result books a BORROWED-origin arrival (the borrowed-param
+        // discipline): owed 0 at entry, reads floor 0 (the external owner
+        // covers them), and every consume hand-off needs its own funded
+        // duplication inc (`plan_incs` borrowed-rooted rule) — an Opaque
+        // birth here would plan a release that frees the interior
+        // allocation out from under the still-live receiver.
         if callee.is_some_and(|name| self.borrow_view_accessors.contains(&name)) {
-            return None;
+            let _ = receiver;
+            return Some(self.birth_instr(dst, ClassOrigin::Borrowed));
         }
         if unified_alias || returns_sharing_view {
             // RL-34 passthrough return leg / sharing-view producer: the

@@ -40,7 +40,6 @@ use rustc_hash::FxHashMap;
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, NodeIdx};
-use crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition;
 use crate::aims::intraprocedural::ledger_events::EventSite;
 use crate::aims::intraprocedural::ledger_events::{
     classify_function, BoundaryFacts, LedgerClassification,
@@ -94,7 +93,10 @@ pub(crate) fn analyze_from_state_map(
         .iter()
         .map(|(name, contract)| (*name, BoundaryFacts::from_contract(contract)))
         .collect();
-    let mut partition = compute_birth_site_partition(func, state_map);
+    let mut partition =
+        crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition(
+            func, state_map,
+        );
     let classification =
         classify_function(func, state_map, &mut partition, &boundary_facts, interner);
     analyze_class_ledger(

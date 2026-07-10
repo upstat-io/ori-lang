@@ -102,11 +102,15 @@ impl Classifier<'_> {
                 ArcTerminator::Invoke {
                     dst,
                     func: callee,
+                    args,
                     normal,
                     ..
-                } => (self.call_result_event(*dst, Some(*callee)), normal.index()),
+                } => (
+                    self.call_result_event(*dst, Some(*callee), args.first().copied()),
+                    normal.index(),
+                ),
                 ArcTerminator::InvokeIndirect { dst, normal, .. } => {
-                    (self.call_result_event(*dst, None), normal.index())
+                    (self.call_result_event(*dst, None, None), normal.index())
                 }
                 _ => continue,
             };

@@ -285,9 +285,10 @@ const ACCESSOR_RETAIN_METHOD_NAMES: &[&str] = &[
 /// would double-release the receiver's allocation.
 ///
 /// Sorted alphabetically.
+/// `trace` is NOT here: `_ori_format_error_trace` renders a FRESH owned str
+/// (`OriStr::from_owned`), so its call result is an owned arrival.
 const BORROW_VIEW_ACCESSOR_METHOD_NAMES: &[&str] = &[
-    "trace",         // Error/Result.trace — renders from the borrowed trace list
-    "trace_entries", // Error/Result.trace_entries — borrows the trace list
+    "trace_entries", // Error/Result.trace_entries — loads the interior trace list, no retain
 ];
 
 /// Collect interned [`Name`]s for retain-less borrow-view accessor methods.

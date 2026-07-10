@@ -517,6 +517,83 @@ fn apply_args_classify_by_ownership_and_result_births_opaque() {
     );
 }
 
+/// `trace` renders a FRESH owned str (`_ori_format_error_trace` returns
+/// `OriStr::from_owned`), so its call result books an owned arrival
+/// (Birth) the Return consume balances — it is NOT a borrow-view accessor.
+#[test]
+fn trace_result_books_owned_arrival_birth() {
+    let interner = test_interner();
+    let callee = interner.intern("trace");
+    let func = one_block_func(
+        2,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::Apply {
+                dst: v(1),
+                ty: ty(0),
+                func: callee,
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            },
+        ],
+        ArcTerminator::Return { value: v(1) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let classification =
+        classify_function(&func, &state_map, &mut partition, &no_facts(), &interner);
+
+    let result = rep(&mut partition, 1);
+    assert_eq!(
+        derive_ledger(result, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Consume],
+        "the fresh trace render is an owned arrival consumed by Return"
+    );
+}
+
+/// `trace_entries` loads the receiver's interior trace-list fat pointer with
+/// NO retain (a genuine borrow view of an INTERIOR allocation the receiver's
+/// own release frees), so its result books a BORROWED-origin arrival: owed 0,
+/// floor-0 reads, funded consumes — never an Opaque birth whose planned
+/// release would free the interior list out from under the receiver.
+#[test]
+fn trace_entries_result_books_borrowed_arrival() {
+    let interner = test_interner();
+    let callee = interner.intern("trace_entries");
+    let func = one_block_func(
+        2,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::Apply {
+                dst: v(1),
+                ty: ty(0),
+                func: callee,
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            },
+        ],
+        ArcTerminator::Return { value: v(0) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let classification =
+        classify_function(&func, &state_map, &mut partition, &no_facts(), &interner);
+
+    let result = rep(&mut partition, 1);
+    assert_eq!(
+        classification.class_origins.get(&result).copied(),
+        Some(ClassOrigin::Borrowed),
+        "the retain-less interior view is a borrowed-origin arrival"
+    );
+    assert_eq!(
+        derive_ledger(result, &flat(&classification)),
+        vec![LedgerEvent::Birth],
+        "borrowed arrival: owed 0, no release planned for the view itself"
+    );
+}
+
 /// The iter-consume contract fact (`iter_consumes && !transfers_through_return`)
 /// overrides a Borrowed annotation into an RL-2 inward-transfer CONSUME.
 #[test]
