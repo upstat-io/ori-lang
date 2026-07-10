@@ -29,4 +29,3 @@
 # borrowed-non-receiver-arg relocation for set-algebra ops (union/intersection/
 # difference) — the borrowed `other` arg's premature inline dec relocates to both
 # successor edges of the may-unwind call (set_algebra_relocation_names) — 47->46.
-journey_guard::test_journey_19_rc_lifecycle

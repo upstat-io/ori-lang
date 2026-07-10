@@ -5083,10 +5083,23 @@ fn rewrite_aggregate_iter_consume_field_decs(
     // and the consumed field is freed exactly once by the callee. A rep with MORE
     // incs than decs (a genuine duplication beyond the keep-alive) keeps the
     // surplus incs intact (only one keep-alive inc is paired off).
+    // HAND-OFF bracket pairs stay WHOLE: a same-block `[BurdenInc, BurdenDec]`
+    // pair on the rep FOLLOWED by an owned-position consume of a rep member in
+    // the same block (`pass_through(c [own])` — the RL-1 duplication bookkeeping
+    // around a ttr hand-off) nets 0 at every field grain. Rewriting ITS dec to
+    // a partial strands +1 on the consumed field (the forwarder-threaded leak);
+    // both ops are excluded from the rewrite and from the keep-alive budget
+    // census (they contribute one inc + one dec equally, so budget equality is
+    // preserved for every other shape). Spec: Annex E §AIMS RL-1 + RL-2.
+    let pair_whole_sites: FxHashSet<(usize, usize)> =
+        collect_handoff_bracket_pair_sites(func, &rep_of, &rep_consumed_field);
     let mut rep_incs: FxHashMap<ArcVarId, usize> = FxHashMap::default();
     let mut rep_decs: FxHashMap<ArcVarId, usize> = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
+    for (b, block) in func.blocks.iter().enumerate() {
+        for (i, instr) in block.body.iter().enumerate() {
+            if pair_whole_sites.contains(&(b, i)) {
+                continue;
+            }
             match instr {
                 ArcInstr::BurdenInc { var } => {
                     let r = rep_of(*var);
@@ -5117,9 +5130,16 @@ fn rewrite_aggregate_iter_consume_field_decs(
 
     // (c): rewrite each whole-var `BurdenDec var` whose rep matches to a
     // `BurdenDecPartial var skip_fields=[field]`; remove one matching keep-alive
-    // `BurdenInc` per budgeted rep. Field-grain ops are left as-is.
-    for block in &mut func.blocks {
+    // `BurdenInc` per budgeted rep. Field-grain ops and hand-off bracket pairs
+    // are left as-is.
+    for (b, block) in func.blocks.iter_mut().enumerate() {
+        let mut i = 0usize;
         block.body.retain_mut(|instr| {
+            let site = (b, i);
+            i += 1;
+            if pair_whole_sites.contains(&site) {
+                return true;
+            }
             match instr {
                 ArcInstr::BurdenInc { var } => {
                     let r = rep_of(*var);
@@ -5145,6 +5165,229 @@ fn rewrite_aggregate_iter_consume_field_decs(
                 _ => true,
             }
         });
+    }
+
+    rewrite_nested_aggregate_iter_consume_decs(func, contracts, same_alloc_reps);
+}
+
+/// Same-block `[BurdenInc, BurdenDec]` bracket pairs on a field-grain
+/// iter-consume rep with a LATER owned-position consume of a rep member in the
+/// same block — the RL-1 duplication bookkeeping around an owned hand-off
+/// (`pass_through(c [own])`). Returns the `(block, instr)` sites of BOTH ops of
+/// each pair; the field-grain rewrite leaves them whole (net 0 at every field
+/// grain). One dec pairs with the NEAREST unpaired earlier inc.
+fn collect_handoff_bracket_pair_sites(
+    func: &ArcFunction,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+    rep_consumed_field: &FxHashMap<ArcVarId, u32>,
+) -> FxHashSet<(usize, usize)> {
+    let mut sites: FxHashSet<(usize, usize)> = FxHashSet::default();
+    for (b, block) in func.blocks.iter().enumerate() {
+        // Per-rep stack of unpaired inc sites in this block.
+        let mut pending_incs: FxHashMap<ArcVarId, Vec<usize>> = FxHashMap::default();
+        // Owned-position consume sites of rep members, in order.
+        let owned_use_at = |rep: ArcVarId, from: usize| -> bool {
+            for (j, instr) in block.body.iter().enumerate().skip(from) {
+                for (pos, v) in instr.used_vars().iter().enumerate() {
+                    if rep_of(*v) == rep && instr.is_owned_position(pos) {
+                        let _ = j;
+                        return true;
+                    }
+                }
+            }
+            for (pos, v) in block.terminator.used_vars().iter().enumerate() {
+                if rep_of(*v) == rep && block.terminator.is_owned_position(pos) {
+                    return true;
+                }
+            }
+            false
+        };
+        for (i, instr) in block.body.iter().enumerate() {
+            match instr {
+                ArcInstr::BurdenInc { var } => {
+                    let r = rep_of(*var);
+                    if rep_consumed_field.contains_key(&r) {
+                        pending_incs.entry(r).or_default().push(i);
+                    }
+                }
+                ArcInstr::BurdenDec { var } => {
+                    let r = rep_of(*var);
+                    if !rep_consumed_field.contains_key(&r) {
+                        continue;
+                    }
+                    let Some(stack) = pending_incs.get_mut(&r) else {
+                        continue;
+                    };
+                    let Some(inc_site) = stack.pop() else {
+                        continue;
+                    };
+                    if owned_use_at(r, i + 1) {
+                        sites.insert((b, inc_site));
+                        sites.insert((b, i));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    sites
+}
+
+/// NESTED-aggregate arm of the field-grain iter-consume rewrite: the borrowed
+/// `Invoke` arg is itself a `Project parent.k` view of an ENCLOSING aggregate
+/// (`extract(c: nested.inner)` — the callee iter-consumes `inner.items`), so
+/// the PARENT's whole-var dec releases the consumed inner field a second time
+/// (double-free). Rewrite each whole-var `BurdenDec parent` to a pair of
+/// partials releasing exactly the SURVIVING fields:
+///
+/// ```text
+/// %view = Project parent.k              (the inner aggregate, borrow view)
+/// BurdenDecPartial parent skip=[k]      (parent's other fields)
+/// BurdenDecPartial %view  skip=[inner]  (inner's surviving fields)
+/// ```
+///
+/// The consumed inner field stays with the callee's iter-drop (its single
+/// release, RL-2 inward transfer) — every field released exactly once per
+/// path. Declines (status-quo emission) on: a parent rep carrying any
+/// whole-var `BurdenInc` (a keep-alive pair would strand +1 on the consumed
+/// field), conflicting `(k, inner)` signals per parent, or a parent that is
+/// itself a direct field-grain key. Spec: Annex E §AIMS RL-2.
+/// Nested consume records for [`rewrite_nested_aggregate_iter_consume_decs`]:
+/// parent rep -> `(k, inner_field, view ty, view repr)`; `None` = poisoned
+/// (conflicting signals). Parent reps carrying any whole-var `BurdenInc` are
+/// dropped (a keep-alive pair would strand +1 on the consumed inner field).
+fn collect_nested_aggregate_iter_consume(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    rep_of: &impl Fn(ArcVarId) -> ArcVarId,
+) -> FxHashMap<ArcVarId, Option<(u32, u32, ori_types::Idx, ValueRepr)>> {
+    // Def map: Project dst -> (parent, k); and per-var whole-var BurdenInc census.
+    let mut project_defs: FxHashMap<ArcVarId, (ArcVarId, u32)> = FxHashMap::default();
+    let mut inc_reps: FxHashSet<ArcVarId> = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Project {
+                    dst, value, field, ..
+                } => {
+                    project_defs.insert(*dst, (*value, *field));
+                }
+                ArcInstr::BurdenInc { var } => {
+                    inc_reps.insert(rep_of(*var));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut nested: FxHashMap<ArcVarId, Option<(u32, u32, ori_types::Idx, ValueRepr)>> =
+        FxHashMap::default();
+    for block in &func.blocks {
+        let ArcTerminator::Invoke {
+            func: callee,
+            args,
+            arg_ownership,
+            ..
+        } = &block.terminator
+        else {
+            continue;
+        };
+        let Some(contract) = contracts.get(callee) else {
+            continue;
+        };
+        for (i, &arg) in args.iter().enumerate() {
+            let owned = match arg_ownership.get(i) {
+                Some(o) => *o == ArgOwnership::Owned,
+                None => true,
+            };
+            if owned {
+                continue;
+            }
+            let Some(param) = contract.params.get(i) else {
+                continue;
+            };
+            if param.iter_consumes {
+                continue;
+            }
+            let Some(inner_field) = param.iter_consumes_projected_field else {
+                continue;
+            };
+            // The nested discriminator: the borrowed arg is a Project view of
+            // an enclosing aggregate.
+            let Some(&(parent, k)) = project_defs.get(&arg) else {
+                continue;
+            };
+            if !matches!(func.var_repr(parent), Some(ValueRepr::Aggregate)) {
+                continue;
+            }
+            let view_ty = func.var_types[arg.index()];
+            let view_repr = func.var_reprs[arg.index()];
+            let entry =
+                nested
+                    .entry(rep_of(parent))
+                    .or_insert(Some((k, inner_field, view_ty, view_repr)));
+            if *entry != Some((k, inner_field, view_ty, view_repr)) {
+                *entry = None; // conflicting signals — poison
+            }
+        }
+    }
+    nested.retain(|rep, v| v.is_some() && !inc_reps.contains(rep));
+    nested
+}
+
+fn rewrite_nested_aggregate_iter_consume_decs(
+    func: &mut ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    same_alloc_reps: &FxHashMap<ArcVarId, ArcVarId>,
+) {
+    if std::env::var_os("ORI_DISABLE_AGG_FIELD_ITER_CONSUME_PARTIAL").is_some() {
+        return;
+    }
+    let rep_of = |v: ArcVarId| same_alloc_reps.get(&v).copied().unwrap_or(v);
+    let nested = collect_nested_aggregate_iter_consume(func, contracts, &rep_of);
+    if nested.is_empty() {
+        return;
+    }
+
+    // Rewrite: each whole-var `BurdenDec parent` becomes Project + two partials.
+    for block in &mut func.blocks {
+        let needs = block.body.iter().any(
+            |i| matches!(i, ArcInstr::BurdenDec { var } if nested.contains_key(&rep_of(*var))),
+        );
+        if !needs {
+            continue;
+        }
+        let old_body = std::mem::take(&mut block.body);
+        let mut new_body = Vec::with_capacity(old_body.len() + 2);
+        for instr in old_body {
+            match instr {
+                ArcInstr::BurdenDec { var } if nested.contains_key(&rep_of(var)) => {
+                    let Some((k, inner_field, view_ty, view_repr)) = nested[&rep_of(var)] else {
+                        new_body.push(ArcInstr::BurdenDec { var });
+                        continue;
+                    };
+                    let view = ArcVarId::new(u32::try_from(func.var_types.len()).unwrap_or(0));
+                    func.var_types.push(view_ty);
+                    func.var_reprs.push(view_repr);
+                    new_body.push(ArcInstr::Project {
+                        dst: view,
+                        ty: view_ty,
+                        value: var,
+                        field: k,
+                    });
+                    new_body.push(ArcInstr::BurdenDecPartial {
+                        var,
+                        skip_fields: vec![k],
+                    });
+                    new_body.push(ArcInstr::BurdenDecPartial {
+                        var: view,
+                        skip_fields: vec![inner_field],
+                    });
+                }
+                other => new_body.push(other),
+            }
+        }
+        block.body = new_body;
     }
 }
 
