@@ -1476,10 +1476,8 @@ fn borrowed_non_iter_consuming_param_stays_borrowed() {
     );
 }
 
-/// A HEAP arg handed through an indirect call is an UNMODELED ownership
-/// hand-off at classification time (call-site `arg_ownership` is populated
-/// during realization, AFTER Stage-B runs; the callee is unresolved, so
-/// consumed-vs-borrowed is unknowable). The classification carries the
+/// A HEAP arg handed through an indirect call with NO ownership
+/// annotation is an UNMODELED hand-off: the classification carries the
 /// poison flag so the readiness gate falls back — guessing READ
 /// double-frees a consuming callee (the curried-closure capture shape);
 /// guessing CONSUME leaks a borrowing one.
@@ -1505,6 +1503,50 @@ fn indirect_heap_arg_sets_handoff_flag() {
     assert!(
         classification.indirect_arg_handoff,
         "a heap arg through ApplyIndirect poisons the classification"
+    );
+}
+
+/// A POPULATED `arg_ownership` (the Step-4b prelude runs
+/// `emit_arg_ownership` before classification) resolves the hand-off:
+/// an Owned indirect arg classifies CONSUME, a Borrowed one READ — the
+/// same annotation source direct no-contract calls classify by — and the
+/// classification carries no poison.
+#[test]
+fn indirect_annotated_args_classify_without_handoff_flag() {
+    let func = one_block_func(
+        4,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![]),
+            construct(2, vec![]),
+            ArcInstr::ApplyIndirect {
+                dst: v(3),
+                ty: ty(0),
+                closure: v(2),
+                args: vec![v(0), v(1)],
+                arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+            },
+        ],
+        ArcTerminator::Return { value: v(3) },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+    assert!(
+        !classification.indirect_arg_handoff,
+        "annotated indirect args are a modeled hand-off"
+    );
+    let owned_arg = rep(&mut partition, 0);
+    let borrowed_arg = rep(&mut partition, 1);
+    let stream = &classification.blocks[0];
+    assert!(
+        stream.iter().any(|instr| matches!(instr,
+            ClassInstr::Consume { class } if *class == owned_arg)),
+        "the Owned indirect arg transfers (CONSUME)"
+    );
+    assert!(
+        stream.iter().any(|instr| matches!(instr,
+            ClassInstr::Read { class, .. } if *class == borrowed_arg)),
+        "the Borrowed indirect arg is a floor read"
     );
 }
 

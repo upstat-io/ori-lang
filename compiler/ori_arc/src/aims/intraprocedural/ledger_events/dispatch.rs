@@ -86,23 +86,24 @@ impl Classifier<'_> {
                 self.classify_call(stream, *dst, *func, args, arg_ownership, true);
             }
             ArcInstr::ApplyIndirect {
-                dst, closure, args, ..
+                dst,
+                closure,
+                args,
+                arg_ownership,
+                ..
             } => {
                 // Indirect callees have no contract: the closure receiver is
-                // borrowed (ABI pos 0); the result is OPAQUE. A non-excluded
-                // HEAP arg is an UNMODELED hand-off (arg_ownership lands at
-                // realization; the callee is unresolved) — read it for floor
-                // honesty AND poison the classification so readiness falls
-                // back.
+                // borrowed (ABI pos 0); the result is OPAQUE. A POPULATED
+                // `arg_ownership` (the Step-4b prelude runs
+                // `emit_arg_ownership` before classification) resolves each
+                // hand-off — the same annotation source direct no-contract
+                // calls classify by. An UNANNOTATED non-excluded HEAP arg
+                // stays an unmodeled hand-off: read it for floor honesty AND
+                // poison the classification so readiness falls back.
                 if !self.excluded(*closure) {
                     self.read(stream, *closure);
                 }
-                for &arg in args {
-                    if !self.excluded(arg) {
-                        self.read(stream, arg);
-                        self.out.indirect_arg_handoff = true;
-                    }
-                }
+                self.classify_indirect_args(stream, args, arg_ownership);
                 if !self.excluded(*dst) {
                     self.birth(stream, *dst, ClassOrigin::Opaque);
                 }
@@ -276,18 +277,18 @@ impl Classifier<'_> {
             } => {
                 self.classify_call_args(stream, Some(*callee), args, arg_ownership, true);
             }
-            ArcTerminator::InvokeIndirect { closure, args, .. } => {
+            ArcTerminator::InvokeIndirect {
+                closure,
+                args,
+                arg_ownership,
+                ..
+            } => {
                 if !self.excluded(*closure) {
                     self.read(stream, *closure);
                 }
-                for &arg in args {
-                    if !self.excluded(arg) {
-                        self.read(stream, arg);
-                        // Same unmodeled hand-off as the body ApplyIndirect
-                        // arm — poison so readiness falls back.
-                        self.out.indirect_arg_handoff = true;
-                    }
-                }
+                // Same annotated-vs-unmodeled split as the body
+                // ApplyIndirect arm.
+                self.classify_indirect_args(stream, args, arg_ownership);
             }
             ArcTerminator::Resume | ArcTerminator::Unreachable => {}
         }
@@ -310,6 +311,29 @@ impl Classifier<'_> {
         self.classify_call_args(stream, Some(callee), args, arg_ownership, default_owned);
         if let Some(event) = self.call_result_event(dst, Some(callee)) {
             stream.push(event);
+        }
+    }
+
+    /// Per-arg classification at an INDIRECT call boundary. Annotated args
+    /// (`arg_ownership` parallel to `args`, populated by the Step-4b
+    /// `emit_arg_ownership` prelude) classify CONSUME/READ per annotation
+    /// with an all-Borrowed default; unannotated non-excluded heap args
+    /// read for floor honesty and poison the classification.
+    fn classify_indirect_args(
+        &mut self,
+        stream: &mut Vec<ClassInstr>,
+        args: &[ArcVarId],
+        arg_ownership: &[ArgOwnership],
+    ) {
+        if arg_ownership.len() == args.len() {
+            self.classify_call_args(stream, None, args, arg_ownership, false);
+            return;
+        }
+        for &arg in args {
+            if !self.excluded(arg) {
+                self.read(stream, arg);
+                self.out.indirect_arg_handoff = true;
+            }
         }
     }
 
