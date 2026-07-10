@@ -349,7 +349,10 @@ type Holder = { kept: [int] }
 fn test_push_arg_with_branch_edge_release_disabled_leaks_again() {
     let (exit, stdout, stderr) = compile_and_run_with_build_env(
         BRANCH_EXCLUSIVE_PUSH_SRC,
-        &[("ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE", "1")],
+        &[
+            ("ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_eq!(
         exit, 2,
@@ -389,7 +392,10 @@ type Holder = { kept: [int] }
     print(msg: `a={a} b={b}`)
 }
 "#,
-        &[("ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE", "1")],
+        &[
+            ("ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_eq!(
         exit, 2,

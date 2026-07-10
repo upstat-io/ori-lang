@@ -53,13 +53,15 @@ use crate::aims::intraprocedural::AimsStateMap;
 use crate::graph::compute_predecessors;
 use crate::ir::ArcFunction;
 
-// Env: ORI_CLASS_LEDGER_EMITTER — enables the class-ledger alternate Phase-5
-// emitter (insertion plan + per-class verification + readiness report +
+// Env: ORI_CLASS_LEDGER_EMITTER — the class-ledger Phase-5 emitter
+// (insertion plan + per-class verification + readiness report +
 // per-function replacement of the legacy Step-4b emission behind the
-// readiness gate; non-clean functions fall back to the legacy walk),
-// experimental.
+// readiness gate; non-clean functions fall back to the legacy walk).
+// Default ON; `ORI_CLASS_LEDGER_EMITTER=0` restores the legacy walk for
+// every function (bisection escape while the legacy walk still exists),
+// stable.
 static CLASS_LEDGER_EMITTER: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_CLASS_LEDGER_EMITTER").as_deref() == Ok("1"));
+    LazyLock::new(|| std::env::var("ORI_CLASS_LEDGER_EMITTER").as_deref() != Ok("0"));
 
 /// Whether the class-ledger emitter analysis is enabled for this process.
 pub(crate) fn class_ledger_emitter_enabled() -> bool {
@@ -92,6 +94,9 @@ pub(crate) struct ClassLedgerAnalysis {
     /// A heap arg handed through an indirect call (unmodeled ownership;
     /// per the classification flag) — the replacement gate declines.
     pub(crate) indirect_arg_handoff: bool,
+    /// An OWNED param's own contract cardinality is `Absent` (per the
+    /// classification flag) — the replacement gate declines (VF-2).
+    pub(crate) absent_owned_param: bool,
 }
 
 /// Run classification, planning, and per-class verification from the
@@ -102,14 +107,22 @@ pub(crate) fn analyze_from_state_map(
     state_map: &AimsStateMap,
     contracts: &FxHashMap<Name, MemoryContract>,
     type_registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
 ) -> ClassLedgerAnalysis {
     let boundary_facts: FxHashMap<Name, BoundaryFacts> = contracts
         .iter()
         .map(|(name, contract)| (*name, BoundaryFacts::from_contract(contract)))
         .collect();
     let mut partition = compute_birth_site_partition(func, state_map);
-    let classification = classify_function(func, state_map, &mut partition, &boundary_facts);
-    analyze_class_ledger(func, &classification, &mut partition, type_registry)
+    let classification =
+        classify_function(func, state_map, &mut partition, &boundary_facts, interner);
+    analyze_class_ledger(
+        func,
+        &classification,
+        &mut partition,
+        type_registry,
+        interner,
+    )
 }
 
 /// Plan and verify every partition class named by `classification`.
@@ -118,11 +131,60 @@ pub(crate) fn analyze_from_state_map(
 /// event stream (its verdict stays honest) and reported in the readiness
 /// summary. The plan is trusted only when NO class declined and every class
 /// verifies `Clean`.
+/// Hazard facts for one planned class: a view is ENDANGERED by independent
+/// DEMAND (`Read` / `Mutate` / `SelectCredit`) OR by a Consume that is NOT the
+/// move-in store at the released container's own Construct site — an
+/// extract-then-move-out member is freed by the original container's
+/// recursive release AND owned by its new container (the aliased-subtree
+/// corruption). Only the move-in store (a Consume at the container's
+/// Construct) is the lifecycle the container's release legitimately pays
+/// for. Locally released = a PLANNED whole-var dec; a transfer-out consume
+/// hands the container to a new owner and frees nothing here.
+fn hazard_facts_for(
+    class: NodeIdx,
+    class_events: &events::ClassEvents,
+    outcome: &ClassOutcome,
+    verdict: ClassVerdict,
+) -> hazard::ClassHazardFacts {
+    let released = matches!(outcome, ClassOutcome::Planned(ops)
+            if ops.iter().any(|op| op.kind == emit::PlannedOpKind::Dec));
+    let has_demand = class_events.per_block.iter().flatten().any(|ev| {
+        matches!(
+            ev.kind,
+            events::EventKind::Read | events::EventKind::Mutate | events::EventKind::SelectCredit
+        )
+    });
+    let mut consume_sites: Vec<(usize, EventSite)> = Vec::new();
+    for (block, evs) in class_events.per_block.iter().enumerate() {
+        for ev in evs {
+            if ev.kind == events::EventKind::Consume {
+                consume_sites.push((block, ev.site));
+            }
+        }
+    }
+    let self_funded_clean = !class_events.is_externally_funded() && verdict == ClassVerdict::Clean;
+    let has_credit = class_events.per_block.iter().flatten().any(|ev| {
+        matches!(
+            ev.kind,
+            events::EventKind::Credit | events::EventKind::SelectCredit
+        )
+    });
+    hazard::ClassHazardFacts {
+        class,
+        released,
+        has_demand,
+        self_funded_clean,
+        has_credit,
+        consume_sites,
+    }
+}
+
 pub(crate) fn analyze_class_ledger(
     func: &ArcFunction,
     classification: &LedgerClassification,
     partition: &mut BirthSitePartition,
     type_registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
 ) -> ClassLedgerAnalysis {
     let preds = compute_predecessors(func);
     let regions = emit::CycleRegions::compute(func);
@@ -157,47 +219,7 @@ pub(crate) fn analyze_class_ledger(
             );
         }
         verdicts.push((class, verdict));
-        // Locally released = a PLANNED whole-var dec (an actual local free
-        // whose recursion reaches the fields). A transfer-out consume
-        // (Return / store) hands the container to a new owner and frees
-        // nothing here.
-        let released = matches!(&outcome, ClassOutcome::Planned(ops)
-                if ops.iter().any(|op| op.kind == emit::PlannedOpKind::Dec));
-        // Hazard facts: a view is ENDANGERED by independent DEMAND (Read /
-        // Mutate / SelectCredit) OR by a Consume that is NOT the move-in
-        // store at the released container's own Construct site — an
-        // extract-then-move-out member is freed by the original container's
-        // recursive release AND owned by its new container (the
-        // aliased-subtree corruption). Only the move-in store (a Consume at
-        // the container's Construct) is the lifecycle the container's
-        // release legitimately pays for.
-        let has_demand = class_events.per_block.iter().flatten().any(|ev| {
-            matches!(
-                ev.kind,
-                events::EventKind::Read
-                    | events::EventKind::Mutate
-                    | events::EventKind::SelectCredit
-            )
-        });
-        let mut consume_sites: Vec<(usize, EventSite)> = Vec::new();
-        for (block, evs) in class_events.per_block.iter().enumerate() {
-            for ev in evs {
-                if ev.kind == events::EventKind::Consume {
-                    consume_sites.push((block, ev.site));
-                }
-            }
-        }
-        let self_funded_clean = !class_events.is_externally_funded()
-            && verdicts
-                .last()
-                .is_some_and(|&(_, verdict)| verdict == ClassVerdict::Clean);
-        class_facts.push(hazard::ClassHazardFacts::new(
-            class,
-            released,
-            has_demand,
-            self_funded_clean,
-            consume_sites,
-        ));
+        class_facts.push(hazard_facts_for(class, &class_events, &outcome, verdict));
         classes.push(ClassPlan { class, outcome });
     }
     let hazards = hazard::field_view_hazard_classes(func, partition, &class_facts);
@@ -208,6 +230,7 @@ pub(crate) fn analyze_class_ledger(
         &preds,
         &regions,
         type_registry,
+        interner,
         &hazards,
         &mut classes,
         &mut verdicts,
@@ -227,6 +250,7 @@ pub(crate) fn analyze_class_ledger(
         },
         field_view_hazard,
         indirect_arg_handoff: classification.indirect_arg_handoff,
+        absent_owned_param: classification.absent_owned_param,
     }
 }
 
@@ -255,6 +279,7 @@ pub(crate) fn apply_class_ledger_replacement(
         state_map,
         contracts,
         type_registry,
+        interner,
         legacy_emission_enabled,
     );
     report_readiness(func, interner, &outcome);

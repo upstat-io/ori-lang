@@ -190,7 +190,8 @@ run_leg() {
     if [[ "$leg" == "b" ]]; then
         env_vars+=(ORI_CLASS_LEDGER_EMITTER=1 "ORI_LOG=$TRACE_TARGET")
     else
-        env_vars+=(ORI_LOG=off)
+        # The emitter is default-ON; the legacy leg opts out explicitly.
+        env_vars+=(ORI_CLASS_LEDGER_EMITTER=0 ORI_LOG=off)
     fi
 
     local build_exit
@@ -242,7 +243,7 @@ record() {
 
 echo ""
 printf "${C_BOLD}Ori Class-Ledger Differential Harness${C_NC}\n"
-printf "${C_DIM}Leg A: legacy burden path | Leg B: ORI_CLASS_LEDGER_EMITTER=1 (both burden-sole gated)${C_NC}\n"
+printf "${C_DIM}Leg A: legacy walk (ORI_CLASS_LEDGER_EMITTER=0) | Leg B: class ledger (both burden-sole gated)${C_NC}\n"
 printf "  Binary: %s\n" "$ORI"
 printf "  Corpus: %s (%d programs" "$CORPUS_PATH" "${#CORPUS_FILES[@]}"
 [[ -n "$FAMILY" ]] && printf ", family=%s" "$FAMILY"

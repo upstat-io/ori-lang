@@ -10,6 +10,10 @@ use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcParam, ArcValue, ArgOwnership
 
 use super::*;
 
+fn test_interner() -> ori_ir::StringInterner {
+    ori_ir::StringInterner::new()
+}
+
 fn v(n: u32) -> ArcVarId {
     ArcVarId::new(n)
 }
@@ -62,7 +66,8 @@ fn classify(
     facts: &FxHashMap<Name, BoundaryFacts>,
 ) -> (LedgerClassification, BirthSitePartition) {
     let mut partition = compute_birth_site_partition(func, state_map);
-    let classification = classify_function(func, state_map, &mut partition, facts);
+    let classification =
+        classify_function(func, state_map, &mut partition, facts, &test_interner());
     (classification, partition)
 }
 
@@ -618,6 +623,7 @@ fn sharing_view_producer_credits_the_result() {
         BoundaryFacts {
             param_iter_consumes: vec![false],
             param_transfers_through_return: vec![false],
+            param_cardinality_absent: vec![false],
             returns_sharing_view: true,
             returns_owned_fresh: false,
         },
@@ -717,7 +723,13 @@ fn excluded_vars_produce_no_events() {
     state_map.set_permanent_scalar(v(0));
     state_map.set_permanent_scalar(v(1));
     let mut partition = compute_birth_site_partition(&func, &state_map);
-    let classification = classify_function(&func, &state_map, &mut partition, &no_facts());
+    let classification = classify_function(
+        &func,
+        &state_map,
+        &mut partition,
+        &no_facts(),
+        &test_interner(),
+    );
 
     assert!(flat(&classification).is_empty());
     assert!(classification.class_origins.is_empty());
@@ -1170,6 +1182,10 @@ fn heap_primop_dst_births_fresh_and_rcptr_operands_consumed() {
         derive_ledger(rhs, &flat(&classification)),
         vec![LedgerEvent::Birth, LedgerEvent::Consume]
     );
+    // The dual-consume model is COMPLETE: no poison, no readiness fallback
+    // (COW uniqueness selects the runtime strategy, never the refcount
+    // contract), so concat-bearing functions stay ledger-replaced.
+    assert!(!classification.indirect_arg_handoff);
 }
 
 /// A NON-STRING literal under a non-excluded (heap-repr) variable — the
@@ -1476,6 +1492,60 @@ fn borrowed_non_iter_consuming_param_stays_borrowed() {
     );
 }
 
+/// A borrowed-rooted collection handed to the `@iter` protocol builtin at
+/// an OWNED arg position classifies READ: the emitter creates a NON-owning
+/// iterator for a borrowed-rooted receiver (no source dec inside), so the
+/// owner/caller releases the source (`RL2_borrowed_param_emits_caller_dec`)
+/// and a CONSUME here would demand funding no runtime release matches.
+#[test]
+fn borrowed_rooted_iter_arg_classifies_read() {
+    let interner = test_interner();
+    let iter_name = interner.intern("iter");
+    let mut func = func_with_blocks(
+        3,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(1),
+                    ty: ty(0),
+                    value: ArcValue::Var(v(0)),
+                }],
+                ArcTerminator::Invoke {
+                    dst: v(2),
+                    ty: ty(0),
+                    func: iter_name,
+                    args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(1, vec![], vec![], ArcTerminator::Return { value: v(2) }),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Borrowed,
+    }];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let classification =
+        classify_function(&func, &state_map, &mut partition, &no_facts(), &interner);
+
+    let param_class = rep(&mut partition, 0);
+    assert_eq!(
+        derive_ledger(param_class, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Read],
+        "a borrowed-rooted @iter arg is a READ, never a consume"
+    );
+}
+
 /// A HEAP arg handed through an indirect call with NO ownership
 /// annotation is an UNMODELED hand-off: the classification carries the
 /// poison flag so the readiness gate falls back — guessing READ
@@ -1571,5 +1641,103 @@ fn indirect_receiver_only_does_not_set_handoff_flag() {
     );
     let state_map = AimsStateMap::new(&func);
     let (classification, _) = classify(&func, &state_map, &no_facts());
+    assert!(!classification.indirect_arg_handoff);
+}
+
+/// An OWNED param whose own contract cardinality is `Absent` poisons the
+/// classification (VF-2: the body must carry no reference to it — the
+/// caller retains the release obligation), so the readiness gate declines.
+#[test]
+fn absent_owned_param_poisons_classification() {
+    let mut func = one_block_func(1, vec![], ArcTerminator::Return { value: v(0) });
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Owned,
+    }];
+    let mut facts = no_facts();
+    facts.insert(
+        func.name,
+        BoundaryFacts {
+            param_iter_consumes: vec![false],
+            param_transfers_through_return: vec![false],
+            param_cardinality_absent: vec![true],
+            returns_sharing_view: false,
+            returns_owned_fresh: false,
+        },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, _partition) = classify(&func, &state_map, &facts);
+    assert!(classification.absent_owned_param);
+
+    // The same param with live-path demand stays eligible.
+    let mut live_facts = no_facts();
+    live_facts.insert(
+        func.name,
+        BoundaryFacts {
+            param_iter_consumes: vec![false],
+            param_transfers_through_return: vec![false],
+            param_cardinality_absent: vec![false],
+            returns_sharing_view: false,
+            returns_owned_fresh: false,
+        },
+    );
+    let (classification, _partition) = classify(&func, &state_map, &live_facts);
+    assert!(!classification.absent_owned_param);
+}
+
+/// A BORROWED-param-rooted `RcPointer` operand of a heap-dst `PrimOp`
+/// (list concat) READs instead of consuming: the operator lowering emits
+/// its own `borrow_protect.inc` whose undo is the concat's internal dec,
+/// so the caller-retained reference is externally untouched — a ledger
+/// funding inc would double-fund it (the curried-lambda concat leak).
+#[test]
+fn borrowed_rooted_concat_operand_reads_not_consumes() {
+    let mut func = one_block_func(
+        4,
+        vec![
+            ArcInstr::Let {
+                dst: v(2),
+                ty: ty(0),
+                value: ArcValue::Var(v(0)),
+            },
+            construct(1, vec![]),
+            ArcInstr::Let {
+                dst: v(3),
+                ty: ty(0),
+                value: ArcValue::PrimOp {
+                    op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
+                    args: vec![v(2), v(1)],
+                },
+            },
+        ],
+        ArcTerminator::Return { value: v(3) },
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Borrowed,
+    }];
+    func.var_reprs = vec![
+        crate::ir::ValueRepr::RcPointer,
+        crate::ir::ValueRepr::RcPointer,
+        crate::ir::ValueRepr::RcPointer,
+        crate::ir::ValueRepr::RcPointer,
+    ];
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &no_facts());
+
+    // The borrowed-rooted operand (%2, alias of borrowed param %0): READ.
+    let borrowed = rep(&mut partition, 0);
+    assert_eq!(
+        derive_ledger(borrowed, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Read]
+    );
+    // The fresh local operand (%1): CONSUMED (its reference hands in).
+    let fresh = rep(&mut partition, 1);
+    assert_eq!(
+        derive_ledger(fresh, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Consume]
+    );
     assert!(!classification.indirect_arg_handoff);
 }

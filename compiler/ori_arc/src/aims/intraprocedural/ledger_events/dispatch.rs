@@ -16,9 +16,20 @@ use super::{ClassInstr, ClassOrigin, Classifier};
 impl Classifier<'_> {
     pub(super) fn classify_instr(&mut self, instr: &ArcInstr, stream: &mut Vec<ClassInstr>) {
         match instr {
-            ArcInstr::Construct { dst, args, .. }
-            | ArcInstr::Reuse { dst, args, .. }
-            | ArcInstr::PartialApply { dst, args, .. } => {
+            ArcInstr::Construct { dst, args, .. } | ArcInstr::Reuse { dst, args, .. } => {
+                self.classify_fresh_alloc(stream, *dst, args);
+            }
+            ArcInstr::PartialApply { dst, args, .. } => {
+                // A capture of a BORROWED-ROOTED var hands a reference the
+                // function never owned into the closure env (the curried
+                // `a -> b -> a + b` shape) — an unmodeled ownership hand-off;
+                // poison so the readiness gate falls back (fail-closed).
+                if args
+                    .iter()
+                    .any(|arg| !self.excluded(*arg) && self.borrowed_rooted_vars.contains(arg))
+                {
+                    self.out.indirect_arg_handoff = true;
+                }
                 self.classify_fresh_alloc(stream, *dst, args);
             }
             ArcInstr::CollectionReuse {
@@ -170,7 +181,22 @@ impl Classifier<'_> {
                             self.func.var_repr(arg),
                             Some(crate::ir::ValueRepr::RcPointer)
                         ) {
-                            self.consume(stream, arg);
+                            // `ori_list_concat_cow` consumes BOTH operands
+                            // on every strategy row (reuse / copy / takeover
+                            // all release or absorb the operand reference);
+                            // COW uniqueness selects the internal strategy,
+                            // never the external refcount contract. A
+                            // borrowed-param-rooted operand is externally
+                            // net-0: the operator lowering emits its own
+                            // `borrow_protect.inc` whose undo is the concat's
+                            // dec, so the caller-retained reference survives
+                            // — the class READs (a ledger funding inc would
+                            // double-fund it).
+                            if self.borrowed_rooted_vars.contains(&arg) {
+                                self.read(stream, arg);
+                            } else {
+                                self.consume(stream, arg);
+                            }
                         } else {
                             self.read(stream, arg);
                         }
@@ -347,6 +373,7 @@ impl Classifier<'_> {
         default_owned: bool,
     ) {
         let facts = callee.and_then(|name| self.boundary_facts.get(&name));
+        let iterator_creation = callee == Some(self.iter_name);
         for (position, &arg) in args.iter().enumerate() {
             if self.excluded(arg) {
                 continue;
@@ -355,6 +382,15 @@ impl Classifier<'_> {
             let owned = arg_ownership
                 .get(position)
                 .map_or(default_owned, |o| *o == ArgOwnership::Owned);
+            // An `@iter [own]` hand-off of a borrowed-rooted var creates a
+            // NON-owning iterator (the emitter skips the source dec for a
+            // borrowed-rooted receiver; the owner/caller releases it per
+            // `RL2_borrowed_param_emits_caller_dec`) — a READ, never the
+            // transfer the owned annotation would otherwise book.
+            if iterator_creation && self.borrowed_rooted_vars.contains(&arg) {
+                self.read(stream, arg);
+                continue;
+            }
             if iter_consume || owned {
                 self.consume(stream, arg);
             } else {
@@ -390,6 +426,14 @@ impl Classifier<'_> {
             }
             Some(ApplyAliasSource::Wrapped(_)) | None => false,
         };
+        // Retain-less borrow-view accessor: the runtime returns the interior
+        // pointer with NO reference minted — a pure view of the receiver's
+        // allocation graph (a credit OR birth here books an owed reference
+        // no runtime release matches; the receiver's own release covers the
+        // viewed interior).
+        if callee.is_some_and(|name| self.borrow_view_accessors.contains(&name)) {
+            return None;
+        }
         if unified_alias || returns_sharing_view {
             // RL-34 passthrough return leg / sharing-view producer: the
             // caller re-acquires the SAME allocation — credit, not birth.

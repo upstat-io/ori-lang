@@ -159,6 +159,10 @@ pub(crate) struct BoundaryFacts {
     /// Per-param: the callee transfers this argument through its return
     /// (RL-34 passthrough — consume at call, credit at return, net 0).
     pub(crate) param_transfers_through_return: Vec<bool>,
+    /// Per-param: the contract cardinality is `Absent` (zero live-path
+    /// demand). VF-2 requires the function body carry NO reference to such
+    /// a param — the caller retains the release obligation.
+    pub(crate) param_cardinality_absent: Vec<bool>,
     /// The callee's return is a sharing view of an argument's allocation
     /// (seamless slice family): the result carries a CREDIT.
     pub(crate) returns_sharing_view: bool,
@@ -177,6 +181,11 @@ impl BoundaryFacts {
                 .params
                 .iter()
                 .map(|p| p.transfers_through_return)
+                .collect(),
+            param_cardinality_absent: contract
+                .params
+                .iter()
+                .map(|p| p.cardinality == crate::aims::lattice::Cardinality::Absent)
                 .collect(),
             returns_sharing_view: contract.return_info.returns_sharing_view,
             returns_owned_fresh: contract.return_info.preserves_freshness,
@@ -218,4 +227,8 @@ pub(crate) struct LedgerClassification {
     /// back (READ double-frees a consuming callee; CONSUME leaks a
     /// borrowing one).
     pub(crate) indirect_arg_handoff: bool,
+    /// An OWNED function param's own contract cardinality is `Absent`: any
+    /// planned op naming it violates VF-2 (`AbsentParamHasUses`) and the
+    /// caller-retains-release ABI — the readiness gate falls back.
+    pub(crate) absent_owned_param: bool,
 }

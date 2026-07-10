@@ -285,7 +285,10 @@ fn test_map_store_pair_with_store_family_funding_disabled_double_frees_again() {
     use crate::util::compile_and_run_with_build_env;
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         MAP_STORE_PAIR_SRC,
-        &[("ORI_DISABLE_STORE_FAMILY_FUNDING", "1")],
+        &[
+            ("ORI_DISABLE_STORE_FAMILY_FUNDING", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_ne!(
         exit, 0,
@@ -308,7 +311,10 @@ fn test_read_before_store_with_store_family_funding_disabled_leaks_again() {
     use crate::util::compile_and_run_with_build_env;
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         READ_BEFORE_STORE_SRC,
-        &[("ORI_DISABLE_STORE_FAMILY_FUNDING", "1")],
+        &[
+            ("ORI_DISABLE_STORE_FAMILY_FUNDING", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_eq!(
         exit, 2,

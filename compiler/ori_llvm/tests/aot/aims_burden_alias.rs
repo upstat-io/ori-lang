@@ -33,6 +33,7 @@ fn toggle_disables_sole_carrier_claim_inner_survives_crashes_again() {
         include_str!("fixtures/aims_burden_alias/inner_survives_result_destructure.ori"),
         &[
             ("ORI_DISABLE_SOLE_CARRIER_BORROWED_INVOKE_CLAIM", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
             // Isolate the sole-carrier bisection axis: the borrowed-Invoke-arg
             // dec relocation independently re-sequences the early release this
             // pin asserts, so it is disabled here.
@@ -79,6 +80,7 @@ fn force_overeliminate_inner_survives_result_leaks_negative_pin() {
     // release is elided and the surviving map leaks under ORI_CHECK_LEAKS.
     let mut forced: Vec<(&str, &str)> = probe.to_vec();
     forced.push(("ORI_FORCE_OVERELIMINATE", "1"));
+    forced.push(("ORI_CLASS_LEDGER_EMITTER", "0"));
     let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
     assert_ne!(
         forced_exit, 0,
@@ -114,6 +116,7 @@ fn toggle_disables_result_root_project_view_coupling_h6_crashes_again() {
 
     let mut forced: Vec<(&str, &str)> = probe.to_vec();
     forced.push(("ORI_DISABLE_RESULT_ROOT_PROJECT_VIEW_PAIR_COUPLING", "1"));
+    forced.push(("ORI_CLASS_LEDGER_EMITTER", "0"));
     let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
     assert_ne!(
         forced_exit, 0,
@@ -148,6 +151,7 @@ fn toggle_disables_certified_fresh_user_result_inc_elision_h6_leaks_again() {
 
     let mut forced: Vec<(&str, &str)> = probe.to_vec();
     forced.push(("ORI_DISABLE_CERTIFIED_FRESH_USER_RESULT_INC_ELISION", "1"));
+    forced.push(("ORI_CLASS_LEDGER_EMITTER", "0"));
     let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
     assert_ne!(
         forced_exit, 0,

@@ -14,7 +14,7 @@
 //! Single source of truth; never duplicate.
 
 use ori_ir::{Name, Span};
-use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+use ori_types::burden::{UserBurdenSpec, UserOwnedField, UserTransferRule, UserVariantBurden};
 use ori_types::{FieldDef, Idx, TypeRegistry, Visibility};
 
 use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcVarId};
@@ -60,6 +60,47 @@ pub(crate) fn registered_struct_with_burden(
         0,
         None,
         burden,
+    );
+}
+
+/// Register a user ENUM burden whose single payload-carrying variant is
+/// `variant` (0-based ordinal; payload at variant-local field 0, typed
+/// `payload_ty`) — the explicit-slot sum shape the field-decomposition sum
+/// admission requires.
+pub(crate) fn registered_enum_with_single_payload_variant(
+    registry: &mut TypeRegistry,
+    name: &str,
+    idx: Idx,
+    variant: u32,
+    payload_ty: Idx,
+) {
+    let nz = match core::num::NonZeroU32::new(variant.saturating_add(1)) {
+        Some(n) => n,
+        None => core::num::NonZeroU32::MIN,
+    };
+    let burden = UserBurdenSpec {
+        variant_burdens: vec![UserVariantBurden {
+            variant_id: ori_registry::burden::VariantId::new(nz),
+            transfers_on_match: vec![UserTransferRule {
+                source_field_path: vec![0],
+                binding_index: 0,
+                field_type: payload_ty,
+                transfer_kind: ori_registry::burden::TransferKind::Move,
+            }],
+            retained_owned: vec![],
+        }],
+        ..UserBurdenSpec::default()
+    };
+    registry.register_enum(
+        test_name(name),
+        idx,
+        vec![],
+        vec![],
+        Span::DUMMY,
+        Visibility::Public,
+        0,
+        None,
+        Some(burden),
     );
 }
 

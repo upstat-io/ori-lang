@@ -39,6 +39,19 @@ struct Classifier<'a> {
     state_map: &'a AimsStateMap,
     partition: &'a mut BirthSitePartition,
     boundary_facts: &'a FxHashMap<Name, BoundaryFacts>,
+    /// The interned `@iter` protocol-builtin name (the iterator-creation
+    /// call the borrowed-rooted READ classification keys on).
+    iter_name: Name,
+    /// Retain-less borrow-view accessor callees (`trace`/`trace_entries`):
+    /// their result is a pure interior view — no credit, no birth.
+    borrow_view_accessors: rustc_hash::FxHashSet<Name>,
+    /// Vars whose `Let`-alias chain roots at a Borrowed param this
+    /// function's own contract does NOT mark iter-consuming — the emitter's
+    /// `is_var_borrowed_rooted` twin: an `@iter [own]` hand-off of such a
+    /// var creates a NON-owning iterator (the owner/caller releases the
+    /// source per `RL2_borrowed_param_emits_caller_dec`), so it classifies
+    /// READ, never CONSUME.
+    borrowed_rooted_vars: rustc_hash::FxHashSet<ArcVarId>,
     out: LedgerClassification,
     /// `Invoke`/`InvokeIndirect` result events routed to their NORMAL
     /// successor's block entry (pre-recorded by
@@ -187,9 +200,28 @@ impl Classifier<'_> {
                     .collect()
             },
         );
+        let own_absent: Vec<bool> = self.boundary_facts.get(&func.name).map_or_else(
+            || vec![false; func.params.len()],
+            |facts| {
+                (0..func.params.len())
+                    .map(|position| {
+                        facts
+                            .param_cardinality_absent
+                            .get(position)
+                            .copied()
+                            .unwrap_or(false)
+                    })
+                    .collect()
+            },
+        );
         for (position, param) in func.params.iter().enumerate() {
             if self.excluded(param.var) {
                 continue;
+            }
+            if param.ownership == Ownership::Owned
+                && own_absent.get(position).copied().unwrap_or(false)
+            {
+                self.out.absent_owned_param = true;
             }
             let iter_consuming = own_iter.get(position).copied().unwrap_or(false);
             let origin = match param.ownership {
@@ -216,12 +248,18 @@ pub(crate) fn classify_function(
     state_map: &AimsStateMap,
     partition: &mut BirthSitePartition,
     boundary_facts: &FxHashMap<Name, BoundaryFacts>,
+    interner: &ori_ir::StringInterner,
 ) -> LedgerClassification {
+    let iter_name =
+        interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
     let mut classifier = Classifier {
         func,
         state_map,
         partition,
         boundary_facts,
+        iter_name,
+        borrow_view_accessors: crate::borrow::borrow_view_accessor_builtin_names(interner),
+        borrowed_rooted_vars: collect_borrowed_rooted_vars(func, boundary_facts),
         out: LedgerClassification::default(),
         pending_entry: FxHashMap::default(),
         placeholders: collect_placeholder_vars(func, state_map),
@@ -301,6 +339,48 @@ pub(crate) fn sib_read_count(class: NodeIdx, value: ArcVarId, rest: &[ClassInstr
         }
     }
     siblings.len()
+}
+
+/// The `Let`-alias closure of every Borrowed param this function's own
+/// contract does NOT mark iter-consuming — the classification twin of the
+/// LLVM emitter's `is_var_borrowed_rooted` (an iterator created from such a
+/// var does not own its source; the owner/caller releases it, per
+/// `RL2_borrowed_param_emits_caller_dec`).
+fn collect_borrowed_rooted_vars(
+    func: &ArcFunction,
+    boundary_facts: &FxHashMap<Name, BoundaryFacts>,
+) -> rustc_hash::FxHashSet<ArcVarId> {
+    use crate::ir::{ArcInstr, ArcValue};
+    let own_facts = boundary_facts.get(&func.name);
+    let mut roots = rustc_hash::FxHashSet::default();
+    for (position, param) in func.params.iter().enumerate() {
+        let iter_consuming = own_facts.is_some_and(|f| f.iter_consume_transfer(position));
+        if param.ownership == Ownership::Borrowed && !iter_consuming {
+            roots.insert(param.var);
+        }
+    }
+    if roots.is_empty() {
+        return roots;
+    }
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for block in &func.blocks {
+            for instr in &block.body {
+                if let ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } = instr
+                {
+                    if roots.contains(src) && roots.insert(*dst) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    roots
 }
 
 /// Vars defined by NON-string literals (a placeholder value, never an

@@ -32,10 +32,13 @@ use std::process::Command;
 use crate::util::{compile_and_run_with_build_env, ori_binary, stdlib_path};
 
 /// The gated burden-sole probe — the sanctioned RC/AOT verdict surface.
+/// The baseline leg opts OUT of the default-on class-ledger emitter so the
+/// legacy-walk comparison stays a genuine two-leg parity check.
 const PROBE: &[(&str, &str)] = &[
     ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
     ("ORI_VERIFY_ARC", "1"),
     ("ORI_VERIFY_EACH", "1"),
+    ("ORI_CLASS_LEDGER_EMITTER", "0"),
 ];
 
 /// Assert `stderr` carries no leak / double-free report (the run step always
@@ -86,7 +89,11 @@ fn assert_class_ledger_toggle_parity(source: &str, label: &str) {
     assert_leak_free(&base_stderr, label, "baseline");
 
     // (b) Probe + class-ledger toggle.
-    let mut toggled: Vec<(&str, &str)> = PROBE.to_vec();
+    let mut toggled: Vec<(&str, &str)> = PROBE
+        .iter()
+        .copied()
+        .filter(|(key, _)| *key != "ORI_CLASS_LEDGER_EMITTER")
+        .collect();
     toggled.push(("ORI_CLASS_LEDGER_EMITTER", "1"));
     let (led_exit, led_stdout, led_stderr) = compile_and_run_with_build_env(source, &toggled);
     assert_eq!(
@@ -243,7 +250,11 @@ fn skeleton_loop_invariant_value_threaded() {
 /// cured this test fails loudly, and the fixture graduates to
 /// [`assert_class_ledger_toggle_parity`].
 fn assert_class_ledger_cures_legacy_defect(source: &str, label: &str) {
-    let mut toggled: Vec<(&str, &str)> = PROBE.to_vec();
+    let mut toggled: Vec<(&str, &str)> = PROBE
+        .iter()
+        .copied()
+        .filter(|(key, _)| *key != "ORI_CLASS_LEDGER_EMITTER")
+        .collect();
     toggled.push(("ORI_CLASS_LEDGER_EMITTER", "1"));
     let (led_exit, led_stdout, led_stderr) = compile_and_run_with_build_env(source, &toggled);
     assert_eq!(

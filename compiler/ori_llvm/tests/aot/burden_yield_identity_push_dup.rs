@@ -96,7 +96,10 @@ fn test_yield_identity_with_push_dup_inc_disabled_double_frees_again() {
     use crate::util::compile_and_run_with_build_env;
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         BORROWED_SINGLE_REUSE_SRC,
-        &[("ORI_DISABLE_YIELD_IDENTITY_PUSH_DUP_INC", "1")],
+        &[
+            ("ORI_DISABLE_YIELD_IDENTITY_PUSH_DUP_INC", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_ne!(
         exit, 0,

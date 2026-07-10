@@ -529,7 +529,10 @@ fn test_two_fork_with_owned_call_arg_dup_inc_disabled_double_frees_again() {
     use crate::util::compile_and_run_with_build_env;
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         TWO_FORK_LIST_SRC,
-        &[("ORI_DISABLE_OWNED_CALL_ARG_DUP_INC", "1")],
+        &[
+            ("ORI_DISABLE_OWNED_CALL_ARG_DUP_INC", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_ne!(
         exit, 0,
@@ -552,7 +555,10 @@ fn test_result_tuple_element_with_final_read_release_disabled_leaks_again() {
     use crate::util::compile_and_run_with_build_env;
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         RESULT_ELEM_MULTI_READ_SRC,
-        &[("ORI_DISABLE_RESULT_ELEM_FINAL_READ_RELEASE", "1")],
+        &[
+            ("ORI_DISABLE_RESULT_ELEM_FINAL_READ_RELEASE", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_eq!(
         exit, 2,

@@ -349,6 +349,7 @@ fn test_every_arm_store_with_both_cures_disabled_leaks_again() {
         MATCH_EVERY_ARM_STORE_SRC,
         &[
             ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
             ("ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE", "1"),
         ],
     );
@@ -371,6 +372,7 @@ fn test_three_arm_store_with_both_cures_disabled_leaks_again() {
         MATCH_THREE_ARM_STORE_SRC,
         &[
             ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
             ("ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE", "1"),
         ],
     );
@@ -388,7 +390,10 @@ fn test_three_arm_store_with_both_cures_disabled_leaks_again() {
 fn test_every_arm_store_with_pruning_disabled_stays_clean() {
     let (exit, stdout, stderr) = compile_and_run_with_build_env(
         MATCH_EVERY_ARM_STORE_SRC,
-        &[("ORI_DISABLE_MATCH_PARAM_PRUNING", "1")],
+        &[
+            ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_eq!(
         exit, 0,
@@ -403,7 +408,10 @@ fn test_every_arm_store_with_pruning_disabled_stays_clean() {
 fn test_three_arm_store_with_pruning_disabled_stays_clean() {
     let (exit, stdout, stderr) = compile_and_run_with_build_env(
         MATCH_THREE_ARM_STORE_SRC,
-        &[("ORI_DISABLE_MATCH_PARAM_PRUNING", "1")],
+        &[
+            ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_eq!(
         exit, 0,
@@ -418,7 +426,10 @@ fn test_three_arm_store_with_pruning_disabled_stays_clean() {
 fn test_every_arm_store_with_alt_consumed_release_disabled_stays_clean() {
     let (exit, stdout, stderr) = compile_and_run_with_build_env(
         MATCH_EVERY_ARM_STORE_SRC,
-        &[("ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE", "1")],
+        &[
+            ("ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_eq!(
         exit, 0,
@@ -433,7 +444,10 @@ fn test_every_arm_store_with_alt_consumed_release_disabled_stays_clean() {
 fn test_three_arm_store_with_alt_consumed_release_disabled_stays_clean() {
     let (exit, stdout, stderr) = compile_and_run_with_build_env(
         MATCH_THREE_ARM_STORE_SRC,
-        &[("ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE", "1")],
+        &[
+            ("ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_eq!(
         exit, 0,

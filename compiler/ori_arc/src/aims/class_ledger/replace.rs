@@ -83,6 +83,10 @@ pub(crate) enum FallbackReason {
     /// A heap arg handed through an indirect call — call-site ownership is
     /// unresolved at classification time (unmodeled hand-off).
     IndirectArgOwnership,
+    /// An OWNED param whose own contract cardinality is `Absent`: the body
+    /// must carry NO reference to it (VF-2 `AbsentParamHasUses`; the caller
+    /// retains the release obligation).
+    AbsentOwnedParam,
     /// An endangered field-path view went uncured — both `hazard` cure-ladder
     /// rungs declined. Every hazard-bearing fixture in the current test
     /// corpus is cured (`!field_view_hazard` pinned in each), and each
@@ -123,6 +127,7 @@ impl FallbackReason {
             Self::ReuseShape => "reuse-shape",
             Self::TrmcContext => "trmc-context",
             Self::IndirectArgOwnership => "indirect-arg-ownership",
+            Self::AbsentOwnedParam => "absent-owned-param",
             Self::FieldViewLiveness => "field-view-liveness",
             Self::UserDropGlue => "user-drop-glue",
             Self::OpVarPlacement => "op-var-placement",
@@ -142,9 +147,10 @@ pub(crate) fn attempt_replacement(
     state_map: &AimsStateMap,
     contracts: &FxHashMap<Name, MemoryContract>,
     type_registry: &TypeRegistry,
+    interner: &ori_ir::StringInterner,
     allow_replacement: bool,
 ) -> ReplacementOutcome {
-    let analysis = analyze_from_state_map(func, state_map, contracts, type_registry);
+    let analysis = analyze_from_state_map(func, state_map, contracts, type_registry, interner);
     let ops = planned_ops(&analysis);
     if let Some(reason) = gate_rejection(
         func,
@@ -238,6 +244,9 @@ fn gate_rejection(
     }
     if analysis.indirect_arg_handoff {
         return Some(FallbackReason::IndirectArgOwnership);
+    }
+    if analysis.absent_owned_param {
+        return Some(FallbackReason::AbsentOwnedParam);
     }
     if analysis.field_view_hazard {
         return Some(FallbackReason::FieldViewLiveness);

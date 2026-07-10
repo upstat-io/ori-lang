@@ -276,6 +276,28 @@ const ACCESSOR_RETAIN_METHOD_NAMES: &[&str] = &[
     "unwrap_err", // Result.unwrap_err — retains Err payload
 ];
 
+/// Accessor methods that return a BORROW VIEW of an interior field with NO
+/// retain and NO buffer-sharing mint: the runtime hands back the interior
+/// pointer without touching any refcount, so the receiver's own release is
+/// the view's release. Contrast [`ACCESSOR_RETAIN_METHOD_NAMES`] (codegen
+/// incs the extracted payload) and [`SHARING_METHOD_NAMES`] (the runtime
+/// incs the shared backing). A call-result credit booked for one of these
+/// would double-release the receiver's allocation.
+///
+/// Sorted alphabetically.
+const BORROW_VIEW_ACCESSOR_METHOD_NAMES: &[&str] = &[
+    "trace",         // Error/Result.trace — renders from the borrowed trace list
+    "trace_entries", // Error/Result.trace_entries — borrows the trace list
+];
+
+/// Collect interned [`Name`]s for retain-less borrow-view accessor methods.
+pub fn borrow_view_accessor_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
+    BORROW_VIEW_ACCESSOR_METHOD_NAMES
+        .iter()
+        .map(|name| interner.intern(name))
+        .collect()
+}
+
 /// Collect interned [`Name`]s for accessor methods that retain their extracted
 /// payload.
 ///

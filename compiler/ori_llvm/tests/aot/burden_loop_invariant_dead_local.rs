@@ -74,7 +74,10 @@ fn test_dead_root_with_release_disabled_leaks_again() {
     use crate::util::compile_and_run_with_build_env;
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         DEAD_ROOT_LOOP_SRC,
-        &[("ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE", "1")],
+        &[
+            ("ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert_eq!(
         exit, 2,

@@ -541,7 +541,17 @@ impl TypeRegistry {
     /// `TypeEntry` (per RG-1). SSOT for the
     /// `register_user_burden` storage-dispatch so the structural-match and
     /// fresh-insert paths cannot diverge.
-    fn write_spec_to_idx(&mut self, typeid: Idx, spec: UserBurdenSpec) {
+    fn write_spec_to_idx(&mut self, typeid: Idx, mut spec: UserBurdenSpec) {
+        // The Drop-impl overlay (`user_drop`/`compiled_drop`) is populated
+        // once at impl registration; a field-derived recomposition (the mono
+        // sweep's flush) carries `None` for both and must never clear them.
+        if spec.user_drop.is_none() || spec.compiled_drop.is_none() {
+            if let Some(existing) = self.burden(typeid) {
+                let (user_drop, compiled_drop) = (existing.user_drop, existing.compiled_drop);
+                spec.user_drop = spec.user_drop.or(user_drop);
+                spec.compiled_drop = spec.compiled_drop.or(compiled_drop);
+            }
+        }
         if let Some(entry) = self.types_by_idx.get_mut(&typeid) {
             entry.burden = Some(spec.clone());
             // Also update the by-name entry (TypeEntry stored in both maps).

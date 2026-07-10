@@ -28,6 +28,10 @@ fn ty(n: u32) -> Idx {
     Idx::from_raw(n)
 }
 
+fn test_interner() -> ori_ir::StringInterner {
+    ori_ir::StringInterner::new()
+}
+
 fn construct(dst: u32, args: Vec<u32>) -> ArcInstr {
     ArcInstr::Construct {
         dst: v(dst),
@@ -126,11 +130,19 @@ fn analyze(
     func: &ArcFunction,
     state_map: &AimsStateMap,
 ) -> (ClassLedgerAnalysis, BirthSitePartition) {
+    analyze_with_registry(func, state_map, &ori_types::TypeRegistry::default())
+}
+
+fn analyze_with_registry(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    registry: &ori_types::TypeRegistry,
+) -> (ClassLedgerAnalysis, BirthSitePartition) {
     let facts: FxHashMap<Name, BoundaryFacts> = FxHashMap::default();
-    let registry = ori_types::TypeRegistry::default();
     let mut partition = compute_birth_site_partition(func, state_map);
-    let classification = classify_function(func, state_map, &mut partition, &facts);
-    let analysis = analyze_class_ledger(func, &classification, &mut partition, &registry);
+    let interner = test_interner();
+    let classification = classify_function(func, state_map, &mut partition, &facts, &interner);
+    let analysis = analyze_class_ledger(func, &classification, &mut partition, registry, &interner);
     (analysis, partition)
 }
 
@@ -205,18 +217,19 @@ fn dec(slot: PlanSlot, var: u32) -> PlannedOp {
 
 // Toggle
 
-/// The toggle changes the code path: default-off makes the Step-4b dispatch
-/// a no-op (no analysis, no mutation, no replacement); the enabled path
-/// produces a plan on the same inputs.
+/// The toggle changes the code path: the emitter is ON by default
+/// (`ORI_CLASS_LEDGER_EMITTER=0` is the explicit opt-out), and an explicit
+/// `false` makes the Step-4b dispatch a no-op (no analysis, no mutation, no
+/// replacement) while the enabled path produces a plan on the same inputs.
 #[test]
-fn default_toggle_off_pipeline_entry_is_noop() {
+fn toggle_off_pipeline_entry_is_noop_and_default_is_on() {
     let func = one_block_func(1, vec![construct(0, vec![])], ret(0));
     let state_map = AimsStateMap::new(&func);
     let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
     let registry = ori_types::TypeRegistry::default();
     let interner = ori_ir::StringInterner::new();
 
-    assert!(!class_ledger_emitter_enabled());
+    assert!(class_ledger_emitter_enabled());
     let mut gated = func.clone();
     let replaced = apply_class_ledger_replacement(
         &mut gated, &state_map, &contracts, &registry, &interner, false, true,
@@ -225,7 +238,8 @@ fn default_toggle_off_pipeline_entry_is_noop() {
     assert_eq!(gated, func);
 
     let registry = ori_types::TypeRegistry::default();
-    let analysis = analyze_from_state_map(&func, &state_map, &contracts, &registry);
+    let analysis =
+        analyze_from_state_map(&func, &state_map, &contracts, &registry, &test_interner());
     assert!(!analysis.plan.classes.is_empty());
 }
 
@@ -710,7 +724,14 @@ fn replacement_commits_clean_plan_and_sets_emission_flag() {
     let registry = ori_types::TypeRegistry::default();
 
     let mut replaced = func;
-    let outcome = attempt_replacement(&mut replaced, &state_map, &contracts, &registry, true);
+    let outcome = attempt_replacement(
+        &mut replaced,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
     assert_eq!(outcome.mode, EmissionMode::Replaced);
     assert!(outcome.fallback_reason.is_none());
     assert!(replaced.class_ledger_emission);
@@ -733,7 +754,14 @@ fn replacement_disallowed_reports_analysis_and_leaves_function_untouched() {
     let registry = ori_types::TypeRegistry::default();
 
     let mut gated = func.clone();
-    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, false);
+    let outcome = attempt_replacement(
+        &mut gated,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        false,
+    );
     assert_eq!(outcome.mode, EmissionMode::Fallback);
     assert_eq!(
         outcome.fallback_reason,
@@ -766,7 +794,14 @@ fn replacement_declines_non_clean_readiness() {
     let registry = ori_types::TypeRegistry::default();
 
     let mut gated = func.clone();
-    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    let outcome = attempt_replacement(
+        &mut gated,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
     assert_eq!(outcome.mode, EmissionMode::Fallback);
     assert_eq!(
         outcome.fallback_reason,
@@ -795,7 +830,14 @@ fn replacement_declines_zero_class_function_with_unexcluded_var() {
     let registry = ori_types::TypeRegistry::default();
 
     let mut gated = func.clone();
-    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    let outcome = attempt_replacement(
+        &mut gated,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
     assert_eq!(outcome.mode, EmissionMode::Fallback);
     assert_eq!(outcome.fallback_reason, Some(FallbackReason::ZeroClasses));
     assert_eq!(gated, func);
@@ -821,7 +863,14 @@ fn replacement_admits_all_scalar_function_with_empty_plan() {
     let registry = ori_types::TypeRegistry::default();
 
     let mut replaced = func.clone();
-    let outcome = attempt_replacement(&mut replaced, &state_map, &contracts, &registry, true);
+    let outcome = attempt_replacement(
+        &mut replaced,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
     assert_eq!(outcome.mode, EmissionMode::Replaced);
     assert!(outcome.fallback_reason.is_none());
     assert!(outcome.analysis.plan.classes.is_empty());
@@ -865,7 +914,14 @@ fn replacement_declines_all_scalar_function_with_user_drop_type() {
     let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
 
     let mut gated = func.clone();
-    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    let outcome = attempt_replacement(
+        &mut gated,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
     assert_eq!(outcome.mode, EmissionMode::Fallback);
     assert_eq!(outcome.fallback_reason, Some(FallbackReason::UserDropGlue));
     assert_eq!(gated, func);
@@ -901,7 +957,14 @@ fn replacement_declines_user_drop_glue_function() {
     let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
 
     let mut gated = func.clone();
-    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    let outcome = attempt_replacement(
+        &mut gated,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
     assert_eq!(outcome.mode, EmissionMode::Fallback);
     assert_eq!(outcome.fallback_reason, Some(FallbackReason::UserDropGlue));
     assert_eq!(gated, func);
@@ -1228,7 +1291,14 @@ fn replacement_declines_reuse_shapes() {
     let registry = ori_types::TypeRegistry::default();
 
     let mut gated = func.clone();
-    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    let outcome = attempt_replacement(
+        &mut gated,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
     assert_eq!(outcome.mode, EmissionMode::Fallback);
     assert_eq!(outcome.fallback_reason, Some(FallbackReason::ReuseShape));
     assert_eq!(gated, func);
@@ -1248,7 +1318,14 @@ fn trmc_context_hole_admitted_post_k3() {
     let registry = ori_types::TypeRegistry::default();
 
     let mut gated = func;
-    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    let outcome = attempt_replacement(
+        &mut gated,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
     assert_ne!(outcome.fallback_reason, Some(FallbackReason::TrmcContext));
 }
 
@@ -1288,7 +1365,14 @@ fn live_field_view_of_released_container_funds_itself_at_extraction() {
     let registry = ori_types::TypeRegistry::default();
 
     let mut gated = func.clone();
-    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    let outcome = attempt_replacement(
+        &mut gated,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
     assert_eq!(
         outcome.mode,
         EmissionMode::Replaced,
@@ -2566,7 +2650,14 @@ fn field_decomposition_cure_replaces_end_to_end_with_registered_burden() {
     let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
 
     let mut replaced = func;
-    let outcome = attempt_replacement(&mut replaced, &state_map, &contracts, &registry, true);
+    let outcome = attempt_replacement(
+        &mut replaced,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
     assert_eq!(
         outcome.mode,
         EmissionMode::Replaced,
@@ -2633,7 +2724,14 @@ fn field_decomposition_cure_declines_replacement_on_skip_field_mismatch() {
     let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
 
     let mut gated = func.clone();
-    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    let outcome = attempt_replacement(
+        &mut gated,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
     assert_eq!(outcome.mode, EmissionMode::Fallback);
     assert_eq!(
         outcome.fallback_reason,
@@ -2895,12 +2993,18 @@ fn uniform_variant_sum_func() -> ArcFunction {
 /// exactly the moved-out variant's payload.
 #[test]
 fn uniform_variant_sum_payload_decomposes_container_release() {
-    let func = uniform_variant_sum_func();
+    use crate::lower::test_utils::registered_enum_with_single_payload_variant;
+
+    let mut func = uniform_variant_sum_func();
+    let enum_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_enum_with_single_payload_variant(&mut registry, "BigEnum", enum_idx, 9, ty(70));
+    func.var_types[1] = enum_idx;
     let mut state_map = AimsStateMap::new(&func);
     for scalar in [2u32, 4, 5, 6, 7] {
         state_map.set_permanent_scalar(v(scalar));
     }
-    let (analysis, mut partition) = analyze(&func, &state_map);
+    let (analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
 
     assert!(
         !analysis.field_view_hazard,
@@ -2934,6 +3038,92 @@ fn uniform_variant_sum_payload_decomposes_container_release() {
     assert!(
         saw_variant_skip,
         "the container's release must decompose to skip the moved variant"
+    );
+}
+
+/// The extraction guarded by an UNRELATED branch (not the container's own
+/// tag): the bypass path reaches the container's release with the payload
+/// never extracted, so skipping it there would leak — the sum decomposition
+/// must DECLINE (fail-closed to the legacy walk), never skip on a release
+/// site the extraction neither dominates nor tag-excludes.
+#[test]
+fn bypassable_extraction_sum_declines_decomposition() {
+    let mut func = func_with_blocks(
+        10,
+        vec![
+            block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![
+                    ArcInstr::Construct {
+                        dst: v(1),
+                        ty: ty(0),
+                        ctor: CtorKind::EnumVariant {
+                            enum_name: Name::from_raw(9),
+                            variant: 9,
+                        },
+                        args: vec![v(0)],
+                    },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: ty(0),
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                    },
+                ],
+                branch(2, 3, 4),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(
+                3,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(3),
+                        ty: ty(70),
+                        value: v(1),
+                        field: 1,
+                    },
+                    apply(4, vec![(3, ArgOwnership::Owned)]),
+                    ArcInstr::Let {
+                        dst: v(5),
+                        ty: ty(0),
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                    },
+                ],
+                jump(5, vec![5]),
+            ),
+            block(
+                4,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(6),
+                    ty: ty(0),
+                    value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+                }],
+                jump(5, vec![6]),
+            ),
+            block(5, vec![7], vec![], ret(7)),
+        ],
+    );
+    func.var_types[0] = ty(70);
+    func.var_types[3] = ty(70);
+    let enum_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    {
+        use crate::lower::test_utils::registered_enum_with_single_payload_variant;
+        registered_enum_with_single_payload_variant(&mut registry, "BigEnum", enum_idx, 9, ty(70));
+    }
+    func.var_types[1] = enum_idx;
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [2u32, 4, 5, 6, 7] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, _partition) = analyze_with_registry(&func, &state_map, &registry);
+
+    assert!(
+        analysis.field_view_hazard,
+        "a bypassable extraction must keep the hazard (fail-closed): the          payload is unextracted on the bypass release path"
     );
 }
 
@@ -3034,4 +3224,71 @@ fn multi_container_view_declines_field_decomposition() {
              container's release: {ops:?}"
         );
     }
+}
+
+/// A release planned for a class containing a BORROWED function param names
+/// a same-class alias, never the param var itself (VF-1 rejects an `RcDec` on
+/// a borrowed param; the alias is the same allocation).
+#[test]
+fn release_never_names_borrowed_param_var() {
+    // %0: borrowed param, iter-consuming (Foreign origin — owed +1)
+    // bb0: %1 = Let Var(%0); Jump bb1
+    // bb1: Invoke @f() normal bb2 unwind bb3   (no class event in bb1 — the
+    //      unwind release must fall back to the class-wide var scan)
+    // bb2: %3 = IsShared %1; Return %3
+    // bb3: Resume
+    let mut func = func_with_blocks(
+        4,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(1),
+                    ty: ty(0),
+                    value: ArcValue::Var(v(0)),
+                }],
+                jump(1, vec![]),
+            ),
+            block(1, vec![], vec![], invoke(2, vec![], 2, 3)),
+            block(2, vec![], vec![is_shared(3, 1)], ret(3)),
+            block(3, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Borrowed,
+    }];
+    let mut facts: FxHashMap<Name, BoundaryFacts> = FxHashMap::default();
+    facts.insert(
+        func.name,
+        BoundaryFacts {
+            param_iter_consumes: vec![true],
+            param_transfers_through_return: vec![false],
+            ..BoundaryFacts::default()
+        },
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    state_map.set_permanent_scalar(v(3));
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let interner = test_interner();
+    let classification = classify_function(&func, &state_map, &mut partition, &facts, &interner);
+    let analysis = analyze_class_ledger(
+        &func,
+        &classification,
+        &mut partition,
+        &ori_types::TypeRegistry::default(),
+        &interner,
+    );
+
+    let class = class_rep(&mut partition, 0);
+    let ops = ops_for(&analysis, class);
+    for op in &ops {
+        if op.kind == PlannedOpKind::Dec {
+            assert_ne!(op.var, v(0), "dec names the borrowed param: {ops:?}");
+        }
+    }
+    assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
 }

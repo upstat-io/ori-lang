@@ -821,6 +821,54 @@ fn burden_side_table_does_not_shadow_nominal_type_entry() {
 // resolve via burden(idx) (the side-table case exercising the .or_else fallback).
 
 #[test]
+fn recomposed_burden_preserves_drop_impl_overlay() {
+    // The Drop-impl overlay (`user_drop`/`compiled_drop`) is populated once
+    // at impl registration; a later field-derived recomposition (the mono
+    // sweep's flush) must never clear it.
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let name = test_name("Boomed");
+    let idx = Idx::from_raw(401);
+    let fields = vec![heap_str_field("tag")];
+    let burden = compute_struct_burden(&fields, &pool);
+    registry.register_struct(
+        name,
+        idx,
+        vec![],
+        fields,
+        test_span(),
+        Visibility::Public,
+        0,
+        None,
+        burden.clone(),
+    );
+    // Drop-impl overlay (the populate_drop_burden_if_applicable shape).
+    let fn_sym = match core::num::NonZeroU32::new(idx.raw()) {
+        Some(nz) => ori_registry::burden::FnSym::new(nz),
+        None => unreachable!(),
+    };
+    let overlaid = UserBurdenSpec {
+        user_drop: Some(fn_sym),
+        compiled_drop: Some(fn_sym),
+        ..burden.clone().unwrap_or_default()
+    };
+    let _ = registry.register_user_burden(idx, overlaid);
+    assert!(registry.burden(idx).is_some_and(|b| b.user_drop.is_some()));
+
+    // Field-derived recomposition (user_drop-less) flushed over the same idx.
+    let recomposed = burden.unwrap_or_default();
+    assert!(recomposed.user_drop.is_none());
+    let _ = registry.register_user_burden(idx, recomposed);
+
+    let spec = registry.burden(idx).expect("burden survives");
+    assert!(
+        spec.user_drop.is_some(),
+        "a recomposed burden must preserve the Drop-impl overlay"
+    );
+    assert!(spec.compiled_drop.is_some());
+}
+
+#[test]
 fn from_typed_exports_round_trips_nominal_type_entry_burden() {
     let pool = Pool::new();
     let mut source = TypeRegistry::new();

@@ -54,6 +54,7 @@ fn test_yield_identity_two_calls_with_fresh_invoke_root_disabled_leaks_again() {
         include_str!("../fixtures/fat_ptr_iter/for_yield/yield_identity_str_list_two_calls.ori"),
         &[
             ("ORI_DISABLE_ITER_CONSUME_FRESH_INVOKE_RESULT_ROOT", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
             ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
         ],
     );

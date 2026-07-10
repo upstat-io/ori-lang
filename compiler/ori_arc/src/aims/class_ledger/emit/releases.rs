@@ -453,24 +453,31 @@ fn release_var_for_slot(
     block: usize,
     slot: PlanSlot,
 ) -> Result<ArcVarId, DeclineReason> {
-    let reaches = |var: ArcVarId| {
-        ctx.defs
-            .get(&var)
-            .is_some_and(|&def| def_reaches_slot(ctx.func, ctx.dom, def, slot))
+    // A borrowed function param is never a release subject (VF-1 DecOnBorrowed
+    // checks param vars); a same-class alias whose def reaches is identical.
+    let eligible = |var: ArcVarId| {
+        !ctx.func
+            .params
+            .iter()
+            .any(|p| p.var == var && p.ownership == crate::Ownership::Borrowed)
+            && ctx
+                .defs
+                .get(&var)
+                .is_some_and(|&def| def_reaches_slot(ctx.func, ctx.dom, def, slot))
     };
     events.per_block[block]
         .iter()
         .rev()
         .filter_map(|ev| ev.var)
-        .find(|&v| reaches(v))
+        .find(|&v| eligible(v))
         .or_else(|| {
             events
                 .per_block
                 .iter()
                 .flatten()
                 .filter_map(|ev| ev.var)
-                .find(|&v| reaches(v))
+                .find(|&v| eligible(v))
         })
-        .or_else(|| ops.iter().map(|op| op.var).find(|&v| reaches(v)))
+        .or_else(|| ops.iter().map(|op| op.var).find(|&v| eligible(v)))
         .ok_or(DeclineReason::UnresolvedOpVar)
 }

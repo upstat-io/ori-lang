@@ -108,6 +108,7 @@ fn probe_move_alias_chain_str_forwarder_dedup_disabled_double_frees_negative() {
     // and emits a spurious pre-Return dec on the moved-through allocation.
     let mut forced: Vec<(&str, &str)> = probe.to_vec();
     forced.push(("ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP", "1"));
+    forced.push(("ORI_CLASS_LEDGER_EMITTER", "0"));
     let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
     assert_ne!(
         forced_exit, 0,
@@ -187,6 +188,7 @@ type Holder = { kept: str }
     // independently, over-releasing the shared allocation.
     let mut forced: Vec<(&str, &str)> = probe.to_vec();
     forced.push(("ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING", "1"));
+    forced.push(("ORI_CLASS_LEDGER_EMITTER", "0"));
     let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
     assert_ne!(
         forced_exit, 0,
@@ -337,6 +339,7 @@ fn probe_closure_capture_last_use_str_burden_ops_disabled_leaks_negative() {
     // never lands, leaking the captured heap string.
     let mut forced: Vec<(&str, &str)> = probe.to_vec();
     forced.push(("ORI_DISABLE_BURDEN_OPS", "1"));
+    forced.push(("ORI_CLASS_LEDGER_EMITTER", "0"));
     let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
     assert_ne!(
         forced_exit, 0,
@@ -5132,6 +5135,7 @@ fn assert_double_free_without_lineage_rebalance(source: &str, label: &str) {
         &[
             ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
             ("ORI_DISABLE_LINEAGE_REBALANCE", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
         ],
     );
     assert!(
@@ -5163,6 +5167,7 @@ fn assert_leak_with_pruning_and_dead_forwarder_release_disabled(source: &str, la
             ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
             ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
             ("ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
         ],
     );
     assert!(
@@ -5191,6 +5196,7 @@ fn assert_broken_without_multi_borrow_view_alias_surplus(source: &str, label: &s
         &[
             ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
             ("ORI_DISABLE_MULTI_BORROW_VIEW_ALIAS_SURPLUS", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
         ],
     );
     assert!(
@@ -5217,7 +5223,10 @@ fn assert_broken_without_multi_borrow_view_alias_surplus(source: &str, label: &s
 fn assert_leak_without_construct_fed_dead_param_release(source: &str, label: &str) {
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         source,
-        &[("ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE", "1")],
+        &[
+            ("ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert!(
         exit != -1,
@@ -5300,6 +5309,7 @@ fn probe_aggregate_transfer_forwarder_option_no_double_free() {
         &[
             ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
             ("ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
         ],
     );
     assert!(
@@ -5315,6 +5325,7 @@ fn probe_aggregate_transfer_forwarder_option_no_double_free() {
         &[
             ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
             ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
         ],
     );
     assert!(
