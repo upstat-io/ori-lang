@@ -204,7 +204,18 @@ fn gate_rejection(
     if !allow_replacement {
         return Some(FallbackReason::LegacyEmissionDisabled);
     }
-    if analysis.plan.classes.is_empty() {
+    // Empty-surface admission: a function whose EVERY variable is excluded
+    // (scalar or immortal) carries no RC-bearing value anywhere — no births,
+    // no param lifecycle, no call-result entries — so the empty plan is the
+    // correct emission (zero classes -> zero placement obligations; the
+    // three placement clauses hold vacuously per
+    // `AimsProof.Ledger::three_clauses_iff_ledger_safe`). The later gates
+    // (`UserDropGlue` for a scalar-repr type carrying a user `@drop`,
+    // `ReuseShape`, ...) still run below and decline the shapes an empty
+    // emission would mis-handle. A zero-class function with ANY non-excluded
+    // variable stays on the fallback — the classifier missing a live heap
+    // value is a coverage gap the legacy walk must keep owning.
+    if analysis.plan.classes.is_empty() && !all_vars_excluded(func, state_map) {
         return Some(FallbackReason::ZeroClasses);
     }
     if !analysis.readiness.all_classes_clean {
@@ -281,6 +292,19 @@ fn dec_partial_skips_valid(
             .filter_map(|field| field.field_path.first().copied())
             .collect();
         skip_fields.iter().all(|&field| named.contains(&field))
+    })
+}
+
+/// Whether every variable of the function is excluded from RC accounting
+/// (scalar or immortal) — the empty-surface admission predicate for the
+/// zero-classes gate. Params are variables too (`ArcParam.var` indexes the
+/// same space), so the sweep covers them.
+fn all_vars_excluded(func: &ArcFunction, state_map: &AimsStateMap) -> bool {
+    (0..func.var_types.len()).all(|raw| {
+        let Ok(raw) = u32::try_from(raw) else {
+            return false;
+        };
+        state_map.is_excluded(ArcVarId::new(raw))
     })
 }
 

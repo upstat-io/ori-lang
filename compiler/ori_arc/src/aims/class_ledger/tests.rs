@@ -771,11 +771,19 @@ fn replacement_declines_non_clean_readiness() {
     assert_eq!(gated, func);
 }
 
-/// A zero-class function falls back: the class model proves nothing about
-/// variables it never evented.
+/// A zero-class function with a NON-excluded variable falls back: the class
+/// model proves nothing about a live value it never evented.
 #[test]
-fn replacement_declines_zero_class_function() {
-    let func = one_block_func(1, vec![], ret(0));
+fn replacement_declines_zero_class_function_with_unexcluded_var() {
+    let func = one_block_func(
+        2,
+        vec![ArcInstr::Let {
+            dst: v(0),
+            ty: ty(0),
+            value: ArcValue::Literal(crate::ir::LitValue::Int(5)),
+        }],
+        ret(0),
+    );
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_permanent_scalar(v(0));
     let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
@@ -785,6 +793,76 @@ fn replacement_declines_zero_class_function() {
     let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
     assert_eq!(outcome.mode, EmissionMode::Fallback);
     assert_eq!(outcome.fallback_reason, Some(FallbackReason::ZeroClasses));
+    assert_eq!(gated, func);
+}
+
+/// Empty-surface admission: every variable excluded (scalar) means no
+/// RC-bearing value exists anywhere, so the zero-class function commits
+/// with an EMPTY plan — no ops added, emission flag set.
+#[test]
+fn replacement_admits_all_scalar_function_with_empty_plan() {
+    let func = one_block_func(
+        1,
+        vec![ArcInstr::Let {
+            dst: v(0),
+            ty: ty(0),
+            value: ArcValue::Literal(crate::ir::LitValue::Int(5)),
+        }],
+        ret(0),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(0));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let registry = ori_types::TypeRegistry::default();
+
+    let mut replaced = func.clone();
+    let outcome = attempt_replacement(&mut replaced, &state_map, &contracts, &registry, true);
+    assert_eq!(outcome.mode, EmissionMode::Replaced);
+    assert!(outcome.fallback_reason.is_none());
+    assert!(outcome.analysis.plan.classes.is_empty());
+    assert!(replaced.class_ledger_emission);
+    assert_eq!(replaced.blocks, func.blocks);
+}
+
+/// The empty-surface admission never bypasses the user-drop gate: a
+/// scalar-repr variable whose TYPE carries a user `@drop` (the RL-DROP
+/// shape) still falls back to the legacy walk's user-drop completeness.
+#[test]
+fn replacement_declines_all_scalar_function_with_user_drop_type() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let struct_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "Guarded",
+        struct_idx,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    let mut func = one_block_func(
+        1,
+        vec![ArcInstr::Let {
+            dst: v(0),
+            ty: struct_idx,
+            value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+        }],
+        ret(0),
+    );
+    func.var_types = vec![struct_idx];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(0));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let mut gated = func.clone();
+    let outcome = attempt_replacement(&mut gated, &state_map, &contracts, &registry, true);
+    assert_eq!(outcome.mode, EmissionMode::Fallback);
+    assert_eq!(outcome.fallback_reason, Some(FallbackReason::UserDropGlue));
     assert_eq!(gated, func);
 }
 
