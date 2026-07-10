@@ -45,6 +45,13 @@ fn fixture_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/provenance/wrap_nested.ori")
 }
 
+/// The index/field-assignment matrix fixture (`BUG-02-090`): list-index,
+/// map-index, struct-field, and a mixed index-then-field chain, all in one
+/// program so a single dump run exercises every `AssignTarget` shape.
+fn assign_target_fixture_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/provenance/assign_target.ori")
+}
+
 fn golden_path(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/dump_baseline")
@@ -56,15 +63,25 @@ fn golden_path(name: &str) -> PathBuf {
 /// supplied, is passed as the `ori build` `-o` target so no binary lands in the
 /// working tree.
 fn run_with_flag(subcommand: &str, flag: &str, out_dir: Option<&Path>) -> String {
-    run_with_envs(subcommand, &[(flag, "1")], out_dir)
+    run_with_envs_on(&fixture_path(), subcommand, &[(flag, "1")], out_dir)
 }
 
 /// Like `run_with_flag` but sets several env vars at once (for the multi-flag
 /// `ORI_DUMP_AFTER_TYPECK` + `ORI_DUMP_TYPE_IDX` idx-filter view).
 fn run_with_envs(subcommand: &str, envs: &[(&str, &str)], out_dir: Option<&Path>) -> String {
-    let fixture = fixture_path();
+    run_with_envs_on(&fixture_path(), subcommand, envs, out_dir)
+}
+
+/// Like `run_with_envs` against an explicit `fixture`, for a test needing a
+/// dedicated fixture instead of the shared `wrap_nested.ori`.
+fn run_with_envs_on(
+    fixture: &Path,
+    subcommand: &str,
+    envs: &[(&str, &str)],
+    out_dir: Option<&Path>,
+) -> String {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ori"));
-    cmd.arg(subcommand).arg(&fixture);
+    cmd.arg(subcommand).arg(fixture);
     if let Some(dir) = out_dir {
         cmd.arg("-o").arg(dir.join("out"));
     }
@@ -87,6 +104,12 @@ fn run_with_envs(subcommand: &str, envs: &[(&str, &str)], out_dir: Option<&Path>
 /// and replace the absolute fixture path with `<FIXTURE>` so the golden is
 /// machine-independent.
 fn extract_block(output: &str, begin_marker: &str, end_marker: &str) -> String {
+    extract_block_on(&fixture_path(), output, begin_marker, end_marker)
+}
+
+/// Like `extract_block`, scrubbing an explicit `fixture` path instead of the
+/// shared `wrap_nested.ori` default.
+fn extract_block_on(fixture: &Path, output: &str, begin_marker: &str, end_marker: &str) -> String {
     let normalized = output.replace("\r\n", "\n");
     let begin = normalized.find(begin_marker).unwrap_or_else(|| {
         panic!("dump output missing begin marker `{begin_marker}`:\n{normalized}")
@@ -102,7 +125,7 @@ fn extract_block(output: &str, begin_marker: &str, end_marker: &str) -> String {
         .map_or(from_begin.len(), |i| after_end + i + 1);
     let block = &from_begin[..block_len];
 
-    let fixture_str = fixture_path().display().to_string();
+    let fixture_str = fixture.display().to_string();
     block.replace(&fixture_str, "<FIXTURE>")
 }
 
@@ -184,6 +207,41 @@ fn ori_dump_after_typeck_pins_typed_ir_driver_block() {
     );
 
     assert_golden("typeck", &block);
+}
+
+/// `BUG-02-090`: the `AssignTarget` node's own stored type must be the
+/// resolved `()` (assignment statements type as unit per `typeck.md
+/// §EX-17`), never the poison `<error>` sentinel — across every access-step
+/// shape (list index, map index, struct field, and a mixed index-then-field
+/// chain) in one dump run.
+#[test]
+fn ori_dump_after_typeck_pins_assign_target_type() {
+    let fixture = assign_target_fixture_path();
+    let out = run_with_envs_on(&fixture, "check", &[("ORI_DUMP_AFTER_TYPECK", "1")], None);
+    let block = extract_block_on(
+        &fixture,
+        &out,
+        "=== Typed IR after typeck:",
+        "=== END Typed IR ===",
+    );
+
+    // Positive pin: every `AssignTarget` node (one per assignment statement)
+    // carries the resolved `()` type.
+    assert_eq!(
+        block.matches("AssignTarget : ()").count(),
+        4,
+        "typed-IR dump must show `AssignTarget : ()` for all 4 assignment \
+         shapes (list index, map index, struct field, mixed chain):\n{block}"
+    );
+
+    // Negative pin: the poison sentinel must never appear on this fixture.
+    assert!(
+        !block.contains("<error>"),
+        "typed-IR dump must carry no poison `<error>` type on a program with \
+         zero type errors:\n{block}"
+    );
+
+    assert_golden("typeck_assign_target", &block);
 }
 
 #[test]

@@ -16,16 +16,28 @@ use super::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
 /// successor), or the class is borrowed-rooted. A consume refunded by a
 /// same-site CREDIT (the passthrough return leg) transfers the existing
 /// reference and needs no inc on an owned-rooted class.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal funding pass over plan_class's own dataflow vectors"
+)]
 pub(super) fn plan_incs(
     func: &ArcFunction,
     events: &ClassEvents,
     demand_live: &[bool],
     credit_kills: &[bool],
     seed_vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
+    seed_roots: &[crate::ir::ArcVarId],
     full_closure: bool,
     dom: &crate::graph::DominatorTree,
 ) -> Result<Vec<PlannedOp>, DeclineReason> {
     let borrowed = events.is_externally_funded();
+    // Per-seed same-reference closures: a consumed alias belongs to the
+    // SEED whose downstream Let-alias closure contains it (the closure
+    // grows from the extraction root, never from an alias).
+    let seed_closures: Vec<rustc_hash::FxHashSet<crate::ir::ArcVarId>> = seed_roots
+        .iter()
+        .map(|&root| super::close_over_let_aliases(func, std::iter::once(root).collect()))
+        .collect();
     let mut ops = Vec::new();
     for (block, evs) in events.per_block.iter().enumerate() {
         for (position, ev) in evs.iter().enumerate() {
@@ -44,16 +56,20 @@ pub(super) fn plan_incs(
             // Entry-credit successors are KILLED for the funding decision:
             // their demand (at/after the credit re-acquisition) is funded
             // by the credit, never by a pre-consume duplication inc here.
-            let (demand_out, suffix_demand) = if consume_of_seeded {
+            let owning_seed_closure = if consume_of_seeded {
                 let var = ev
                     .var
                     .unwrap_or_else(|| unreachable!("consume_of_seeded checked is_some"));
-                let closure = super::close_over_let_aliases(func, std::iter::once(var).collect());
-                let blocks = demand_blocks_of_vars(events, &closure);
+                seed_closures.iter().find(|c| c.contains(&var))
+            } else {
+                None
+            };
+            let (demand_out, suffix_demand) = if let Some(closure) = owning_seed_closure {
+                let blocks = demand_blocks_of_vars(events, closure);
                 let live = live_from_forward_killing(func, &blocks, credit_kills, dom);
                 (
                     live_out_forward_killing(func, block, &live, credit_kills, dom),
-                    suffix_has_demand_of_vars(evs, position, &closure),
+                    suffix_has_demand_of_vars(evs, position, closure),
                 )
             } else {
                 let demand_out = if full_closure {

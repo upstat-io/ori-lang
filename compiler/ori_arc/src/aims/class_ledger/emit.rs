@@ -148,7 +148,8 @@ pub(crate) fn plan_class(
     // forward-only for funding decisions AND the death frontier. ONE
     // discriminator drives BOTH the liveness vectors here and the per-block
     // live-out queries in the incs/releases sub-modules.
-    let full_closure = events.threads_back_edge || !has_cycle_events(regions, events);
+    let full_closure = events.threads_back_edge
+        || !(has_cycle_events(regions, events) || has_cycle_seeds(regions, seed_ops));
     // Extraction-funded (seeded) member vars pay their own demand: exclude
     // them from the DEMAND surface so a store-consume whose only surviving
     // reads are seed-funded takes no duplication inc (the seed IS that
@@ -184,6 +185,7 @@ pub(crate) fn plan_class(
             live_from_forward(func, &event_blocks(events, false), dom),
         )
     };
+    let seed_roots: Vec<ArcVarId> = seed_ops.iter().map(|op| op.var).collect();
     let mut ops = seed_ops.to_vec();
     releases::pair_arm_local_seed_releases(func, preds, events, &mut ops);
     match incs::plan_incs(
@@ -192,6 +194,7 @@ pub(crate) fn plan_class(
         &demand_live,
         &credit_kills,
         &seed_vars,
+        &seed_roots,
         full_closure,
         dom,
     ) {
@@ -284,6 +287,21 @@ fn close_over_let_aliases(
 /// acquisitions inside a cycle mean a per-iteration instance (forward-only
 /// liveness); reads and consumes never create instances — a class born
 /// outside the cycle and only read within it is loop-invariant.
+/// Whether any SEED inc sits inside a CFG cycle: a seeded extraction
+/// inside a loop mints a per-iteration reference (the planned-op analog of
+/// an in-cycle birth), so the class is per-iteration, never loop-invariant.
+fn has_cycle_seeds(regions: &CycleRegions, seed_ops: &[PlannedOp]) -> bool {
+    seed_ops.iter().any(|op| {
+        let block = match op.slot {
+            PlanSlot::BeforeBody { block, .. }
+            | PlanSlot::AfterBody { block, .. }
+            | PlanSlot::BeforeTerminator { block }
+            | PlanSlot::BlockFront { block } => block,
+        };
+        regions.is_in_cycle(block)
+    })
+}
+
 fn has_cycle_events(regions: &CycleRegions, events: &ClassEvents) -> bool {
     events
         .per_block

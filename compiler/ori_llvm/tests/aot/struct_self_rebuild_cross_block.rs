@@ -94,7 +94,12 @@ fn test_rebuild_lineage_release_toggle_restores_leak() {
     let source = include_str!("fixtures/struct_self_rebuild/late_use_alias_loop.ori");
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(
         source,
-        &[("ORI_DISABLE_REBUILD_LINEAGE_DEAD_PARAM_RELEASE", "1")],
+        &[
+            ("ORI_DISABLE_REBUILD_LINEAGE_DEAD_PARAM_RELEASE", "1"),
+            // The toggle bisects the LEGACY walk's scan; the class ledger
+            // plans this shape itself and is unaffected by the toggle.
+            ("ORI_CLASS_LEDGER_EMITTER", "0"),
+        ],
     );
     assert!(
         exit != 0 || stderr.contains("not freed"),

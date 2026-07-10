@@ -3406,3 +3406,135 @@ fn fat_value_seed_fundable_without_burden_entry() {
     );
     assert!(analysis.readiness.all_classes_clean);
 }
+
+/// PROBE (drain of the derive-Clone family): one Project seed whose
+/// Let-aliases are handed off TWICE (two store consumes), each followed by
+/// a same-block read — every hand-off of the seeded reference that the
+/// reference survives takes its own duplication inc (funded via the
+/// owning seed's `close_over_let_aliases` closure).
+/// The two-hand-off fixture: one Project seed (`%1`), Let-aliases consumed at
+/// two Construct stores (`%2 -> %3`, `%6 -> %7`), each followed by a same-block
+/// `IsShared` read (`%4`, `%8`).
+fn two_handoff_view_func() -> ArcFunction {
+    let mut func = func_with_blocks(
+        10,
+        vec![
+            block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: ty(64),
+                        value: v(0),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: ty(64),
+                        value: ArcValue::Var(v(1)),
+                    },
+                    construct(3, vec![2]),
+                    ArcInstr::Let {
+                        dst: v(4),
+                        ty: ty(64),
+                        value: ArcValue::Var(v(1)),
+                    },
+                    is_shared(5, 4),
+                ],
+                jump(3, vec![]),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(
+                3,
+                vec![],
+                vec![
+                    ArcInstr::Let {
+                        dst: v(6),
+                        ty: ty(64),
+                        value: ArcValue::Var(v(1)),
+                    },
+                    construct(7, vec![6]),
+                    ArcInstr::Let {
+                        dst: v(8),
+                        ty: ty(64),
+                        value: ArcValue::Var(v(1)),
+                    },
+                    is_shared(9, 8),
+                ],
+                ret(9),
+            ),
+        ],
+    );
+    for var in [1u32, 2, 4, 6, 8] {
+        func.var_types[var as usize] = ty(64);
+    }
+    func.var_reprs = vec![
+        crate::ir::ValueRepr::Aggregate,
+        crate::ir::ValueRepr::FatValue,
+        crate::ir::ValueRepr::FatValue,
+        crate::ir::ValueRepr::Aggregate,
+        crate::ir::ValueRepr::FatValue,
+        crate::ir::ValueRepr::Scalar,
+        crate::ir::ValueRepr::FatValue,
+        crate::ir::ValueRepr::Aggregate,
+        crate::ir::ValueRepr::FatValue,
+        crate::ir::ValueRepr::Scalar,
+    ];
+    func
+}
+
+#[test]
+fn seeded_view_with_two_handoffs_funds_both() {
+    let func = two_handoff_view_func();
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(5));
+    state_map.set_permanent_scalar(v(9));
+
+    // Drive the cure internals directly for full plan visibility.
+    let facts: FxHashMap<Name, BoundaryFacts> = FxHashMap::default();
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let interner = test_interner();
+    let classification = classify_function(&func, &state_map, &mut partition, &facts, &interner);
+    let view = {
+        let node = partition.register_node(v(1), FieldPath::whole_var());
+        partition.rep_of(node)
+    };
+    let funded = super::events::extract_class_events_with(
+        &func,
+        &classification,
+        &mut partition,
+        view,
+        true,
+    );
+    let preds = crate::graph::compute_predecessors(&func);
+    let regions = super::emit::CycleRegions::compute(&func);
+    let seeds = vec![PlannedOp {
+        slot: PlanSlot::AfterBody { block: 1, index: 0 },
+        kind: PlannedOpKind::Inc,
+        var: v(1),
+    }];
+    let outcome = super::emit::plan_class(&func, &preds, &regions, &funded, &seeds);
+    let ClassOutcome::Planned(ops) = &outcome else {
+        panic!(
+            "cure plan declined: {outcome:?} funded={:?}",
+            funded.per_block
+        );
+    };
+    let verdict = verify_class(&func, &preds, &funded, ops);
+    assert_eq!(
+        verdict,
+        ClassVerdict::Clean,
+        "cure plan not clean: ops={ops:?} funded={:?}",
+        funded.per_block
+    );
+
+    let (analysis, _partition) = analyze(&func, &state_map);
+    assert!(
+        !analysis.field_view_hazard,
+        "two-hand-off seeded view must cure: declined={:?} plans={:?}",
+        analysis.readiness.declined, analysis.plan.classes
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
