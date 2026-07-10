@@ -249,3 +249,53 @@ pub(super) fn closure_member_iter_consumed_at_invoke(
     }
     false
 }
+
+/// Gate (c3): true iff any closure member is a borrowed call arg (body `Apply`
+/// or terminator `Invoke`) at a position whose callee param carries
+/// `borrowed_cow_mutated` — the callee forwards the borrow into a COW-MUTATOR
+/// owned position (`@fork (base) = base.push(v)`) and nets -1 on the caller's
+/// allocation per call. The RL-1 caller funding inc (one duplication inc per
+/// call site, `RL1_duplication_balanced`) is load-bearing for such a callee;
+/// this claim's inc-suppression would free the buffer during the first call.
+/// The MUTATOR-only fact (not `borrowed_cow_consumed`) keeps iter-consuming
+/// callees (`c.iter().count()`) admitted — their accounting stays with the
+/// iter-consume machinery, and declining them re-opens the set-collect leak.
+/// Builtin seed contracts never carry the fact, so pure builtin reads
+/// (`@len` / `@__index`) stay admitted. Spec: Annex E §AIMS RL-1 + RL-2.
+pub(super) fn closure_member_cow_consumed_at_call(
+    func: &ArcFunction,
+    members: &FxHashSet<ArcVarId>,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> bool {
+    let cow_consumed_at = |callee: &Name, pos: usize| -> bool {
+        contracts
+            .get(callee)
+            .and_then(|c| c.params.get(pos))
+            .is_some_and(|p| p.borrowed_cow_mutated)
+    };
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Apply {
+                func: callee, args, ..
+            } = instr
+            {
+                for (pos, &arg) in args.iter().enumerate() {
+                    if members.contains(&arg) && cow_consumed_at(callee, pos) {
+                        return true;
+                    }
+                }
+            }
+        }
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            for (pos, &arg) in args.iter().enumerate() {
+                if members.contains(&arg) && cow_consumed_at(callee, pos) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}

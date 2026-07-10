@@ -433,15 +433,26 @@ pub(super) fn find_borrowed_cow_consumed_params(
     sigs: &FxHashMap<Name, MemoryContract>,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
     interner: &ori_ir::StringInterner,
+    mutators_only: bool,
 ) -> FxHashSet<usize> {
     let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
     let param_use_sites = collect_param_alias_use_sites(func, alias_to_param);
-    // A COW-MUTATOR owned position: builtin consuming receiver / second arg,
-    // or a transitive user-callee `borrowed_cow_consumed` param.
+    // The builtin `iter` sits in the consuming-receiver set (the iterator takes
+    // ownership of the data buffer) but is NOT a COW mutator; the
+    // `mutators_only` pass (feeding `ParamContract.borrowed_cow_mutated`)
+    // excludes it so iter-consuming callees never carry the mutator claim.
+    let iter_name = interner.intern("iter");
+    // A COW-consuming owned position: builtin consuming receiver / second arg,
+    // or a transitive user-callee param carrying the matching fact
+    // (`borrowed_cow_mutated` on the mutators-only pass, else
+    // `borrowed_cow_consumed`).
     let cow_consuming_position = |callee: Name, pos: usize| -> bool {
         if builtins.consuming_receiver.contains(&callee)
             || builtins.consuming_receiver_only.contains(&callee)
         {
+            if mutators_only && callee == iter_name {
+                return false;
+            }
             return pos == 0 || (pos == 1 && builtins.consuming_second_arg.contains(&callee));
         }
         if builtins.is_builtin(callee) || builtins.protocol.contains_key(&callee) {
@@ -449,7 +460,13 @@ pub(super) fn find_borrowed_cow_consumed_params(
         }
         sigs.get(&callee)
             .and_then(|c| c.params.get(pos))
-            .is_some_and(|p| p.borrowed_cow_consumed)
+            .is_some_and(|p| {
+                if mutators_only {
+                    p.borrowed_cow_mutated
+                } else {
+                    p.borrowed_cow_consumed
+                }
+            })
     };
     let mut reachable_cache: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
     let mut out: FxHashSet<usize> = FxHashSet::default();

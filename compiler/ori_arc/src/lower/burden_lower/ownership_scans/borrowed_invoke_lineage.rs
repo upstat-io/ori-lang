@@ -27,9 +27,9 @@ use death_point::{
     choose_death_point, collect_member_field_extract_seeds, DeathPoint, DeathPointModes,
 };
 use roots::{
-    closure_has_borrowed_invoke_arg, closure_member_iter_consumed_at_invoke,
-    collect_borrowed_call_result_roots, collect_fresh_builtin_invoke_result_roots,
-    collect_fresh_construct_roots,
+    closure_has_borrowed_invoke_arg, closure_member_cow_consumed_at_call,
+    closure_member_iter_consumed_at_invoke, collect_borrowed_call_result_roots,
+    collect_fresh_builtin_invoke_result_roots, collect_fresh_construct_roots,
 };
 use vet::same_alloc_closure_vetted;
 
@@ -395,6 +395,16 @@ fn try_build_candidate(
     // here double-frees — the `unwind_list_reusable_after_catch` over-fire.
     if closure_member_iter_consumed_at_invoke(func, &members, contracts) {
         decline("c2:iter-consume-transfer");
+        return None;
+    }
+    // Gate (c3): DECLINE when any member is a borrowed call arg (body `Apply`
+    // or terminator `Invoke`) whose callee param carries `borrowed_cow_mutated`
+    // — the callee forwards the borrow into a COW-MUTATOR owned position
+    // (`@fork (base) = base.push(v)`) and nets -1 per call; the RL-1 caller
+    // funding inc this claim would suppress is load-bearing (suppressing it
+    // frees the buffer during the first call).
+    if closure_member_cow_consumed_at_call(func, &members, contracts) {
+        decline("c3:cow-consume-funding");
         return None;
     }
     // Gate (e): choose the death-point treatment — a DEAD merge block-param sink

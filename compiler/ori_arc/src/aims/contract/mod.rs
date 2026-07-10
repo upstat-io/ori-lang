@@ -439,6 +439,20 @@ pub struct ParamContract {
     /// Default: `false` (conservative — no funding obligation claimed).
     pub borrowed_cow_consumed: bool,
 
+    /// MUTATOR-only refinement of `borrowed_cow_consumed`: the consuming
+    /// position is a genuine COW MUTATOR (`push`/`insert`/`set`/... — the
+    /// consuming-receiver set MINUS the builtin `iter`, whose consumption is
+    /// iterator machinery, not a COW mutation), or transitively a callee param
+    /// carrying THIS fact. Consumed by the borrowed-`Invoke` lineage gate (c3):
+    /// a lineage member borrowed into a COW-mutating callee needs its per-call
+    /// RL-1 funding inc kept (the callee nets -1), while an iter-consuming
+    /// callee's accounting stays with the iter-consume machinery.
+    ///
+    /// IC-3 join: OR (a mutating path obligates the caller's funding).
+    ///
+    /// Default: `false` (conservative — no mutator claim).
+    pub borrowed_cow_mutated: bool,
+
     /// Capture-variant-deadness Project record (RL-2 closure-extract borrow-view,
     /// the per-variant refinement of `return_alias`).
     ///
@@ -537,6 +551,9 @@ impl ParamContract {
         // owned-call-arg duplication admission never fires on an unknown
         // callee.
         borrowed_cow_consumed: false,
+        // Conservative default: no mutator claim — the lineage gate (c3) never
+        // declines on an unknown callee.
+        borrowed_cow_mutated: false,
         // Conservative default: no per-variant Project claim — an unknown
         // callee never feeds the caller-side capture-variant-deadness scan.
         capture_variant_return_project: None,
@@ -584,6 +601,8 @@ impl ParamContract {
         // IC-2 starts most-optimistic at the OR-join bottom (`false`). Join
         // (OR) promotes when a path's COW-consume-at-death fact fires.
         borrowed_cow_consumed: false,
+        // IC-2 OR-join bottom; promotes when a path's MUTATOR consume fires.
+        borrowed_cow_mutated: false,
         // IC-2 seed: no claim. `extract_contract` overrides per-param from the
         // body's Switch-arm scan; a single callee computes it once.
         capture_variant_return_project: None,
@@ -639,6 +658,9 @@ impl ParamContract {
             // OR (conservative direction): a consuming path obligates the
             // caller's funding.
             borrowed_cow_consumed: self.borrowed_cow_consumed || other.borrowed_cow_consumed,
+            // OR (conservative direction): a mutating path obligates the
+            // caller's funding (the lineage gate declines).
+            borrowed_cow_mutated: self.borrowed_cow_mutated || other.borrowed_cow_mutated,
             // Equal `Some` survives; disagreement poisons to `None`. A single
             // callee computes its own return shape once, so the join over its
             // own call sites is idempotent.

@@ -30,5 +30,4 @@
 # difference) — the borrowed `other` arg's premature inline dec relocates to both
 # successor edges of the may-unwind call (set_algebra_relocation_names) — 47->46.
 aims_interactions::test_h6_callee_returns_unique_for_caller_reuse
-arc::test_arc_borrowed_param_cow_push_diamond
 journey_guard::test_journey_19_rc_lifecycle

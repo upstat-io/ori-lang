@@ -114,11 +114,23 @@ pub fn analyze_program(
                 .filter(|(_, p)| p.transfers_through_return)
                 .map(|(i, _)| i)
                 .collect();
+            let param_dims: Vec<String> = contract
+                .params
+                .iter()
+                .map(|p| {
+                    format!(
+                        "{:?}/{:?}/{:?}/iter={}",
+                        p.access, p.consumption, p.cardinality, p.iter_consumes
+                    )
+                })
+                .collect();
             tracing::debug!(
                 target: "ori_arc::aims::interprocedural",
                 fn_name = interner.lookup(*name),
                 params = contract.params.len(),
                 transfers_through_return_params = ?ttr,
+                param_dims = ?param_dims,
+                may_deallocate = contract.effects.may_deallocate,
                 "AIMS contract computed",
             );
         }

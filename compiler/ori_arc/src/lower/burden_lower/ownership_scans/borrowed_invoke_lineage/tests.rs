@@ -1540,3 +1540,46 @@ fn builtin_invoke_result_lineage_toggle_unset_is_active() {
         "the toggle is unset in the test env -> the builtin-result family is active",
     );
 }
+
+/// Gate (c3) positive + negative pair: a closure member at a borrowed `Invoke`
+/// arg to a callee whose param carries `borrowed_cow_mutated` fires the gate
+/// (the callee forwards the borrow into a COW-mutator owned position and nets
+/// -1 per call — the RL-1 caller funding inc is load-bearing); the same shape
+/// without the fact stays admitted.
+#[test]
+fn gate_c3_fires_only_on_borrowed_cow_consumed_callee_param() {
+    use crate::aims::contract::{MemoryContract, ParamContract};
+
+    // bb0: %0 = Construct List() ; Invoke @99(%0 [borrow]) normal bb1 unwind bb2.
+    let f = func(
+        2,
+        vec![
+            block(0, vec![list_construct(0)], borrowed_invoke(1, 0, 1, 2)),
+            block(1, vec![], ArcTerminator::Return { value: vv(1) }),
+            block(2, vec![], ArcTerminator::Resume),
+        ],
+    );
+    let members: FxHashSet<ArcVarId> = std::iter::once(vv(0)).collect();
+
+    let mut cow_param = ParamContract::CONSERVATIVE;
+    cow_param.borrowed_cow_mutated = true;
+    let mut cow_contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    cow_contracts.insert(
+        Name::from_raw(99),
+        MemoryContract {
+            params: vec![cow_param],
+            ..MemoryContract::conservative(1)
+        },
+    );
+    assert!(
+        closure_member_cow_consumed_at_call(&f, &members, &cow_contracts),
+        "a borrowed Invoke arg to a borrowed_cow_mutated callee param fires gate (c3)",
+    );
+
+    let mut plain_contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    plain_contracts.insert(Name::from_raw(99), MemoryContract::conservative(1));
+    assert!(
+        !closure_member_cow_consumed_at_call(&f, &members, &plain_contracts),
+        "the same shape without the borrowed_cow_mutated fact stays admitted",
+    );
+}

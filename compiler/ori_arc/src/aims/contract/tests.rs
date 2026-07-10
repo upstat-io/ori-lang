@@ -105,6 +105,7 @@ fn param_join_is_commutative() {
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
+        borrowed_cow_mutated: false,
         capture_variant_return_project: None,
         iter_consumes_projected_field: None,
     };
@@ -123,6 +124,7 @@ fn param_join_is_commutative() {
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
+        borrowed_cow_mutated: false,
         capture_variant_return_project: None,
         iter_consumes_projected_field: None,
     };
@@ -307,6 +309,7 @@ fn to_annotated_sig_dead_param_is_borrowed() {
             iter_consumes: false,
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
+            borrowed_cow_mutated: false,
             capture_variant_return_project: None,
             iter_consumes_projected_field: None,
         }],

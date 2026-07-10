@@ -239,6 +239,9 @@ fn param_contract_for(
         // owned-call-arg duplication-inc admission funds one reference per
         // call site (`compute_genuine_dup_call_arg_aliases`).
         borrowed_cow_consumed: facts.borrowed_cow_consumed.contains(&i),
+        // MUTATOR-only refinement (excludes the builtin `iter`) — the
+        // borrowed-`Invoke` lineage gate (c3) declines on it.
+        borrowed_cow_mutated: facts.borrowed_cow_mutated.contains(&i),
         // RL-2 capture-variant-deadness Project record — the per-variant
         // refinement of `return_alias` for the closure-extract borrow-view scan.
         capture_variant_return_project: facts.capture_variant_return_project.get(&i).copied(),
@@ -344,6 +347,10 @@ struct ParamFacts {
     /// mutator receiver / second arg, or transitive callee fact) — the
     /// caller-funding obligation behind `ParamContract.borrowed_cow_consumed`.
     borrowed_cow_consumed: FxHashSet<usize>,
+    /// Params whose lineage is consumed at a COW-MUTATOR owned position (the
+    /// consuming set MINUS the builtin `iter`) at the lineage's last body use —
+    /// the caller-funding obligation behind `ParamContract.borrowed_cow_mutated`.
+    borrowed_cow_mutated: FxHashSet<usize>,
     /// Per-param capture-variant Project record `i → (variant_tag, field)` — the
     /// caller-side capture-variant-deadness signal behind
     /// `ParamContract.capture_variant_return_project`.
@@ -388,7 +395,9 @@ fn detect_param_facts(
     let iter_consume = find_iter_consume_params(func, sigs, &alias_to_param, interner);
     let borrowed_read_only = find_borrowed_read_only_params(func, sigs, &alias_to_param, interner);
     let borrowed_cow_consumed =
-        find_borrowed_cow_consumed_params(func, sigs, &alias_to_param, interner);
+        find_borrowed_cow_consumed_params(func, sigs, &alias_to_param, interner, false);
+    let borrowed_cow_mutated =
+        find_borrowed_cow_consumed_params(func, sigs, &alias_to_param, interner, true);
     let capture_variant_return_project =
         find_capture_variant_return_projections_entry(func, &alias_to_param);
     // Field-grained iter-consume of a borrowed aggregate param's projected field
@@ -422,6 +431,7 @@ fn detect_param_facts(
         iter_consume,
         borrowed_read_only,
         borrowed_cow_consumed,
+        borrowed_cow_mutated,
         capture_variant_return_project,
         iter_consumes_projected_field,
     }
