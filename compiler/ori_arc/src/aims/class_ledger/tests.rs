@@ -480,6 +480,7 @@ fn resume_terminal_residual_is_flagged_leak_not_silently_clean() {
     let events = ClassEvents {
         origin: Some(ClassOrigin::Fresh),
         container_held: false,
+        externally_funded: false,
         threads_back_edge: false,
         per_block: vec![
             vec![ClassEvent {
@@ -614,6 +615,7 @@ fn unresolved_consume_var_declines_unresolved_op_var() {
     let events = ClassEvents {
         origin: Some(ClassOrigin::Borrowed),
         container_held: false,
+        externally_funded: true,
         threads_back_edge: false,
         per_block: vec![vec![ClassEvent {
             site: EventSite::Body(0),
@@ -642,6 +644,7 @@ fn consume_at_block_entry_declines_unplaceable_inc() {
     let events = ClassEvents {
         origin: Some(ClassOrigin::Borrowed),
         container_held: false,
+        externally_funded: true,
         threads_back_edge: false,
         per_block: vec![vec![ClassEvent {
             site: EventSite::BlockEntry,
@@ -1937,6 +1940,53 @@ fn extract_then_move_out_decomposes_container_release() {
     assert!(
         saw_partial,
         "consume-marked view cleared without the per-field decomposition"
+    );
+}
+
+/// A CONSTRUCTLESS container (a call result) whose field view is extracted
+/// then RETURNED: field-decomposition has no move-in store to re-book, so
+/// the extraction-funding rung cures — the seed inc after the `Project` is
+/// the view's own reference and the Return consume MOVES it (RL-2 transfer,
+/// no borrowed-rooted duplication inc on top). The container's release
+/// stays whole and no field-view hazard survives.
+#[test]
+fn extract_then_return_from_call_result_container_funds_at_extraction() {
+    // bb0: Invoke @f() -> %0, normal bb1, unwind bb2
+    // bb1: %1 = Project %0.0; Return %1
+    // bb2: Resume
+    let func = func_with_blocks(
+        2,
+        vec![
+            block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![ArcInstr::Project {
+                    dst: v(1),
+                    ty: ty(0),
+                    value: v(0),
+                    field: 0,
+                }],
+                ret(1),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "constructless extract-then-return must cure via extraction funding"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+
+    let view_node = partition.register_node(v(1), FieldPath::whole_var());
+    let view = partition.rep_of(view_node);
+    assert_eq!(
+        ops_for(&analysis, view),
+        vec![inc(PlanSlot::AfterBody { block: 1, index: 0 }, 1)],
+        "the view funds itself right after the Project; the Return transfer needs no further inc"
     );
 }
 

@@ -61,21 +61,26 @@ pub(crate) struct ClassEvents {
     /// lives in a container's field slot (a param/foreign aggregate's
     /// field), released by the CONTAINER's class, never this one.
     pub(crate) container_held: bool,
-    /// Indexed by block position; stream order preserved within a block.
-    pub(crate) per_block: Vec<Vec<ClassEvent>>,
-}
-
-impl ClassEvents {
     /// Whether the class's tracked reference is owned ELSEWHERE — a
     /// borrowed function param (the caller retains ownership) or a
     /// container-held field slot (the aggregate retains ownership). Either
     /// way the class owes nothing at entry and every hand-off needs its own
     /// funded reference (the borrowed-rooted discipline of the boundary
-    /// calculus, with the container in the caller's role). A birth-less
-    /// WHOLE-VAR class is NOT externally funded — that shape is a
-    /// classification gap and stays fail-closed at the read floor.
+    /// calculus, with the container in the caller's role). FALSE for a
+    /// `force_owned` (extraction-funded) re-extraction: the seed inc IS the
+    /// class's own reference, so its hand-offs are RL-2 transfers, never
+    /// duplications needing borrowed-rooted funding.
+    pub(crate) externally_funded: bool,
+    /// Indexed by block position; stream order preserved within a block.
+    pub(crate) per_block: Vec<Vec<ClassEvent>>,
+}
+
+impl ClassEvents {
+    /// The stored external-funding classification (see the field). A
+    /// birth-less WHOLE-VAR class is NOT externally funded — that shape is
+    /// a classification gap and stays fail-closed at the read floor.
     pub(crate) fn is_externally_funded(&self) -> bool {
-        self.origin == Some(ClassOrigin::Borrowed) || self.container_held
+        self.externally_funded
     }
 }
 
@@ -210,6 +215,7 @@ fn extract_class_events_inner(
         origin,
         threads_back_edge,
         container_held,
+        externally_funded,
         per_block,
     }
 }
