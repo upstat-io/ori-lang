@@ -104,6 +104,51 @@ pub(crate) fn registered_enum_with_single_payload_variant(
     );
 }
 
+/// Register a user ENUM burden in the COMPUTE shape (`build_enum_burden`
+/// parity): `self_heap_alloc: true`, the unique payload-bearing variant
+/// carrying BOTH a transfer-on-match rule AND a retained owned field —
+/// the shape the constructless type-derived variant skip requires.
+pub(crate) fn registered_tagged_enum_with_unique_payload_variant(
+    registry: &mut TypeRegistry,
+    name: &str,
+    idx: Idx,
+    variant: u32,
+    payload_ty: Idx,
+) {
+    let nz = match core::num::NonZeroU32::new(variant.saturating_add(1)) {
+        Some(n) => n,
+        None => core::num::NonZeroU32::MIN,
+    };
+    let burden = UserBurdenSpec {
+        self_heap_alloc: true,
+        variant_burdens: vec![UserVariantBurden {
+            variant_id: ori_registry::burden::VariantId::new(nz),
+            transfers_on_match: vec![UserTransferRule {
+                source_field_path: vec![0],
+                binding_index: 0,
+                field_type: payload_ty,
+                transfer_kind: ori_registry::burden::TransferKind::Move,
+            }],
+            retained_owned: vec![UserOwnedField {
+                field_path: vec![0],
+                field_type: payload_ty,
+            }],
+        }],
+        ..UserBurdenSpec::default()
+    };
+    registry.register_enum(
+        test_name(name),
+        idx,
+        vec![],
+        vec![],
+        Span::DUMMY,
+        Visibility::Public,
+        0,
+        None,
+        Some(burden),
+    );
+}
+
 /// Register a 2-field user-defined struct (`{ data: str, name: str }`) with
 /// BOTH fields heap-burden-typed and a `UserBurdenSpec` naming BOTH as owned.
 ///

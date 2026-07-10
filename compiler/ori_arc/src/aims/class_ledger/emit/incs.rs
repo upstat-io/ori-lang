@@ -79,6 +79,12 @@ pub(super) fn plan_incs(
                 };
                 (demand_out, suffix_has_demand(evs, position, seed_vars))
             };
+            // A credit-funded consume takes no inc regardless of the
+            // class's funding origin: the preceding in-block credit mints
+            // the very reference this consume hands off.
+            if preceding_credit_funds(evs, position) {
+                continue;
+            }
             if !borrowed
                 && (same_site_credit_follows(evs, position)
                     || invoke_refund_credit_follows(func, events, block, ev)
@@ -159,6 +165,22 @@ fn invoke_refund_credit_follows(
         evs.iter()
             .any(|ev| ev.kind == EventKind::Credit && ev.site == EventSite::BlockEntry)
     })
+}
+
+/// Whether an UNPAIRED in-block CREDIT precedes `position`: each preceding
+/// credit funds one subsequent consume in order (the per-site extraction
+/// credit re-acquires the reference the store gave the container), so a
+/// credit-funded consume takes no duplication inc.
+fn preceding_credit_funds(evs: &[ClassEvent], position: usize) -> bool {
+    let credits = evs[..position]
+        .iter()
+        .filter(|ev| ev.kind == EventKind::Credit)
+        .count();
+    let consumes = evs[..position]
+        .iter()
+        .filter(|ev| ev.kind == EventKind::Consume)
+        .count();
+    credits > consumes
 }
 
 /// Whether a same-site CREDIT follows `position` (the transfer-with-refund

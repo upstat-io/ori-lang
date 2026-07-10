@@ -1896,13 +1896,12 @@ fn struct_list_field_flagship_per_field_classes_replace() {
 
 /// A member EXTRACTED from a released container and moved OUT via a SECOND
 /// container's `Construct` arg (a `ConstructArg` transferring terminal use,
-/// distinct from the sibling test's `Return` sink): the extraction-funding
-/// cure applies — the view funds itself with an inc right after the
-/// `Project`, and the transfer into the second container consumes that
-/// funded reference, so the ORIGINAL container's release stays a plain
-/// whole-var `Dec` (no field-decomposition needed here; the funded
-/// duplicate — not a skipped release — is what keeps the two hand-offs
-/// balanced). Every class verifies Clean and no field-view hazard survives.
+/// distinct from the sibling test's `Return` sink): the base plan ALREADY
+/// funds the second hand-off with a duplication `Inc` (one birth + one
+/// planned inc = two references, one per released container's drop), so the
+/// funded-move-in refinement recognizes the class as covered — NO hazard,
+/// NO cure re-book — and the ORIGINAL container's release stays a plain
+/// whole-var `Dec`. Every class verifies Clean.
 #[test]
 fn extract_then_move_out_via_second_container_funds_itself_at_extraction() {
     // %0 = Construct payload
@@ -1941,10 +1940,10 @@ fn extract_then_move_out_via_second_container_funds_itself_at_extraction() {
     // Deterministic outcome (never the fail-closed decline for this shape):
     // pin the exact verdict rather than the permissive "hazard OR clean"
     // disjunction the prior version of this test used, which silently
-    // accepted a regression that stopped the cure from firing.
+    // accepted a regression that stopped the funding from landing.
     assert!(
         !analysis.field_view_hazard,
-        "the ConstructArg-sink move-out must cure, not decline"
+        "the funded ConstructArg-sink move-out must pass unmarked, not decline"
     );
     assert!(analysis.readiness.all_classes_clean);
 
@@ -1952,13 +1951,67 @@ fn extract_then_move_out_via_second_container_funds_itself_at_extraction() {
     let payload = class_rep(&mut partition, 0);
     assert_eq!(
         ops_for(&analysis, payload),
-        vec![inc(PlanSlot::AfterBody { block: 0, index: 2 }, 2)],
-        "the view funds itself right after the Project extracting it"
+        vec![inc(PlanSlot::BeforeBody { block: 0, index: 1 }, 0)],
+        "the base plan's duplication inc funds the second hand-off"
     );
     assert_eq!(
         ops_for(&analysis, container),
         vec![dec(PlanSlot::AfterBody { block: 0, index: 5 }, 4)],
         "the container's own release stays a plain whole-var Dec"
+    );
+}
+
+/// One inner shared by TWO released containers with NO extraction (the
+/// two-wrappers-share-one-inner shape): both stores are move-ins — the
+/// first funded by the birth, the second by the base plan's duplication
+/// `Inc` — and each wrapper's own drop is the matched release. The
+/// funded-move-in refinement leaves the view unmarked: no hazard, no cure,
+/// every class Clean.
+#[test]
+fn shared_inner_two_released_containers_funded_no_hazard() {
+    let mut func = one_block_func(
+        7,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![0]),
+            construct(2, vec![0]),
+            ArcInstr::Let {
+                dst: v(3),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(4, 3),
+            ArcInstr::Let {
+                dst: v(5),
+                ty: ty(0),
+                value: ArcValue::Var(v(2)),
+            },
+            is_shared(6, 5),
+        ],
+        ret(6),
+    );
+    func.params = vec![];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(4));
+    state_map.set_permanent_scalar(v(6));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "both move-ins are funded (birth + planned dup inc); declined={:?} \
+         verdicts={:?}",
+        analysis.readiness.declined, analysis.readiness.verdicts,
+    );
+    assert!(analysis.readiness.all_classes_clean);
+
+    let payload = class_rep(&mut partition, 0);
+    let payload_incs = ops_for(&analysis, payload)
+        .iter()
+        .filter(|op| op.kind == PlannedOpKind::Inc)
+        .count();
+    assert_eq!(
+        payload_incs, 1,
+        "exactly one duplication inc funds the second wrapper's store"
     );
 }
 
@@ -3041,13 +3094,144 @@ fn uniform_variant_sum_payload_decomposes_container_release() {
     );
 }
 
-/// The extraction guarded by an UNRELATED branch (not the container's own
-/// tag): the bypass path reaches the container's release with the payload
-/// never extracted, so skipping it there would leak — the sum decomposition
-/// must DECLINE (fail-closed to the legacy walk), never skip on a release
-/// site the extraction neither dominates nor tag-excludes.
+/// The CONSTRUCTLESS sum container: the enum arrives as a callee `Invoke`
+/// result (no `Construct` in the container class to inspect), tag-switched,
+/// its payload extracted and moved out on the payload arm. The variant
+/// identity derives from the TYPE's burden table — exactly one
+/// payload-bearing variant (`derive_constructless_enum_variant`,
+/// `FD_skipset_sound` with the moved mark variant-unique by type
+/// structure) — and the container's release decomposes to
+/// `DecPartial(skip = [variant ordinal])` exactly as the construct-uniform
+/// shape does.
+/// Builder for the constructless shape: v(1) is the callee `Invoke` result
+/// (no `Construct`), tag-read at field 0, payload extracted at field 1 on
+/// the matched arm and moved to an owned consumer.
+fn constructless_invoke_result_sum_func() -> ArcFunction {
+    let mut func = func_with_blocks(
+        9,
+        vec![
+            block(0, vec![], vec![], invoke(1, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![ArcInstr::Project {
+                    dst: v(2),
+                    ty: ty(0),
+                    value: v(1),
+                    field: 0,
+                }],
+                ArcTerminator::Switch {
+                    scrutinee: v(2),
+                    cases: vec![(9, ArcBlockId::new(3))],
+                    default: ArcBlockId::new(4),
+                },
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(
+                3,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(3),
+                        ty: ty(70),
+                        value: v(1),
+                        field: 1,
+                    },
+                    apply(4, vec![(3, ArgOwnership::Owned)]),
+                    ArcInstr::Let {
+                        dst: v(5),
+                        ty: ty(0),
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                    },
+                ],
+                jump(5, vec![5]),
+            ),
+            block(
+                4,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(6),
+                    ty: ty(0),
+                    value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+                }],
+                jump(5, vec![6]),
+            ),
+            block(5, vec![7], vec![], ret(7)),
+        ],
+    );
+    // The payload type is an unregistered user index: no burden, so
+    // extraction funding cannot fire — decomposition is the only cure.
+    func.var_types[3] = ty(70);
+
+    func
+}
+
 #[test]
-fn bypassable_extraction_sum_declines_decomposition() {
+fn constructless_invoke_result_sum_decomposes_container_release() {
+    use crate::lower::test_utils::registered_tagged_enum_with_unique_payload_variant;
+
+    let mut func = constructless_invoke_result_sum_func();
+    let enum_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_tagged_enum_with_unique_payload_variant(
+        &mut registry,
+        "MaybePayload",
+        enum_idx,
+        9,
+        ty(70),
+    );
+    func.var_types[1] = enum_idx;
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [2u32, 4, 5, 6, 7] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "a constructless unique-payload-variant sum's moved-out payload must \
+         cure via the type-derived decomposition; declined={:?} verdicts={:?}",
+        analysis.readiness.declined, analysis.readiness.verdicts,
+    );
+    assert!(analysis.readiness.all_classes_clean);
+
+    let container_node = partition.register_node(v(1), FieldPath::whole_var());
+    let container_rep = partition.rep_of(container_node);
+    let mut saw_variant_skip = false;
+    for plan in &analysis.plan.classes {
+        let ClassOutcome::Planned(ops) = &plan.outcome else {
+            continue;
+        };
+        if partition.rep_of(plan.class) != container_rep {
+            continue;
+        }
+        for op in ops {
+            if let PlannedOpKind::DecPartial { skip_fields } = &op.kind {
+                assert_eq!(
+                    skip_fields,
+                    &vec![9u32],
+                    "the type-derived sum skip names the VARIANT ordinal"
+                );
+                saw_variant_skip = true;
+            }
+        }
+    }
+    assert!(
+        saw_variant_skip,
+        "the constructless container's release must decompose to skip the \
+         unique payload-bearing variant"
+    );
+}
+
+/// The extraction guarded by an UNRELATED branch (not the container's own
+/// tag): the bypass path reaches its own release with the payload never
+/// extracted while the take path extracts it — the PER-SITE decomposition
+/// (`FD_site_uniform_projection`) cures it: the bypass release keeps the
+/// whole-var `Dec` (the recursive drop of the unmoved payload) and the
+/// extraction-dominated release takes the variant skip; the view books the
+/// kept store consume plus a credit at the extraction.
+#[test]
+fn bypassable_extraction_sum_cures_per_site() {
     let mut func = func_with_blocks(
         10,
         vec![
@@ -3119,11 +3303,33 @@ fn bypassable_extraction_sum_declines_decomposition() {
     for scalar in [2u32, 4, 5, 6, 7] {
         state_map.set_permanent_scalar(v(scalar));
     }
-    let (analysis, _partition) = analyze_with_registry(&func, &state_map, &registry);
+    let (analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
 
     assert!(
-        analysis.field_view_hazard,
-        "a bypassable extraction must keep the hazard (fail-closed): the          payload is unextracted on the bypass release path"
+        !analysis.field_view_hazard,
+        "the per-site decomposition must cure the bypassable extraction: {:?}",
+        analysis.readiness.declined
+    );
+    assert!(analysis.readiness.all_classes_clean);
+    // Container ops split per site: at least one whole-var Dec (the bypass
+    // arm) AND at least one variant-skip DecPartial (extraction-dominated).
+    let container = class_rep(&mut partition, 1);
+    let ops = ops_for(&analysis, container);
+    let whole = ops
+        .iter()
+        .filter(|op| op.kind == PlannedOpKind::Dec)
+        .count();
+    let skipped = ops
+        .iter()
+        .filter(|op| matches!(&op.kind, PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![9u32]))
+        .count();
+    assert!(
+        whole >= 1,
+        "the bypass release keeps the whole-var Dec: {ops:?}"
+    );
+    assert!(
+        skipped >= 1,
+        "the extraction release takes the variant skip: {ops:?}"
     );
 }
 

@@ -176,12 +176,20 @@ fn hazard_facts_for(
             events::EventKind::Credit | events::EventKind::SelectCredit
         )
     });
+    let planned_inc_count = match outcome {
+        ClassOutcome::Planned(ops) => ops
+            .iter()
+            .filter(|op| op.kind == emit::PlannedOpKind::Inc)
+            .count(),
+        ClassOutcome::Declined(_) => 0,
+    };
     hazard::ClassHazardFacts {
         class,
         released,
         has_demand,
         self_funded_clean,
         has_credit,
+        planned_inc_count,
         consume_sites,
     }
 }

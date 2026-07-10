@@ -143,6 +143,50 @@ pub(crate) fn extract_class_events_with(
     extract_class_events_inner(func, classification, partition, class, force_owned, &[])
 }
 
+/// [`extract_class_events`] with a CREDIT injected at each extraction site
+/// (PV-6 per-site refinement, `FD_per_site_skipset_sound`): the store
+/// consume is KEPT — a whole-var release site pays it recursively on the
+/// bypass path — and each extraction re-acquires the reference the store
+/// gave the container (+1), so the extraction path balances through its
+/// own downstream consume. Extraction sites are `(block, body_index)` of
+/// the member-defining Projects.
+pub(crate) fn extract_class_events_with_extraction_credits(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    class: NodeIdx,
+    extraction_sites: &[(usize, usize)],
+) -> ClassEvents {
+    let mut events = extract_class_events_inner(func, classification, partition, class, false, &[]);
+    for &(block, index) in extraction_sites {
+        let Some(evs) = events.per_block.get_mut(block) else {
+            continue;
+        };
+        let site = EventSite::Body(index);
+        // Insert in site order: after every event at an earlier body index
+        // or block entry, before later ones.
+        let pos = evs
+            .iter()
+            .position(|ev| match ev.site {
+                EventSite::BlockEntry => false,
+                EventSite::Body(i) => i > index,
+                EventSite::Terminator => true,
+            })
+            .unwrap_or(evs.len());
+        evs.insert(
+            pos,
+            ClassEvent {
+                site,
+                kind: EventKind::Credit,
+                var: None,
+                delta: 1,
+                floor: 0,
+            },
+        );
+    }
+    events
+}
+
 /// [`extract_class_events`] with the store-consumes at the given sites
 /// RE-BOOKED as non-consuming: a consume-marked field skipped by the
 /// container's `DecPartial` never enters the container's release books, so
