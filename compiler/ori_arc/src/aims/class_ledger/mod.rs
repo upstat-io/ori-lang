@@ -83,10 +83,6 @@ pub(crate) struct ClassLedgerPlan {
 
 /// Insertion plan plus the per-class readiness verdicts for one function.
 #[derive(Debug)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "independent poison/admission facts; no two flags encode one state machine"
-)]
 pub(crate) struct ClassLedgerAnalysis {
     pub(crate) plan: ClassLedgerPlan,
     pub(crate) readiness: ReadinessSummary,
@@ -98,9 +94,6 @@ pub(crate) struct ClassLedgerAnalysis {
     /// A heap arg handed through an indirect call (unmodeled ownership;
     /// per the classification flag) — the replacement gate declines.
     pub(crate) indirect_arg_handoff: bool,
-    /// An OWNED param's own contract cardinality is `Absent` (per the
-    /// classification flag) — the replacement gate declines (VF-2).
-    pub(crate) absent_owned_param: bool,
     /// Every variable excluded under the classifier's own semantics (per
     /// the classification flag) — the zero-class empty plan is admitted.
     pub(crate) all_vars_excluded: bool,
@@ -207,9 +200,30 @@ pub(crate) fn analyze_class_ledger(
     let mut verdicts = Vec::new();
     let mut declined = Vec::new();
     let mut class_facts: Vec<hazard::ClassHazardFacts> = Vec::new();
+    let full_move_arms = events::detect_full_move_arms(func, partition, type_registry);
     for class in events::collect_classes(classification) {
-        let class_events = events::extract_class_events(func, classification, partition, class);
+        let credit_sites = events::full_move_credit_sites(partition, &full_move_arms, class);
+        let mut class_events = if credit_sites.is_empty() {
+            events::extract_class_events(func, classification, partition, class)
+        } else {
+            events::extract_class_events_with_extraction_credits(
+                func,
+                classification,
+                partition,
+                class,
+                &credit_sites,
+                false,
+            )
+        };
+        events::apply_full_move_rebook(partition, &full_move_arms, class, &mut class_events);
         let outcome = emit::plan_class(func, &preds, &regions, &class_events, &[]);
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            class = ?partition.node_key(class),
+            events = ?class_events.per_block,
+            outcome = ?outcome,
+            "class plan probe"
+        );
         let planned_ops: &[PlannedOp] = match &outcome {
             ClassOutcome::Planned(ops) => ops,
             ClassOutcome::Declined(reason) => {
@@ -237,7 +251,16 @@ pub(crate) fn analyze_class_ledger(
         class_facts.push(hazard_facts_for(class, &class_events, &outcome, verdict));
         classes.push(ClassPlan { class, outcome });
     }
-    let hazards = hazard::field_view_hazard_classes(func, partition, &class_facts);
+    let full_move_construct_sites: Vec<(usize, EventSite)> = full_move_arms
+        .iter()
+        .map(|arm| (arm.block, EventSite::Body(arm.construct_index)))
+        .collect();
+    let hazards = hazard::field_view_hazard_classes(
+        func,
+        partition,
+        &class_facts,
+        &full_move_construct_sites,
+    );
     let uncured = hazard::cure_endangered_views(
         func,
         classification,
@@ -246,6 +269,7 @@ pub(crate) fn analyze_class_ledger(
         &regions,
         type_registry,
         interner,
+        &full_move_arms,
         &hazards,
         &mut classes,
         &mut verdicts,
@@ -265,7 +289,6 @@ pub(crate) fn analyze_class_ledger(
         },
         field_view_hazard,
         indirect_arg_handoff: classification.indirect_arg_handoff,
-        absent_owned_param: classification.absent_owned_param,
         all_vars_excluded: classification.all_vars_excluded,
     }
 }

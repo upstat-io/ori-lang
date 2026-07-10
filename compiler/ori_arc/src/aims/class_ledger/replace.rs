@@ -86,7 +86,6 @@ pub(crate) enum FallbackReason {
     /// An OWNED param whose own contract cardinality is `Absent`: the body
     /// must carry NO reference to it (VF-2 `AbsentParamHasUses`; the caller
     /// retains the release obligation).
-    AbsentOwnedParam,
     /// An endangered field-path view went uncured — both `hazard` cure-ladder
     /// rungs declined. Every hazard-bearing fixture in the current test
     /// corpus is cured (`!field_view_hazard` pinned in each), and each
@@ -127,7 +126,6 @@ impl FallbackReason {
             Self::ReuseShape => "reuse-shape",
             Self::TrmcContext => "trmc-context",
             Self::IndirectArgOwnership => "indirect-arg-ownership",
-            Self::AbsentOwnedParam => "absent-owned-param",
             Self::FieldViewLiveness => "field-view-liveness",
             Self::UserDropGlue => "user-drop-glue",
             Self::OpVarPlacement => "op-var-placement",
@@ -255,9 +253,6 @@ fn gate_rejection(
     }
     if analysis.indirect_arg_handoff {
         return Some(FallbackReason::IndirectArgOwnership);
-    }
-    if analysis.absent_owned_param {
-        return Some(FallbackReason::AbsentOwnedParam);
     }
     if analysis.field_view_hazard {
         return Some(FallbackReason::FieldViewLiveness);

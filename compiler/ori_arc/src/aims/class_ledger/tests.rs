@@ -1961,6 +1961,304 @@ fn extract_then_move_out_via_second_container_funds_itself_at_extraction() {
     );
 }
 
+/// The branch-exclusive FULL MOVE: one arm projects the aggregate's ONLY
+/// owned field into a new `Construct` (the rebuild), the other arm hands
+/// the aggregate itself to an owned consumer. Without the full-move rebook
+/// the per-path owed counts disagree at the merge (the move arm's Reads
+/// leave the count at 1); with it, the move arm's Reads become the
+/// aggregate's move-out Consume (RL-2 `ConstructArg` transfer, the
+/// full-skip cell of `FD_skipset_sound`) and the field view takes an
+/// extraction CREDIT — no duplication inc, no hazard, every class Clean.
+/// Builder for the branch-exclusive full-move diamond: bb1 projects the
+/// pair's only owned field into a new `Construct`; bb2 hands the pair to an
+/// owned consumer; both merge at bb3.
+fn branch_exclusive_full_move_func() -> ArcFunction {
+    let mut func = func_with_blocks(
+        8,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    construct(0, vec![]),
+                    construct(1, vec![0]),
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: ty(0),
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                    },
+                ],
+                branch(2, 1, 2),
+            ),
+            block(
+                1,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(3),
+                        ty: ty(70),
+                        value: v(1),
+                        field: 0,
+                    },
+                    construct(4, vec![3]),
+                ],
+                jump(3, vec![]),
+            ),
+            block(
+                2,
+                vec![],
+                vec![apply(5, vec![(1, ArgOwnership::Owned)])],
+                jump(3, vec![]),
+            ),
+            block(
+                3,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(6),
+                    ty: ty(0),
+                    value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                }],
+                ret(6),
+            ),
+        ],
+    );
+    func.var_types[3] = ty(70);
+
+    func
+}
+
+#[test]
+fn branch_exclusive_full_move_rebooks_aggregate_consume() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let mut func = branch_exclusive_full_move_func();
+    let pair_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "MovedPair",
+        pair_idx,
+        Some(UserBurdenSpec {
+            self_heap_alloc: true,
+            owned_fields: vec![UserOwnedField {
+                field_path: vec![0],
+                field_type: ty(70),
+            }],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    func.var_types[1] = pair_idx;
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    state_map.set_permanent_scalar(v(5));
+    state_map.set_permanent_scalar(v(6));
+    let (analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "the full-move rebook + extraction credit must leave no hazard; \
+         declined={:?} verdicts={:?}",
+        analysis.readiness.declined, analysis.readiness.verdicts,
+    );
+    assert!(analysis.readiness.all_classes_clean);
+
+    let pair = class_rep(&mut partition, 1);
+    let field = class_rep(&mut partition, 0);
+    let pair_move_arm_release = ops_for(&analysis, pair).iter().any(|op| {
+        op.kind == PlannedOpKind::Dec
+            && matches!(
+                op.slot,
+                PlanSlot::BlockFront { block: 1 }
+                    | PlanSlot::BeforeBody { block: 1, .. }
+                    | PlanSlot::AfterBody { block: 1, .. }
+            )
+    });
+    assert!(
+        !pair_move_arm_release,
+        "the moved aggregate takes NO release on the full-move arm (its \
+         reference transferred into the rebuild construct)"
+    );
+    assert!(
+        ops_for(&analysis, field)
+            .iter()
+            .all(|op| op.kind != PlannedOpKind::Inc),
+        "the moved field takes NO duplication inc (the extraction credit \
+         re-acquires the transferred reference for free)"
+    );
+}
+
+/// A borrowed ttr call's result re-acquires the SAME allocation (RL-34
+/// Credit): past the final terminator read the class's BOOKS owe two
+/// references (birth + credit) — the release planner DECLINES
+/// (`UnplaceableRelease`, fail-closed to the legacy walk). A naive
+/// one-dec-per-owed-book placement over-releases when a cure or
+/// force-owned re-extraction inflates the books past the runtime count
+/// (the stash-and-return double-free); a runtime-grounded multi-owed
+/// placement needs proof each positive book entry is a REAL acquisition.
+#[test]
+fn multi_owed_class_declines_fail_closed() {
+    let mut func = func_with_blocks(
+        3,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![construct(0, vec![])],
+                invoke(1, vec![(0, ArgOwnership::Borrowed)], 1, 2),
+            ),
+            block(
+                1,
+                vec![],
+                vec![],
+                invoke(2, vec![(1, ArgOwnership::Borrowed)], 3, 4),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(3, vec![], vec![], ret(2)),
+            block(4, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.params = vec![];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    // Drive plan_class directly with the credited event stream (the
+    // RL-34 result re-acquisition the real cell's classifier books).
+    let credited = ClassEvents {
+        origin: Some(ClassOrigin::Fresh),
+        threads_back_edge: false,
+        container_held: false,
+        externally_funded: false,
+        per_block: vec![
+            vec![
+                ClassEvent {
+                    site: EventSite::Body(0),
+                    kind: EventKind::Birth,
+                    var: Some(v(0)),
+                    delta: 1,
+                    floor: 0,
+                },
+                ClassEvent {
+                    site: EventSite::Terminator,
+                    kind: EventKind::Read,
+                    var: Some(v(0)),
+                    delta: 0,
+                    floor: 1,
+                },
+            ],
+            vec![
+                ClassEvent {
+                    site: EventSite::BlockEntry,
+                    kind: EventKind::Credit,
+                    var: Some(v(1)),
+                    delta: 1,
+                    floor: 0,
+                },
+                ClassEvent {
+                    site: EventSite::Terminator,
+                    kind: EventKind::Read,
+                    var: Some(v(1)),
+                    delta: 0,
+                    floor: 1,
+                },
+            ],
+            vec![],
+            vec![],
+            vec![],
+        ],
+    };
+    let preds = crate::graph::compute_predecessors(&func);
+    let regions = super::emit::CycleRegions::compute(&func);
+    let outcome = super::emit::plan_class(&func, &preds, &regions, &credited, &[]);
+    let ClassOutcome::Declined(reason) = &outcome else {
+        panic!("a books-owe-two class must decline fail-closed, got {outcome:?}");
+    };
+    assert_eq!(
+        *reason,
+        DeclineReason::UnplaceableRelease,
+        "the multi-owed decline is the UnplaceableRelease gate"
+    );
+}
+
+/// Over-fire negative for the full-move arm (the loop-header-merge-read
+/// shape): a `Jump` edge feeding TWO params from ONE class (the aggregate
+/// and its alias) means the lineages may alias one runtime allocation —
+/// `moved_class_shares_edge_source` must DECLINE the arm; rebooking there
+/// releases a field the surviving lineage still reads (use-after-free).
+#[test]
+fn shared_edge_source_declines_full_move_arm() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let mut func = func_with_blocks(
+        9,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    construct(0, vec![]),
+                    construct(1, vec![0]),
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: ty(0),
+                        value: ArcValue::Var(v(1)),
+                    },
+                ],
+                jump(1, vec![1, 2]),
+            ),
+            block(
+                1,
+                vec![3, 4],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(5),
+                        ty: ty(70),
+                        value: v(3),
+                        field: 0,
+                    },
+                    construct(6, vec![5]),
+                ],
+                jump(2, vec![4]),
+            ),
+            block(
+                2,
+                vec![7],
+                vec![apply(8, vec![(7, ArgOwnership::Owned)])],
+                ret(8),
+            ),
+        ],
+    );
+    func.var_types[5] = ty(70);
+    let pair_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "AliasedPair",
+        pair_idx,
+        Some(UserBurdenSpec {
+            self_heap_alloc: true,
+            owned_fields: vec![UserOwnedField {
+                field_path: vec![0],
+                field_type: ty(70),
+            }],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    for var in [1u32, 2, 3, 4, 7] {
+        func.var_types[var as usize] = pair_idx;
+    }
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(8));
+    let (_analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
+
+    let arms = super::events::detect_full_move_arms(&func, &mut partition, &registry);
+    assert!(
+        arms.is_empty(),
+        "a Jump edge feeding two params from one class must decline the \
+         full-move arm (runtime aliasing across per-source lineages)"
+    );
+}
+
 /// One inner shared by TWO released containers with NO extraction (the
 /// two-wrappers-share-one-inner shape): both stores are move-ins — the
 /// first funded by the birth, the second by the base plan's duplication

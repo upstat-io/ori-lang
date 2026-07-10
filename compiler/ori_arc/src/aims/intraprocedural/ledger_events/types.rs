@@ -227,10 +227,6 @@ pub(crate) struct LedgerClassification {
     /// back (READ double-frees a consuming callee; CONSUME leaks a
     /// borrowing one).
     pub(crate) indirect_arg_handoff: bool,
-    /// An OWNED function param's own contract cardinality is `Absent`: any
-    /// planned op naming it violates VF-2 (`AbsentParamHasUses`) and the
-    /// caller-retains-release ABI — the readiness gate falls back.
-    pub(crate) absent_owned_param: bool,
     /// Every variable is excluded under the CLASSIFIER's own semantics
     /// (state-map scalar/immortal OR placeholder alias-closure): a
     /// zero-class function with this set carries no RC-bearing value and

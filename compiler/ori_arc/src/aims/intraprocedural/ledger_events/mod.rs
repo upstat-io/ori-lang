@@ -61,6 +61,10 @@ struct Classifier<'a> {
     /// (the iterator-protocol `%n: [T] = 0` shape), never allocations; no
     /// event attaches to them.
     placeholders: rustc_hash::FxHashSet<ArcVarId>,
+    /// ABSENT params (contract cardinality `Absent`): caller-retained per
+    /// the borrowed call-site convention, no events booked — excluded
+    /// under the classifier's own semantics (VF-2 guards no-live-uses).
+    absent_params: rustc_hash::FxHashSet<ArcVarId>,
 }
 
 impl Classifier<'_> {
@@ -71,7 +75,9 @@ impl Classifier<'_> {
     }
 
     fn excluded(&self, var: ArcVarId) -> bool {
-        self.state_map.is_excluded(var) || self.placeholders.contains(&var)
+        self.state_map.is_excluded(var)
+            || self.placeholders.contains(&var)
+            || self.absent_params.contains(&var)
     }
 
     fn birth(&mut self, stream: &mut Vec<ClassInstr>, var: ArcVarId, origin: ClassOrigin) {
@@ -218,10 +224,22 @@ impl Classifier<'_> {
             if self.excluded(param.var) {
                 continue;
             }
-            if param.ownership == Ownership::Owned
-                && own_absent.get(position).copied().unwrap_or(false)
-            {
-                self.out.absent_owned_param = true;
+            // An ABSENT param books NO events regardless of its declared
+            // ownership: every call site passes it BORROWED (the
+            // `contract_to_params` convention maps `Cardinality::Absent` to
+            // `Ownership::Borrowed`), so the caller retains and releases —
+            // the callee owes nothing (the borrowed-boundary discipline,
+            // `RL2_borrowed_param_emits_caller_dec`). VF-2
+            // (`AbsentParamHasUses`) guards the no-live-uses premise.
+            if own_absent.get(position).copied().unwrap_or(false) {
+                tracing::trace!(
+                    target: "ori_arc::aims::class_ledger",
+                    param = ?param.var,
+                    "absent param books no events: caller-retained per the \
+                     borrowed call-site convention"
+                );
+                self.absent_params.insert(param.var);
+                continue;
             }
             let iter_consuming = own_iter.get(position).copied().unwrap_or(false);
             let origin = match param.ownership {
@@ -263,6 +281,7 @@ pub(crate) fn classify_function(
         out: LedgerClassification::default(),
         pending_entry: FxHashMap::default(),
         placeholders: collect_placeholder_vars(func, state_map),
+        absent_params: rustc_hash::FxHashSet::default(),
     };
     classifier.record_merge_origins(func);
     classifier.record_invoke_result_entries(func);

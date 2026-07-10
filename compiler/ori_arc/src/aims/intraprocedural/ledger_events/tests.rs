@@ -1644,11 +1644,14 @@ fn indirect_receiver_only_does_not_set_handoff_flag() {
     assert!(!classification.indirect_arg_handoff);
 }
 
-/// An OWNED param whose own contract cardinality is `Absent` poisons the
-/// classification (VF-2: the body must carry no reference to it — the
-/// caller retains the release obligation), so the readiness gate declines.
+/// An OWNED param whose own contract cardinality is `Absent` books NO
+/// events: every call site passes it BORROWED (the `contract_to_params`
+/// convention maps `Cardinality::Absent` to `Ownership::Borrowed`), so the
+/// caller retains and releases and the callee owes nothing (the
+/// borrowed-boundary discipline). A param with live-path demand keeps its
+/// birth.
 #[test]
-fn absent_owned_param_poisons_classification() {
+fn absent_owned_param_books_no_events() {
     let mut func = one_block_func(1, vec![], ArcTerminator::Return { value: v(0) });
     func.params = vec![ArcParam {
         var: v(0),
@@ -1667,10 +1670,24 @@ fn absent_owned_param_poisons_classification() {
         },
     );
     let state_map = AimsStateMap::new(&func);
-    let (classification, _partition) = classify(&func, &state_map, &facts);
-    assert!(classification.absent_owned_param);
+    let (classification, mut partition) = classify(&func, &state_map, &facts);
+    let param_rep = {
+        use crate::aims::intraprocedural::birth_site_partition::FieldPath;
+        let node = partition.register_node(v(0), FieldPath::whole_var());
+        partition.rep_of(node)
+    };
+    let absent_param_evented = classification
+        .blocks
+        .iter()
+        .flatten()
+        .any(|instr| matches!(instr, ClassInstr::Birth { class, .. } if *class == param_rep));
+    assert!(
+        !absent_param_evented,
+        "an Absent owned param must book no birth — the caller retains the \
+         release obligation per the borrowed call-site convention"
+    );
 
-    // The same param with live-path demand stays eligible.
+    // The same param with live-path demand keeps its birth.
     let mut live_facts = no_facts();
     live_facts.insert(
         func.name,
@@ -1682,8 +1699,18 @@ fn absent_owned_param_poisons_classification() {
             returns_owned_fresh: false,
         },
     );
-    let (classification, _partition) = classify(&func, &state_map, &live_facts);
-    assert!(!classification.absent_owned_param);
+    let (classification, mut partition) = classify(&func, &state_map, &live_facts);
+    let param_rep = {
+        use crate::aims::intraprocedural::birth_site_partition::FieldPath;
+        let node = partition.register_node(v(0), FieldPath::whole_var());
+        partition.rep_of(node)
+    };
+    let live_param_evented = classification
+        .blocks
+        .iter()
+        .flatten()
+        .any(|instr| matches!(instr, ClassInstr::Birth { class, .. } if *class == param_rep));
+    assert!(live_param_evented, "a live owned param keeps its birth");
 }
 
 /// A BORROWED-param-rooted `RcPointer` operand of a heap-dst `PrimOp`

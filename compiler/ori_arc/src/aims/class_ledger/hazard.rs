@@ -96,6 +96,7 @@ pub(crate) fn cure_endangered_views(
     regions: &emit::CycleRegions,
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
+    full_move_arms: &[events::FullMoveArm],
     hazards: &[FieldViewHazard],
     classes: &mut [ClassPlan],
     verdicts: &mut [(NodeIdx, ClassVerdict)],
@@ -149,6 +150,7 @@ pub(crate) fn cure_endangered_views(
             preds,
             regions,
             type_registry,
+            full_move_arms,
             hazard.view,
             classes,
             verdicts,
@@ -199,6 +201,7 @@ pub(crate) fn field_view_hazard_classes(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
     class_facts: &[ClassHazardFacts],
+    full_move_construct_sites: &[(usize, EventSite)],
 ) -> Vec<FieldViewHazard> {
     let released: Vec<NodeIdx> = class_facts
         .iter()
@@ -228,9 +231,15 @@ pub(crate) fn field_view_hazard_classes(
             (container, member_vars, scan)
         })
         .collect();
+    // Full-move arm Construct sites join the funded union: the arm's
+    // transfer is self-accounting — the extraction credit funds the store
+    // and the receiving container's lineage carries the reference to its
+    // own release (`apply_full_move_rebook` + the injected extraction
+    // credits; the per-class verify re-checks the books independently).
     let released_construct_union: Vec<(usize, EventSite)> = scans
         .iter()
         .flat_map(|(_, _, scan)| scan.sites.iter().copied())
+        .chain(full_move_construct_sites.iter().copied())
         .collect();
     let mut hazards: Vec<FieldViewHazard> = Vec::new();
     for (container, member_vars, scan) in &scans {
@@ -399,6 +408,7 @@ fn cure_view_with_extraction_funding(
     preds: &[Vec<usize>],
     regions: &emit::CycleRegions,
     type_registry: &ori_types::TypeRegistry,
+    full_move_arms: &[events::FullMoveArm],
     view: NodeIdx,
     classes: &mut [ClassPlan],
     verdicts: &mut [(NodeIdx, ClassVerdict)],
@@ -409,6 +419,7 @@ fn cure_view_with_extraction_funding(
     use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
 
     let mut seeds = Vec::new();
+    let mut credit_sites: Vec<(usize, usize)> = Vec::new();
     for (block_idx, arc_block) in func.blocks.iter().enumerate() {
         for (index, instr) in arc_block.body.iter().enumerate() {
             let ArcInstr::Project { dst, .. } = instr else {
@@ -416,6 +427,18 @@ fn cure_view_with_extraction_funding(
             };
             let node = partition.register_node(*dst, FieldPath::whole_var());
             if partition.rep_of(node) != view {
+                continue;
+            }
+            // A full-move arm's projection is NEVER seeded: the aggregate's
+            // reference transfers whole (`apply_full_move_rebook`), so the
+            // extraction re-acquires the transferred reference for free — a
+            // bookkeeping CREDIT, not a runtime inc (a seed here bumps the
+            // count once per arm execution with no matching release, since
+            // the moved-out aggregate is never dropped).
+            if full_move_arms.iter().any(|arm| {
+                arm.block == block_idx && arm.projections.iter().any(|&(i, _)| i == index)
+            }) {
+                credit_sites.push((block_idx, index));
                 continue;
             }
             // A seed inc funds ONLY a refcount-managed allocation. A view
@@ -449,7 +472,7 @@ fn cure_view_with_extraction_funding(
             });
         }
     }
-    if seeds.is_empty() {
+    if seeds.is_empty() && credit_sites.is_empty() {
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
             view = ?partition.node_key(view),
@@ -457,8 +480,18 @@ fn cure_view_with_extraction_funding(
         );
         return false;
     }
-    let funded_events =
-        events::extract_class_events_with(func, classification, partition, view, true);
+    let funded_events = if credit_sites.is_empty() {
+        events::extract_class_events_with(func, classification, partition, view, true)
+    } else {
+        events::extract_class_events_with_extraction_credits(
+            func,
+            classification,
+            partition,
+            view,
+            &credit_sites,
+            true,
+        )
+    };
     let Some(outcome) = plan_and_verify_cure(
         func,
         preds,
@@ -958,6 +991,7 @@ fn try_per_site_decomposition(
         partition,
         hazard.view,
         &extractions,
+        false,
     );
     let outcome_opt = plan_and_verify_cure(
         func,
