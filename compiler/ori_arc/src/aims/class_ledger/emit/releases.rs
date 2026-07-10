@@ -102,7 +102,7 @@ pub(super) fn plan_releases(
                     block: only_block,
                     index: *index,
                 };
-                let var = release_var_for_slot(ctx, events, only_block, slot)?;
+                let var = release_var_for_slot(ctx, events, ops, only_block, slot)?;
                 ops.push(PlannedOp {
                     slot,
                     kind: PlannedOpKind::Dec,
@@ -288,7 +288,7 @@ fn plan_block_release(
     match last_pre.map(|ev| ev.site) {
         Some(EventSite::Body(index)) => {
             let slot = PlanSlot::AfterBody { block, index };
-            let var = release_var_for_slot(ctx, events, block, slot)?;
+            let var = release_var_for_slot(ctx, events, ops, block, slot)?;
             ops.push(PlannedOp {
                 slot,
                 kind: PlannedOpKind::Dec,
@@ -319,7 +319,7 @@ fn push_front_dec(
         return Ok(());
     }
     let slot = PlanSlot::BlockFront { block: target };
-    let var = release_var_for_slot(ctx, events, from_block, slot)?;
+    let var = release_var_for_slot(ctx, events, ops, from_block, slot)?;
     ops.push(PlannedOp {
         slot,
         kind: PlannedOpKind::Dec,
@@ -347,11 +347,14 @@ impl<'a> ReleaseCtx<'a> {
 
 /// The member variable a release names: the last resolved event var in the
 /// releasing block whose definition reaches the slot, else ANY class member
-/// var that reaches it (same allocation — every member names the same
-/// reference), else `UnresolvedOpVar` (fail-closed).
+/// var that reaches it — event vars first, then planned-op vars (a seeded
+/// extraction inc's subject is a class member naming the same allocation
+/// whose def often dominates edges a branch-local read alias cannot reach) —
+/// else `UnresolvedOpVar` (fail-closed).
 fn release_var_for_slot(
     ctx: &ReleaseCtx<'_>,
     events: &ClassEvents,
+    ops: &[PlannedOp],
     block: usize,
     slot: PlanSlot,
 ) -> Result<ArcVarId, DeclineReason> {
@@ -373,5 +376,6 @@ fn release_var_for_slot(
                 .filter_map(|ev| ev.var)
                 .find(|&v| reaches(v))
         })
+        .or_else(|| ops.iter().map(|op| op.var).find(|&v| reaches(v)))
         .ok_or(DeclineReason::UnresolvedOpVar)
 }

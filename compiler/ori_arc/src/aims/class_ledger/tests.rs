@@ -2164,6 +2164,141 @@ fn apply_alias_credit_releases_after_terminator_read() {
     );
 }
 
+fn eq_read(dst: u32, lhs: u32, rhs: u32) -> ArcInstr {
+    ArcInstr::Let {
+        dst: v(dst),
+        ty: ty(0),
+        value: ArcValue::PrimOp {
+            op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Eq),
+            args: vec![v(lhs), v(rhs)],
+        },
+    }
+}
+
+fn str_lit(dst: u32, name: u32) -> ArcInstr {
+    ArcInstr::Let {
+        dst: v(dst),
+        ty: Idx::STR,
+        value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(name))),
+    }
+}
+
+/// A constructless container (call result) destructured into TWO field
+/// views in bb1; the second view is read (`PrimOp` eq via a bb3-local alias)
+/// only on the taken branch of the first comparison.
+fn two_field_branch_read_func() -> ArcFunction {
+    let mut func = func_with_blocks(
+        17,
+        vec![
+            block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: ty(0),
+                        value: ArcValue::Var(v(0)),
+                    },
+                    ArcInstr::Project {
+                        dst: v(3),
+                        ty: Idx::STR,
+                        value: v(2),
+                        field: 0,
+                    },
+                    ArcInstr::Project {
+                        dst: v(4),
+                        ty: Idx::STR,
+                        value: v(2),
+                        field: 1,
+                    },
+                    ArcInstr::Let {
+                        dst: v(6),
+                        ty: Idx::STR,
+                        value: ArcValue::Var(v(3)),
+                    },
+                    str_lit(7, 21),
+                    eq_read(8, 6, 7),
+                ],
+                branch(8, 3, 4),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(
+                3,
+                vec![],
+                vec![
+                    ArcInstr::Let {
+                        dst: v(9),
+                        ty: Idx::STR,
+                        value: ArcValue::Var(v(4)),
+                    },
+                    str_lit(10, 22),
+                    eq_read(11, 9, 10),
+                ],
+                branch(11, 6, 7),
+            ),
+            block(
+                4,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(15),
+                    ty: ty(0),
+                    value: ArcValue::Literal(crate::ir::LitValue::Int(2)),
+                }],
+                jump(5, vec![15]),
+            ),
+            block(5, vec![16], vec![], ret(16)),
+            block(
+                6,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(12),
+                    ty: ty(0),
+                    value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                }],
+                jump(8, vec![12]),
+            ),
+            block(
+                7,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(13),
+                    ty: ty(0),
+                    value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+                }],
+                jump(8, vec![13]),
+            ),
+            block(8, vec![14], vec![], jump(5, vec![14])),
+        ],
+    );
+    for var in [3u32, 4, 6, 7, 9, 10] {
+        func.var_types[var as usize] = Idx::STR;
+    }
+
+    func
+}
+
+/// A funded view read ONLY on one branch (through a branch-local alias)
+/// releases on the untaken edge named by the SEED var: the event var's def
+/// is branch-local, but the seeded Project dst dominates both arms — the
+/// release chooser must consider planned-op vars, not just event vars.
+#[test]
+fn funded_view_branch_read_releases_on_dead_edge_via_seed_var() {
+    let func = two_field_branch_read_func();
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [8u32, 11, 12, 13, 14, 15, 16] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "both destructured views must cure; declined={:?} verdicts={:?}",
+        analysis.readiness.declined, analysis.readiness.verdicts,
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
+
 /// Ops sharing one insertion point apply Inc BEFORE Dec regardless of plan
 /// order: a container release and its endangered view's funding inc both
 /// land after the extracting `Project`, and dec-first frees the payload the
