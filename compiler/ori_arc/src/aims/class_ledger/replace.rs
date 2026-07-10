@@ -144,7 +144,7 @@ pub(crate) fn attempt_replacement(
     type_registry: &TypeRegistry,
     allow_replacement: bool,
 ) -> ReplacementOutcome {
-    let analysis = analyze_from_state_map(func, state_map, contracts);
+    let analysis = analyze_from_state_map(func, state_map, contracts, type_registry);
     let ops = planned_ops(&analysis);
     if let Some(reason) = gate_rejection(
         func,

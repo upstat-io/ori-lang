@@ -127,9 +127,10 @@ fn analyze(
     state_map: &AimsStateMap,
 ) -> (ClassLedgerAnalysis, BirthSitePartition) {
     let facts: FxHashMap<Name, BoundaryFacts> = FxHashMap::default();
+    let registry = ori_types::TypeRegistry::default();
     let mut partition = compute_birth_site_partition(func, state_map);
     let classification = classify_function(func, state_map, &mut partition, &facts);
-    let analysis = analyze_class_ledger(func, &classification, &mut partition);
+    let analysis = analyze_class_ledger(func, &classification, &mut partition, &registry);
     (analysis, partition)
 }
 
@@ -223,7 +224,8 @@ fn default_toggle_off_pipeline_entry_is_noop() {
     assert!(!replaced);
     assert_eq!(gated, func);
 
-    let analysis = analyze_from_state_map(&func, &state_map, &contracts);
+    let registry = ori_types::TypeRegistry::default();
+    let analysis = analyze_from_state_map(&func, &state_map, &contracts, &registry);
     assert!(!analysis.plan.classes.is_empty());
 }
 
@@ -1847,6 +1849,7 @@ fn extract_then_move_out_via_second_container_funds_itself_at_extraction() {
         ret(5),
     );
     func.params = vec![];
+    func.var_types[2] = Idx::STR;
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_permanent_scalar(v(5));
     let (analysis, mut partition) = analyze(&func, &state_map);
@@ -1943,6 +1946,42 @@ fn extract_then_move_out_decomposes_container_release() {
     );
 }
 
+/// Ops sharing one insertion point apply Inc BEFORE Dec regardless of plan
+/// order: a container release and its endangered view's funding inc both
+/// land after the extracting `Project`, and dec-first frees the payload the
+/// inc then touches (the fund-before-release rule at a shared point).
+#[test]
+fn apply_plan_orders_inc_before_dec_at_shared_slot() {
+    let mut func = one_block_func(
+        2,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::Project {
+                dst: v(1),
+                ty: ty(0),
+                value: v(0),
+                field: 0,
+            },
+        ],
+        ret(1),
+    );
+    apply_plan(
+        &mut func,
+        &[
+            dec(PlanSlot::AfterBody { block: 0, index: 1 }, 0),
+            inc(PlanSlot::AfterBody { block: 0, index: 1 }, 1),
+        ],
+    );
+    assert_eq!(
+        &func.blocks[0].body[2..4],
+        &[
+            ArcInstr::BurdenInc { var: v(1) },
+            ArcInstr::BurdenDec { var: v(0) },
+        ],
+        "the view's funding inc must precede the container's release at a shared slot"
+    );
+}
+
 /// A CONSTRUCTLESS container (a call result) whose field view is extracted
 /// then RETURNED: field-decomposition has no move-in store to re-book, so
 /// the extraction-funding rung cures — the seed inc after the `Project` is
@@ -1954,7 +1993,7 @@ fn extract_then_return_from_call_result_container_funds_at_extraction() {
     // bb0: Invoke @f() -> %0, normal bb1, unwind bb2
     // bb1: %1 = Project %0.0; Return %1
     // bb2: Resume
-    let func = func_with_blocks(
+    let mut func = func_with_blocks(
         2,
         vec![
             block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
@@ -1963,7 +2002,7 @@ fn extract_then_return_from_call_result_container_funds_at_extraction() {
                 vec![],
                 vec![ArcInstr::Project {
                     dst: v(1),
-                    ty: ty(0),
+                    ty: Idx::STR,
                     value: v(0),
                     field: 0,
                 }],
@@ -1972,6 +2011,7 @@ fn extract_then_return_from_call_result_container_funds_at_extraction() {
             block(2, vec![], vec![], ArcTerminator::Resume),
         ],
     );
+    func.var_types[1] = Idx::STR;
     let state_map = AimsStateMap::new(&func);
     let (analysis, mut partition) = analyze(&func, &state_map);
 
@@ -2160,6 +2200,55 @@ fn demand_only_view_is_never_skipped() {
     }
 }
 
+/// A sum container whose extracted payload type carries NO burden (an
+/// iterator handle: freed by destructor, not refcount) cannot be cured by
+/// extraction funding — the seed inc is physically inert, so the container's
+/// release still destroys the extracted payload. The rung declines and the
+/// hazard survives (fail-closed fallback to the legacy walk).
+#[test]
+fn unfundable_view_type_declines_extraction_funding() {
+    let mut func = one_block_func(
+        5,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::Construct {
+                dst: v(1),
+                ty: ty(0),
+                ctor: CtorKind::EnumVariant {
+                    enum_name: Name::from_raw(9),
+                    variant: 0,
+                },
+                args: vec![v(0)],
+            },
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(70),
+                value: v(1),
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v(3),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(4, 3),
+        ],
+        ret(2),
+    );
+    func.params = vec![];
+    // The view var's TYPE is an unregistered user index: `lookup_burden`
+    // resolves no burden, so a `BurdenInc` on it lowers to nothing.
+    func.var_types[2] = ty(70);
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(4));
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        analysis.field_view_hazard,
+        "an unfundable view type must survive as a hazard, never a fake cure"
+    );
+}
+
 /// Same consume-marked-then-Return shape as
 /// `extract_then_move_out_decomposes_container_release`, but the container is
 /// a SUM type (`CtorKind::EnumVariant`) instead of a tuple: the field
@@ -2185,7 +2274,7 @@ fn sum_container_view_declines_field_decomposition() {
             },
             ArcInstr::Project {
                 dst: v(2),
-                ty: ty(0),
+                ty: Idx::STR,
                 value: v(1),
                 field: 0,
             },
@@ -2199,6 +2288,7 @@ fn sum_container_view_declines_field_decomposition() {
         ret(2),
     );
     func.params = vec![];
+    func.var_types[2] = Idx::STR;
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_permanent_scalar(v(4));
     let (analysis, mut partition) = analyze(&func, &state_map);

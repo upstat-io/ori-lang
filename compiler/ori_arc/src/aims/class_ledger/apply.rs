@@ -7,18 +7,32 @@ use crate::ir::{ArcFunction, ArcInstr};
 use super::emit::{PlanSlot, PlannedOp, PlannedOpKind};
 
 /// Insert every planned op at its slot. Insertions within one block apply
-/// back-to-front so earlier indices stay valid; ops sharing an insertion
-/// point keep plan order.
+/// back-to-front so earlier indices stay valid. Ops sharing an insertion
+/// point apply Inc BEFORE Dec (fund-before-release: a container release and
+/// a same-slot funding inc of its extracted view name one allocation, and
+/// releasing first frees the memory the inc then touches); within one kind,
+/// plan order holds.
 pub(crate) fn apply_plan(func: &mut ArcFunction, ops: &[PlannedOp]) {
     for block in 0..func.blocks.len() {
-        let mut inserts: Vec<(usize, usize, ArcInstr)> = ops
+        let mut inserts: Vec<(usize, u8, usize, ArcInstr)> = ops
             .iter()
             .enumerate()
             .filter(|(_, op)| op.slot.block() == block)
-            .map(|(order, op)| (insertion_index(func, op.slot), order, materialize(op)))
+            .map(|(order, op)| {
+                let kind_rank = match op.kind {
+                    PlannedOpKind::Inc => 0,
+                    PlannedOpKind::Dec | PlannedOpKind::DecPartial { .. } => 1,
+                };
+                (
+                    insertion_index(func, op.slot),
+                    kind_rank,
+                    order,
+                    materialize(op),
+                )
+            })
             .collect();
-        inserts.sort_by_key(|&(index, order, _)| (index, order));
-        for (index, _, instr) in inserts.into_iter().rev() {
+        inserts.sort_by_key(|&(index, kind_rank, order, _)| (index, kind_rank, order));
+        for (index, _, _, instr) in inserts.into_iter().rev() {
             func.blocks[block].body.insert(index, instr);
         }
     }

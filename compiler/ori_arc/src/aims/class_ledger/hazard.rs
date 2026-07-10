@@ -74,6 +74,7 @@ pub(crate) fn cure_endangered_views(
     partition: &mut BirthSitePartition,
     preds: &[Vec<usize>],
     regions: &emit::CycleRegions,
+    type_registry: &ori_types::TypeRegistry,
     hazards: &[FieldViewHazard],
     classes: &mut [ClassPlan],
     verdicts: &mut [(NodeIdx, ClassVerdict)],
@@ -112,6 +113,7 @@ pub(crate) fn cure_endangered_views(
             partition,
             preds,
             regions,
+            type_registry,
             hazard.view,
             classes,
             verdicts,
@@ -245,6 +247,7 @@ fn cure_view_with_extraction_funding(
     partition: &mut BirthSitePartition,
     preds: &[Vec<usize>],
     regions: &emit::CycleRegions,
+    type_registry: &ori_types::TypeRegistry,
     view: NodeIdx,
     classes: &mut [ClassPlan],
     verdicts: &mut [(NodeIdx, ClassVerdict)],
@@ -252,6 +255,7 @@ fn cure_view_with_extraction_funding(
 ) -> bool {
     use crate::aims::intraprocedural::birth_site_partition::FieldPath;
     use crate::ir::ArcInstr;
+    use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
 
     let mut seeds = Vec::new();
     for (block_idx, arc_block) in func.blocks.iter().enumerate() {
@@ -262,6 +266,22 @@ fn cure_view_with_extraction_funding(
             let node = partition.register_node(*dst, FieldPath::whole_var());
             if partition.rep_of(node) != view {
                 continue;
+            }
+            // A seed inc funds ONLY a refcount-managed allocation. A view
+            // type with no burden (an iterator handle: freed by destructor,
+            // never by refcount) lowers the inc to nothing, so the container
+            // release still destroys the extracted payload — decline.
+            let fundable = func.var_types.get(dst.index()).is_some_and(|&ty| {
+                lookup_burden(idx_to_type_ref(ty, type_registry), type_registry).is_some()
+            });
+            if !fundable {
+                tracing::trace!(
+                    target: "ori_arc::aims::class_ledger",
+                    view = ?partition.node_key(view),
+                    seed_var = ?dst,
+                    "view cure declined: seed type carries no burden (inc cannot fund)"
+                );
+                return false;
             }
             seeds.push(PlannedOp {
                 slot: emit::PlanSlot::AfterBody {

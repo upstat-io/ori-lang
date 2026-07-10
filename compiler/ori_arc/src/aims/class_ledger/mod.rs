@@ -101,6 +101,7 @@ pub(crate) fn analyze_from_state_map(
     func: &ArcFunction,
     state_map: &AimsStateMap,
     contracts: &FxHashMap<Name, MemoryContract>,
+    type_registry: &ori_types::TypeRegistry,
 ) -> ClassLedgerAnalysis {
     let boundary_facts: FxHashMap<Name, BoundaryFacts> = contracts
         .iter()
@@ -108,7 +109,7 @@ pub(crate) fn analyze_from_state_map(
         .collect();
     let mut partition = compute_birth_site_partition(func, state_map);
     let classification = classify_function(func, state_map, &mut partition, &boundary_facts);
-    analyze_class_ledger(func, &classification, &mut partition)
+    analyze_class_ledger(func, &classification, &mut partition, type_registry)
 }
 
 /// Plan and verify every partition class named by `classification`.
@@ -121,6 +122,7 @@ pub(crate) fn analyze_class_ledger(
     func: &ArcFunction,
     classification: &LedgerClassification,
     partition: &mut BirthSitePartition,
+    type_registry: &ori_types::TypeRegistry,
 ) -> ClassLedgerAnalysis {
     let preds = compute_predecessors(func);
     let regions = emit::CycleRegions::compute(func);
@@ -200,6 +202,7 @@ pub(crate) fn analyze_class_ledger(
         partition,
         &preds,
         &regions,
+        type_registry,
         &hazards,
         &mut classes,
         &mut verdicts,
