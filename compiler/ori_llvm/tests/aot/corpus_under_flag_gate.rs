@@ -90,21 +90,25 @@ fn parse_failed_ids_from_libtest_output(output: &str) -> BTreeSet<String> {
 }
 
 #[test]
-fn baseline_fixture_loads_and_is_nonempty() {
+fn baseline_fixture_loads_and_entries_are_well_formed() {
+    // A DRAINED baseline (zero entries) is the cohort's terminal state — the
+    // gated burden-sole floor reads zero and every former cell passes. The
+    // fixture itself must still parse (comment header intact) and any entry
+    // that IS present must be a `<module>::<test>` ID -- no stray comment /
+    // blank leaked through the parser.
     let baseline = parse_failing_id_set(BASELINE_FIXTURE);
-    assert!(
-        !baseline.is_empty(),
-        "baseline failing-ID fixture must enumerate the predicate-stack-coupled cohort; \
-         parsed an empty set from the checked-in fixture"
-    );
-    // Every entry is a `<module>::<test>` ID -- no stray comment / blank leaked
-    // through the parser.
     for id in &baseline {
         assert!(
             id.contains("::") && !id.starts_with('#'),
             "baseline entry `{id}` is not a `<module>::<test>` ID"
         );
     }
+    // The fixture file itself is non-empty (the doc header survives even at a
+    // drained entry set).
+    assert!(
+        !BASELINE_FIXTURE.trim().is_empty(),
+        "baseline fixture file is empty — the doc header must survive draining"
+    );
 }
 
 #[test]
