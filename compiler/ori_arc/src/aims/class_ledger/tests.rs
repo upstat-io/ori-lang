@@ -498,6 +498,7 @@ fn resume_terminal_residual_is_flagged_leak_not_silently_clean() {
         container_held: false,
         externally_funded: false,
         threads_back_edge: false,
+        books_runtime_grounded: true,
         per_block: vec![
             vec![ClassEvent {
                 site: EventSite::Body(0),
@@ -633,6 +634,7 @@ fn unresolved_consume_var_declines_unresolved_op_var() {
         container_held: false,
         externally_funded: true,
         threads_back_edge: false,
+        books_runtime_grounded: true,
         per_block: vec![vec![ClassEvent {
             site: EventSite::Body(0),
             kind: EventKind::Consume,
@@ -662,6 +664,7 @@ fn consume_at_block_entry_declines_unplaceable_inc() {
         container_held: false,
         externally_funded: true,
         threads_back_edge: false,
+        books_runtime_grounded: true,
         per_block: vec![vec![ClassEvent {
             site: EventSite::BlockEntry,
             kind: EventKind::Consume,
@@ -2088,16 +2091,10 @@ fn branch_exclusive_full_move_rebooks_aggregate_consume() {
     );
 }
 
-/// A borrowed ttr call's result re-acquires the SAME allocation (RL-34
-/// Credit): past the final terminator read the class's BOOKS owe two
-/// references (birth + credit) — the release planner DECLINES
-/// (`UnplaceableRelease`, fail-closed to the legacy walk). A naive
-/// one-dec-per-owed-book placement over-releases when a cure or
-/// force-owned re-extraction inflates the books past the runtime count
-/// (the stash-and-return double-free); a runtime-grounded multi-owed
-/// placement needs proof each positive book entry is a REAL acquisition.
-#[test]
-fn multi_owed_class_declines_fail_closed() {
+/// Builder for the multi-owed diamond: a call result re-acquires the SAME
+/// allocation (RL-34 Credit) past which the class's books owe two
+/// references (birth + credit), both dying past the final terminator read.
+fn multi_owed_func() -> ArcFunction {
     let mut func = func_with_blocks(
         3,
         vec![
@@ -2119,15 +2116,20 @@ fn multi_owed_class_declines_fail_closed() {
         ],
     );
     func.params = vec![];
-    let mut state_map = AimsStateMap::new(&func);
-    state_map.set_permanent_scalar(v(2));
-    // Drive plan_class directly with the credited event stream (the
-    // RL-34 result re-acquisition the real cell's classifier books).
-    let credited = ClassEvents {
+
+    func
+}
+
+/// The credited event stream the multi-owed diamond's classifier books
+/// (the RL-34 result re-acquisition); `grounded` sets whether every
+/// positive entry is certified a REAL runtime acquisition.
+fn multi_owed_events(grounded: bool) -> ClassEvents {
+    ClassEvents {
         origin: Some(ClassOrigin::Fresh),
         threads_back_edge: false,
         container_held: false,
         externally_funded: false,
+        books_runtime_grounded: grounded,
         per_block: vec![
             vec![
                 ClassEvent {
@@ -2165,17 +2167,57 @@ fn multi_owed_class_declines_fail_closed() {
             vec![],
             vec![],
         ],
+    }
+}
+
+/// Runtime-GROUNDED books owing two REAL references (birth + RL-34
+/// credit): the release planner places one front dec per owed reference
+/// at each successor past the terminator read, and the plan verifies
+/// Clean — the panic-always ttr callee shape.
+#[test]
+fn multi_owed_grounded_books_place_one_dec_per_reference() {
+    let func = multi_owed_func();
+    let credited = multi_owed_events(true);
+    let preds = crate::graph::compute_predecessors(&func);
+    let regions = super::emit::CycleRegions::compute(&func);
+    let outcome = super::emit::plan_class(&func, &preds, &regions, &credited, &[]);
+    let ClassOutcome::Planned(ops) = &outcome else {
+        panic!("grounded multi-owed books must plan, got {outcome:?}");
     };
+    let verdict = verify_class(&func, &preds, &credited, ops);
+    assert_eq!(verdict, ClassVerdict::Clean, "not clean: ops={ops:?}");
+    let normal_front_decs = ops
+        .iter()
+        .filter(|op| {
+            op.kind == PlannedOpKind::Dec && matches!(op.slot, PlanSlot::BlockFront { block: 3 })
+        })
+        .count();
+    assert_eq!(
+        normal_front_decs, 2,
+        "TWO owed references each take a front dec on the normal-path \
+         successor: ops={ops:?}"
+    );
+}
+
+/// UNGROUNDED (cure-inflated) books owing two references DECLINE
+/// fail-closed (`UnplaceableRelease`): a cure / force-owned re-extraction
+/// deliberately inflates the books past the runtime count, so counting
+/// book residue as runtime references over-releases (the stash-and-return
+/// double-free).
+#[test]
+fn multi_owed_ungrounded_books_decline_fail_closed() {
+    let func = multi_owed_func();
+    let credited = multi_owed_events(false);
     let preds = crate::graph::compute_predecessors(&func);
     let regions = super::emit::CycleRegions::compute(&func);
     let outcome = super::emit::plan_class(&func, &preds, &regions, &credited, &[]);
     let ClassOutcome::Declined(reason) = &outcome else {
-        panic!("a books-owe-two class must decline fail-closed, got {outcome:?}");
+        panic!("ungrounded books-owe-two must decline fail-closed, got {outcome:?}");
     };
     assert_eq!(
         *reason,
         DeclineReason::UnplaceableRelease,
-        "the multi-owed decline is the UnplaceableRelease gate"
+        "the ungrounded multi-owed decline is the UnplaceableRelease gate"
     );
 }
 

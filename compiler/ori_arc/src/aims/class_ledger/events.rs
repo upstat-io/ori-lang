@@ -49,6 +49,10 @@ pub(crate) struct ClassEvent {
 
 /// All events of one class, per block, plus the class origin.
 #[derive(Debug)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent per-class booking facts; no two flags encode one state machine"
+)]
 pub(crate) struct ClassEvents {
     pub(crate) origin: Option<ClassOrigin>,
     /// A member reference crosses a BACK-edge silently (a same-class jump
@@ -73,6 +77,13 @@ pub(crate) struct ClassEvents {
     pub(crate) externally_funded: bool,
     /// Indexed by block position; stream order preserved within a block.
     pub(crate) per_block: Vec<Vec<ClassEvent>>,
+    /// Every positive entry in these books is a REAL runtime acquisition
+    /// (a classifier-booked Birth or Credit from the PLAIN extraction).
+    /// FALSE for force-owned / credited / rebooked cure re-extractions,
+    /// whose books deliberately over-approximate (floor discipline) — a
+    /// release placement may count owed book entries as runtime references
+    /// ONLY when this holds.
+    pub(crate) books_runtime_grounded: bool,
 }
 
 impl ClassEvents {
@@ -160,6 +171,7 @@ pub(crate) fn extract_class_events_with_extraction_credits(
 ) -> ClassEvents {
     let mut events =
         extract_class_events_inner(func, classification, partition, class, force_owned, &[]);
+    events.books_runtime_grounded = false;
     for &(block, index) in extraction_sites {
         let Some(evs) = events.per_block.get_mut(block) else {
             continue;
@@ -263,6 +275,7 @@ fn extract_class_events_inner(
         container_held,
         externally_funded,
         per_block,
+        books_runtime_grounded: !force_owned && skip_consume_sites.is_empty(),
     }
 }
 
@@ -806,6 +819,7 @@ pub(crate) fn apply_full_move_rebook(
             delta: -1,
             floor: 1,
         });
+        events.books_runtime_grounded = false;
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
             block = arm.block,

@@ -262,10 +262,14 @@ fn plan_edge_releases(
         if exit == 0 {
             continue;
         }
-        if exit != 1 {
+        if exit != 1 && !(events.books_runtime_grounded && exit > 1) {
             return Err(DeclineReason::UnplaceableRelease);
         }
-        push_front_dec(ctx, events, block, successor, ops, fronts)?;
+        // Runtime-grounded books MAY owe several REAL references to one
+        // allocation (a birth plus an RL-34 result re-acquisition credit):
+        // one front dec per owed reference. Cure-inflated books stay on the
+        // fail-closed single-reference path above.
+        push_front_decs(ctx, events, block, successor, exit, ops, fronts)?;
     }
     Ok(())
 }
@@ -363,21 +367,25 @@ fn plan_block_release(
     if residue == 0 {
         return Ok(());
     }
-    if residue != 1 {
-        return Err(DeclineReason::UnplaceableRelease);
-    }
     let terminator_read = evs
         .iter()
         .any(|ev| ev.site == EventSite::Terminator && ev.floor > 0 && ev.delta == 0);
-    if terminator_read {
+    if terminator_read && residue >= 1 && (residue == 1 || events.books_runtime_grounded) {
+        // Runtime-grounded books MAY owe several REAL references past the
+        // terminator read (a birth plus an RL-34 result re-acquisition
+        // credit): one front dec per owed reference at each successor.
+        // Cure-inflated books only ever take the single-reference path.
         let successors = successors_of(func, block);
         if successors.is_empty() {
             return Err(DeclineReason::UnplaceableRelease);
         }
         for successor in successors {
-            push_front_dec(ctx, events, block, successor, ops, fronts)?;
+            push_front_decs(ctx, events, block, successor, residue, ops, fronts)?;
         }
         return Ok(());
+    }
+    if residue != 1 {
+        return Err(DeclineReason::UnplaceableRelease);
     }
     let last_pre = evs.iter().rev().find(|ev| ev.site != EventSite::Terminator);
     match last_pre.map(|ev| ev.site) {
@@ -410,16 +418,34 @@ fn push_front_dec(
     ops: &mut Vec<PlannedOp>,
     fronts: &mut FxHashSet<usize>,
 ) -> Result<(), DeclineReason> {
+    push_front_decs(ctx, events, from_block, target, 1, ops, fronts)
+}
+
+/// [`push_front_dec`] releasing `count` owed references at one front — all
+/// on the same resolved subject var (each lowers to one refcount decrement
+/// of the same allocation). Callers gate `count > 1` on
+/// `books_runtime_grounded` (every owed book entry a REAL acquisition).
+fn push_front_decs(
+    ctx: &ReleaseCtx<'_>,
+    events: &ClassEvents,
+    from_block: usize,
+    target: usize,
+    count: i64,
+    ops: &mut Vec<PlannedOp>,
+    fronts: &mut FxHashSet<usize>,
+) -> Result<(), DeclineReason> {
     if !fronts.insert(target) {
         return Ok(());
     }
     let slot = PlanSlot::BlockFront { block: target };
     let var = release_var_for_slot(ctx, events, ops, from_block, slot)?;
-    ops.push(PlannedOp {
-        slot,
-        kind: PlannedOpKind::Dec,
-        var,
-    });
+    for _ in 0..count {
+        ops.push(PlannedOp {
+            slot,
+            kind: PlannedOpKind::Dec,
+            var,
+        });
+    }
     Ok(())
 }
 
