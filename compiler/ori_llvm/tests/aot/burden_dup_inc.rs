@@ -537,11 +537,15 @@ fn test_two_fork_with_owned_call_arg_dup_inc_disabled_double_frees_again() {
     assert_ne!(
         exit, 0,
         "with the owned-call-arg duplication inc disabled, the two_fork cell \
-         must regress (double-free abort, exit != 0)\nstderr:\n{stderr}"
+         must regress (memory-corruption abort, exit != 0)\nstderr:\n{stderr}"
     );
+    // The under-inc corruption manifests as the detected double-free
+    // (`ori_rc_dec` on a freed allocation, SIGABRT) or as a raw
+    // use-after-free segfault, depending on where surrounding burden ops
+    // place the first over-release; both are the pre-cure regression.
     assert!(
-        stderr.contains("double-free"),
-        "the regression is the pre-cure double-free shape\nexit={exit}\nstderr:\n{stderr}"
+        stderr.contains("double-free") || exit == -134 || exit == -139,
+        "the regression is the pre-cure memory-corruption shape\nexit={exit}\nstderr:\n{stderr}"
     );
 }
 

@@ -169,6 +169,16 @@ pub fn compose_burden_for_idx(
                 pool,
             );
         }
+        // A tuple is the anonymous struct: compose from its element types
+        // (positional fields) so a standalone tuple Idx resolves the same
+        // owned-field burden a named struct with those fields would.
+        Tag::Tuple => {
+            let elem_types = pool.tuple_elems(resolved);
+            return crate::check::registration::burden_compute::compute_struct_burden_from_field_types(
+                &elem_types,
+                pool,
+            );
+        }
         _ => {}
     }
     let template_id = match pool.tag(idx) {
@@ -228,3 +238,6 @@ fn extract_type_args(pool: &Pool, idx: Idx) -> Vec<Idx> {
         _ => Vec::new(),
     }
 }
+
+#[cfg(test)]
+mod tests;
