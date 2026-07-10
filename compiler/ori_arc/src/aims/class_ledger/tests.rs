@@ -3356,3 +3356,53 @@ fn loop_carried_rebuild_seeded_handoff_not_double_funded() {
     assert!(analysis.readiness.declined.is_empty());
     assert!(!analysis.field_view_hazard, "views must be cured");
 }
+
+/// A `FatValue` view seed stays fundable when the burden lookup cannot
+/// resolve its type (a monomorphized-generic pool alias of `str`, the
+/// generic-pair tuple-field shape): str/closure fat values are ALWAYS
+/// refcount-managed, so the extraction-funding inc lowers unconditionally
+/// and the endangered view cures instead of declining the function.
+#[test]
+fn fat_value_seed_fundable_without_burden_entry() {
+    // bb0: Invoke @f() -> %0 (constructless container) normal bb1 unwind bb2
+    // bb1: %1 = Project %0.0 (FatValue, unregistered user type); read; ret
+    // bb2: Resume
+    let mut func = func_with_blocks(
+        4,
+        vec![
+            block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: ty(64),
+                        value: v(0),
+                        field: 0,
+                    },
+                    is_shared(2, 1),
+                ],
+                ret(3),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.var_types[1] = ty(64);
+    func.var_reprs = vec![
+        crate::ir::ValueRepr::Aggregate,
+        crate::ir::ValueRepr::FatValue,
+        crate::ir::ValueRepr::Scalar,
+        crate::ir::ValueRepr::Scalar,
+    ];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    state_map.set_permanent_scalar(v(3));
+    let (analysis, _partition) = analyze(&func, &state_map);
+    assert!(
+        !analysis.field_view_hazard,
+        "FatValue seed must fund the endangered view: {:?}",
+        analysis.readiness.declined
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}

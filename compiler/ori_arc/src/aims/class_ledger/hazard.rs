@@ -348,10 +348,15 @@ fn cure_view_with_extraction_funding(
             // A seed inc funds ONLY a refcount-managed allocation. A view
             // type with no burden (an iterator handle: freed by destructor,
             // never by refcount) lowers the inc to nothing, so the container
-            // release still destroys the extracted payload — decline.
-            let fundable = func.var_types.get(dst.index()).is_some_and(|&ty| {
-                lookup_burden(idx_to_type_ref(ty, type_registry), type_registry).is_some()
-            });
+            // release still destroys the extracted payload — decline. A
+            // `FatValue` seed (str / closure) is ALWAYS refcount-managed —
+            // its inc lowers unconditionally — so it stays fundable even
+            // when the burden lookup cannot resolve a monomorphized-generic
+            // pool alias of `str` (the generic-pair tuple-field shape).
+            let fundable = matches!(func.var_repr(*dst), Some(crate::ir::ValueRepr::FatValue))
+                || func.var_types.get(dst.index()).is_some_and(|&ty| {
+                    lookup_burden(idx_to_type_ref(ty, type_registry), type_registry).is_some()
+                });
             if !fundable {
                 tracing::trace!(
                     target: "ori_arc::aims::class_ledger",
