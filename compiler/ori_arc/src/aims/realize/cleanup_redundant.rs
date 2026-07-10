@@ -98,7 +98,6 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
     if has_catch_recover {
         return;
     }
-    let burden_sole = super::rc_remark::on_burden_sole_path();
 
     // Step 1: identify project-only classes that qualify for cleanup.
     let qualified_classes: FxHashSet<u32> = identify_qualified_classes(func, state_map, pool);
@@ -242,17 +241,13 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
         let mut candidates: Vec<(usize, usize)> = decs
             .iter()
             .copied()
-            // Burden-sole path: every surviving dec is a placed RL-2/RL-4
-            // release, so only the pass's namesake redundancy — a dec on a
-            // var that IS a Project alias of a transitive-drop source — is
-            // removable; a root / Let-alias dec is the lineage's genuine
-            // release. The ledger (N/K/surplus) stays class-wide; this
-            // restricts only WHICH decs the surplus may remove. The default
-            // (legacy co-emission) path is unchanged.
+            // Every surviving dec is a placed RL-2/RL-4 release, so only the
+            // pass's namesake redundancy — a dec on a var that IS a Project
+            // alias of a transitive-drop source — is removable; a root /
+            // Let-alias dec is the lineage's genuine release. The ledger
+            // (N/K/surplus) stays class-wide; this restricts only WHICH decs
+            // the surplus may remove.
             .filter(|&(b_idx, i_idx)| {
-                if !burden_sole {
-                    return true;
-                }
                 let Some(ArcInstr::RcDec { var, .. }) =
                     func.blocks.get(b_idx).and_then(|b| b.body.get(i_idx))
                 else {
