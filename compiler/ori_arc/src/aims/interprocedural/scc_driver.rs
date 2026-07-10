@@ -119,8 +119,8 @@ pub fn analyze_program(
                 .iter()
                 .map(|p| {
                     format!(
-                        "{:?}/{:?}/{:?}/iter={}",
-                        p.access, p.consumption, p.cardinality, p.iter_consumes
+                        "{:?}/{:?}/{:?}/iter={}/ralias={:?}",
+                        p.access, p.consumption, p.cardinality, p.iter_consumes, p.return_alias
                     )
                 })
                 .collect();

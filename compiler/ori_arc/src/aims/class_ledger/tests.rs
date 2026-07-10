@@ -4249,3 +4249,104 @@ fn seeded_view_with_two_handoffs_funds_both() {
     );
     assert!(analysis.readiness.all_classes_clean);
 }
+
+/// Books-shape regression: a fresh sum container borrowed into an `Invoke`
+/// whose callee contract certifies `return_alias = Project`. The credited
+/// call-result arrival unions into the payload view class, the container
+/// releases on both successor edges, and the view carries its own planned
+/// release — every class verifies `Clean`. (Engagement for this shape is
+/// pinned by `pipeline::tests::
+/// class_ledger_replaces_contract_certified_payload_view_caller`.)
+#[test]
+fn credited_call_result_payload_view_books_stay_clean() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let mut func = func_with_blocks(
+        5,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    ArcInstr::Let {
+                        dst: v(0),
+                        ty: ty(3),
+                        value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+                    },
+                    ArcInstr::Construct {
+                        dst: v(1),
+                        ty: ty(64),
+                        ctor: CtorKind::EnumVariant {
+                            enum_name: Name::from_raw(9),
+                            variant: 0,
+                        },
+                        args: vec![v(0)],
+                    },
+                ],
+                invoke(2, vec![(1, ArgOwnership::Borrowed)], 1, 2),
+            ),
+            block(
+                1,
+                vec![],
+                vec![apply(3, vec![(2, ArgOwnership::Borrowed)])],
+                ret(4),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    let container_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "Wrapper",
+        container_idx,
+        Some(UserBurdenSpec {
+            self_heap_alloc: false,
+            owned_fields: vec![UserOwnedField {
+                field_path: vec![0],
+                field_type: ty(3),
+            }],
+            ..Default::default()
+        }),
+    );
+    func.var_types[1] = container_idx;
+    func.var_types[2] = ty(3);
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3u32, 4] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let mut aliases: FxHashMap<
+        ArcVarId,
+        crate::aims::intraprocedural::state_map::ApplyAliasSource,
+    > = FxHashMap::default();
+    aliases.insert(
+        v(2),
+        crate::aims::intraprocedural::state_map::ApplyAliasSource::Project {
+            arg: v(1),
+            field: 0,
+        },
+    );
+    state_map.set_apply_result_aliases(aliases);
+    let (analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
+
+    assert!(!analysis.field_view_hazard);
+    assert!(analysis.readiness.all_classes_clean);
+    let view = class_rep(&mut partition, 2);
+    assert_eq!(verdict_for(&analysis, view), ClassVerdict::Clean);
+    // The container releases on both successor edges while the credited
+    // result carries its own planned release after its read.
+    let container = class_rep(&mut partition, 1);
+    assert!(
+        ops_for(&analysis, container)
+            .iter()
+            .any(|op| op.kind == emit::PlannedOpKind::Dec),
+        "container class plans its release"
+    );
+    assert!(
+        ops_for(&analysis, view)
+            .iter()
+            .any(|op| op.kind == emit::PlannedOpKind::Dec && op.var == v(2)),
+        "credited call-result carries its own planned release"
+    );
+}

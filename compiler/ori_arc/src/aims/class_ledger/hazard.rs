@@ -542,12 +542,26 @@ fn cure_view_with_extraction_funding(
         }
     }
     if seeds.is_empty() && credit_sites.is_empty() {
-        tracing::trace!(
-            target: "ori_arc::aims::class_ledger",
-            view = ?partition.node_key(view),
-            "view cure declined: no member-defining Project seeds"
-        );
-        return false;
+        // Contract-boundary extraction: the payload leaves the container
+        // INSIDE a callee (`return_alias = Project` over a borrowed arg -
+        // assert_some / field-accessor shapes), so no local Project seeds
+        // exist. The call-result arrival is a `call_result_event` CREDIT
+        // (the PV-4 sharing-view producer: the callee minted the returned
+        // reference), so the class's own books already fund its demand -
+        // re-verify under strict owned semantics with ZERO added ops.
+        let credited_arrival = classification.blocks.iter().flatten().any(|ci| {
+            matches!(ci,
+                crate::aims::intraprocedural::ledger_events::ClassInstr::Credit { class }
+                    if partition.rep_of(*class) == view)
+        });
+        if !credited_arrival {
+            tracing::trace!(
+                target: "ori_arc::aims::class_ledger",
+                view = ?partition.node_key(view),
+                "view cure declined: no member-defining Project seeds"
+            );
+            return false;
+        }
     }
     let funded_events = if credit_sites.is_empty() {
         events::extract_class_events_with(func, classification, partition, view, true)

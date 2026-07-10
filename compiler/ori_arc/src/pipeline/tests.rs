@@ -971,3 +971,138 @@ fn class_ledger_replaced_function_carries_no_legacy_ops() {
     );
     assert!(replaced.burden_emitted.iter().all(|marked| !marked));
 }
+
+/// Caller fixture for the contract-certified payload-view engagement pin:
+/// str literal -> sum `Construct` -> borrowed `Invoke` -> result returned.
+fn payload_view_caller_fixture(
+    interner: &ori_ir::StringInterner,
+    callee_name: ori_ir::Name,
+    container_idx: Idx,
+) -> ArcFunction {
+    ArcFunction {
+        var_types: vec![Idx::STR, container_idx, Idx::STR, Idx::UNIT, Idx::UNIT],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(0),
+                        ty: Idx::STR,
+                        value: crate::ir::ArcValue::Literal(crate::ir::LitValue::String(
+                            interner.intern("heap payload string past the sso threshold"),
+                        )),
+                    },
+                    ArcInstr::Construct {
+                        dst: v(1),
+                        ty: container_idx,
+                        ctor: crate::ir::CtorKind::EnumVariant {
+                            enum_name: interner.intern("Wrapper"),
+                            variant: 0,
+                        },
+                        args: vec![v(0)],
+                    },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(2),
+                    ty: Idx::STR,
+                    func: callee_name,
+                    args: vec![v(1)],
+                    arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(3),
+                    ty: Idx::UNIT,
+                    value: crate::ir::ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                }],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..ArcFunction::default()
+    }
+}
+
+/// ENGAGEMENT pin for the contract-boundary payload-view cure: a fresh sum
+/// container borrowed into an `Invoke` whose callee contract certifies
+/// `return_alias = Project` (the `assert_some` / field-accessor family). The
+/// extraction happens inside the callee (no local `Project` seed), and the
+/// credited call-result arrival funds the view — the caller REPLACES.
+/// Reverting the credited-arrival admission makes this fixture fall back
+/// with `field-view-liveness`.
+#[test]
+fn class_ledger_replaces_contract_certified_payload_view_caller() {
+    use crate::aims::contract::ReturnAliasShape;
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = ori_ir::StringInterner::new();
+    let callee_name = interner.intern("payload_view_callee");
+    let mut pool = ori_types::Pool::default();
+    let container_idx = pool.named(interner.intern("Wrapper"));
+    let mut func = payload_view_caller_fixture(&interner, callee_name, container_idx);
+    func.name = interner.intern("payload_view_caller");
+
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut contracts = rustc_hash::FxHashMap::default();
+    contracts.insert(func.name, MemoryContract::conservative(0));
+    let mut callee_contract = MemoryContract::conservative(1);
+    callee_contract.params[0] = ParamContract {
+        access: AccessClass::Borrowed,
+        consumption: Consumption::Affine,
+        cardinality: Cardinality::Many,
+        return_alias: Some(ReturnAliasShape::Project { field: 0 }),
+        ..ParamContract::CONSERVATIVE
+    };
+    contracts.insert(callee_name, callee_contract);
+    let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+    let sigs = rustc_hash::FxHashMap::default();
+    let mut type_registry = ori_types::TypeRegistry::default();
+    registered_struct_with_burden(
+        &mut type_registry,
+        "Wrapper",
+        container_idx,
+        Some(UserBurdenSpec {
+            self_heap_alloc: false,
+            owned_fields: vec![UserOwnedField {
+                field_path: vec![0],
+                field_type: Idx::STR,
+            }],
+            ..Default::default()
+        }),
+    );
+
+    let config = super::aims_pipeline::AimsPipelineConfig {
+        classifier: &classifier,
+        contracts: &contracts,
+        func_names: &func_names,
+        pool: &pool,
+        interner: &interner,
+        builtins: &builtins,
+        verify_arc: false,
+        observer: None,
+        sigs: &sigs,
+        type_registry: &type_registry,
+    };
+    let result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
+    assert!(result.is_ok(), "pipeline must succeed");
+    assert!(
+        func.class_ledger_emission,
+        "contract-certified payload-view caller must REPLACE (credited \
+         arrival funds the view); fallback here means the credited-arrival \
+         admission regressed"
+    );
+}
