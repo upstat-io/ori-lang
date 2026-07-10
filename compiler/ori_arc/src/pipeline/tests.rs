@@ -372,10 +372,14 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: vec![],
-            body: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(0),
+                ty: Idx::INT,
+                value: crate::ir::ArcValue::Literal(crate::ir::LitValue::Int(0)),
+            }],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
-        var_types: vec![Idx::NONE],
+        var_types: vec![Idx::INT],
         ..Default::default()
     };
 
@@ -449,10 +453,14 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: vec![],
-            body: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(0),
+                ty: Idx::INT,
+                value: crate::ir::ArcValue::Literal(crate::ir::LitValue::Int(0)),
+            }],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
-        var_types: vec![Idx::NONE],
+        var_types: vec![Idx::INT],
         ..Default::default()
     };
 
