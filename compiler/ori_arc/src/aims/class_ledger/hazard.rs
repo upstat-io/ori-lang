@@ -172,6 +172,43 @@ pub(crate) fn cure_endangered_views(
     uncured
 }
 
+/// Whether any view-member Project or container planned-release block sits
+/// in a CFG cycle — the acyclicity gate for POSITIONAL skip authority.
+fn func_has_cycle_touching_view_or_container(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    regions: &emit::CycleRegions,
+    hazard: &FieldViewHazard,
+    classes: &[ClassPlan],
+) -> bool {
+    use crate::aims::intraprocedural::birth_site_partition::FieldPath;
+    use crate::ir::ArcInstr;
+
+    for (block_idx, arc_block) in func.blocks.iter().enumerate() {
+        for instr in &arc_block.body {
+            let ArcInstr::Project { dst, .. } = instr else {
+                continue;
+            };
+            let node = partition.register_node(*dst, FieldPath::whole_var());
+            if partition.rep_of(node) == hazard.view && regions.is_in_cycle(block_idx) {
+                return true;
+            }
+        }
+    }
+    let Some(container_entry) = classes
+        .iter()
+        .find(|plan| partition.rep_of(plan.class) == hazard.container)
+    else {
+        return true;
+    };
+    let ClassOutcome::Planned(container_ops) = &container_entry.outcome else {
+        return true;
+    };
+    container_ops
+        .iter()
+        .any(|op| regions.is_in_cycle(op.slot.block()))
+}
+
 /// Whether one view class's consumes mark it moved-OUT relative to a
 /// container with `construct_sites`: a Consume that is neither this
 /// container's own move-in store nor a FUNDED move-in at another released
@@ -659,6 +696,156 @@ fn derive_constructless_enum_variant(
     Some(vec![unique.variant_id.get().get() - 1])
 }
 
+/// The container's skip authority: HOW its `DecPartial` skip set is keyed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SkipAuthority {
+    /// A SUM container: the skip names the moved-out VARIANT ordinal
+    /// (tag-switched enum drop glue).
+    Variant(Vec<u32>),
+    /// A STRUCT/TUPLE container: the skip names top-level FIELD ordinals
+    /// (positional field-walk drop glue).
+    Positional(Vec<u32>),
+}
+
+impl SkipAuthority {
+    fn skip_fields(&self) -> &[u32] {
+        match self {
+            Self::Variant(skip) | Self::Positional(skip) => skip,
+        }
+    }
+
+    /// The variant ordinal for tag-exclusion; `None` for positional skips.
+    fn variant_ordinal(&self) -> Option<u32> {
+        match self {
+            Self::Variant(skip) => skip.first().copied(),
+            Self::Positional(_) => None,
+        }
+    }
+}
+
+/// Type-derived POSITIONAL skip for a CONSTRUCTLESS struct/tuple container
+/// (call-produced — no `Construct` to inspect): the container type's burden
+/// is struct-shaped (no variants; positional field-walk drop glue), and
+/// every consume-marked view path names one of its owned-field ordinals, so
+/// the skip IS the hazard's own field set (`FD_skipset_sound` — the moved
+/// mark is field-unique by position; `FD_per_site_skipset_sound` gates each
+/// release site by extraction domination downstream).
+fn derive_constructless_positional_skip(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    type_registry: &ori_types::TypeRegistry,
+    hazard: &FieldViewHazard,
+) -> Option<Vec<u32>> {
+    use crate::lower::burden::BurdenRef;
+    use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
+
+    if !hazard.construct_sites.is_empty() || hazard.nested_path || hazard.skip_fields.is_empty() {
+        return None;
+    }
+    let (var, _) = partition.node_key(hazard.container)?;
+    let &ty = func.var_types.get(var.index())?;
+    let Some(BurdenRef::User(user)) =
+        lookup_burden(idx_to_type_ref(ty, type_registry), type_registry)
+    else {
+        return None;
+    };
+    if !user.variant_burdens.is_empty() {
+        return None;
+    }
+    let owned: Vec<u32> = user
+        .owned_fields
+        .iter()
+        .filter_map(|field| field.field_path.first().copied())
+        .collect();
+    if !hazard.skip_fields.iter().all(|field| owned.contains(field)) {
+        return None;
+    }
+    if !view_projections_all_move_out(func, partition, hazard.view) {
+        return None;
+    }
+    let mut skip = hazard.skip_fields.clone();
+    skip.sort_unstable();
+    Some(skip)
+}
+
+/// Every member-defining Project of the view class MOVES its projection out:
+/// the dst — through its function-wide `Let`-alias closure — reaches a
+/// transfer position (an owned call arg, a Construct/Reuse arg, a `Set`
+/// value, a `PartialApply` capture, a `Return`, or a `Jump` arg, per the
+/// committed RL-2 transfer table). A borrow-read projection (a `len()`
+/// receiver, a condition read) DECLINES the positional authority —
+/// crediting it as an extraction would mint a reference no runtime
+/// acquisition matches, and the view's re-booked plan would over-release
+/// (the mixed read-and-move shape).
+fn view_projections_all_move_out(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    view: NodeIdx,
+) -> bool {
+    use crate::aims::intraprocedural::birth_site_partition::FieldPath;
+    use crate::ir::{ArcInstr, ArcTerminator, ArgOwnership};
+
+    let mut projection_dsts: Vec<crate::ir::ArcVarId> = Vec::new();
+    for arc_block in &func.blocks {
+        for instr in &arc_block.body {
+            let ArcInstr::Project { dst, .. } = instr else {
+                continue;
+            };
+            let node = partition.register_node(*dst, FieldPath::whole_var());
+            if partition.rep_of(node) == view {
+                projection_dsts.push(*dst);
+            }
+        }
+    }
+    projection_dsts.iter().all(|&dst| {
+        let closure = super::emit::close_over_let_aliases(func, std::iter::once(dst).collect());
+        let transferred_in_body = func.blocks.iter().any(|arc_block| {
+            arc_block.body.iter().any(|instr| match instr {
+                ArcInstr::Apply {
+                    args,
+                    arg_ownership,
+                    ..
+                } => args.iter().enumerate().any(|(position, arg)| {
+                    closure.contains(arg)
+                        && arg_ownership.get(position) == Some(&ArgOwnership::Owned)
+                }),
+                ArcInstr::Construct { args, .. }
+                | ArcInstr::Reuse { args, .. }
+                | ArcInstr::CollectionReuse { args, .. }
+                | ArcInstr::PartialApply { args, .. } => {
+                    args.iter().any(|arg| closure.contains(arg))
+                }
+                ArcInstr::Set { value, .. } => closure.contains(value),
+                _ => false,
+            })
+        });
+        let transferred_at_terminator =
+            func.blocks
+                .iter()
+                .any(|arc_block| match &arc_block.terminator {
+                    ArcTerminator::Return { value } => closure.contains(value),
+                    ArcTerminator::Jump { args, .. } => {
+                        args.iter().any(|arg| closure.contains(arg))
+                    }
+                    ArcTerminator::Invoke {
+                        args,
+                        arg_ownership,
+                        ..
+                    }
+                    | ArcTerminator::InvokeIndirect {
+                        args,
+                        arg_ownership,
+                        ..
+                    } => args.iter().enumerate().any(|(position, arg)| {
+                        closure.contains(arg)
+                            && arg_ownership.get(position) == Some(&ArgOwnership::Owned)
+                    }),
+                    _ => false,
+                });
+        transferred_in_body || transferred_at_terminator
+    })
+}
+
 /// The `DecPartial` skip set for a SUM container — the moved-out variant's
 /// ordinal — or `None` for a struct/tuple container. `Err(())` declines:
 /// a sum container's skip is discriminant- and arm-conditional, so sums
@@ -674,25 +861,27 @@ fn derive_sum_skip(
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
     hazard: &FieldViewHazard,
-) -> Result<Option<Vec<u32>>, ()> {
+) -> Result<Option<SkipAuthority>, ()> {
     // Niche-family wrappers: the wrapper IS the payload allocation, so its
     // whole-var dec is the payload's release — never decomposable.
     let niche_family = hazard
         .sum_enum_name
         .is_some_and(|name| name == interner.intern("Option") || name == interner.intern("Result"));
     match (hazard.sum_container, hazard.sum_variant) {
-        (false, _) => Ok(derive_constructless_enum_variant(
-            func,
-            partition,
-            type_registry,
-            hazard,
-        )),
+        (false, _) => Ok(
+            derive_constructless_enum_variant(func, partition, type_registry, hazard)
+                .map(SkipAuthority::Variant)
+                .or_else(|| {
+                    derive_constructless_positional_skip(func, partition, type_registry, hazard)
+                        .map(SkipAuthority::Positional)
+                }),
+        ),
         (true, Some(variant))
             if hazard.skip_fields == [1]
                 && !niche_family
                 && container_is_user_variant_enum(func, partition, type_registry, hazard) =>
         {
-            Ok(Some(vec![variant]))
+            Ok(Some(SkipAuthority::Variant(vec![variant])))
         }
         (true, _) => {
             tracing::trace!(
@@ -712,17 +901,22 @@ fn derive_sum_skip(
 /// reference is gone there) or sit on a tag-switch arm that EXCLUDES the
 /// skip variant (no such payload exists there). A release reachable with
 /// the payload unextracted would skip a live payload's drop — a leak.
-/// Vacuously safe for a struct/tuple container (`sum_skip = None`).
+/// Vacuously safe for a construct-bearing struct/tuple container (no skip
+/// authority). A POSITIONAL authority (constructless struct/tuple) runs the
+/// same per-site classification with NO tag exclusion: every release site
+/// must be extraction-dominated for the uniform whole-container skip; a
+/// bypass site routes to the per-site path instead.
 fn sum_release_sites_safe(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
     hazard: &FieldViewHazard,
     classes: &[ClassPlan],
-    sum_skip: Option<&[u32]>,
+    authority: Option<&SkipAuthority>,
 ) -> bool {
-    let Some(&variant) = sum_skip.and_then(|skip| skip.first()) else {
+    let Some(authority) = authority else {
         return true;
     };
+    let variant = authority.variant_ordinal();
     let Some(container_entry) = classes
         .iter()
         .find(|plan| partition.rep_of(plan.class) == hazard.container)
@@ -744,9 +938,8 @@ fn sum_release_sites_safe(
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
             view = ?partition.node_key(hazard.view),
-            variant,
-            "field-decomposition cure declined: sum release site neither \
-             extraction-dominated nor tag-excluded"
+            ?variant,
+            "release sites not uniformly skip-safe; trying per-site decomposition"
         );
     }
     safe
@@ -780,7 +973,7 @@ impl SumArmContext {
         partition: &mut BirthSitePartition,
         view: NodeIdx,
         container: NodeIdx,
-        variant: u32,
+        variant: Option<u32>,
     ) -> Self {
         use crate::aims::intraprocedural::birth_site_partition::FieldPath;
         use crate::ir::{ArcInstr, ArcTerminator};
@@ -826,26 +1019,30 @@ impl SumArmContext {
                 }
             }
         }
+        // Tag exclusion applies to VARIANT-ordinal skips only; a positional
+        // (tuple/struct field) skip has no discriminant to exclude by.
         let mut excluded_entries: Vec<usize> = Vec::new();
-        for arc_block in &func.blocks {
-            let ArcTerminator::Switch {
-                scrutinee,
-                cases,
-                default,
-            } = &arc_block.terminator
-            else {
-                continue;
-            };
-            if !tag_defs.contains(scrutinee) {
-                continue;
-            }
-            for &(value, target) in cases {
-                if value != u64::from(variant) {
-                    excluded_entries.push(target.index());
+        if let Some(variant) = variant {
+            for arc_block in &func.blocks {
+                let ArcTerminator::Switch {
+                    scrutinee,
+                    cases,
+                    default,
+                } = &arc_block.terminator
+                else {
+                    continue;
+                };
+                if !tag_defs.contains(scrutinee) {
+                    continue;
                 }
-            }
-            if cases.iter().any(|&(value, _)| value == u64::from(variant)) {
-                excluded_entries.push(default.index());
+                for &(value, target) in cases {
+                    if value != u64::from(variant) {
+                        excluded_entries.push(target.index());
+                    }
+                }
+                if cases.iter().any(|&(value, _)| value == u64::from(variant)) {
+                    excluded_entries.push(default.index());
+                }
             }
         }
         // Forward reachability FROM the extractions: a block downstream of
@@ -935,7 +1132,7 @@ fn sum_skip_sites_arm_safe(
     partition: &mut BirthSitePartition,
     view: NodeIdx,
     container: NodeIdx,
-    variant: u32,
+    variant: Option<u32>,
     container_ops: &[emit::PlannedOp],
 ) -> bool {
     let ctx = SumArmContext::build(func, partition, view, container, variant);
@@ -990,10 +1187,10 @@ fn try_per_site_decomposition(
     classes: &mut [ClassPlan],
     verdicts: &mut [(NodeIdx, ClassVerdict)],
     declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
-    sum_skip: Option<&[u32]>,
+    authority: Option<&SkipAuthority>,
 ) -> Option<Vec<SiteVerdict>> {
     let container = hazard.container;
-    let &variant = sum_skip.and_then(|skip| skip.first())?;
+    let variant = authority?.variant_ordinal();
     let ctx = SumArmContext::build(func, partition, hazard.view, container, variant);
     let container_entry = classes
         .iter()
@@ -1112,7 +1309,7 @@ fn cure_view_with_field_decomposition(
     verdicts: &mut [(NodeIdx, ClassVerdict)],
     declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
 ) -> bool {
-    let Ok(sum_skip) = derive_sum_skip(func, partition, type_registry, interner, hazard) else {
+    let Ok(authority) = derive_sum_skip(func, partition, type_registry, interner, hazard) else {
         return false;
     };
     if !hazard.consume_marked
@@ -1120,7 +1317,7 @@ fn cure_view_with_field_decomposition(
         // Constructless is admitted ONLY with a type-derived variant skip
         // (`derive_constructless_enum_variant`); a constructless struct
         // container has no skip authority and declines.
-        || (hazard.construct_sites.is_empty() && sum_skip.is_none())
+        || (hazard.construct_sites.is_empty() && authority.is_none())
         || hazard.skip_fields.is_empty()
     {
         tracing::trace!(
@@ -1136,8 +1333,24 @@ fn cure_view_with_field_decomposition(
         return false;
     }
     let container = hazard.container;
+    // POSITIONAL authority is acyclic-only: the per-site verdicts rest on
+    // dominator reasoning that a CFG cycle breaks (an in-loop extraction
+    // "dominates" a later in-loop release, yet on the next iteration the
+    // payload is a NEW reference the skip would strand — the loop-carried
+    // struct-rebuild double-free). A VARIANT authority is unaffected (the
+    // admitted sum shapes are post-switch acyclic arms).
+    if matches!(authority, Some(SkipAuthority::Positional(_)))
+        && func_has_cycle_touching_view_or_container(func, partition, regions, hazard, classes)
+    {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(hazard.view),
+            "field-decomposition cure declined: positional skip inside a CFG cycle"
+        );
+        return false;
+    }
     let all_sites_safe =
-        sum_release_sites_safe(func, partition, hazard, classes, sum_skip.as_deref());
+        sum_release_sites_safe(func, partition, hazard, classes, authority.as_ref());
     // Per-SITE fallback (sum shapes with a variant skip only): a bypass-edge
     // release keeps the whole-var Dec (the recursive drop of the unmoved
     // payload) while extraction-dominated sites take the variant skip; the
@@ -1156,7 +1369,7 @@ fn cure_view_with_field_decomposition(
             classes,
             verdicts,
             declined,
-            sum_skip.as_deref(),
+            authority.as_ref(),
         ) {
             Some(verdicts_per_op) => Some(verdicts_per_op),
             None => return false,
@@ -1191,7 +1404,9 @@ fn cure_view_with_field_decomposition(
         partition,
         classes,
         container,
-        sum_skip.as_ref().unwrap_or(&hazard.skip_fields),
+        authority
+            .as_ref()
+            .map_or(&hazard.skip_fields[..], SkipAuthority::skip_fields),
         per_site_verdicts.as_deref(),
     ) {
         return false;

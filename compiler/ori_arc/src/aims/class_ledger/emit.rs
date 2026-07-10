@@ -250,7 +250,7 @@ pub(crate) fn plan_class(
 /// The transitive `Let { Var }` alias closure of `vars`: every binding
 /// renaming a member of the set joins it (fixpoint over the body streams —
 /// forward block order does not bound alias chains threaded through jumps).
-fn close_over_let_aliases(
+pub(super) fn close_over_let_aliases(
     func: &ArcFunction,
     mut vars: rustc_hash::FxHashSet<ArcVarId>,
 ) -> rustc_hash::FxHashSet<ArcVarId> {

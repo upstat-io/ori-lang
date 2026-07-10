@@ -3474,6 +3474,140 @@ fn uniform_variant_sum_payload_decomposes_container_release() {
 /// structure) — and the container's release decomposes to
 /// `DecPartial(skip = [variant ordinal])` exactly as the construct-uniform
 /// shape does.
+/// Builder for the constructless TUPLE shape (the iterator-protocol
+/// `(Option<T>, Iterator)` family): v(1) is the callee `Invoke` result (no
+/// `Construct`), a scalar read at field 0 drives a Branch, the handle at
+/// field 1 is extracted ONLY on the taken arm and moved to an owned
+/// consumer; the bypass arm reaches the merge with the handle still inside
+/// the container.
+fn constructless_invoke_result_tuple_func() -> ArcFunction {
+    let mut func = func_with_blocks(
+        8,
+        vec![
+            block(0, vec![], vec![], invoke(1, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![ArcInstr::Project {
+                    dst: v(2),
+                    ty: ty(0),
+                    value: v(1),
+                    field: 0,
+                }],
+                ArcTerminator::Branch {
+                    cond: v(2),
+                    then_block: ArcBlockId::new(3),
+                    else_block: ArcBlockId::new(4),
+                },
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(
+                3,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(3),
+                        ty: ty(70),
+                        value: v(1),
+                        field: 1,
+                    },
+                    apply(4, vec![(3, ArgOwnership::Owned)]),
+                    ArcInstr::Let {
+                        dst: v(5),
+                        ty: ty(0),
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                    },
+                ],
+                jump(5, vec![5]),
+            ),
+            block(
+                4,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(6),
+                    ty: ty(0),
+                    value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+                }],
+                jump(5, vec![6]),
+            ),
+            block(5, vec![7], vec![], ret(7)),
+        ],
+    );
+    // The handle type is an unregistered index with NO burden (the iterator
+    // handle: destructor-freed, never refcounted) — extraction funding
+    // cannot fire; per-site positional decomposition is the only cure.
+    func.var_types[3] = ty(70);
+
+    func
+}
+
+/// A constructless TUPLE call result whose burdened field [1] is extracted
+/// and moved out ONLY on the taken arm: the container's release decomposes
+/// PER SITE — the extraction-dominated release skips field [1]
+/// (`DecPartial`), the bypass arm keeps the whole field-wise release
+/// (`FD_per_site_skipset_sound` + `FD_site_uniform_projection`; the skip
+/// authority is POSITIONAL — tuple drop glue walks field ordinals).
+#[test]
+fn constructless_invoke_result_tuple_decomposes_release_per_site() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let mut func = constructless_invoke_result_tuple_func();
+    let tuple_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "NextPair",
+        tuple_idx,
+        Some(UserBurdenSpec {
+            self_heap_alloc: false,
+            owned_fields: vec![UserOwnedField {
+                field_path: vec![1],
+                field_type: ty(70),
+            }],
+            ..Default::default()
+        }),
+    );
+    func.var_types[1] = tuple_idx;
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [2u32, 4, 5, 6, 7] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "the per-site positional skip cures the moved-out tuple field"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+    // The container's release ops: the extraction-dominated site skips
+    // field [1]; the bypass site keeps the whole release.
+    let container = class_rep(&mut partition, 1);
+    let container_plan = analysis
+        .plan
+        .classes
+        .iter()
+        .find(|plan| partition.rep_of(plan.class) == container)
+        .unwrap_or_else(|| panic!("container class planned"));
+    let ClassOutcome::Planned(ops) = &container_plan.outcome else {
+        panic!("container plan declined");
+    };
+    let has_skip_op = ops.iter().any(|op| {
+        matches!(&op.kind, super::emit::PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![1])
+    });
+    let has_whole_op = ops
+        .iter()
+        .any(|op| matches!(op.kind, super::emit::PlannedOpKind::Dec));
+    assert!(
+        has_skip_op,
+        "extraction-dominated release skips the moved-out field: {ops:?}"
+    );
+    assert!(
+        has_whole_op,
+        "bypass-arm release keeps the whole field-wise dec: {ops:?}"
+    );
+}
+
 /// Builder for the constructless shape: v(1) is the callee `Invoke` result
 /// (no `Construct`), tag-read at field 0, payload extracted at field 1 on
 /// the matched arm and moved to an owned consumer.
