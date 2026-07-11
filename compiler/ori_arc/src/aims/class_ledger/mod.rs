@@ -274,6 +274,7 @@ pub(crate) fn analyze_class_ledger(
         partition,
         &class_facts,
         &full_move_construct_sites,
+        &classification.user_drop_admitted,
     );
     let uncured = hazard::cure_endangered_views(
         func,

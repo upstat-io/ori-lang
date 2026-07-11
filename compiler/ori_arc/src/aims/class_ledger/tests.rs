@@ -1037,6 +1037,107 @@ fn replacement_admits_unbooked_scalar_user_drop_newtype_lineage() {
     );
 }
 
+/// A SCALAR user-drop container whose field-path view is read after the
+/// container's planned release is NOT a field-view hazard: the scalar
+/// release lowers to the balance-neutral `@drop` call — nothing is freed,
+/// so the view's post-release read stays valid (the legacy walk emits the
+/// same ordering on the nested-destructure shape).
+#[test]
+fn replacement_admits_scalar_user_drop_container_with_post_release_view() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let outer_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "Outer",
+        outer_idx,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    let inner_idx = ty(65);
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "Inner",
+        inner_idx,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    // The nested-destructure corpus shape: %0 Outer [own] param (admitted
+    // scalar user-drop); %1 = %0 alias; TWO Inner views of field 0 (%2, %4 —
+    // Inner is itself scalar user-drop); nested int reads %3 = %2.0 and
+    // %5 = %4.1 straddle the container's planned release; ret %5.
+    let mut func = one_block_func(
+        6,
+        vec![
+            ArcInstr::Let {
+                dst: v(1),
+                ty: outer_idx,
+                value: ArcValue::Var(v(0)),
+            },
+            ArcInstr::Project {
+                dst: v(2),
+                ty: inner_idx,
+                value: v(1),
+                field: 0,
+            },
+            ArcInstr::Project {
+                dst: v(3),
+                ty: ty(0),
+                value: v(2),
+                field: 0,
+            },
+            ArcInstr::Project {
+                dst: v(4),
+                ty: inner_idx,
+                value: v(1),
+                field: 0,
+            },
+            ArcInstr::Project {
+                dst: v(5),
+                ty: ty(0),
+                value: v(4),
+                field: 1,
+            },
+        ],
+        ret(5),
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: outer_idx,
+        ownership: Ownership::Owned,
+    }];
+    func.var_types = vec![outer_idx, outer_idx, inner_idx, ty(0), inner_idx, ty(0)];
+    let mut state_map = AimsStateMap::new(&func);
+    for raw in 0..6 {
+        state_map.set_permanent_scalar(v(raw));
+    }
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let outcome = attempt_replacement(
+        &mut func,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
+    assert_eq!(
+        outcome.mode,
+        EmissionMode::Replaced,
+        "a scalar container's release frees nothing — the post-release view \
+         read is not a field-view hazard"
+    );
+}
+
 /// A user-`@drop` value whose class plans its own WHOLE-VAR release is
 /// ADMITTED: the planned dec lowers to the standard drop glue, which runs
 /// the user `@drop` exactly once at the death point (RL-DROP discipline —

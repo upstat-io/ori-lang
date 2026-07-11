@@ -375,6 +375,10 @@ pub(crate) fn classify_function_with_admitted(
                 })
         })
     });
+    classifier
+        .out
+        .user_drop_admitted
+        .clone_from(&classifier.user_drop_admitted);
     classifier.out
 }
 

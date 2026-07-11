@@ -232,4 +232,9 @@ pub(crate) struct LedgerClassification {
     /// zero-class function with this set carries no RC-bearing value and
     /// the empty plan is the correct emission.
     pub(crate) all_vars_excluded: bool,
+    /// The ADMITTED user-drop scalar vars (per the analyze-time admission):
+    /// a container class rooted in one releases via the balance-neutral
+    /// `@drop` call only — nothing is freed, so its field-path views are
+    /// never demand-endangered by the release.
+    pub(crate) user_drop_admitted: rustc_hash::FxHashSet<crate::ir::ArcVarId>,
 }

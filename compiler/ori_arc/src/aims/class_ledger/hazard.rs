@@ -280,6 +280,7 @@ pub(crate) fn field_view_hazard_classes(
     partition: &mut BirthSitePartition,
     class_facts: &[ClassHazardFacts],
     full_move_construct_sites: &[(usize, EventSite)],
+    user_drop_admitted: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
 ) -> Vec<FieldViewHazard> {
     let released: Vec<NodeIdx> = class_facts
         .iter()
@@ -321,6 +322,9 @@ pub(crate) fn field_view_hazard_classes(
         .collect();
     let mut hazards: Vec<FieldViewHazard> = Vec::new();
     for (container, member_vars, scan) in &scans {
+        if is_admitted_scalar_container(member_vars, user_drop_admitted) {
+            continue;
+        }
         let container_rep = partition.rep_of(*container);
         let all_payloadless = scan.all_payloadless;
         let (construct_sites, sum_container, uniform_variant) =
@@ -395,6 +399,20 @@ pub(crate) fn field_view_hazard_classes(
     }
     hazards.sort_unstable_by_key(|hazard| (hazard.view, hazard.container));
     hazards
+}
+
+/// Whether the container class roots in an ADMITTED user-drop SCALAR var:
+/// such a container releases via the balance-neutral `@drop` call only —
+/// nothing is freed, so a field-path view read after the release stays
+/// valid (per `AimsProof.Realization::RLDROP_user_drop_balance_neutral`;
+/// the legacy walk emits the same read-after-release ordering).
+fn is_admitted_scalar_container(
+    member_vars: &[crate::ir::ArcVarId],
+    user_drop_admitted: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
+) -> bool {
+    member_vars
+        .iter()
+        .any(|var| user_drop_admitted.contains(var))
 }
 
 /// The container class's own `Construct` surface: the sites (a view's
