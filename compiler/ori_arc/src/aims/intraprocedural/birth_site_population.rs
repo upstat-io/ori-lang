@@ -16,7 +16,7 @@
 //! COW-mutating uses (`Set` / `SetTag`) taint their class as a boundary.
 //! Scalar / immortal vars carry no allocation and are skipped.
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
@@ -33,6 +33,19 @@ pub(crate) fn compute_birth_site_partition(
     func: &ArcFunction,
     state_map: &AimsStateMap,
 ) -> BirthSitePartition {
+    compute_birth_site_partition_with_admitted(func, state_map, &FxHashSet::default())
+}
+
+/// [`compute_birth_site_partition`] with an ADMISSION override: vars in
+/// `admitted` participate although the state map excludes them — the
+/// scalar user-`@drop` obligation carriers (RL-DROP: no refcount, one
+/// balance-neutral drop obligation booked like a reference).
+pub(crate) fn compute_birth_site_partition_with_admitted(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    admitted: &FxHashSet<ArcVarId>,
+) -> BirthSitePartition {
+    let excluded = |var: ArcVarId| state_map.is_excluded(var) && !admitted.contains(&var);
     let mut partition = BirthSitePartition::new();
     let mut next_site: u32 = 0;
 
@@ -40,7 +53,7 @@ pub(crate) fn compute_birth_site_partition(
         for instr in &block.body {
             match instr {
                 ArcInstr::Construct { dst, args, .. } => {
-                    if state_map.is_excluded(*dst) {
+                    if excluded(*dst) {
                         continue;
                     }
                     let dst_node = whole_node(&mut partition, *dst);
@@ -49,7 +62,7 @@ pub(crate) fn compute_birth_site_partition(
                     // Field funding: constructor arg positions ARE the field
                     // indices `Project { field }` reads back.
                     for (position, &arg) in args.iter().enumerate() {
-                        if state_map.is_excluded(arg) {
+                        if excluded(arg) {
                             continue;
                         }
                         let Ok(field) = u32::try_from(position) else {
@@ -65,7 +78,7 @@ pub(crate) fn compute_birth_site_partition(
                     value: ArcValue::Var(src),
                     ..
                 } => {
-                    if state_map.is_excluded(*dst) || state_map.is_excluded(*src) {
+                    if excluded(*dst) || excluded(*src) {
                         continue;
                     }
                     let dst_node = whole_node(&mut partition, *dst);
@@ -82,7 +95,7 @@ pub(crate) fn compute_birth_site_partition(
                     // (string concat) is a fresh allocation site, minted
                     // like a Construct. Non-string literals allocate
                     // nothing at runtime even under a heap-repr variable.
-                    if state_map.is_excluded(*dst) {
+                    if excluded(*dst) {
                         continue;
                     }
                     let dst_node = whole_node(&mut partition, *dst);
@@ -90,12 +103,18 @@ pub(crate) fn compute_birth_site_partition(
                     next_site += 1;
                 }
                 ArcInstr::Apply { dst, .. } | ArcInstr::ApplyIndirect { dst, .. } => {
-                    mint_call_result_site(&mut partition, state_map, *dst, &mut next_site);
+                    mint_call_result_site(
+                        &mut partition,
+                        state_map,
+                        admitted,
+                        *dst,
+                        &mut next_site,
+                    );
                 }
                 ArcInstr::Project {
                     dst, value, field, ..
                 } => {
-                    if state_map.is_excluded(*dst) {
+                    if excluded(*dst) {
                         continue;
                     }
                     // Single-hop composition: multi-hop chains compose
@@ -106,7 +125,7 @@ pub(crate) fn compute_birth_site_partition(
                     partition.union_tier1(dst_node, field_node);
                 }
                 ArcInstr::Set { base, field, .. } => {
-                    if state_map.is_excluded(*base) {
+                    if excluded(*base) {
                         continue;
                     }
                     let base_node = whole_node(&mut partition, *base);
@@ -115,7 +134,7 @@ pub(crate) fn compute_birth_site_partition(
                     partition.mark_cow_boundary(field_node);
                 }
                 ArcInstr::SetTag { base, .. } => {
-                    if state_map.is_excluded(*base) {
+                    if excluded(*base) {
                         continue;
                     }
                     let base_node = whole_node(&mut partition, *base);
@@ -126,14 +145,14 @@ pub(crate) fn compute_birth_site_partition(
         }
         match &block.terminator {
             ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } => {
-                mint_call_result_site(&mut partition, state_map, *dst, &mut next_site);
+                mint_call_result_site(&mut partition, state_map, admitted, *dst, &mut next_site);
             }
             _ => {}
         }
     }
 
-    let mut merges = collect_contract_alias_edges(&mut partition, state_map);
-    collect_block_param_edges(&mut partition, func, state_map, &mut merges);
+    let mut merges = collect_contract_alias_edges(&mut partition, state_map, admitted);
+    collect_block_param_edges(&mut partition, func, state_map, admitted, &mut merges);
     admit_witnessed_merges(&mut partition, &merges);
     admit_field_congruence(&mut partition);
 
@@ -207,10 +226,12 @@ fn whole_node(partition: &mut BirthSitePartition, var: ArcVarId) -> NodeIdx {
 fn mint_call_result_site(
     partition: &mut BirthSitePartition,
     state_map: &AimsStateMap,
+    admitted: &FxHashSet<ArcVarId>,
     dst: ArcVarId,
     next_site: &mut u32,
 ) {
-    if state_map.is_excluded(dst) || state_map.apply_result_alias(dst).is_some() {
+    let excluded = |var: ArcVarId| state_map.is_excluded(var) && !admitted.contains(&var);
+    if excluded(dst) || state_map.apply_result_alias(dst).is_some() {
         return;
     }
     let dst_node = whole_node(partition, dst);
@@ -229,7 +250,9 @@ fn mint_call_result_site(
 fn collect_contract_alias_edges(
     partition: &mut BirthSitePartition,
     state_map: &AimsStateMap,
+    admitted: &FxHashSet<ArcVarId>,
 ) -> Vec<(ArcVarId, Vec<ArcVarId>)> {
+    let excluded = |var: ArcVarId| state_map.is_excluded(var) && !admitted.contains(&var);
     let mut aliases: Vec<(ArcVarId, &ApplyAliasSource)> = state_map
         .apply_result_aliases()
         .iter()
@@ -239,12 +262,12 @@ fn collect_contract_alias_edges(
 
     let mut merges: Vec<(ArcVarId, Vec<ArcVarId>)> = Vec::new();
     for (dst, source) in aliases {
-        if state_map.is_excluded(dst) {
+        if excluded(dst) {
             continue;
         }
         match source {
             ApplyAliasSource::Direct(arg) => {
-                if state_map.is_excluded(*arg) {
+                if excluded(*arg) {
                     continue;
                 }
                 let dst_node = whole_node(partition, dst);
@@ -252,7 +275,7 @@ fn collect_contract_alias_edges(
                 partition.union_tier1(dst_node, arg_node);
             }
             ApplyAliasSource::Project { arg, field } => {
-                if state_map.is_excluded(*arg) {
+                if excluded(*arg) {
                     continue;
                 }
                 let dst_node = whole_node(partition, dst);
@@ -276,8 +299,10 @@ fn collect_block_param_edges(
     partition: &mut BirthSitePartition,
     func: &ArcFunction,
     state_map: &AimsStateMap,
+    admitted: &FxHashSet<ArcVarId>,
     merges: &mut Vec<(ArcVarId, Vec<ArcVarId>)>,
 ) {
+    let excluded = |var: ArcVarId| state_map.is_excluded(var) && !admitted.contains(&var);
     let mut incoming: FxHashMap<ArcVarId, Vec<ArcVarId>> = FxHashMap::default();
     let mut param_order: Vec<ArcVarId> = Vec::new();
     for block in &func.blocks {
@@ -298,14 +323,14 @@ fn collect_block_param_edges(
     }
 
     for param in param_order {
-        if state_map.is_excluded(param) {
+        if excluded(param) {
             continue;
         }
         let Some(args) = incoming.remove(&param) else {
             continue;
         };
         if let [only_arg] = args.as_slice() {
-            if state_map.is_excluded(*only_arg) {
+            if excluded(*only_arg) {
                 continue;
             }
             let param_node = whole_node(partition, param);

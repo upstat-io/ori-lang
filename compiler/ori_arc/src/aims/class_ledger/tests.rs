@@ -912,11 +912,12 @@ fn replacement_admits_all_scalar_function_with_empty_plan() {
     assert_eq!(replaced.blocks, func.blocks);
 }
 
-/// The empty-surface admission never bypasses the user-drop gate: a
-/// scalar-repr variable whose TYPE carries a user `@drop` (the RL-DROP
-/// shape) still falls back to the legacy walk's user-drop completeness.
+/// A scalar-repr user-`@drop` value RETURNED from the function is admitted
+/// with its obligation discharged by the transfer: the Return consume moves
+/// the drop obligation to the caller, so the Clean books carry no dec and
+/// the empty-surface shape replaces (RL-DROP + RL-2 transfer discipline).
 #[test]
-fn replacement_declines_all_scalar_function_with_user_drop_type() {
+fn replacement_admits_returned_scalar_user_drop_value() {
     use core::num::NonZeroU32;
     use ori_registry::burden::FnSym;
     use ori_types::burden::UserBurdenSpec;
@@ -947,18 +948,20 @@ fn replacement_declines_all_scalar_function_with_user_drop_type() {
     state_map.set_permanent_scalar(v(0));
     let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
 
-    let mut gated = func.clone();
     let outcome = attempt_replacement(
-        &mut gated,
+        &mut func,
         &state_map,
         &contracts,
         &registry,
         &test_interner(),
         true,
     );
-    assert_eq!(outcome.mode, EmissionMode::Fallback);
-    assert_eq!(outcome.fallback_reason, Some(FallbackReason::UserDropGlue));
-    assert_eq!(gated, func);
+    assert_eq!(
+        outcome.mode,
+        EmissionMode::Replaced,
+        "the returned scalar user-drop value transfers its obligation to \
+         the caller — Clean books, admitted"
+    );
 }
 
 /// A user-`@drop` value whose class plans its own WHOLE-VAR release is
@@ -4407,5 +4410,64 @@ fn replacement_admits_borrowed_user_drop_param_without_own_dec() {
         EmissionMode::Replaced,
         "a borrowed user-drop param is glue-released by the caller — the \
          plan owes it nothing"
+    );
+}
+
+/// A SCALAR-repr user-`@drop` value that dies normally is ADMITTED with its
+/// drop obligation booked: the plan carries one whole-var release (lowered
+/// with the scalar user-drop strategy — `@drop` runs exactly once at the
+/// death point, matching the legacy walk's emission on the same shape).
+#[test]
+fn replacement_admits_scalar_user_drop_value_with_planned_release() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let struct_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "Guarded",
+        struct_idx,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    // Owned scalar user-drop param, read (is_shared), dead at return — the
+    // sum_nested/destructure family's core books.
+    let mut func = one_block_func(2, vec![is_shared(1, 0)], ret(1));
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: struct_idx,
+        ownership: Ownership::Owned,
+    }];
+    func.var_types = vec![struct_idx, ty(0)];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(0));
+    state_map.set_permanent_scalar(v(1));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let outcome = attempt_replacement(
+        &mut func,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
+    assert_eq!(
+        outcome.mode,
+        EmissionMode::Replaced,
+        "a scalar user-drop value books its drop obligation and replaces"
+    );
+    assert!(
+        func.blocks[0]
+            .body
+            .iter()
+            .any(|instr| matches!(instr, ArcInstr::BurdenDec { var } if *var == v(0))),
+        "the admitted scalar user-drop value carries its planned whole-var \
+         release (the scalar user-drop strategy runs @drop exactly once)"
     );
 }

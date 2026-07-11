@@ -65,6 +65,10 @@ struct Classifier<'a> {
     /// the borrowed call-site convention, no events booked — excluded
     /// under the classifier's own semantics (VF-2 guards no-live-uses).
     absent_params: rustc_hash::FxHashSet<ArcVarId>,
+    /// Scalar-excluded vars ADMITTED for their user-`@drop` obligation
+    /// (RL-DROP: no refcount, one balance-neutral drop obligation booked
+    /// like a reference).
+    user_drop_admitted: rustc_hash::FxHashSet<ArcVarId>,
 }
 
 impl Classifier<'_> {
@@ -75,7 +79,7 @@ impl Classifier<'_> {
     }
 
     fn excluded(&self, var: ArcVarId) -> bool {
-        self.state_map.is_excluded(var)
+        (self.state_map.is_excluded(var) && !self.user_drop_admitted.contains(&var))
             || self.placeholders.contains(&var)
             || self.absent_params.contains(&var)
     }
@@ -265,12 +269,34 @@ impl Classifier<'_> {
 /// `boundary_facts` carries the PV-4 callee-contract projections keyed by
 /// callee name; an absent entry classifies conservatively (owned args
 /// consume, borrowed args read, results are `Opaque`).
+#[cfg(test)] // test-only convenience: production routes through the admitted variant
 pub(crate) fn classify_function(
     func: &ArcFunction,
     state_map: &AimsStateMap,
     partition: &mut BirthSitePartition,
     boundary_facts: &FxHashMap<Name, BoundaryFacts>,
     interner: &ori_ir::StringInterner,
+) -> LedgerClassification {
+    classify_function_with_admitted(
+        func,
+        state_map,
+        partition,
+        boundary_facts,
+        interner,
+        rustc_hash::FxHashSet::default(),
+    )
+}
+
+/// [`classify_function`] with an ADMISSION override: scalar-excluded vars in
+/// `user_drop_admitted` are classified — the user-`@drop` obligation
+/// carriers whose books hold one balance-neutral drop obligation.
+pub(crate) fn classify_function_with_admitted(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    partition: &mut BirthSitePartition,
+    boundary_facts: &FxHashMap<Name, BoundaryFacts>,
+    interner: &ori_ir::StringInterner,
+    user_drop_admitted: rustc_hash::FxHashSet<ArcVarId>,
 ) -> LedgerClassification {
     let iter_name =
         interner.intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
@@ -286,6 +312,7 @@ pub(crate) fn classify_function(
         pending_entry: FxHashMap::default(),
         placeholders: collect_placeholder_vars(func, state_map),
         absent_params: rustc_hash::FxHashSet::default(),
+        user_drop_admitted,
     };
     classifier.record_merge_origins(func);
     classifier.record_invoke_result_entries(func);

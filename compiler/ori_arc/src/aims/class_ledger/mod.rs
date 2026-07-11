@@ -36,14 +36,12 @@ pub(crate) use verify::{ClassVerdict, ReadinessSummary};
 pub(crate) use emit::{DeclineReason, PlanSlot, PlannedOpKind};
 
 use ori_ir::Name;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, NodeIdx};
 use crate::aims::intraprocedural::ledger_events::EventSite;
-use crate::aims::intraprocedural::ledger_events::{
-    classify_function, BoundaryFacts, LedgerClassification,
-};
+use crate::aims::intraprocedural::ledger_events::{BoundaryFacts, LedgerClassification};
 use crate::aims::intraprocedural::AimsStateMap;
 use crate::graph::compute_predecessors;
 use crate::ir::ArcFunction;
@@ -93,12 +91,40 @@ pub(crate) fn analyze_from_state_map(
         .iter()
         .map(|(name, contract)| (*name, BoundaryFacts::from_contract(contract)))
         .collect();
+    // Scalar-excluded vars whose type carries a user `@drop` participate:
+    // they hold a drop OBLIGATION (RL-DROP, balance-neutral) the plan must
+    // discharge with one whole-var release at the death point — the legacy
+    // walk emits the same dec on these shapes.
+    let user_drop_admitted: FxHashSet<crate::ir::ArcVarId> = (0..func.var_types.len())
+        .map(|i| {
+            crate::ir::ArcVarId::new(
+                u32::try_from(i).unwrap_or_else(|_| panic!("var index {i} fits in u32")),
+            )
+        })
+        .filter(|&var| {
+            // Scalars only — an IMMORTAL user-drop value never drops, so it
+            // stays excluded (and the gate's residual decline covers it).
+            state_map.is_scalar(var)
+                && !state_map.is_immortal(var)
+                && crate::lower::burden_lookup::type_has_user_drop(
+                    func.var_types[var.index()],
+                    type_registry,
+                )
+        })
+        .collect();
     let mut partition =
-        crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition(
-            func, state_map,
+        crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition_with_admitted(
+            func, state_map, &user_drop_admitted,
         );
     let classification =
-        classify_function(func, state_map, &mut partition, &boundary_facts, interner);
+        crate::aims::intraprocedural::ledger_events::classify_function_with_admitted(
+            func,
+            state_map,
+            &mut partition,
+            &boundary_facts,
+            interner,
+            user_drop_admitted,
+        );
     analyze_class_ledger(
         func,
         &classification,

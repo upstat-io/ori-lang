@@ -279,14 +279,19 @@ fn gate_rejection(
     }) {
         return Some(FallbackReason::UserDropGlue);
     }
+    // ADMITTED scalar user-drop vars (booked drop obligations) are verified
+    // by their class verdicts: Clean = every path discharges, by planned
+    // Dec or transfer-consume. Every OTHER user-drop var keeps the
+    // conservative coverage requirement — a whole-var planned release of
+    // its own, or a BORROWED param (the caller owns the release; the
+    // `@drop` impl body's own `self` is the canonical case). The heap
+    // collection-store shapes stay with the legacy walk's @drop ordering.
+    let admitted_scalar =
+        |var: crate::ir::ArcVarId| state_map.is_scalar(var) && !state_map.is_immortal(var);
     let var_has_own_dec = |var: crate::ir::ArcVarId| {
         ops.iter()
             .any(|op| op.var == var && matches!(op.kind, super::emit::PlannedOpKind::Dec))
     };
-    // A BORROWED param's release belongs to the caller (RL-2 borrowed
-    // discipline) — a user `@drop` impl body's own `self` is the canonical
-    // case: the drop glue calls the body with `self` borrowed and runs the
-    // release AFTER it returns, so the plan correctly carries no dec.
     let borrowed_param = |var: crate::ir::ArcVarId| {
         func.params
             .iter()
@@ -296,7 +301,7 @@ fn gate_rejection(
         let var = crate::ir::ArcVarId::new(
             u32::try_from(i).unwrap_or_else(|_| panic!("var index {i} fits in u32")),
         );
-        user_drop_var(var) && !var_has_own_dec(var) && !borrowed_param(var)
+        user_drop_var(var) && !admitted_scalar(var) && !var_has_own_dec(var) && !borrowed_param(var)
     }) {
         return Some(FallbackReason::UserDropGlue);
     }

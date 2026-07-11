@@ -351,6 +351,69 @@ fn computed_returns_produce_structured_types() {
     );
 }
 
+/// `Error.trace_entries()` on a NAMED error-struct receiver (`Tag::Named`, the
+/// interned `error_struct_idx`) MUST resolve to `[TraceEntry]` (a `Tag::List`
+/// with a `Tag::Named` element), NOT poison to `Idx::ERROR`.
+///
+/// This drives the REAL production dispatch path: `resolve_builtin_method`
+/// short-circuits every `Tag::Named` receiver to `resolve_named_type_method`,
+/// which never consults the `Error` behavior table, so `trace_entries()` on a
+/// Named-`Error` receiver returns `None` and codegen later poisons it. The
+/// sibling test `computed_returns_produce_structured_types` exercises the
+/// PRIMITIVE `Tag::Error` slot (`resolve_computed_return(.., Idx::ERROR,
+/// Tag::Error, ..)`) — a path the production error-struct receiver never takes,
+/// so it stays green while the real path poisons. This test pins the real path.
+#[test]
+fn trace_entries_on_named_error_struct_resolves_to_trace_entry_list() {
+    use super::resolve_builtin_method;
+    use crate::{Idx, Pool, Tag};
+
+    let mut pool = Pool::new();
+    let mut engine = crate::InferEngine::new(&mut pool);
+    let interner = ori_ir::StringInterner::new();
+    engine.set_interner(&interner);
+
+    // Register the user-facing `Error` struct as a Named type and record it as
+    // the error-struct SSOT — mirrors `register_error_type` (Pass 0a).
+    let error_name = engine
+        .intern_name("Error")
+        .unwrap_or_else(|| panic!("interner set — Error must intern"));
+    let error_struct_idx = engine.pool_mut().named(error_name);
+    engine.pool_mut().set_error_struct_idx(error_struct_idx);
+    assert!(
+        engine.pool().is_error_struct(error_struct_idx),
+        "error_struct_idx must be recorded as the SSOT error struct"
+    );
+
+    // The production receiver for `Err(e) -> e.trace_entries()`: a Named
+    // error-struct receiver with Tag::Named.
+    let ret = resolve_builtin_method(&mut engine, error_struct_idx, Tag::Named, "trace_entries")
+        .unwrap_or_else(|| {
+            panic!(
+                "Error.trace_entries() on a Named error-struct receiver must resolve \
+             to [TraceEntry]; got None — the Tag::Named short-circuit poisoned it \
+             (resolve_named_type_method never consults the Error behavior table)"
+            )
+        });
+
+    assert_eq!(
+        engine.pool().tag(ret),
+        Tag::List,
+        "Error.trace_entries() must return [TraceEntry] (a List), not a poison/scalar type"
+    );
+    let elem = engine.pool().list_elem(ret);
+    assert_eq!(
+        engine.pool().tag(elem),
+        Tag::Named,
+        "Error.trace_entries() element must be Named (TraceEntry), not Var/Error"
+    );
+    assert_ne!(
+        ret,
+        Idx::ERROR,
+        "Error.trace_entries() must not poison to Idx::ERROR"
+    );
+}
+
 /// Result closure-methods return a structured `Result<_, _>` (BD-2 propagation):
 /// `map`/`and_then` transform Ok (Err preserved); `map_err`/`or_else` transform
 /// Err (Ok preserved). A `Tag::Error` poison receiver falls through to a fresh
