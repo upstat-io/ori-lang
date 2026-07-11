@@ -4359,3 +4359,53 @@ fn credited_call_result_payload_view_books_stay_clean() {
         "credited call-result carries its own planned release"
     );
 }
+
+/// A BORROWED user-`@drop`-typed param ADMITS despite carrying no planned
+/// release of its own: the caller owns the release (RL-2 borrowed
+/// discipline) — the user `@drop` impl body's own `self` is the canonical
+/// case (the drop glue calls the body, then runs the release itself).
+#[test]
+fn replacement_admits_borrowed_user_drop_param_without_own_dec() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let struct_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "Guarded",
+        struct_idx,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    // The @drop-body shape: borrowed self, a read, no release of self.
+    let mut func = one_block_func(2, vec![is_shared(1, 0)], ret(1));
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: struct_idx,
+        ownership: Ownership::Borrowed,
+    }];
+    func.var_types = vec![struct_idx, ty(0)];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let outcome = attempt_replacement(
+        &mut func,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
+    assert_eq!(
+        outcome.mode,
+        EmissionMode::Replaced,
+        "a borrowed user-drop param is glue-released by the caller — the \
+         plan owes it nothing"
+    );
+}
