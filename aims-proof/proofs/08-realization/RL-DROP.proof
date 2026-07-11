@@ -74,6 +74,16 @@ Theorem RL-DROP: scope-exit user @drop for a drop-glue value, gated on drop-glue
       RLDROP_exactly_once_on_glue (rldrop_lifecycle length 1 on drop-glue
       regardless of isScalar; length 0 without drop-glue).
 
+    Part (P4) — copy-out (§8.1.1): a drop-glue aggregate VALUE-copied into a
+    still-live container (borrowed-store arg; the callee acquires a funded
+    copy) has its death point at the CONTAINER's teardown:
+      RLDROP_copyout_exactly_once (copied-out local fields-only release +
+      container teardown = ONE userDrop),
+      RLDROP_copyout_local_death_double_drops (negative witness: booking the
+      local site as a death point while the container carries the copy
+      DOUBLE-drops — length 2),
+      RLDROP_copyout_balanced (per-site funded decs; composition nets 0).
+
     Negative-direction witness (the cured bug, REJECTED):
       A scalar drop-glue value's RC-only realization (no `userDrop` op,
       `RcDec` `!isScalar`-gated to nothing) emits ZERO drop ops — the

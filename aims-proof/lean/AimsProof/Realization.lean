@@ -461,6 +461,66 @@ theorem RLDROP_exactly_once_on_glue :
       ∧ (rldrop_lifecycle { hasUserDrop := false, isScalar := true }).length = 0 := by
   decide
 
+/-! ### §8.1.1 RL-DROP copy-out — a VALUE-copied drop-glue aggregate
+
+    A drop-glue aggregate VALUE-copied into a still-live container (a
+    borrowed-store arg whose callee acquires a funded copy) has its death
+    point at the CONTAINER's teardown, not at the local binding's release
+    site: the local site emits a fields-only release (no `userDrop`); the
+    stored copy's teardown glue carries the value's single `userDrop`. -/
+
+/-- §8.1.1 death-point inputs: `copiedOut` = the value was VALUE-copied into
+    a still-live container at a store site. -/
+structure CopyOutInputs where
+  hasUserDrop : Bool
+  copiedOut : Bool
+deriving Repr, DecidableEq
+
+/-- §8.1.1 local-site discipline: the binding's release emits `userDrop` iff
+    drop-glue exists AND the value was not copied out. -/
+def copyout_local_emits_user_drop (d : CopyOutInputs) : Bool :=
+  d.hasUserDrop && !d.copiedOut
+
+/-- §8.1.1 the local site's release ops: one funded dec (the fields walk),
+    plus the `userDrop` only when the local site IS the death point. -/
+def copyout_local_lifecycle (d : CopyOutInputs) : List RcOp :=
+  if copyout_local_emits_user_drop d then [RcOp.dec, RcOp.userDrop] else [RcOp.dec]
+
+/-- §8.1.1 the container teardown's ops for the stored copy: its funded dec
+    plus the value's single `userDrop` when drop-glue exists. -/
+def copyout_container_lifecycle (hasUserDrop : Bool) : List RcOp :=
+  if hasUserDrop then [RcOp.dec, RcOp.userDrop] else [RcOp.dec]
+
+/-- §8.1.1 count of `userDrop` ops in a lifecycle. -/
+def userDropCount (ops : List RcOp) : Nat :=
+  (ops.filter (· = RcOp.userDrop)).length
+
+/-- §8.1.1 exactly-once composition: the copied-out local's fields-only
+    release plus the container's teardown carry ONE `userDrop` total. -/
+theorem RLDROP_copyout_exactly_once (h : Bool) :
+    userDropCount
+      (copyout_local_lifecycle { hasUserDrop := h, copiedOut := true }
+        ++ copyout_container_lifecycle h)
+      = (if h then 1 else 0) := by
+  cases h <;> decide
+
+/-- §8.1.1 negative witness: booking the local site as a death point while
+    the container also carries the stored copy DOUBLE-drops. -/
+theorem RLDROP_copyout_local_death_double_drops :
+    userDropCount
+      (copyout_local_lifecycle { hasUserDrop := true, copiedOut := false }
+        ++ copyout_container_lifecycle true)
+      = 2 := by decide
+
+/-- §8.1.1 balance: each site's dec is funded by its own acquisition (the
+    local's birth inc; the store's elem inc) — the composition nets 0. -/
+theorem RLDROP_copyout_balanced (h : Bool) :
+    rcBalance
+      ((RcOp.inc :: copyout_local_lifecycle { hasUserDrop := h, copiedOut := true })
+        ++ (RcOp.inc :: copyout_container_lifecycle h))
+      = 0 := by
+  cases h <;> decide
+
 /-! ## §8.2 COW — mode selection over Uniqueness (annex-e §AIMS §8 RL-6 / RL-7 / RL-8)
 
     A mutation of an owned value selects one of three COW modes from the
