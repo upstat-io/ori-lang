@@ -9,17 +9,20 @@
 //! every merge block; a release is never hoisted past a merge point.
 //!
 //! The pipeline runs the analysis (classification + insertion plan +
-//! per-class readiness verdict) and, per function, REPLACES the legacy
-//! Step-4b emission with the applied plan when the replacement gate holds
-//! (`replace` module: FULLY CLEAN readiness with one class or more, no
-//! user-`@drop` type in the function, dominance-checked op placement, and a
-//! VF-1 structural check on a clone — commit-or-discard). Any function
-//! failing a gate falls back to the legacy walk unchanged; the per-function
-//! mode + readiness verdict are reported on the
-//! `ori_arc::aims::class_ledger` tracing target. A class whose per-class
-//! net dataflow cannot be proven (non-converged, merge-disagreeing, or an
-//! inexpressible release) is DECLINED — no ops are planned for it and the
-//! readiness summary reports it (fail-closed, never a wrong placement).
+//! per-class readiness verdict) and, per function, REPLACES the standard
+//! `emit_burden_ops_step` Step-4b emission with the applied plan when the
+//! replacement gate holds (`replace` module: FULLY CLEAN readiness with one
+//! class or more, no user-`@drop` type in the function, dominance-checked
+//! op placement, and a VF-1 structural check on a clone — commit-or-discard).
+//! The class-ledger plan is the SOLE RC emitter for a replaced function; a
+//! function failing a gate is FAIL-LOUD (an ICE — no fallback emitter
+//! exists), except when burden-op emission itself is disabled entirely via
+//! `ORI_DISABLE_BURDEN_OPS=1`. The per-function mode + readiness verdict are
+//! reported on the `ori_arc::aims::class_ledger` tracing target. A class
+//! whose per-class net dataflow cannot be proven (non-converged,
+//! merge-disagreeing, or an inexpressible release) is DECLINED — no ops are
+//! planned for it and the readiness summary reports it (fail-closed, never a
+//! wrong placement).
 
 mod apply;
 mod emit;
@@ -175,8 +178,7 @@ pub(crate) fn analyze_from_state_map(
         .collect();
     // Scalar-excluded vars whose type carries a user `@drop` participate:
     // they hold a drop OBLIGATION (RL-DROP, balance-neutral) the plan must
-    // discharge with one whole-var release at the death point — the legacy
-    // walk emits the same dec on these shapes.
+    // discharge with one whole-var release at the death point.
     let user_drop_admitted: FxHashSet<crate::ir::ArcVarId> = (0..func.var_types.len())
         .map(|i| {
             crate::ir::ArcVarId::new(
@@ -449,9 +451,10 @@ pub(crate) fn analyze_class_ledger(
 
 /// Pipeline Step-4b dispatch: attempt the per-function replacement, report
 /// the readiness verdict + emission mode on the `ori_arc::aims::class_ledger`
-/// tracing target, and return whether the plan replaced the legacy emission.
+/// tracing target, and return whether the plan replaced the standard
+/// burden-op emission.
 ///
-/// `legacy_emission_enabled = false` (Step-4b emission disabled)
+/// `burden_ops_enabled = false` (Step-4b emission disabled)
 /// keeps the analysis-only readiness report and never replaces.
 pub(crate) fn apply_class_ledger_replacement(
     func: &mut ArcFunction,
@@ -459,7 +462,7 @@ pub(crate) fn apply_class_ledger_replacement(
     contracts: &FxHashMap<Name, MemoryContract>,
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
-    legacy_emission_enabled: bool,
+    burden_ops_enabled: bool,
 ) -> bool {
     let outcome = attempt_replacement(
         func,
@@ -467,15 +470,15 @@ pub(crate) fn apply_class_ledger_replacement(
         contracts,
         type_registry,
         interner,
-        legacy_emission_enabled,
+        burden_ops_enabled,
     );
     report_readiness(func, interner, &outcome);
     // Fail-loud: the class-ledger plan is the SOLE RC emitter — a decline
     // is an ICE naming the function + failed gate, never a silent fallback
     // (the legacy repair passes are deleted; no fallback emitter exists).
     assert!(
-        !legacy_emission_enabled || outcome.mode == EmissionMode::Replaced,
-        "class-ledger replacement declined for `{}`: {} — every production shape must replace (the legacy Step-4b walk is being removed)",
+        !burden_ops_enabled || outcome.mode == EmissionMode::Replaced,
+        "class-ledger replacement declined for `{}`: {} — every production shape must replace (the legacy Step-4b walk was deleted; no fallback emitter exists)",
         interner.lookup(func.name),
         outcome
             .fallback_reason

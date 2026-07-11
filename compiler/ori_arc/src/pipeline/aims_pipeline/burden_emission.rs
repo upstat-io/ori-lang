@@ -1,5 +1,5 @@
-//! Step-4b burden emission: the legacy walk invocation, its disable toggle,
-//! and the post-emission debug dumps.
+//! Step-4b burden emission: the `emit_burden_ops` invocation, its disable
+//! toggle, and the post-emission debug dumps.
 
 use std::sync::LazyLock;
 
@@ -33,7 +33,7 @@ static DUMP_AFTER_BURDEN_ELIM: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DUMP_AFTER_BURDEN_ELIM").as_deref() == Ok("1"));
 
 /// Whether Step-4b burden emission is enabled (`ORI_DISABLE_BURDEN_OPS` unset).
-pub(super) fn legacy_emission_enabled() -> bool {
+pub(super) fn burden_ops_enabled() -> bool {
     !*BURDEN_OPS_DISABLED
 }
 
@@ -56,7 +56,7 @@ pub(super) fn emit_burden_ops_step(
     // sibling-union cross-block identity). Spec: Annex E §AIMS.
     state_map: &crate::aims::intraprocedural::AimsStateMap,
 ) {
-    if !legacy_emission_enabled() {
+    if !burden_ops_enabled() {
         return;
     }
     let _span = tracing::info_span!("emit_burden_ops").entered();

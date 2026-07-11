@@ -247,17 +247,18 @@ pub(crate) fn run_aims_pipeline(
     );
 
     // Step 4b dispatch: class-ledger replacement (gated on the per-function
-    // readiness gate) or the legacy burden walk. The analysis
-    // reads the pre-burden IR + converged state map (before any legacy ops
-    // enter the class event streams); a replaced function carries the applied
-    // plan and skips the legacy emission entirely (never both emitters).
+    // readiness gate) or the standard `emit_burden_ops_step` burden-op
+    // emission. The analysis reads the pre-burden IR + converged state map
+    // (before any burden ops enter the class event streams); a replaced
+    // function carries the applied plan and skips burden-op emission
+    // entirely (never both emitters).
     let class_ledger_replaced = crate::aims::class_ledger::apply_class_ledger_replacement(
         func,
         &state_map,
         config.contracts,
         config.type_registry,
         config.interner,
-        burden_emission::legacy_emission_enabled(),
+        burden_emission::burden_ops_enabled(),
     );
 
     // Step 4b: emit BurdenInc/BurdenDec ops based on converged state map.

@@ -1,16 +1,18 @@
-//! Per-function replacement of the legacy Step-4b emission by the
-//! class-ledger plan, behind the readiness gate.
+//! Per-function replacement of the standard `emit_burden_ops_step` Step-4b
+//! emission by the class-ledger plan, behind the readiness gate.
 //!
-//! Replacement gate — ALL must hold, any failure falls back to the legacy
-//! walk unchanged:
+//! Replacement gate — ALL must hold; any failure declines replacement, which
+//! is fail-loud (an ICE — no fallback emitter exists) except when burden-op
+//! emission itself is disabled via `ORI_DISABLE_BURDEN_OPS=1`:
 //!
 //! - the analysis reports FULLY CLEAN readiness (no declined class, every
 //!   class verdict `Clean`) with at least ONE class — a zero-class function
-//!   falls back (the class model proves nothing about variables it never
-//!   evented, and the legacy walk may still owe ops for them);
+//!   declines (the class model proves nothing about variables it never
+//!   evented; a live non-excluded variable with no evented class is a
+//!   classifier coverage gap, not a genuine zero-RC function);
 //! - no variable's type carries a user `@drop` (the RL-DROP user-drop call
-//!   for scalar-repr values is a legacy-walk completeness pass the class
-//!   model does not cover);
+//!   for scalar-repr values is a completeness case the class model does not
+//!   yet cover);
 //! - every planned op's subject variable is defined at a site dominating
 //!   the op's insertion slot (the plan's release-var selection is
 //!   heuristic; the flat VF-1 defined-set check alone would not catch a
@@ -41,9 +43,10 @@ use super::{analyze_from_state_map, ClassLedgerAnalysis};
 /// Step-4b emission mode for one function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EmissionMode {
-    /// The class-ledger plan replaced the legacy emission.
+    /// The class-ledger plan replaced the standard burden-op emission.
     Replaced,
-    /// The legacy walk remains the emitter (gate failure; reason recorded).
+    /// Replacement declined (gate failure; reason recorded) — fail-loud
+    /// downstream unless burden-op emission itself is disabled.
     Fallback,
 }
 
@@ -66,12 +69,12 @@ pub(crate) struct ReplacementOutcome {
     pub(crate) fallback_reason: Option<FallbackReason>,
 }
 
-/// Why a function fell back to the legacy Step-4b emission (the closed set
+/// Why a function's class-ledger replacement was declined (the closed set
 /// of `gate_rejection` outcomes plus the post-apply structural-verify gate).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FallbackReason {
-    /// Step-4b emission disabled (`legacy_emission_enabled = false`).
-    LegacyEmissionDisabled,
+    /// Step-4b burden-op emission disabled (`burden_ops_enabled = false`).
+    BurdenEmissionDisabled,
     /// The function evented no partition class.
     ZeroClasses,
     /// A class declined or verified non-`Clean`.
@@ -121,7 +124,7 @@ impl FallbackReason {
     /// Tracing label for the reason.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            Self::LegacyEmissionDisabled => "legacy-emission-disabled",
+            Self::BurdenEmissionDisabled => "burden-emission-disabled",
             Self::ZeroClasses => "zero-classes",
             Self::ReadinessNotClean => "readiness-not-clean",
             Self::ReuseShape => "reuse-shape",
@@ -137,7 +140,8 @@ impl FallbackReason {
 }
 
 /// Analyze `func` and commit the class-ledger plan when every replacement
-/// gate holds; otherwise leave `func` byte-identical for the legacy walk.
+/// gate holds; otherwise leave `func` byte-identical for the standard
+/// `emit_burden_ops_step` burden-op emission.
 ///
 /// `allow_replacement = false` runs the analysis only (readiness stays
 /// reportable) and never mutates `func`.
@@ -207,7 +211,7 @@ fn gate_rejection(
     allow_replacement: bool,
 ) -> Option<FallbackReason> {
     if !allow_replacement {
-        return Some(FallbackReason::LegacyEmissionDisabled);
+        return Some(FallbackReason::BurdenEmissionDisabled);
     }
     // Empty-surface admission: a function whose EVERY variable is excluded
     // (scalar or immortal) carries no RC-bearing value anywhere — no births,
@@ -218,8 +222,8 @@ fn gate_rejection(
     // (`UserDropGlue` for a scalar-repr type carrying a user `@drop`,
     // `ReuseShape`, ...) still run and decline the shapes an empty
     // emission would mis-handle. A zero-class function with ANY non-excluded
-    // variable stays on the fallback — the classifier missing a live heap
-    // value is a coverage gap the legacy walk must keep owning.
+    // variable stays declined — the classifier missing a live heap
+    // value is a coverage gap, not a genuine zero-RC function.
     if analysis.plan.classes.is_empty() && !analysis.all_vars_excluded {
         if tracing::enabled!(target: "ori_arc::aims::class_ledger", tracing::Level::TRACE) {
             let non_excluded: Vec<u32> = (0..func.var_types.len())
@@ -237,8 +241,8 @@ fn gate_rejection(
     if !analysis.readiness.all_classes_clean {
         return Some(FallbackReason::ReadinessNotClean);
     }
-    // Unmodeled shape stays on the legacy walk: a Reset/Reuse pairing
-    // rebirths the DYING value's allocation (no fresh birth site).
+    // Unmodeled shape declines: a Reset/Reuse pairing rebirths the DYING
+    // value's allocation (no fresh birth site).
     if has_reuse_shape(func) {
         return Some(FallbackReason::ReuseShape);
     }
@@ -261,15 +265,13 @@ fn gate_rejection(
     // User `@drop` admission: a WHOLE-VAR planned release lowers to the
     // standard drop glue (heap repr) or `RcStrategy::UserDrop` (scalar
     // repr), running the user `@drop` exactly once at the class's death
-    // point — same observable discipline as the legacy walk (RL-DROP:
-    // `userDrop` is balance-neutral). Declines:
+    // point per RL-DROP (`userDrop` is balance-neutral). Declines:
     // (a) a FIELD-GRAIN release on a user-drop type — a partial dec
     //     releases fields around the type's own drop glue, so `@drop`
     //     would run never or on a gutted value;
     // (b) a user-drop-typed var with NO whole-var planned release of its
     //     own — an excluded scalar or a suppressed/transferred shape whose
-    //     `@drop` the plan does not carry (the legacy walk's RL-DROP
-    //     completeness pass covers those).
+    //     `@drop` the plan does not carry.
     let user_drop_var = |var: crate::ir::ArcVarId| {
         func.var_types
             .get(var.index())
@@ -290,8 +292,8 @@ fn gate_rejection(
     // own `self` and its aliases are the canonical case); or a CONSUME
     // discharge on its class (the reference transfers to an owner — a
     // `Construct` arg, an owned call arg, a `Return` — whose release chain
-    // runs the drop glue recursively; same discipline as the legacy walk,
-    // which also releases moved values through the owner's teardown).
+    // runs the drop glue recursively, releasing the moved value through the
+    // owner's teardown).
     let admitted_scalar =
         |var: crate::ir::ArcVarId| state_map.is_scalar(var) && !state_map.is_immortal(var);
     let var_has_own_dec = |var: crate::ir::ArcVarId| {

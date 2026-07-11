@@ -404,8 +404,7 @@ pub(crate) fn field_view_hazard_classes(
 /// Whether the container class roots in an ADMITTED user-drop SCALAR var:
 /// such a container releases via the balance-neutral `@drop` call only —
 /// nothing is freed, so a field-path view read after the release stays
-/// valid (per `AimsProof.Realization::RLDROP_user_drop_balance_neutral`;
-/// the legacy walk emits the same read-after-release ordering).
+/// valid (per `AimsProof.Realization::RLDROP_user_drop_balance_neutral`).
 fn is_admitted_scalar_container(
     member_vars: &[crate::ir::ArcVarId],
     user_drop_admitted: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,

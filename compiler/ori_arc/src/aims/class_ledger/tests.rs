@@ -250,7 +250,7 @@ fn fresh_construct_returned_moves_with_no_ops() {
 
 /// A non-empty string literal returned is the literal analog of the fresh
 /// move: birth at the `Let`, consumed by the Return transfer — Clean with
-/// NO planned ops (the legacy path emits nothing for it either).
+/// NO planned ops (a moved value owes no release).
 #[test]
 fn str_literal_returned_moves_clean_with_no_ops() {
     let func = one_block_func(
@@ -851,7 +851,7 @@ fn replacement_disallowed_reports_analysis_and_leaves_function_untouched() {
     assert_eq!(outcome.mode, EmissionMode::Fallback);
     assert_eq!(
         outcome.fallback_reason,
-        Some(FallbackReason::LegacyEmissionDisabled)
+        Some(FallbackReason::BurdenEmissionDisabled)
     );
     assert!(outcome.analysis.readiness.all_classes_clean);
     assert_eq!(gated, func);
@@ -1019,8 +1019,7 @@ fn replacement_admits_returned_scalar_user_drop_value() {
 /// An ADMITTED scalar user-drop var whose lineage mints NO ledger event (a
 /// scalar-literal alias chain read only through a non-admitted scalar
 /// alias — the scalar-newtype shape) is excluded-equivalent for the
-/// empty-surface admission: the empty plan emits exactly what the legacy
-/// walk emits for it — nothing.
+/// empty-surface admission: the empty plan correctly emits nothing for it.
 #[test]
 fn replacement_admits_unbooked_scalar_user_drop_newtype_lineage() {
     use core::num::NonZeroU32;
@@ -1085,15 +1084,15 @@ fn replacement_admits_unbooked_scalar_user_drop_newtype_lineage() {
     );
     assert!(
         planned_ops(&outcome.analysis).is_empty(),
-        "the empty plan emits nothing — byte-identical to the legacy walk"
+        "the empty plan correctly emits nothing for an excluded-equivalent lineage"
     );
 }
 
 /// A SCALAR user-drop container whose field-path view is read after the
 /// container's planned release is NOT a field-view hazard: the scalar
 /// release lowers to the balance-neutral `@drop` call — nothing is freed,
-/// so the view's post-release read stays valid (the legacy walk emits the
-/// same ordering on the nested-destructure shape).
+/// so the view's post-release read stays valid on the nested-destructure
+/// shape.
 #[test]
 fn replacement_admits_scalar_user_drop_container_with_post_release_view() {
     use core::num::NonZeroU32;
@@ -1192,9 +1191,8 @@ fn replacement_admits_scalar_user_drop_container_with_post_release_view() {
 
 /// A user-`@drop` value whose class plans its own WHOLE-VAR release is
 /// ADMITTED: the planned dec lowers to the standard drop glue, which runs
-/// the user `@drop` exactly once at the death point (RL-DROP discipline —
-/// same observable behavior as the legacy walk). Only field-grain releases
-/// or plan-uncovered user-drop vars decline.
+/// the user `@drop` exactly once at the death point (RL-DROP discipline).
+/// Only field-grain releases or plan-uncovered user-drop vars decline.
 #[test]
 fn replacement_admits_user_drop_value_with_whole_var_release() {
     use core::num::NonZeroU32;
@@ -2155,8 +2153,8 @@ fn struct_list_field_flagship_per_field_classes_replace() {
 
     // Every per-field class verifies Clean and the hazard set is empty —
     // the replacement gate accepts on these terms (the positive pin that
-    // the NEW mechanism, not the legacy whole-var admission, carries the
-    // flagship: on replaced functions the legacy emission is skipped).
+    // the NEW mechanism, not whole-var admission, carries the flagship: on
+    // replaced functions the standard burden-op emission is skipped).
     assert!(analysis.readiness.all_classes_clean);
     assert!(
         !analysis.field_view_hazard,
@@ -3449,7 +3447,7 @@ fn demand_only_view_is_never_skipped() {
 /// iterator handle: freed by destructor, not refcount) cannot be cured by
 /// extraction funding — the seed inc is physically inert, so the container's
 /// release still destroys the extracted payload. The rung declines and the
-/// hazard survives (fail-closed fallback to the legacy walk).
+/// hazard survives (fail-closed decline).
 #[test]
 fn unfundable_view_type_declines_extraction_funding() {
     let mut func = one_block_func(
@@ -4702,7 +4700,7 @@ fn replacement_admits_borrowed_user_drop_param_alias() {
 /// A SCALAR-repr user-`@drop` value that dies normally is ADMITTED with its
 /// drop obligation booked: the plan carries one whole-var release (lowered
 /// with the scalar user-drop strategy — `@drop` runs exactly once at the
-/// death point, matching the legacy walk's emission on the same shape).
+/// death point).
 #[test]
 fn replacement_admits_scalar_user_drop_value_with_planned_release() {
     use core::num::NonZeroU32;

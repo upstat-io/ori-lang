@@ -338,9 +338,8 @@ pub(crate) fn classify_function_with_admitted(
     // An ADMITTED user-drop scalar whose partition class carries NO ledger
     // event has no booking surface (a scalar-literal alias lineage mints no
     // birth), so the empty-surface admission counts it excluded-equivalent:
-    // the empty plan emits exactly what the legacy walk emits for it —
-    // nothing. A NON-admitted live var with no events stays a decline (a
-    // classifier coverage gap the legacy walk must keep owning). Once
+    // the empty plan correctly emits nothing for it. A NON-admitted live var
+    // with no events stays a decline (a classifier coverage gap). Once
     // booking exists for the shape, its class carries events and the
     // forgiveness stops applying.
     let mut evented_reps = rustc_hash::FxHashSet::default();
