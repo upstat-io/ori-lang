@@ -335,8 +335,46 @@ pub(crate) fn classify_function_with_admitted(
         classifier.out.blocks.push(stream);
         classifier.out.sites.push(sites);
     }
-    classifier.out.all_vars_excluded = (0..func.var_types.len())
-        .all(|raw| u32::try_from(raw).is_ok_and(|raw| classifier.excluded(ArcVarId::new(raw))));
+    // An ADMITTED user-drop scalar whose partition class carries NO ledger
+    // event has no booking surface (a scalar-literal alias lineage mints no
+    // birth), so the empty-surface admission counts it excluded-equivalent:
+    // the empty plan emits exactly what the legacy walk emits for it —
+    // nothing. A NON-admitted live var with no events stays a decline (a
+    // classifier coverage gap the legacy walk must keep owning). Once
+    // booking exists for the shape, its class carries events and the
+    // forgiveness stops applying.
+    let mut evented_reps = rustc_hash::FxHashSet::default();
+    for block_idx in 0..classifier.out.blocks.len() {
+        for event_idx in 0..classifier.out.blocks[block_idx].len() {
+            let class = match classifier.out.blocks[block_idx][event_idx] {
+                ClassInstr::Birth { class, .. }
+                | ClassInstr::Credit { class }
+                | ClassInstr::SelectCredit { class, .. }
+                | ClassInstr::Consume { class }
+                | ClassInstr::Read { class, .. }
+                | ClassInstr::Mutate { class, .. } => class,
+            };
+            evented_reps.insert(classifier.partition.rep_of(class));
+        }
+    }
+    let node_reps: Vec<(ArcVarId, NodeIdx)> = classifier
+        .partition
+        .nodes_snapshot()
+        .into_iter()
+        .map(|(var, _path, node)| (var, node))
+        .collect();
+    classifier.out.all_vars_excluded = (0..func.var_types.len()).all(|raw| {
+        u32::try_from(raw).is_ok_and(|raw| {
+            let var = ArcVarId::new(raw);
+            if classifier.excluded(var) {
+                return true;
+            }
+            classifier.user_drop_admitted.contains(&var)
+                && node_reps.iter().all(|&(node_var, node)| {
+                    node_var != var || !evented_reps.contains(&classifier.partition.rep_of(node))
+                })
+        })
+    });
     classifier.out
 }
 

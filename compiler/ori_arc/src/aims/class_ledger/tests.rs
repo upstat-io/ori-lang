@@ -964,6 +964,79 @@ fn replacement_admits_returned_scalar_user_drop_value() {
     );
 }
 
+/// An ADMITTED scalar user-drop var whose lineage mints NO ledger event (a
+/// scalar-literal alias chain read only through a non-admitted scalar
+/// alias — the scalar-newtype shape) is excluded-equivalent for the
+/// empty-surface admission: the empty plan emits exactly what the legacy
+/// walk emits for it — nothing.
+#[test]
+fn replacement_admits_unbooked_scalar_user_drop_newtype_lineage() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let newtype_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "Handle",
+        newtype_idx,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    // %0: int = 99 (excluded scalar); %1: Handle = %0 (admitted alias DST —
+    // no birth of its own); %2: int = %1 (excluded alias); ret %2 — the
+    // admitted var never events (the scalar-newtype corpus shape).
+    let mut func = one_block_func(
+        3,
+        vec![
+            ArcInstr::Let {
+                dst: v(0),
+                ty: ty(0),
+                value: ArcValue::Literal(crate::ir::LitValue::Int(99)),
+            },
+            ArcInstr::Let {
+                dst: v(1),
+                ty: newtype_idx,
+                value: ArcValue::Var(v(0)),
+            },
+            ArcInstr::Let {
+                dst: v(2),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+        ],
+        ret(2),
+    );
+    func.var_types = vec![ty(0), newtype_idx, ty(0)];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(0));
+    state_map.set_permanent_scalar(v(1));
+    state_map.set_permanent_scalar(v(2));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let outcome = attempt_replacement(
+        &mut func,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
+    assert_eq!(
+        outcome.mode,
+        EmissionMode::Replaced,
+        "an unbooked admitted scalar user-drop lineage is empty-surface"
+    );
+    assert!(
+        planned_ops(&outcome.analysis).is_empty(),
+        "the empty plan emits nothing — byte-identical to the legacy walk"
+    );
+}
+
 /// A user-`@drop` value whose class plans its own WHOLE-VAR release is
 /// ADMITTED: the planned dec lowers to the standard drop glue, which runs
 /// the user `@drop` exactly once at the death point (RL-DROP discipline —
