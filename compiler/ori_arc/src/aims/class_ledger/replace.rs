@@ -283,11 +283,20 @@ fn gate_rejection(
         ops.iter()
             .any(|op| op.var == var && matches!(op.kind, super::emit::PlannedOpKind::Dec))
     };
+    // A BORROWED param's release belongs to the caller (RL-2 borrowed
+    // discipline) — a user `@drop` impl body's own `self` is the canonical
+    // case: the drop glue calls the body with `self` borrowed and runs the
+    // release AFTER it returns, so the plan correctly carries no dec.
+    let borrowed_param = |var: crate::ir::ArcVarId| {
+        func.params
+            .iter()
+            .any(|p| p.var == var && p.ownership == crate::ownership::Ownership::Borrowed)
+    };
     if (0..func.var_types.len()).any(|i| {
         let var = crate::ir::ArcVarId::new(
             u32::try_from(i).unwrap_or_else(|_| panic!("var index {i} fits in u32")),
         );
-        user_drop_var(var) && !var_has_own_dec(var)
+        user_drop_var(var) && !var_has_own_dec(var) && !borrowed_param(var)
     }) {
         return Some(FallbackReason::UserDropGlue);
     }
