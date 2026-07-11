@@ -275,7 +275,9 @@ fn gate_rejection(
             .is_some_and(|&ty| type_has_user_drop(ty, type_registry))
     };
     if ops.iter().any(|op| {
-        matches!(op.kind, super::emit::PlannedOpKind::DecPartial { .. }) && user_drop_var(op.var)
+        matches!(op.kind, super::emit::PlannedOpKind::DecPartial { .. })
+            && user_drop_var(op.var)
+            && !analysis.copy_out_covered.contains(&op.var)
     }) {
         return Some(FallbackReason::UserDropGlue);
     }
@@ -317,13 +319,14 @@ fn gate_rejection(
             && !var_has_own_dec(var)
             && !borrowed_rooted.contains(&var)
             && !analysis.consume_covered.contains(&var)
+            && !analysis.copy_out_covered.contains(&var)
     }) {
         return Some(FallbackReason::UserDropGlue);
     }
     if !ops_placeable(func, ops) {
         return Some(FallbackReason::OpVarPlacement);
     }
-    if !dec_partial_skips_valid(func, ops, type_registry) {
+    if !dec_partial_skips_valid(func, ops, type_registry, &analysis.copy_out_covered) {
         return Some(FallbackReason::FieldDecompositionShape);
     }
     None
@@ -341,6 +344,7 @@ fn dec_partial_skips_valid(
     func: &ArcFunction,
     ops: &[PlannedOp],
     type_registry: &TypeRegistry,
+    copy_out_covered: &rustc_hash::FxHashSet<ArcVarId>,
 ) -> bool {
     use crate::lower::burden::Burden;
     use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
@@ -350,7 +354,10 @@ fn dec_partial_skips_valid(
             return true;
         };
         if skip_fields.is_empty() {
-            return false;
+            // The copy-out rewrite's fields-only release (RL-DROP §8.1.1):
+            // release EVERY field, run no user `@drop` (the stored copy's
+            // teardown carries it). Any other empty skip stays malformed.
+            return copy_out_covered.contains(&op.var);
         }
         let Some(&ty) = func.var_types.get(op.var.index()) else {
             return false;

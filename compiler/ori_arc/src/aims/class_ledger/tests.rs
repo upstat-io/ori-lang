@@ -4923,3 +4923,115 @@ fn replacement_admits_borrowed_self_user_drop_field_view() {
         "a field view of the borrowed self is caller-released"
     );
 }
+
+/// The map-insert copy-out shape (RL-DROP §8.1.1): a user-drop local whose
+/// alias is a borrowed `insert` arg on a map-literal receiver. The value is
+/// runtime-copied into the map (the stored copy's teardown carries the
+/// single `@drop`), so the class's placed releases rewrite FIELDS-ONLY
+/// (`DecPartial` empty skip) and the shape replaces.
+#[test]
+fn replacement_admits_map_insert_copy_out_user_drop_local() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let boom_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    registry.register_struct(
+        crate::lower::test_utils::test_name("Boom"),
+        boom_idx,
+        vec![],
+        vec![ori_types::FieldDef {
+            name: crate::lower::test_utils::test_name("tag"),
+            ty: Idx::STR,
+            span: ori_ir::Span::DUMMY,
+            visibility: ori_types::Visibility::Public,
+        }],
+        ori_ir::Span::DUMMY,
+        ori_types::Visibility::Public,
+        0,
+        None,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    let interner = test_interner();
+    let insert = interner.intern("insert");
+    // bb0: %0 = Construct Struct(Boom)(); %1 = Construct Map(); %2 = %0;
+    //      Invoke @insert(%1 [own], %2 [borrow]) -> bb1 / unwind bb2
+    // bb1: %4 = int literal; ret %4; bb2: Resume
+    let mut func = func_with_blocks(
+        5,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    ArcInstr::Construct {
+                        dst: v(0),
+                        ty: boom_idx,
+                        ctor: CtorKind::Struct(Name::from_raw(64)),
+                        args: vec![],
+                    },
+                    ArcInstr::Construct {
+                        dst: v(1),
+                        ty: ty(66),
+                        ctor: CtorKind::MapLiteral,
+                        args: vec![],
+                    },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: boom_idx,
+                        value: ArcValue::Var(v(0)),
+                    },
+                ],
+                ArcTerminator::Invoke {
+                    dst: v(3),
+                    ty: ty(66),
+                    func: insert,
+                    args: vec![v(1), v(2)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(
+                1,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(4),
+                    ty: ty(0),
+                    value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                }],
+                ArcTerminator::Return { value: v(4) },
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.var_types = vec![boom_idx, ty(66), boom_idx, ty(66), ty(0)];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(4));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let outcome = attempt_replacement(
+        &mut func, &state_map, &contracts, &registry, &interner, true,
+    );
+    assert_eq!(
+        outcome
+            .fallback_reason
+            .map(super::replace::FallbackReason::as_str),
+        None,
+        "copy-out shape declined"
+    );
+    assert_eq!(outcome.mode, EmissionMode::Replaced);
+    let partial = func.blocks.iter().flat_map(|b| &b.body).any(|instr| {
+        matches!(instr, ArcInstr::BurdenDecPartial { skip_fields, .. } if skip_fields.is_empty())
+    });
+    assert!(
+        partial,
+        "the copy-out release is the fields-only empty-skip partial"
+    );
+}
