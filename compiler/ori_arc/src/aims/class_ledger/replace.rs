@@ -292,16 +292,25 @@ fn gate_rejection(
         ops.iter()
             .any(|op| op.var == var && matches!(op.kind, super::emit::PlannedOpKind::Dec))
     };
-    let borrowed_param = |var: crate::ir::ArcVarId| {
+    // Borrowed-ROOTED, not just the param var: a `Let { Var }` alias of a
+    // borrowed param names the SAME caller-released allocation (the @drop
+    // body's `%2 = %0` self alias is the canonical case).
+    let borrowed_rooted = super::emit::close_over_let_aliases(
+        func,
         func.params
             .iter()
-            .any(|p| p.var == var && p.ownership == crate::ownership::Ownership::Borrowed)
-    };
+            .filter(|p| p.ownership == crate::ownership::Ownership::Borrowed)
+            .map(|p| p.var)
+            .collect(),
+    );
     if (0..func.var_types.len()).any(|i| {
         let var = crate::ir::ArcVarId::new(
             u32::try_from(i).unwrap_or_else(|_| panic!("var index {i} fits in u32")),
         );
-        user_drop_var(var) && !admitted_scalar(var) && !var_has_own_dec(var) && !borrowed_param(var)
+        user_drop_var(var)
+            && !admitted_scalar(var)
+            && !var_has_own_dec(var)
+            && !borrowed_rooted.contains(&var)
     }) {
         return Some(FallbackReason::UserDropGlue);
     }

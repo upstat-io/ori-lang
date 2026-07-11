@@ -4639,6 +4639,66 @@ fn replacement_admits_borrowed_user_drop_param_without_own_dec() {
     );
 }
 
+/// The @drop-body ALIAS shape: a `Let {{ Var }}` alias of the borrowed
+/// user-drop self shares the caller-released allocation — the exemption
+/// follows the alias chain to its borrowed-param root, never just the
+/// param var itself.
+#[test]
+fn replacement_admits_borrowed_user_drop_param_alias() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let struct_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "Guarded",
+        struct_idx,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    // %1 = %0 (alias of borrowed self); %2 = IsShared %1; ret %2.
+    let mut func = one_block_func(
+        3,
+        vec![
+            ArcInstr::Let {
+                dst: v(1),
+                ty: struct_idx,
+                value: ArcValue::Var(v(0)),
+            },
+            is_shared(2, 1),
+        ],
+        ret(2),
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: struct_idx,
+        ownership: Ownership::Borrowed,
+    }];
+    func.var_types = vec![struct_idx, struct_idx, ty(0)];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let outcome = attempt_replacement(
+        &mut func,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
+    assert_eq!(
+        outcome.mode,
+        EmissionMode::Replaced,
+        "the alias shares the borrowed param's caller-released allocation"
+    );
+}
+
 /// A SCALAR-repr user-`@drop` value that dies normally is ADMITTED with its
 /// drop obligation booked: the plan carries one whole-var release (lowered
 /// with the scalar user-drop strategy — `@drop` runs exactly once at the
