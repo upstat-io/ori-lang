@@ -500,6 +500,109 @@ fn cure_view_with_extraction_funding(
     verdicts: &mut [(NodeIdx, ClassVerdict)],
     declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
 ) -> bool {
+    let Some((seeds, credit_sites)) =
+        collect_extraction_seeds(func, partition, type_registry, full_move_arms, view)
+    else {
+        return false;
+    };
+    // Contract-boundary arrival: a call result whose callee contract proves
+    // `return_alias = Project` over a borrowed arg (assert_some /
+    // field-accessor shapes) books a `call_result_event` CREDIT (the PV-4
+    // sharing-view producer: the callee minted the returned reference), so
+    // the class's own books may already fund its demand with ZERO added
+    // ops — try the un-seeded plan FIRST (a read-only local Project rides
+    // the credited count; seeding it inflates the residue past what the
+    // release placer can pair at a terminator-read block).
+    let credited_arrival = classification.blocks.iter().flatten().any(|ci| {
+        matches!(ci,
+            crate::aims::intraprocedural::ledger_events::ClassInstr::Credit { class }
+                if partition.rep_of(*class) == view)
+    });
+    if credited_arrival {
+        let credited_events =
+            events::extract_class_events_with(func, classification, partition, view, true);
+        if let Some(outcome) = plan_and_verify_cure(
+            func,
+            preds,
+            regions,
+            partition,
+            view,
+            "credited-arrival",
+            &credited_events,
+            &[],
+        ) {
+            return commit_cured_view(classes, verdicts, declined, view, outcome);
+        }
+    }
+    if seeds.is_empty() && credit_sites.is_empty() {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(view),
+            "view cure declined: no member-defining Project seeds"
+        );
+        return false;
+    }
+    let mut funded_events = if credit_sites.is_empty() {
+        events::extract_class_events_with(func, classification, partition, view, true)
+    } else {
+        events::extract_class_events_with_extraction_credits(
+            func,
+            classification,
+            partition,
+            view,
+            &credit_sites,
+            true,
+        )
+    };
+    // A seed funds only a LIVE extract: a `Project` whose dst (through its
+    // `Let` alias closure) carries NO event in the view class is a dead
+    // binding (a match arm that never reads its payload) — seeding it
+    // leaves an unreleasable +1 on that arm (merge disagreement); the
+    // container's own release covers the untouched payload.
+    let event_vars: rustc_hash::FxHashSet<crate::ir::ArcVarId> = funded_events
+        .per_block
+        .iter()
+        .flatten()
+        .filter_map(|ev| ev.var)
+        .collect();
+    let seeds = live_seeds(func, seeds, &event_vars, partition, view);
+    // Pure-seed funding: every positive book entry is backed by a REAL
+    // seed `Inc` this cure emits, so the books are runtime-grounded by
+    // construction — a multi-owed dead-edge releases one front dec per
+    // funded reference (the `books_runtime_grounded && exit > 1` path in
+    // `plan_edge_releases`). Credit-mixed books stay fail-closed.
+    if credit_sites.is_empty() && !seeds.is_empty() {
+        funded_events.books_runtime_grounded = true;
+    }
+    let Some(outcome) = plan_and_verify_cure(
+        func,
+        preds,
+        regions,
+        partition,
+        view,
+        "extraction-funding",
+        &funded_events,
+        &seeds,
+    ) else {
+        return false;
+    };
+    commit_cured_view(classes, verdicts, declined, view, outcome)
+}
+
+/// Collect the funding seeds (one `Inc` per member-defining `Project`) and
+/// the full-move CREDIT sites for `view`; `None` when a seed type carries
+/// no burden (the inc cannot fund — decline).
+#[expect(
+    clippy::type_complexity,
+    reason = "one caller; a named pair adds nothing"
+)]
+fn collect_extraction_seeds(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    type_registry: &ori_types::TypeRegistry,
+    full_move_arms: &[events::FullMoveArm],
+    view: NodeIdx,
+) -> Option<(Vec<PlannedOp>, Vec<(usize, usize)>)> {
     use crate::aims::intraprocedural::birth_site_partition::FieldPath;
     use crate::ir::ArcInstr;
     use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
@@ -547,7 +650,7 @@ fn cure_view_with_extraction_funding(
                     seed_ty = ?func.var_types.get(dst.index()),
                     "view cure declined: seed type carries no burden (inc cannot fund)"
                 );
-                return false;
+                return None;
             }
             seeds.push(PlannedOp {
                 slot: emit::PlanSlot::AfterBody {
@@ -559,68 +662,62 @@ fn cure_view_with_extraction_funding(
             });
         }
     }
-    // Contract-boundary arrival: a call result whose callee contract proves
-    // `return_alias = Project` over a borrowed arg (assert_some /
-    // field-accessor shapes) books a `call_result_event` CREDIT (the PV-4
-    // sharing-view producer: the callee minted the returned reference), so
-    // the class's own books may already fund its demand with ZERO added
-    // ops — try the un-seeded plan FIRST (a read-only local Project rides
-    // the credited count; seeding it inflates the residue past what the
-    // release placer can pair at a terminator-read block).
-    let credited_arrival = classification.blocks.iter().flatten().any(|ci| {
-        matches!(ci,
-            crate::aims::intraprocedural::ledger_events::ClassInstr::Credit { class }
-                if partition.rep_of(*class) == view)
-    });
-    if credited_arrival {
-        let credited_events =
-            events::extract_class_events_with(func, classification, partition, view, true);
-        if let Some(outcome) = plan_and_verify_cure(
-            func,
-            preds,
-            regions,
-            partition,
-            view,
-            "credited-arrival",
-            &credited_events,
-            &[],
-        ) {
-            return commit_cured_view(classes, verdicts, declined, view, outcome);
-        }
-    }
-    if seeds.is_empty() && credit_sites.is_empty() {
-        tracing::trace!(
-            target: "ori_arc::aims::class_ledger",
-            view = ?partition.node_key(view),
-            "view cure declined: no member-defining Project seeds"
-        );
-        return false;
-    }
-    let funded_events = if credit_sites.is_empty() {
-        events::extract_class_events_with(func, classification, partition, view, true)
-    } else {
-        events::extract_class_events_with_extraction_credits(
-            func,
-            classification,
-            partition,
-            view,
-            &credit_sites,
-            true,
-        )
-    };
-    let Some(outcome) = plan_and_verify_cure(
-        func,
-        preds,
-        regions,
-        partition,
-        view,
-        "extraction-funding",
-        &funded_events,
-        &seeds,
-    ) else {
-        return false;
-    };
-    commit_cured_view(classes, verdicts, declined, view, outcome)
+    Some((seeds, credit_sites))
+}
+
+/// Keep only seeds funding a LIVE extract: a `Project` whose dst — through
+/// `Let` aliases AND `Jump`-arg -> block-param hand-offs — carries no event
+/// in the view class is a dead binding (a match arm that never reads its
+/// payload); seeding it leaves an unreleasable +1 on that arm.
+fn live_seeds(
+    func: &ArcFunction,
+    seeds: Vec<PlannedOp>,
+    event_vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
+    partition: &mut BirthSitePartition,
+    view: NodeIdx,
+) -> Vec<PlannedOp> {
+    seeds
+        .into_iter()
+        .filter(|seed| {
+            let mut closure =
+                emit::close_over_let_aliases(func, std::iter::once(seed.var).collect());
+            loop {
+                let mut grew = false;
+                for arc_block in &func.blocks {
+                    let crate::ir::ArcTerminator::Jump { target, args } = &arc_block.terminator
+                    else {
+                        continue;
+                    };
+                    let Some(target_block) = func.blocks.iter().find(|b| b.id == *target) else {
+                        continue;
+                    };
+                    for (position, arg) in args.iter().enumerate() {
+                        if closure.contains(arg) {
+                            if let Some(&(param, _)) = target_block.params.get(position) {
+                                if closure.insert(param) {
+                                    grew = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                if !grew {
+                    break;
+                }
+                closure = emit::close_over_let_aliases(func, closure);
+            }
+            let live = closure.iter().any(|member| event_vars.contains(member));
+            if !live {
+                tracing::trace!(
+                    target: "ori_arc::aims::class_ledger",
+                    view = ?partition.node_key(view),
+                    seed_var = ?seed.var,
+                    "extraction-funding seed skipped: dead extract (no event)"
+                );
+            }
+            live
+        })
+        .collect()
 }
 
 /// Plan `events` (seeded with `seeds`) and verify the result against the

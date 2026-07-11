@@ -940,11 +940,13 @@ fn class_ledger_replaces_clean_function_with_lowered_plan() {
     );
 }
 
-/// A declined class: the function falls back to the legacy walk
-/// per-function (the readiness gate stays fail-closed until the walk is
-/// deleted); the legacy path marks `burden_emitted`.
+/// A declined class on the DEFAULT (coexistence) path: the function falls
+/// back to the legacy walk per-function; the legacy path marks
+/// `burden_emitted`. On the BURDEN-SOLE path the same decline is an ICE
+/// (the fail-loud migration gate) — pinned end-to-end by the gated aot
+/// corpus, whose every compile runs the assert.
 #[test]
-fn class_ledger_declined_function_falls_back_to_legacy() {
+fn class_ledger_declined_function_falls_back_on_default_path() {
     let mut func = class_ledger_declined_fixture();
     run_pipeline(&mut func);
 

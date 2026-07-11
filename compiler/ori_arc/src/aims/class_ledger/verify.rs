@@ -160,12 +160,7 @@ fn walk_paths(
         }
     }
     if !saw_terminal {
-        tracing::trace!(
-            target: "ori_arc::aims::class_ledger",
-            gate = "no-reachable-terminal",
-            "class verdict Unprovable: no reachable terminal was walked"
-        );
-        return ClassVerdict::Unprovable;
+        return no_terminal_verdict(func, walks);
     }
     if leak {
         ClassVerdict::LeakOnly
@@ -240,6 +235,43 @@ impl WalkKey {
 
 /// Merge events and planned ops into per-block walks ordered by source
 /// position per [`WalkKey`]'s derived ordering; ties keep arrival order.
+/// Verdict for a DIVERGING function (no entry-reachable terminal): a class
+/// whose EVERY walk item sits in entry-UNREACHABLE code never executes —
+/// the placement clauses hold vacuously. Any reachable item keeps the
+/// fail-closed verdict (a diverging loop touching the class still owes
+/// per-iteration balance).
+fn no_terminal_verdict(func: &ArcFunction, walks: &[Vec<WalkItem>]) -> ClassVerdict {
+    let mut reachable = vec![false; func.blocks.len()];
+    let mut stack = vec![func.entry.index()];
+    while let Some(block) = stack.pop() {
+        if reachable.get(block).copied().unwrap_or(true) {
+            continue;
+        }
+        reachable[block] = true;
+        for successor in super::events::successors_of(func, block) {
+            stack.push(successor);
+        }
+    }
+    let touches_reachable = walks
+        .iter()
+        .enumerate()
+        .any(|(block, items)| !items.is_empty() && reachable.get(block).copied().unwrap_or(false));
+    if !touches_reachable {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            gate = "unreachable-class-vacuous",
+            "class verdict Clean: every event + op sits in entry-unreachable code"
+        );
+        return ClassVerdict::Clean;
+    }
+    tracing::trace!(
+        target: "ori_arc::aims::class_ledger",
+        gate = "no-reachable-terminal",
+        "class verdict Unprovable: no reachable terminal was walked"
+    );
+    ClassVerdict::Unprovable
+}
+
 fn build_walks(func: &ArcFunction, events: &ClassEvents, ops: &[PlannedOp]) -> Vec<Vec<WalkItem>> {
     let mut keyed: Vec<Vec<(WalkKey, usize, WalkItem)>> = vec![Vec::new(); func.blocks.len()];
     let mut sequence = 0usize;

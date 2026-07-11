@@ -297,6 +297,24 @@ fn gate_rejection(
         ops.iter()
             .any(|op| op.var == var && matches!(op.kind, super::emit::PlannedOpKind::Dec))
     };
+    // An OWNED param's `Let { Var }` alias closure names ONE caller-handed
+    // allocation; a whole-var planned release on ANY closure member is the
+    // param's own release (the impl-method `@eq(self [own], other [own])`
+    // bodies release through the alias the walk decs). Purely structural
+    // Let-alias lineage — no store/copy-out entanglement.
+    let mut owned_alias_dec_covered: rustc_hash::FxHashSet<crate::ir::ArcVarId> =
+        rustc_hash::FxHashSet::default();
+    for param in func
+        .params
+        .iter()
+        .filter(|p| p.ownership == crate::ownership::Ownership::Owned)
+    {
+        let closure =
+            super::emit::close_over_let_aliases(func, std::iter::once(param.var).collect());
+        if closure.iter().any(|&member| var_has_own_dec(member)) {
+            owned_alias_dec_covered.extend(closure);
+        }
+    }
     // Borrowed-ROOTED, not just the param var: a `Let { Var }` alias of a
     // borrowed param names the SAME caller-released allocation (the @drop
     // body's `%2 = %0` self alias is the canonical case), and a `Project`
@@ -317,6 +335,7 @@ fn gate_rejection(
         user_drop_var(var)
             && !admitted_scalar(var)
             && !var_has_own_dec(var)
+            && !owned_alias_dec_covered.contains(&var)
             && !borrowed_rooted.contains(&var)
             && !analysis.consume_covered.contains(&var)
             && !analysis.copy_out_covered.contains(&var)
