@@ -26,12 +26,31 @@ fn error_all_methods_borrow_receiver() {
 }
 
 #[test]
-fn error_no_backend_required() {
-    for m in ERROR.methods {
+fn error_no_backend_required_for_unimplemented_accessors() {
+    for name in ["debug", "message", "to_str"] {
+        let m = ERROR
+            .methods
+            .iter()
+            .find(|m| m.name == name)
+            .unwrap_or_else(|| panic!("Error.{name} should exist"));
         assert!(
             !m.backend_required,
-            "Error.{} should not be backend_required",
-            m.name
+            "Error.{name} has no codegen accessor and should not be backend_required"
+        );
+    }
+}
+
+#[test]
+fn error_backend_required_for_implemented_accessors() {
+    for name in ["clone", "has_trace", "trace", "trace_entries", "with_trace"] {
+        let m = ERROR
+            .methods
+            .iter()
+            .find(|m| m.name == name)
+            .unwrap_or_else(|| panic!("Error.{name} should exist"));
+        assert!(
+            m.backend_required,
+            "Error.{name} has real codegen coverage and should be backend_required"
         );
     }
 }

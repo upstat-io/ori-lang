@@ -1,0 +1,36 @@
+// Spec: 07-properties-of-types.md § Traceable
+// Regression sibling: `with_trace(entry) -> Self` — a STRUCT-aggregate return,
+// a third physical shape distinct from trace()'s str fat-pointer and
+// trace_entries()'s list fat-pointer — on the Named error-struct payload `e`,
+// as the TAIL value of a `match` arm. Completes the "all four Traceable
+// methods" coverage table for the match-phi shape.
+
+use std.testing { assert_eq }
+
+@fail () -> Result<int, Error> = Err(Error("fail"));
+
+@one_hop () -> Result<int, Error> = {
+    let x = fail()?;
+    Ok(x)
+}
+
+// `with_trace` returns `Self` (the Error struct) as the arm's tail value.
+// Direct indexing (`[0]`), not `.get()` — `[0]` is a distinct `__index`
+// protocol-builtin codegen path from `.get(index:)`.
+@with_trace_via_match () -> Error = {
+    match one_hop() {
+        Ok(_) -> Error("unreachable"),
+        Err(e) -> {
+            let entry = e.trace_entries()[0];
+            e.with_trace(entry: entry)
+        },
+    }
+}
+
+#skip("BUG-04-277: JIT test-worker SIGSEGV — a complex-match aggregate-returning function consumed via a chained accessor inline (no let-binding) crashes the LLVM test-worker; same signature as the [T]-returning trigger shape, unrelated to Traceable dispatch")
+@test_with_trace_via_match tests @with_trace_via_match () -> void = {
+    assert_eq(
+        actual: with_trace_via_match().trace_entries().len(),
+        expected: 2,
+    )
+}

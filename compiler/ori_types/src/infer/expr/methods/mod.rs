@@ -10,7 +10,10 @@
 //!    specific type construction (DEI propagation, tuple pairs)
 //!
 //! Named/Applied types (user-defined) bypass the registry and use
-//! [`resolve_named_type_method`] directly.
+//! [`resolve_named_type_method`] directly — EXCEPT the registered `Error`
+//! struct's 5 codegen-backed methods (`trace_entries`/`has_trace`/`trace`/
+//! `with_trace`/`clone`), which route to the canonical `ERROR_METHODS`
+//! registry table FIRST, exactly as a `Tag::Error` receiver resolves.
 
 mod computed_returns;
 
@@ -56,9 +59,39 @@ pub(crate) fn resolve_builtin_method(
     tag: Tag,
     method_name: &str,
 ) -> Option<Idx> {
-    // Named/Applied types: user-defined, not in registry.
-    // Supports newtype `.unwrap()`/`.inner()`/`.value()` and common trait methods.
+    // Named/Applied types: user-defined, not in registry — EXCEPT the
+    // registered error struct's 5 codegen-backed methods, routed to
+    // ERROR_METHODS first. Allow-list membership is derived dynamically from
+    // the registry's own `backend_required` field (never a hand-maintained
+    // list), so this route can never silently diverge from real codegen
+    // coverage: `message`/`debug`/`to_str` (backend_required: false) fall
+    // through unchanged to resolve_named_type_method below.
     if matches!(tag, Tag::Named | Tag::Applied) {
+        if engine.pool().is_error_struct_receiver(receiver_ty) {
+            if let Some(method_def) =
+                ori_registry::find_method(ori_registry::TypeTag::Error, method_name)
+            {
+                if method_def.backend_required {
+                    // Effective Tag::Error into the computed-return call —
+                    // NEVER the receiver's raw Tag::Named — exactly as a
+                    // genuine Tag::Error receiver resolves.
+                    let return_ty = if method_def.returns == ReturnTag::Fresh {
+                        computed_returns::resolve_computed_return(
+                            engine,
+                            receiver_ty,
+                            Tag::Error,
+                            method_name,
+                        )
+                    } else {
+                        registry_bridge::return_tag_to_idx(engine, receiver_ty, method_def.returns)
+                    };
+                    return Some(return_ty);
+                }
+            }
+        }
+        // Supports newtype `.unwrap()`/`.inner()`/`.value()` and common trait
+        // methods; also the error-struct fall-through on registry miss or a
+        // non-allow-listed method name (e.g. `.message()`, still poisons).
         return resolve_named_type_method(engine, receiver_ty, method_name);
     }
 

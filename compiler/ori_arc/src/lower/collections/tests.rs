@@ -94,6 +94,136 @@ fn lower_try_non_option_result_scrutinee_panics_not_returns_scrutinee() {
     lower_root(arena, try_expr, &interner, &pool, Idx::INT);
 }
 
+/// Positive control: `expr?` on `Result<int, Error>` where `Error` is the
+/// registered error struct MUST inject `__ori_inject_trace` on the Err
+/// payload before re-wrapping — the dual-identity guard (`is_error_struct_receiver`)
+/// accepting the genuine Error identity, per fix-consensus refinement #8.
+#[test]
+fn lower_try_injects_trace_on_genuine_error_err_payload() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let error_name = interner.intern("Error");
+    let error_struct_idx = pool.named(error_name);
+    pool.set_error_struct_idx(error_struct_idx);
+    let result_ty = pool.result(Idx::INT, error_struct_idx);
+
+    let mut arena = CanArena::with_capacity(200);
+    let inner = arena.push(CanNode::new(
+        CanExpr::Int(0),
+        Span::new(0, 1),
+        TypeId::from_raw(result_ty.raw()),
+    ));
+    let try_expr = arena.push(CanNode::new(
+        CanExpr::Try(inner),
+        Span::new(0, 2),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+
+    let canon = CanonResult {
+        arena,
+        constants: ori_ir::canon::ConstantPool::new(),
+        decision_trees: ori_ir::canon::DecisionTreePool::default(),
+        root: try_expr,
+        roots: vec![],
+        method_roots: vec![],
+        problems: vec![],
+        mono_dispatch_map_can: vec![],
+    };
+    let mut problems = Vec::new();
+    let (func, _) = super::super::super::lower_function_can(
+        Name::from_raw(1),
+        &[],
+        Idx::INT,
+        try_expr,
+        &canon,
+        &interner,
+        &pool,
+        &mut problems,
+        false,
+        None,
+    );
+
+    assert!(problems.is_empty());
+    let inject_fn = interner.intern("__ori_inject_trace");
+    let injected = func.blocks.iter().any(|block| {
+        block
+            .body
+            .iter()
+            .any(|instr| matches!(instr, ArcInstr::Apply { func, .. } if *func == inject_fn))
+    });
+    assert!(
+        injected,
+        "lower_try must inject __ori_inject_trace on a genuine Error Err payload"
+    );
+}
+
+/// Negative control: `expr?` on `Result<int, MyError>` where `MyError` is a
+/// newtype over `Error` (`type MyError = Error`) MUST NOT inject
+/// `__ori_inject_trace` — the newtype's distinct idx never matches
+/// `is_error_struct_receiver` (`chase_var_links` never crosses the
+/// resolutions map), preserving newtype nominal typing (TI-5).
+#[test]
+fn lower_try_does_not_inject_trace_on_newtype_over_error_err_payload() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let error_name = interner.intern("Error");
+    let error_struct_idx = pool.named(error_name);
+    pool.set_error_struct_idx(error_struct_idx);
+    let myerror_name = interner.intern("MyError");
+    let myerror_idx = pool.named(myerror_name);
+    pool.set_resolution(myerror_idx, error_struct_idx);
+    let result_ty = pool.result(Idx::INT, myerror_idx);
+
+    let mut arena = CanArena::with_capacity(200);
+    let inner = arena.push(CanNode::new(
+        CanExpr::Int(0),
+        Span::new(0, 1),
+        TypeId::from_raw(result_ty.raw()),
+    ));
+    let try_expr = arena.push(CanNode::new(
+        CanExpr::Try(inner),
+        Span::new(0, 2),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+
+    let canon = CanonResult {
+        arena,
+        constants: ori_ir::canon::ConstantPool::new(),
+        decision_trees: ori_ir::canon::DecisionTreePool::default(),
+        root: try_expr,
+        roots: vec![],
+        method_roots: vec![],
+        problems: vec![],
+        mono_dispatch_map_can: vec![],
+    };
+    let mut problems = Vec::new();
+    let (func, _) = super::super::super::lower_function_can(
+        Name::from_raw(1),
+        &[],
+        Idx::INT,
+        try_expr,
+        &canon,
+        &interner,
+        &pool,
+        &mut problems,
+        false,
+        None,
+    );
+
+    assert!(problems.is_empty());
+    let inject_fn = interner.intern("__ori_inject_trace");
+    let injected = func.blocks.iter().any(|block| {
+        block
+            .body
+            .iter()
+            .any(|instr| matches!(instr, ArcInstr::Apply { func, .. } if *func == inject_fn))
+    });
+    assert!(
+        !injected,
+        "lower_try must NOT inject __ori_inject_trace on a newtype-over-Error Err payload"
+    );
+}
+
 #[test]
 fn lower_tuple() {
     let interner = StringInterner::new();

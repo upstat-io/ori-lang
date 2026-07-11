@@ -211,6 +211,19 @@ fn backend_required_methods_in_llvm() {
                 continue;
             }
 
+            // The 4 Traceable read-accessors + generic struct-clone have real
+            // codegen coverage on "error" outside declare_builtins!/BuiltinTable
+            // (super::traceable's early intercept + dispatch.rs's generic
+            // TypeInfo::Struct clone fallback) — SSOT'd from traceable.rs's own
+            // method-name list, never a duplicated string list here.
+            let has_error_side_coverage = type_name == "error"
+                && (super::traceable::TRACELESS_TRACEABLE_METHODS.contains(&method.name)
+                    || method.name == "clone");
+
+            if has_error_side_coverage {
+                continue;
+            }
+
             if method.dei_only {
                 if !table.has("DoubleEndedIterator", method.name) {
                     missing.push(format!("DoubleEndedIterator.{}", method.name));

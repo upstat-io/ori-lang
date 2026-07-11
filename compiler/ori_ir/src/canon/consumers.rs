@@ -131,11 +131,21 @@ pub const CANON_CONSUMERS: &[ConsumerEntry] = &[
         pool_access: PoolAccess::IdOnlyImporter,
         description: "value model — stores CanId + canon handle for closure bodies",
     },
+    // Holds a `&CanonResult` inside `RealizedProgram` purely as a pass-through
+    // handle for codegen backends; layout computation reads the resolved type
+    // inputs it is handed, never tree-walks a canon pool for meaning.
+    ConsumerEntry {
+        crate_name: "ori_repr",
+        pool_access: PoolAccess::IdOnlyImporter,
+        description: "repr planning — passes the canon handle through RealizedProgram to backends",
+    },
 ];
 
 /// Look up a registered consumer by its Cargo package name.
+// test-only: consumed by `consumers::tests`.
+#[cfg(test)]
 #[must_use]
-pub fn entry_for(crate_name: &str) -> Option<&'static ConsumerEntry> {
+pub(crate) fn entry_for(crate_name: &str) -> Option<&'static ConsumerEntry> {
     CANON_CONSUMERS
         .iter()
         .find(|entry| entry.crate_name == crate_name)

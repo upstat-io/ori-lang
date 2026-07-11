@@ -1,10 +1,12 @@
 //! `Error` type definition.
 //!
 //! Error is an Arc type (heap-allocated, reference-counted) containing a
-//! message string and optional trace. No operators. All methods are
-//! `backend_required: false` (no LLVM coverage yet). `trace_entries` and
-//! `with_trace` use `ReturnTag::Fresh` for `TraceEntry` (stdlib struct, no
-//! `TypeTag`).
+//! message string and optional trace. No operators. `clone`/`has_trace`/
+//! `trace`/`trace_entries`/`with_trace` are `backend_required: true` (real
+//! codegen coverage via `traceable.rs`'s Traceable intercept + the generic
+//! struct-clone fallback); `debug`/`message`/`to_str` stay `false` (no
+//! codegen accessor). `trace_entries` and `with_trace` use `ReturnTag::Fresh`
+//! for `TraceEntry` (stdlib struct, no `TypeTag`).
 
 use crate::{
     MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
@@ -27,7 +29,7 @@ const SELF: ReturnTag = ReturnTag::SelfType;
 
 // All methods alphabetically sorted.
 static ERROR_METHODS: &[MethodDef] = &[
-    MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false),
+    MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, true),
     MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false),
     MethodDef::compound(
         "has_trace",
@@ -35,7 +37,7 @@ static ERROR_METHODS: &[MethodDef] = &[
         BOOL,
         Some("Traceable"),
         Ownership::Borrow,
-        false,
+        true,
     ),
     MethodDef::compound("message", &[], STR, None, Ownership::Borrow, false),
     MethodDef::compound(
@@ -52,7 +54,7 @@ static ERROR_METHODS: &[MethodDef] = &[
         STR,
         Some("Traceable"),
         Ownership::Borrow,
-        false,
+        true,
     ),
     MethodDef::compound(
         "trace_entries",
@@ -60,7 +62,7 @@ static ERROR_METHODS: &[MethodDef] = &[
         ReturnTag::Fresh,
         Some("Traceable"),
         Ownership::Borrow,
-        false,
+        true,
     ),
     MethodDef::compound(
         "with_trace",
@@ -68,7 +70,7 @@ static ERROR_METHODS: &[MethodDef] = &[
         SELF,
         Some("Traceable"),
         Ownership::Borrow,
-        false,
+        true,
     ),
 ];
 

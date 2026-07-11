@@ -1,11 +1,15 @@
 # Test leg execution helpers for test-all.sh.
+# shellcheck shell=bash
 
 timed_leg() {
     local _name="$1"; shift
-    local _t0 _t1 _rc
+    local _t0 _t1
+    local _rc=0
     _t0=$(date +%s.%N)
-    "$@"
-    _rc=$?
+    # INVARIANT: keep `"$@"` `||`-protected - the default parallel path
+    # (`timed_leg NAME run_fn &`) has no enclosing if/&&/||, so an
+    # unprotected failure trips `set -e` before `_rc=$?` runs.
+    "$@" || _rc=$?
     _t1=$(date +%s.%N)
     awk "BEGIN { printf \"%.1f\", ${_t1} - ${_t0} }" > "$LEG_TIMING_DIR/${_name}" 2>/dev/null
     return $_rc
@@ -51,9 +55,49 @@ rust_test_leg() {
     fi
 }
 
+# INVARIANT: each leg's cargo selection is defined exactly once here, and
+# consumed by BOTH the leg runner and the Phase-1 prebuild warm — a warm
+# shape mismatched to its leg's run shape recompiles concurrently into the
+# shared target/, racing the other legs. Selection args ONLY: run-phase
+# flags (--no-fail-fast, --color) stay in rust_test_leg; --no-run stays in
+# prebuild_leg_shapes.
+readonly LEG_SEL_WORKSPACE=(--workspace --exclude ori_llvm --lib --bins --tests)
+readonly LEG_SEL_RUST_RT=(-p ori_rt)
+readonly LEG_SEL_RUST_LLVM=(-p ori_llvm --lib)
+readonly LEG_SEL_AOT=(-p ori_llvm --test aot)
+
+# Serially pre-build every leg's EXACT selection shape (cargo test --no-run;
+# nextest's harness binaries too when active) — serial by construction,
+# since backgrounding a warm reintroduces the concurrent-compile race.
+# Continue-on-fail per leg; returns non-zero when any warm failed so a
+# `if !`-guarded set -e caller can report without aborting mid-sequence.
+prebuild_leg_shapes() {
+    local failed=0
+    local out sel_name
+    for sel_name in LEG_SEL_WORKSPACE LEG_SEL_RUST_RT LEG_SEL_RUST_LLVM LEG_SEL_AOT; do
+        local -n sel="$sel_name"
+        out=$(mktemp)
+        if ! cargo_race_retry "$out" cargo test --no-run -q "${sel[@]}"; then
+            echo "  [fail] cargo test pre-build FAILED for: ${sel[*]}"
+            cat "$out"
+            failed=1
+        fi
+        if [ -n "$NEXTEST_ACTIVE" ]; then
+            if ! cargo_race_retry "$out" cargo nextest run --no-run "${sel[@]}"; then
+                echo "  [fail] nextest pre-build FAILED for: ${sel[*]}"
+                cat "$out"
+                failed=1
+            fi
+        fi
+        rm -f "$out"
+        unset -n sel
+    done
+    return $failed
+}
+
 run_rust_workspace() {
     echo "=== Running Rust unit tests (workspace) ==="
-    if rust_test_leg "$RUST_OUTPUT" --workspace --exclude ori_llvm --lib --bins --tests; then
+    if rust_test_leg "$RUST_OUTPUT" "${LEG_SEL_WORKSPACE[@]}"; then
         echo "  [ok] Rust workspace tests passed"
         return 0
     else
@@ -75,7 +119,7 @@ run_rust_doctests() {
 
 run_rust_rt() {
     echo "=== Running runtime library tests (ori_rt) ==="
-    if rust_test_leg "$RUST_RT_OUTPUT" -p ori_rt; then
+    if rust_test_leg "$RUST_RT_OUTPUT" "${LEG_SEL_RUST_RT[@]}"; then
         echo "  [ok] Runtime library tests passed"
         return 0
     else
@@ -86,7 +130,7 @@ run_rust_rt() {
 
 run_rust_llvm() {
     echo "=== Running Rust unit tests (ori_llvm) ==="
-    if rust_test_leg "$RUST_LLVM_OUTPUT" -p ori_llvm --lib; then
+    if rust_test_leg "$RUST_LLVM_OUTPUT" "${LEG_SEL_RUST_LLVM[@]}"; then
         echo "  [ok] Rust LLVM tests passed"
         return 0
     else
@@ -99,7 +143,7 @@ run_aot() {
     echo "=== Running AOT integration tests (gated burden probe) ==="
     if (
         export ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1
-        rust_test_leg "$AOT_OUTPUT" -p ori_llvm --test aot
+        rust_test_leg "$AOT_OUTPUT" "${LEG_SEL_AOT[@]}"
     ); then
         echo "  [ok] AOT integration tests passed"
         return 0
@@ -131,14 +175,37 @@ run_wasm_build() {
     fi
 }
 
+# Incremental spec-test flag selection. ORI_TEST_FORCE_FULL=1 forces a full
+# run (empties --incremental for both interpreter + LLVM legs); absent ->
+# --incremental active (unchanged targets skipped). Sets INCREMENTAL_ARGS.
+compute_incremental_args() {
+    if [ -n "${ORI_TEST_FORCE_FULL:-}" ]; then
+        INCREMENTAL_ARGS=()
+        echo "=== Incremental: ORI_TEST_FORCE_FULL set - full run (no --incremental) ==="
+    else
+        INCREMENTAL_ARGS=(--incremental)
+        echo "=== Incremental: --incremental active (unchanged targets skipped) ==="
+    fi
+}
+
 run_ori_interpreter() {
     echo "=== Running Ori language tests (interpreter) ==="
     mkdir -p "$(dirname "$ORI_INTERP_JSON")"
-    "$CARGO_TARGET_DIR"/debug/ori test --format json $INCREMENTAL_FLAG tests/ > "$ORI_INTERP_JSON" 2>"$ORI_INTERP_OUTPUT"
+    "$CARGO_TARGET_DIR"/debug/ori test --format json "${INCREMENTAL_ARGS[@]}" tests/ > "$ORI_INTERP_JSON" 2>"$ORI_INTERP_OUTPUT"
     local exit_code=$?
     if [ $exit_code -eq 0 ]; then
         python3 "$PARSE_TEST_JSON" --summary-line "$ORI_INTERP_JSON" | sed 's/^/  /'
         return 0
+    elif [ $exit_code -gt 128 ]; then
+        local signal=$((exit_code - 128))
+        local error_msg
+        error_msg=$(grep -i "error\|panic" "$ORI_INTERP_OUTPUT" | head -1)
+        if [ -n "$error_msg" ]; then
+            echo "  [fail] Ori interpreter CRASHED: $error_msg"
+        else
+            echo "  [fail] Ori interpreter CRASHED (signal $signal)"
+        fi
+        return $exit_code
     else
         echo "  [fail] Ori interpreter tests FAILED"
         return 1
@@ -157,20 +224,21 @@ run_ori_llvm() {
             ;;
     esac
     mkdir -p "$(dirname "$ORI_LLVM_JSON")"
-    "$CARGO_TARGET_DIR"/release/ori test --format json --backend=llvm $INCREMENTAL_FLAG tests/ > "$ORI_LLVM_JSON" 2>"$ORI_LLVM_OUTPUT"
+    "$CARGO_TARGET_DIR"/release/ori test --format json --backend=llvm "${INCREMENTAL_ARGS[@]}" tests/ > "$ORI_LLVM_JSON" 2>"$ORI_LLVM_OUTPUT"
     local exit_code=$?
     if [ $exit_code -eq 0 ]; then
         python3 "$PARSE_TEST_JSON" --summary-line "$ORI_LLVM_JSON" | sed 's/^/  /'
         return 0
     elif [ $exit_code -gt 128 ]; then
         local signal=$((exit_code - 128))
-        local error_msg=$(grep -i "error\|panic" "$ORI_LLVM_OUTPUT" | head -1)
+        local error_msg
+        error_msg=$(grep -i "error\|panic" "$ORI_LLVM_OUTPUT" | head -1)
         if [ -n "$error_msg" ]; then
             echo "  [fail] Ori LLVM backend CRASHED: $error_msg"
         else
             echo "  [fail] Ori LLVM backend CRASHED (signal $signal)"
         fi
-        return 1
+        return $exit_code
     else
         echo "  [fail] Ori LLVM tests FAILED"
         return 1

@@ -114,10 +114,10 @@ pub struct CanonResult {
     ///
     /// The ARC carriers (`ArcInstr::Apply` / `ArcTerminator::Invoke`)
     /// read this side-table to transfer the abstract index onto the ARC-level
-    /// call. LLVM + eval dispatch then look up
-    /// `TypedModule.mono_instances[id.index()]` and call `mangle_mono_name` locally
-    /// inside `ori_llvm` — preserving phase purity (canon
-    /// produces canonical IR + side-tables; no LLVM strings).
+    /// call. LLVM looks up `TypedModule.mono_instances[id.index()]` and calls
+    /// `mangle_mono_name` locally inside `ori_llvm`. Eval uses the id only as
+    /// canonical call-site identity; it has no access to `TypedModule`.
+    /// Canon therefore produces canonical IR + side-tables, never LLVM names.
     ///
     /// Stored as `Vec<(CanId, MonoInstanceId)>` (NOT `FxHashMap`) for Salsa
     /// compatibility — `CanonResult` derives

@@ -1,4 +1,5 @@
 # Result parsing helpers for test-all.sh.
+# shellcheck shell=bash
 
 # Shared strip_ansi helper: every exact-text match below must run on stripped
 # text (captured toolchain output may carry SGR color despite redirection).
@@ -85,14 +86,6 @@ parse_ori_results() {
         [ -n "$key" ] && eval "${prefix}_${key}=${value}"
     done <<< "$counts"
 }
-
-artifact_identity() {
-    stat -c '%d:%i:%Y:%s' "$CARGO_TARGET_DIR"/debug/ori "$CARGO_TARGET_DIR"/debug/libori_rt.a 2>/dev/null \
-        || stat -f '%d:%i:%m:%z' "$CARGO_TARGET_DIR"/debug/ori "$CARGO_TARGET_DIR"/debug/libori_rt.a 2>/dev/null \
-        || echo "absent"
-}
-
-AOT_STAGE_MANIFEST="build/aot-stage-manifest-debug.txt"
 
 suite_status() {
     local exit_code="${1:-0}" failed="${2:-0}"

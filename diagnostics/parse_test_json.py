@@ -127,74 +127,65 @@ def _emit_summary_line(obj):
     print(", ".join(parts))
 
 
+def _iter_file_failures(obj):
+    """Yield (file_summary, kind, name, message) once per failing outcome, in
+    file-then-result order: kind is "failed" | "llvm_compile_fail" for a
+    results[] entry (name set), or "file_error" for a file-level error (name
+    None). Single walk of files[] -> results[]/errors[] shared by every
+    failure-listing consumer (`_failure_entries`, `_emit_fail_lines`)."""
+    for file_summary in obj.get("files", []):
+        for result in file_summary.get("results", []):
+            outcome = result.get("outcome")
+            name = result.get("name", "")
+            if isinstance(outcome, dict) and "Failed" in outcome:
+                yield file_summary, "failed", name, outcome["Failed"]
+            elif isinstance(outcome, dict) and "LlvmCompileFail" in outcome:
+                yield file_summary, "llvm_compile_fail", name, outcome["LlvmCompileFail"]
+        for error in file_summary.get("errors", []):
+            yield file_summary, "file_error", None, error
+
+
+_FAILURE_KIND_MAP = {
+    "failed": "assertion_failure",
+    "llvm_compile_fail": "llvm_compile_fail",
+    "file_error": "file_error",
+}
+
+
 def _failure_entries(obj, suite):
     """Yield a failure object per failed / llvm-compile-fail test, plus one
     per file-level error. The runner already resolved interned names to
     strings and serde-escaped every message; json.dumps re-escapes on emit."""
     entries = []
-    for file_summary in obj.get("files", []):
+    for file_summary, kind, name, message in _iter_file_failures(obj):
         source_path = file_summary.get("path", "")
-        for result in file_summary.get("results", []):
-            outcome = result.get("outcome")
-            name = result.get("name", "")
-            if isinstance(outcome, dict) and "Failed" in outcome:
-                msg = outcome["Failed"]
-                entries.append({
-                    "test_id": name,
-                    "test_id_kind": "ori_spec",
-                    "suite": suite,
-                    "failure_kind": "assertion_failure",
-                    "error_message": msg,
-                    "source_path": source_path,
-                    "leak_positive": _is_leak_failure(msg),
-                })
-            elif isinstance(outcome, dict) and "LlvmCompileFail" in outcome:
-                reason = outcome["LlvmCompileFail"]
-                entries.append({
-                    "test_id": name,
-                    "test_id_kind": "ori_spec",
-                    "suite": suite,
-                    "failure_kind": "llvm_compile_fail",
-                    "error_message": reason,
-                    "source_path": source_path,
-                    "leak_positive": _is_leak_failure(reason),
-                })
-        for error in file_summary.get("errors", []):
-            entries.append({
-                "test_id": source_path,
-                "test_id_kind": "ori_spec",
-                "suite": suite,
-                "failure_kind": "file_error",
-                "error_message": error,
-                "source_path": source_path,
-                "leak_positive": _is_leak_failure(error),
-            })
+        entries.append({
+            "test_id": name if kind != "file_error" else source_path,
+            "test_id_kind": "ori_spec",
+            "suite": suite,
+            "failure_kind": _FAILURE_KIND_MAP[kind],
+            "error_message": message,
+            "source_path": source_path,
+            "leak_positive": _is_leak_failure(message),
+        })
     return entries
 
 
 def _emit_fail_lines(obj):
     """Human-readable per-failure listing for the console (the detail the
     runner's text render emitted; reconstructed from the parsed JSON)."""
-    for file_summary in obj.get("files", []):
-        printed_path = False
-        for result in file_summary.get("results", []):
-            outcome = result.get("outcome")
-            name = result.get("name", "")
-            label = None
-            if isinstance(outcome, dict) and "Failed" in outcome:
-                label = f"  FAIL: {name} - {outcome['Failed']}"
-            elif isinstance(outcome, dict) and "LlvmCompileFail" in outcome:
-                label = f"  LLVM COMPILE FAIL: {name} - {outcome['LlvmCompileFail']}"
-            if label is not None:
-                if not printed_path:
-                    print(file_summary.get("path", ""))
-                    printed_path = True
-                print(label)
-        for error in file_summary.get("errors", []):
-            if not printed_path:
-                print(file_summary.get("path", ""))
-                printed_path = True
-            print(f"  ERROR: {error}")
+    printed_summary_id = None
+    for file_summary, kind, name, message in _iter_file_failures(obj):
+        if kind == "failed":
+            label = f"  FAIL: {name} - {message}"
+        elif kind == "llvm_compile_fail":
+            label = f"  LLVM COMPILE FAIL: {name} - {message}"
+        else:
+            label = f"  ERROR: {message}"
+        if id(file_summary) != printed_summary_id:
+            print(file_summary.get("path", ""))
+            printed_summary_id = id(file_summary)
+        print(label)
 
 
 def _emit_failures_json(obj, suite):
@@ -211,9 +202,13 @@ def _rust_failure_entries(text, suite, failure_kind):
     - cargo libtest:  `test <name> ... FAILED`
     - cargo-nextest:  `<indent>FAIL [ <time> ] (<n>/<total>) <crate> <test::path>`
     A test_id is emitted at most once even if both forms appear (dedup by id).
-    """
-    kind = "panic" if "panicked at" in text else failure_kind
-    entries = []
+
+    `failure_kind` is attributed PER TEST, never blanket-applied from the
+    whole log: a test is "panic" only when its own `thread '<name>' panicked`
+    line is present, or when it is the log's sole failing test (a solo
+    failure carries no other candidate to misattribute a stray panic to,
+    e.g. a harness panic reported under `thread 'main'`)."""
+    matches = []
     seen = set()
     for line in text.splitlines():
         cargo = _RUST_FAIL_RE.match(line)
@@ -222,13 +217,7 @@ def _rust_failure_entries(text, suite, failure_kind):
             if name in seen:
                 continue
             seen.add(name)
-            entries.append({
-                "test_id": name,
-                "test_id_kind": "rust",
-                "suite": suite,
-                "failure_kind": kind,
-                "error_message": f"test {name} ... FAILED",
-            })
+            matches.append((name, f"test {name} ... FAILED"))
             continue
         nextest = _NEXTEST_FAIL_RE.match(line)
         if nextest:
@@ -237,13 +226,19 @@ def _rust_failure_entries(text, suite, failure_kind):
             if name in seen:
                 continue
             seen.add(name)
-            entries.append({
-                "test_id": name,
-                "test_id_kind": "rust",
-                "suite": suite,
-                "failure_kind": kind,
-                "error_message": f"FAIL {crate} {name} (nextest)",
-            })
+            matches.append((name, f"FAIL {crate} {name} (nextest)"))
+
+    solo_fallback = len(matches) == 1 and "panicked at" in text
+    entries = []
+    for name, error_message in matches:
+        panicked = f"thread '{name}' panicked" in text or solo_fallback
+        entries.append({
+            "test_id": name,
+            "test_id_kind": "rust",
+            "suite": suite,
+            "failure_kind": "panic" if panicked else failure_kind,
+            "error_message": error_message,
+        })
     return entries
 
 

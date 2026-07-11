@@ -1,6 +1,5 @@
-// Spec: 08-declarations.md § Method-level Generics
+// Spec: 08-types.md § 8.3.1 Const Generic Parameters
 // Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
-// BUG-01-002 §03 Cross-type coverage — const-generic <$N: int>
 
 use std.testing { assert_eq }
 
@@ -10,7 +9,6 @@ impl<T> Vec<T> {
     @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
 }
 
-#skip("BUG-02-023: const-generic value flow not yet wired through inference→canon→eval; typeck succeeds, runtime panics with `undefined variable: N`")
 @test_const_int tests _ () -> void = {
     let v = Vec { items: [1, 2, 3, 4, 5] };
     let three: [int, max 3] = v.first_n();

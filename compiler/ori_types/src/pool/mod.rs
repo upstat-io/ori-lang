@@ -198,6 +198,22 @@ impl Pool {
         self.error_struct_idx == Some(idx)
     }
 
+    /// `true` iff `ty` is the registered user-facing `Error` struct, under
+    /// EITHER of its two identities: the `Tag::Named` wrapper idx
+    /// (`error_struct_idx`) or the concrete `Tag::Struct` idx it resolves to
+    /// via [`Self::resolve`]. Chases only `Tag::Var` links on the arbitrary
+    /// input `ty` (never [`Self::resolve`]/[`Self::resolve_fully`] on it,
+    /// which would re-admit a newtype over `Error` — nominal typing forbids
+    /// inheriting `Error`'s methods).
+    #[must_use]
+    pub fn is_error_struct_receiver(&self, ty: Idx) -> bool {
+        let Some(named) = self.error_struct_idx else {
+            return false;
+        };
+        let chased = self.chase_var_links(ty);
+        chased == named || self.resolve(named) == Some(chased)
+    }
+
     /// Pre-intern all primitive types at their fixed indices.
     #[allow(
         clippy::cast_possible_truncation,

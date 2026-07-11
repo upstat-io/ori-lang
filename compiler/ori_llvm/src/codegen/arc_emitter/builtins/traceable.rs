@@ -10,6 +10,15 @@ use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
+/// The four `Error`-struct Traceable read-accessor methods this file's early
+/// intercept covers — `backend_required: true` in the registry but carrying
+/// no `declare_builtins!`/`BuiltinTable` entry (this intercept IS their
+/// codegen). SSOT for both the dispatch match below and the
+/// `backend_required_methods_in_llvm` parity test, which reads this list
+/// rather than duplicating it.
+pub(crate) const TRACELESS_TRACEABLE_METHODS: &[&str] =
+    &["trace_entries", "trace", "has_trace", "with_trace"];
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit the Traceable read accessors (`trace` / `has_trace` / `trace_entries`,
     /// `with_trace`) on an `Error` struct or a Result/Option delegation receiver,
@@ -17,8 +26,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `None` for any other method/receiver.
     ///
     /// Invoked as an early intercept in `emit_apply` / `emit_invoke` ahead of
-    /// `resolve_callee`: a `backend_required: false` Traceable method otherwise
-    /// resolves to an unbacked `_ori_trace` mono decl with a mismatched ABI.
+    /// `resolve_callee`: these four methods are `backend_required: true` but
+    /// carry no `declare_builtins!`/`BuiltinTable` entry — this intercept IS
+    /// their codegen, run before `resolve_callee` would otherwise produce an
+    /// unbacked `_ori_trace` mono decl with a mismatched ABI.
     pub(in crate::codegen::arc_emitter) fn try_emit_traceless_traceable(
         &mut self,
         callee: Name,
@@ -30,17 +41,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
         let method_name = self.interner.lookup(callee);
-        if !matches!(
-            method_name,
-            "trace_entries" | "trace" | "has_trace" | "with_trace" | "__ori_inject_trace"
-        ) {
+        if method_name != "__ori_inject_trace"
+            && !TRACELESS_TRACEABLE_METHODS.contains(&method_name)
+        {
             return None;
         }
 
         let receiver_ty = arc_func.var_type(args[0]);
-        let is_error_struct = self.pool.error_struct_idx().is_some_and(|e| {
-            receiver_ty == e || self.pool.resolve_fully(receiver_ty) == self.pool.resolve_fully(e)
-        });
+        let is_error_struct = self.pool.is_error_struct_receiver(receiver_ty);
 
         let is_option_or_result = self
             .type_info

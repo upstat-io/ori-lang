@@ -1,4 +1,16 @@
 # Post-run collection helpers for test-all.sh.
+# shellcheck shell=bash
+
+# AOT identity-gate fallback baseline: two-file combined stat fingerprint used
+# by apply_aot_snapshot_verdict()'s "fallback" branch when no per-process stage
+# manifest was published. Manifest path is the AOT gate's other input.
+artifact_identity() {
+    stat -c '%d:%i:%Y:%s' "$CARGO_TARGET_DIR"/debug/ori "$CARGO_TARGET_DIR"/debug/libori_rt.a 2>/dev/null \
+        || stat -f '%d:%i:%m:%z' "$CARGO_TARGET_DIR"/debug/ori "$CARGO_TARGET_DIR"/debug/libori_rt.a 2>/dev/null \
+        || echo "absent"
+}
+
+AOT_STAGE_MANIFEST="build/aot-stage-manifest-debug.txt"
 
 print_leg_timings() {
     if compgen -G "$LEG_TIMING_DIR/*" > /dev/null 2>&1; then
@@ -116,16 +128,21 @@ collect_suite_results() {
     AOT_LEAKS=${AOT_LEAKS:-0}
     if [ "${AOT_INVALID:-0}" = "1" ]; then
         AOT_FAILED=0
+        # shellcheck disable=SC2034 # read by reporting.sh:print_test_summary + json_report.sh:emit_json
         AOT_PASSED=0
+        # shellcheck disable=SC2034 # read by reporting.sh:print_test_summary + json_report.sh:emit_json
         AOT_IGNORED=0
         AOT_EXIT=1
     fi
 
     if grep -q "skipped" "$WASM_OUTPUT" 2>/dev/null; then
+        # shellcheck disable=SC2034 # read by reporting.sh:print_test_summary + json_report.sh:emit_json
         WASM_STATUS="skipped"
     elif [[ $WASM_EXIT -eq 0 ]]; then
+        # shellcheck disable=SC2034 # read by reporting.sh:print_test_summary + json_report.sh:emit_json
         WASM_STATUS="passed"
     else
+        # shellcheck disable=SC2034 # read by reporting.sh:print_test_summary + json_report.sh:emit_json
         WASM_STATUS="FAILED"
     fi
 }

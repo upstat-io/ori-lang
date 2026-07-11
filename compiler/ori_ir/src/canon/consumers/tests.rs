@@ -113,7 +113,7 @@ fn llvm_backend_reads_only_the_resolved_type_pool() {
 
 #[test]
 fn id_only_importers_are_not_meaning_consumers() {
-    for crate_name in ["ori_types", "ori_patterns"] {
+    for crate_name in ["ori_types", "ori_patterns", "ori_repr"] {
         let entry =
             entry_for(crate_name).unwrap_or_else(|| panic!("{crate_name} must be registered"));
         assert_eq!(

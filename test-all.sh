@@ -15,6 +15,8 @@
 # By default, runs tests in parallel for faster execution.
 # Use -s or --sequential for sequential execution.
 # Use -v or --verbose to see all output.
+# Set ORI_TEST_FORCE_FULL=1 to force a full Ori spec-test run (skips the
+# --incremental unchanged-target optimization for the interpreter + LLVM legs).
 
 set -e
 
@@ -64,14 +66,11 @@ for arg in "$@"; do
     esac
 done
 
-# Per-run build isolation. Concurrent runs that share target/ rebuild each
-# other's artifacts mid-suite and mass-fail the AOT leg with bogus failures. A
-# caller can set ORI_TESTALL_BUILD_ID to isolate its target/<build-id>; absent
-# that, runs use "shared". Full-suite verdicts are still serialized globally:
-# running two complete suites at once makes the compiler-state verdict
-# ambiguous and can race shared cargo/cache resources. Lock sentinels live
-# outside target/ so cargo clean / cache cleanup cannot unlink the active lock
-# path and let a second producer acquire a new inode.
+# Per-run build isolation. Concurrent runs sharing target/ rebuild each
+# other's artifacts mid-suite and mass-fail the AOT leg; ORI_TESTALL_BUILD_ID
+# isolates a caller's target/<build-id> (default "shared"). Full-suite
+# verdicts still serialize globally via a lock outside target/, so
+# cargo clean / cache cleanup cannot unlink the active lock's inode.
 TESTALL_BUILD_ID="${ORI_TESTALL_BUILD_ID:-shared}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(pwd)/target/test-all-${TESTALL_BUILD_ID}}"
 TARGET_DIR="$CARGO_TARGET_DIR"
@@ -98,7 +97,7 @@ TARGET_DIR="$CARGO_TARGET_DIR"
 
 # Always log full output to a fixed file (cleared on each run)
 LOG_FILE="test-all.log"
-> "$LOG_FILE"
+: > "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 echo "LOGGING ALL OUTPUT TO $(pwd)/$LOG_FILE"
 echo ""
@@ -108,7 +107,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BOLD='\033[1m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # Temp files for capturing output
 RUST_OUTPUT=$(mktemp)
@@ -138,6 +137,7 @@ PER_NODE_VERDICT="$(dirname "$0")/diagnostics/per_node_verdict.py"
 rm -f "$ORI_INTERP_JSON" "$ORI_LLVM_JSON"
 
 # Cleanup temp files on exit
+# shellcheck disable=SC2317 # invoked via `trap cleanup EXIT`, not a direct call shellcheck can see
 cleanup() {
     rm -f "$RUST_OUTPUT" "$RUST_RT_OUTPUT" "$RUST_LLVM_OUTPUT" "$DOCTEST_OUTPUT" "$AOT_OUTPUT" "$WASM_OUTPUT" "$ORI_INTERP_OUTPUT" "$ORI_LLVM_OUTPUT"
     rm -rf "$LEG_TIMING_DIR"
@@ -187,19 +187,41 @@ else
 fi
 echo ""
 
-# Crate-DAG + canon-consumer registration lint. Bedding-in mode (--warn-only):
-# the unregistered-consumer source-scan is new; surfaces findings without gating
-# the suite. Promote to gating by dropping --warn-only once the source-scan
-# true-positive rate is reliable.
+# Crate-DAG + canon-consumer registration lint (--warn-only): surfaces
+# unregistered-consumer source-scan findings without gating the suite.
 echo "=== Checking crate-DAG + canon-consumer registration ==="
 python3 scripts/crate-dag-lint.py --warn-only
 echo "  [ok] crate-DAG + canon-consumer registration lint (bedding-in --warn-only)"
 echo ""
 
-# Build cache: wrap every cargo build below with sccache only when the wrapper
-# can actually execute rustc. Some environments expose an unusable sccache
-# binary/socket; treating mere presence as readiness turns a cache issue into a
-# false suite failure before any tests run.
+# Harness self-tests (blocking - abort on failure): each pins a specific
+# test-all.sh correctness property (ANSI-summary parsing, build-race
+# classification, prebuild-shape parity, JSON escaping, exit-status
+# semantics, AOT snapshot-integrity gate) that every downstream verdict
+# this run produces depends on, so they gate before any test leg runs.
+echo "=== Running test-all.sh harness self-tests ==="
+HARNESS_SELFTEST_FAILED=0
+HARNESS_SELFTEST_LOG=$(mktemp)
+for _selftest in "$TEST_ALL_DIR"/scripts/tests/*.sh; do
+    [ -f "$_selftest" ] || continue
+    if bash "$_selftest" > "$HARNESS_SELFTEST_LOG" 2>&1; then
+        echo "  [ok] $(basename "$_selftest")"
+    else
+        echo -e "${RED}  [fail] $(basename "$_selftest") FAILED${NC}"
+        cat "$HARNESS_SELFTEST_LOG"
+        HARNESS_SELFTEST_FAILED=1
+    fi
+done
+rm -f "$HARNESS_SELFTEST_LOG"
+if [ "$HARNESS_SELFTEST_FAILED" -eq 1 ]; then
+    echo -e "${RED}  [fail] test-all.sh harness self-tests FAILED (see above)${NC}"
+    exit 1
+fi
+echo ""
+
+# Build cache: wrap this run's cargo builds with sccache only when the
+# wrapper can actually execute rustc — an unusable sccache binary/socket
+# treated as ready would turn a cache issue into a false suite failure.
 if command -v sccache >/dev/null 2>&1; then
     SCCACHE_PREFLIGHT_OUTPUT=$(mktemp)
     if timeout 10 sccache rustc -vV > "$SCCACHE_PREFLIGHT_OUTPUT" 2>&1; then
@@ -219,11 +241,10 @@ else
     echo "=== Build cache: sccache absent - builds proceed unwrapped ==="
 fi
 
-# Fast linker (mold) for this full-suite runner's cargo builds only, scoped to
-# test-all.sh rather than a global .cargo/config.toml so it never changes how
-# unrelated cargo invocations link. Guarded on `command -v mold`: -fuse-ld=mold
-# errors at link if mold is absent (not a silent fallback), so the flag is added
-# only when mold is detected; absent -> default linker.
+# Fast linker (mold), scoped to this run's RUSTFLAGS only (never a global
+# .cargo/config.toml change) and guarded on `command -v mold` — -fuse-ld=mold
+# errors at link time if mold is absent, so the flag is added only when
+# detected; absent -> default linker.
 if command -v mold >/dev/null 2>&1; then
     export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-fuse-ld=mold"
     echo "=== Fast linker: mold active (-fuse-ld=mold) ==="
@@ -231,13 +252,11 @@ else
     echo "=== Fast linker: mold absent - default linker ==="
 fi
 
-# Test runner: route the Rust legs through cargo-nextest (intra-binary
-# process-per-test scheduling) when it is on PATH, else fall back to plain
-# `cargo test` via cargo_race_retry. Guarded on `command -v cargo-nextest`;
-# absent -> NEXTEST_ACTIVE empty -> every leg uses the cargo_race_retry path
-# unchanged. Phase 1 pre-builds the nextest binaries with `--no-run` so the
-# Phase-2 run legs do not recompile (preserving the race-free pre-build/run
-# split); doctests always stay on `cargo test --doc` (nextest cannot run them).
+# Test runner: route the Rust legs through cargo-nextest (process-per-test
+# scheduling) when on PATH, else `cargo test` via cargo_race_retry; absent ->
+# NEXTEST_ACTIVE empty. Phase 1 pre-builds nextest binaries with `--no-run`
+# so Phase-2 legs never recompile; doctests always stay on `cargo test --doc`
+# (nextest cannot run them).
 NEXTEST_ACTIVE=""
 if command -v cargo-nextest >/dev/null 2>&1; then
     NEXTEST_ACTIVE=1
@@ -246,64 +265,52 @@ else
     echo "=== Test runner: cargo-nextest absent - cargo test legs ==="
 fi
 
-# Incremental spec-test skip: pass --incremental to the Ori spec-test runner so
-# it skips targets unchanged since the last run (the runner already supports
-# config.incremental for both the interpreter and LLVM legs). ORI_TEST_FORCE_FULL=1
-# empties the flag to force a full run (every target executes).
-INCREMENTAL_FLAG="--incremental"
-if [ -n "${ORI_TEST_FORCE_FULL:-}" ]; then
-    INCREMENTAL_FLAG=""
-    echo "=== Incremental: ORI_TEST_FORCE_FULL set - full run (no --incremental) ==="
-else
-    echo "=== Incremental: --incremental active (unchanged targets skipped) ==="
-fi
+# Incremental spec-test skip: pass --incremental to the Ori spec-test runner
+# so it skips targets unchanged since the last run; ORI_TEST_FORCE_FULL forces
+# a full run instead.
+compute_incremental_args
 echo ""
 
 if [[ $PARALLEL -eq 1 ]]; then
     echo -e "${BOLD}Running tests in parallel...${NC}"
     echo ""
 
-    # Phase 1: ONE serial pre-build covering every debug artifact the run
-    # phase needs - workspace test binaries (incl. ori_llvm lib/aot/codegen),
-    # the ori bin, and libori_rt.a. A single cargo invocation parallelizes its
-    # own job graph internally (optimal), and serializing it ahead of the run
-    # phase prevents the shared-target/ build-artifact race (`failed to write
-    # ...rmeta: No such file (os error 2)`) that concurrent compiling cargo
-    # invocations trigger. After this phase, every run invocation is pure
-    # test execution (the lone exception is run_rust_doctests - rustdoc
-    # compiles at run time and runs as the single compiler in Phase 2).
+    # Phase 1: serial pre-builds cover every artifact the run phase needs.
+    # Each Phase-2 leg's EXACT cargo selection is warmed first (a mismatched
+    # shape recompiles concurrently into the shared target/, racing the
+    # other legs); after this phase every run invocation is pure test
+    # execution (run_rust_doctests is the lone exception — rustdoc compiles
+    # at run time as Phase 2's sole remaining workspace-crate compiler).
     echo "=== Pre-building all debug test artifacts (serial, race-free) ==="
     _PHASE1_T0=$(date +%s.%N)
-    PRECOMPILE_OUTPUT=$(mktemp)
-    if cargo_race_retry "$PRECOMPILE_OUTPUT" cargo test --no-run -q --workspace --lib --bins --tests; then
-        echo "  [ok] Debug test binaries pre-built"
+    if ! prebuild_leg_shapes; then
+        echo -e "  ${RED}[fail] per-leg test-binary pre-build FAILED (see above)${NC}"
     else
-        echo -e "  ${RED}[fail] Debug test-binary pre-build FAILED${NC}"
-        cat "$PRECOMPILE_OUTPUT"
+        echo "  [ok] Per-leg test binaries pre-built (all leg selection shapes)"
     fi
-    # nextest builds its OWN test harness binaries (distinct from cargo test's),
-    # so when active they must ALSO be pre-built serially here - a Phase-2 plain
-    # `cargo nextest run` would otherwise compile and reintroduce the rmeta race.
-    if [ -n "$NEXTEST_ACTIVE" ]; then
-        if cargo_race_retry "$PRECOMPILE_OUTPUT" cargo nextest run --no-run --workspace --lib --bins --tests; then
-            echo "  [ok] nextest test binaries pre-built"
-        else
-            echo -e "  ${RED}[fail] nextest test-binary pre-build FAILED${NC}"
-            cat "$PRECOMPILE_OUTPUT"
-        fi
-    fi
-    rm -f "$PRECOMPILE_OUTPUT"
 
     # ori bin + libori_rt.a staticlib (cargo test --no-run builds the rlib,
     # not the staticlib; the interpreter suite + AOT links need these).
-    if ! build_with_race_retry cargo build -p oric -p ori_rt -q; then
-        echo -e "  ${RED}[fail] Debug ori/ori_rt build FAILED${NC}"
+    # Single-package shapes matching the AOT harness's own per-process
+    # builds exactly - a joint `-p oric -p ori_rt` selection unifies
+    # features differently, leaving the harness's builds as unwarmed
+    # Phase-2 writers into the shared target/.
+    if ! build_with_race_retry cargo build -p ori_rt -q; then
+        echo -e "  ${RED}[fail] Debug ori_rt build FAILED${NC}"
+    fi
+    if ! build_with_race_retry cargo build -p oric --bin ori -q; then
+        echo -e "  ${RED}[fail] Debug ori build FAILED${NC}"
     fi
 
     # LLVM release build (sequential - shares target/ with the debug build).
     echo "=== Building LLVM release binary ==="
     LLVM_BUILD_OK=1
-    if ! build_with_race_retry cargo build -p oric -p ori_rt --release -q; then
+    if ! build_with_race_retry cargo build -p ori_rt --release -q; then
+        echo -e "  ${RED}[fail] LLVM release ori_rt build FAILED - skipping LLVM spec tests${NC}"
+        LLVM_BUILD_OK=0
+        ORI_LLVM_EXIT=1
+    fi
+    if [[ $LLVM_BUILD_OK -eq 1 ]] && ! build_with_race_retry cargo build -p oric --bin ori --release -q; then
         echo -e "  ${RED}[fail] LLVM release build FAILED - skipping LLVM spec tests${NC}"
         LLVM_BUILD_OK=0
         ORI_LLVM_EXIT=1
@@ -327,11 +334,9 @@ if [[ $PARALLEL -eq 1 ]]; then
     #   root - shares the root but cannot collide with the workspace-crate
     #   artifacts the other legs read/write
     # AOT identity-gate baseline (Go model: pin at start, immune thereafter).
-    # The AOT harness snapshots the compiler binary + staticlib into a
-    # per-process hardlink stage and records the staged source identities in
-    # $AOT_STAGE_MANIFEST; the post-leg gate validates THAT manifest against
-    # this baseline - live target/ churn after staging is harmless. Delete any
-    # stale manifest first: post-leg presence proves THIS run staged.
+    # The harness hardlink-stages the compiler binary + staticlib per-process
+    # into $AOT_STAGE_MANIFEST; the post-leg gate validates that manifest, so
+    # later target/ churn is harmless. Delete any stale manifest first.
     rm -f "$AOT_STAGE_MANIFEST"
     AOT_ARTIFACT_BASELINE=$(artifact_identity)
 
@@ -361,17 +366,17 @@ if [[ $PARALLEL -eq 1 ]]; then
         ORI_LLVM_PID=$!
     fi
 
-    wait $RUST_PID || RUST_EXIT=1
-    wait $DOCTEST_PID || DOCTEST_EXIT=1
-    wait $WASM_PID || WASM_EXIT=1
-    wait $RUST_RT_PID || RUST_RT_EXIT=1
-    wait $RUST_LLVM_PID || RUST_LLVM_EXIT=1
-    wait $AOT_PID || AOT_EXIT=1
+    wait "$RUST_PID" || RUST_EXIT=1
+    wait "$DOCTEST_PID" || DOCTEST_EXIT=1
+    wait "$WASM_PID" || WASM_EXIT=1
+    wait "$RUST_RT_PID" || RUST_RT_EXIT=1
+    wait "$RUST_LLVM_PID" || RUST_LLVM_EXIT=1
+    wait "$AOT_PID" || AOT_EXIT=1
     ORI_INTERP_EXIT=0
-    wait $ORI_INTERP_PID || ORI_INTERP_EXIT=$?
+    wait "$ORI_INTERP_PID" || ORI_INTERP_EXIT=$?
     if [[ $LLVM_BUILD_OK -eq 1 ]]; then
         ORI_LLVM_EXIT=0
-        wait $ORI_LLVM_PID || ORI_LLVM_EXIT=$?
+        wait "$ORI_LLVM_PID" || ORI_LLVM_EXIT=$?
     fi
 
 else
@@ -385,9 +390,17 @@ else
     if ! build_with_race_retry cargo build -p ori_rt -q; then
         echo -e "  ${RED}[fail] Runtime library debug build FAILED${NC}"
     fi
+    if ! build_with_race_retry cargo build -p oric --bin ori -q; then
+        echo -e "  ${RED}[fail] Debug ori build FAILED${NC}"
+    fi
     echo "=== Building LLVM release binary ==="
     LLVM_BUILD_OK=1
-    if ! build_with_race_retry cargo build -p oric -p ori_rt --release -q; then
+    if ! build_with_race_retry cargo build -p ori_rt --release -q; then
+        echo -e "  ${RED}[fail] LLVM release ori_rt build FAILED - skipping LLVM spec tests${NC}"
+        LLVM_BUILD_OK=0
+        ORI_LLVM_EXIT=1
+    fi
+    if [[ $LLVM_BUILD_OK -eq 1 ]] && ! build_with_race_retry cargo build -p oric --bin ori --release -q; then
         echo -e "  ${RED}[fail] LLVM release build FAILED - skipping LLVM spec tests${NC}"
         LLVM_BUILD_OK=0
         ORI_LLVM_EXIT=1
@@ -399,8 +412,8 @@ else
     echo ""
     timed_leg rust_doctests run_rust_doctests || DOCTEST_EXIT=1
     echo ""
-    # AOT identity-gate baseline + stale-manifest delete (see the parallel
-    # block's comment for the Go-model contract).
+    # AOT identity-gate baseline (Go model: pin at start, immune thereafter);
+    # delete any stale manifest first so post-leg presence proves THIS run staged.
     rm -f "$AOT_STAGE_MANIFEST"
     AOT_ARTIFACT_BASELINE=$(artifact_identity)
     timed_leg aot run_aot || AOT_EXIT=1

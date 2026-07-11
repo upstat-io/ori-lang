@@ -498,3 +498,242 @@ fn result_closure_methods_produce_structured_returns() {
         "Result-family method on a Tag::Error receiver falls through to fresh Var"
     );
 }
+
+/// Register the user-facing `Error` struct as a Named type and record it as
+/// the error-struct SSOT, mirroring `register_error_type` (Pass 0a). Returns
+/// `(pool, engine, error_struct_idx)` — callers pin `engine`/`pool` via a
+/// local `let mut` per the borrow shape `InferEngine::new` requires.
+fn setup_error_struct_pool() -> (crate::Pool, crate::Idx) {
+    use crate::Pool;
+
+    let mut pool = Pool::new();
+    let error_name = {
+        let interner = ori_ir::StringInterner::new();
+        let mut engine = crate::InferEngine::new(&mut pool);
+        engine.set_interner(&interner);
+        engine
+            .intern_name("Error")
+            .unwrap_or_else(|| panic!("interner set — Error must intern"))
+    };
+    let error_struct_idx = pool.named(error_name);
+    pool.set_error_struct_idx(error_struct_idx);
+    (pool, error_struct_idx)
+}
+
+/// `Pool::is_error_struct_receiver` MUST chase a `Tag::Var` linked (via
+/// unification) to `error_struct_idx` and accept it — the var-link-chase leg
+/// of the dual-identity guard (fix-consensus refinement #2 + #8).
+///
+/// Drives `Pool::is_error_struct_receiver` DIRECTLY (not thru
+/// `resolve_builtin_method`) — driving this thru `resolve_builtin_method`
+/// would require an internally-inconsistent `(linked_idx, Tag::Named)` pair
+/// no real call site ever produces (the sole production caller always
+/// resolves the var BEFORE deriving `tag` from the post-resolve idx).
+#[test]
+fn is_error_struct_receiver_chases_var_link_to_error_struct_idx() {
+    use crate::Tag;
+
+    let (mut pool, error_struct_idx) = setup_error_struct_pool();
+    let linked_idx = {
+        let mut engine = crate::InferEngine::new(&mut pool);
+        let fresh = engine.fresh_var();
+        engine
+            .unify()
+            .unify(fresh, error_struct_idx)
+            .unwrap_or_else(|e| panic!("unify(fresh_var, error_struct_idx) must succeed: {e:?}"));
+        fresh
+    };
+    assert_eq!(
+        pool.tag(linked_idx),
+        Tag::Var,
+        "linked_idx must still be a Tag::Var wrapper (VarState::Link) before chasing"
+    );
+    assert!(
+        pool.is_error_struct_receiver(linked_idx),
+        "is_error_struct_receiver must chase the Tag::Var link to error_struct_idx and accept it"
+    );
+}
+
+/// A newtype over `Error` (`type MyError = Error`) MUST NOT be hijacked into
+/// `ERROR_METHODS` — `trace_entries()` on the newtype's OWN distinct `Named`
+/// idx must fall through to `resolve_named_type_method` unchanged (returns
+/// `None`, exactly as pre-fix), preserving newtype nominal typing: a newtype
+/// inherits zero trait/method behavior from its underlying type.
+///
+/// Registers the newtype via `Pool::set_resolution` — the SAME mechanism
+/// `check/registration/user_types.rs` uses for `type N = Existing` — so this
+/// pin clamps the guard against the REAL newtype-registration shape, not a
+/// synthetic approximation.
+#[test]
+fn trace_entries_on_newtype_over_error_is_not_hijacked() {
+    use super::resolve_builtin_method;
+    use crate::Tag;
+
+    let (mut pool, error_struct_idx) = setup_error_struct_pool();
+    let myerror_name = {
+        let interner = ori_ir::StringInterner::new();
+        let mut engine = crate::InferEngine::new(&mut pool);
+        engine.set_interner(&interner);
+        engine
+            .intern_name("MyError")
+            .unwrap_or_else(|| panic!("interner set — MyError must intern"))
+    };
+    let myerror_idx = pool.named(myerror_name);
+    pool.set_resolution(myerror_idx, error_struct_idx);
+    assert!(
+        !pool.is_error_struct_receiver(myerror_idx),
+        "a newtype's own distinct Named idx must NOT match is_error_struct_receiver \
+         (chase_var_links never crosses the resolutions map)"
+    );
+
+    let interner = ori_ir::StringInterner::new();
+    let mut engine = crate::InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let ret = resolve_builtin_method(&mut engine, myerror_idx, Tag::Named, "trace_entries");
+    assert_eq!(
+        ret, None,
+        "trace_entries() on a newtype-over-Error receiver must resolve via \
+         resolve_named_type_method unchanged (None for the unknown method), \
+         NOT via ERROR_METHODS — the newtype inherits zero Error methods"
+    );
+}
+
+/// A different `Tag::Named` struct (NOT the registered error struct) calling
+/// `trace_entries` (a method NOT in its own behavior table) MUST resolve via
+/// `resolve_named_type_method` unchanged (`None`), exactly as pre-fix — the
+/// guard specificity clamp proving the new registry route stays Error-only
+/// and does not hijack every `Tag::Named` receiver.
+#[test]
+fn trace_entries_on_non_error_named_struct_is_not_hijacked() {
+    use super::resolve_builtin_method;
+    use crate::{Pool, Tag};
+
+    let mut pool = Pool::new();
+    let point_name = {
+        let interner = ori_ir::StringInterner::new();
+        let mut engine = crate::InferEngine::new(&mut pool);
+        engine.set_interner(&interner);
+        engine
+            .intern_name("Point")
+            .unwrap_or_else(|| panic!("interner set — Point must intern"))
+    };
+    let point_idx = pool.named(point_name);
+    // NOTE: no set_error_struct_idx call — Point is a plain user struct.
+
+    let interner = ori_ir::StringInterner::new();
+    let mut engine = crate::InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+    let ret = resolve_builtin_method(&mut engine, point_idx, Tag::Named, "trace_entries");
+    assert_eq!(
+        ret, None,
+        "trace_entries() on a non-Error Named struct must resolve via \
+         resolve_named_type_method unchanged (None) — the guard is gated on \
+         is_error_struct_receiver, not on bare Tag::Named"
+    );
+}
+
+/// `message` (method-CALL syntax `e.message()`, a `MethodCall` AST node —
+/// DISTINCT from field access `e.message`, which routes via `infer_field` and
+/// never reaches `resolve_builtin_method`) on the Named error-struct receiver
+/// MUST STAY poisoned to `None` on BOTH sides of this fix: `message`'s
+/// registry entry carries `backend_required: false` (no codegen accessor
+/// exists), so the allow-list — derived dynamically from that SAME field —
+/// correctly excludes it. Clamps the allow-list boundary; the poison itself
+/// is a genuinely separate, orthogonal gap tracked as BUG-02-093.
+#[test]
+fn message_call_on_named_error_struct_stays_poisoned() {
+    use super::resolve_builtin_method;
+    use crate::Tag;
+
+    let (mut pool, error_struct_idx) = setup_error_struct_pool();
+    let interner = ori_ir::StringInterner::new();
+    let mut engine = crate::InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+
+    let method_def = ori_registry::find_method(ori_registry::TypeTag::Error, "message")
+        .unwrap_or_else(|| panic!("Error.message must exist in the registry"));
+    assert!(
+        !method_def.backend_required,
+        "Error.message must stay backend_required: false (no codegen accessor) \
+         for this pin's allow-list-exclusion claim to hold"
+    );
+
+    let ret = resolve_builtin_method(&mut engine, error_struct_idx, Tag::Named, "message");
+    assert_eq!(
+        ret, None,
+        "message()-CALL on a Named error-struct receiver must stay poisoned \
+         (None) — backend_required: false excludes it from the allow-list, \
+         identical to pre-fix"
+    );
+}
+
+/// `Error.trace()` on the Named error-struct receiver MUST resolve to `str`
+/// (`Idx::STR`), NOT `Idx::ERROR` — the non-scalar (fat-pointer) Traceable
+/// accessor sibling of `trace_entries`, at genuine risk of the SAME poison
+/// class this bug's root cause produces.
+#[test]
+fn trace_on_named_error_struct_resolves_to_str() {
+    use super::resolve_builtin_method;
+    use crate::{Idx, Tag};
+
+    let (mut pool, error_struct_idx) = setup_error_struct_pool();
+    let interner = ori_ir::StringInterner::new();
+    let mut engine = crate::InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+
+    let ret = resolve_builtin_method(&mut engine, error_struct_idx, Tag::Named, "trace")
+        .unwrap_or_else(|| panic!("Error.trace() on a Named error-struct receiver must resolve"));
+    assert_eq!(
+        ret,
+        Idx::STR,
+        "Error.trace() must resolve to str (Idx::STR), not Idx::ERROR"
+    );
+}
+
+/// `Error.with_trace(entry)` on the Named error-struct receiver MUST resolve
+/// to `Self` (the error-struct `Idx`), NOT `Idx::ERROR`.
+#[test]
+fn with_trace_on_named_error_struct_resolves_to_self() {
+    use super::resolve_builtin_method;
+    use crate::Tag;
+
+    let (mut pool, error_struct_idx) = setup_error_struct_pool();
+    let interner = ori_ir::StringInterner::new();
+    let mut engine = crate::InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+
+    let ret = resolve_builtin_method(&mut engine, error_struct_idx, Tag::Named, "with_trace")
+        .unwrap_or_else(|| {
+            panic!("Error.with_trace() on a Named error-struct receiver must resolve")
+        });
+    assert_eq!(
+        ret, error_struct_idx,
+        "Error.with_trace() must resolve to Self (the error-struct Idx), not Idx::ERROR"
+    );
+}
+
+/// `Error.clone()` on the Named error-struct receiver MUST resolve to `Self`
+/// (the error-struct `Idx`) — registry-first routing gives `clone` correct
+/// resolution for the FIRST time (pre-fix it poisons to `Idx::ERROR`
+/// identically to `trace_entries`, since `resolve_named_type_method` handles
+/// only `unwrap`/`inner`/`value`/`to_str`/`debug` and `register_error_type`
+/// registers no derive/impl for `clone`). Positive+negative pairing: this
+/// pin's pre-fix RED state (asserted here as the POST-fix GREEN) documents
+/// the corrected divergence (broken -> correct), not a regression.
+#[test]
+fn clone_on_named_error_struct_resolves_to_self() {
+    use super::resolve_builtin_method;
+    use crate::Tag;
+
+    let (mut pool, error_struct_idx) = setup_error_struct_pool();
+    let interner = ori_ir::StringInterner::new();
+    let mut engine = crate::InferEngine::new(&mut pool);
+    engine.set_interner(&interner);
+
+    let ret = resolve_builtin_method(&mut engine, error_struct_idx, Tag::Named, "clone")
+        .unwrap_or_else(|| panic!("Error.clone() on a Named error-struct receiver must resolve"));
+    assert_eq!(
+        ret, error_struct_idx,
+        "Error.clone() must resolve to Self (the error-struct Idx), not Idx::ERROR"
+    );
+}
