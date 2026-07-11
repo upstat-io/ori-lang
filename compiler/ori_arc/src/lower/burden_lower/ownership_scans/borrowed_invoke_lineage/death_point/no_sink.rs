@@ -27,7 +27,7 @@ pub(super) fn choose_no_sink_death(
     // grow the closure to include `Project` results (a buffer element / niche
     // payload extracted from a member is a DISTINCT allocation the result-lineage
     // owns). Such a same-alloc view extracted from a member can be LIVE across the
-    // carrier's successor edge where the Cat-2 release fires — a no-sink edge
+    // carrier's successor edge where the per-edge release fires — a no-sink edge
     // release would then double-free the buffer the extract still holds. DECLINE
     // no-sink (dead-param mode only); a DECLINE, never a same_alloc closure union.
     // Spec: Annex E §AIMS RL-2.
@@ -65,7 +65,7 @@ fn carrier_block_of(
 
 /// NO-SINK MODE: the lineage has no dead-param sink (the receiver
 /// dies on the borrowed-`Invoke` carrier's successor edges directly). Returns
-/// the carrier var to CLAIM for the landed Category-2 `deadAtSucc` per-edge
+/// the carrier var to CLAIM for the class-ledger placement `deadAtSucc` per-edge
 /// release.
 ///
 /// # Carrier selection
@@ -81,11 +81,11 @@ fn carrier_block_of(
 ///
 ///  - no member is a borrowed may-unwind `Invoke` arg (no carrier),
 ///  - more than one borrowed-`Invoke` carrier block is execution-final (a fork
-///    the single per-class Cat-2 release cannot disambiguate — conservatively
+///    the single per-class per-edge release cannot disambiguate — conservatively
 ///    declined to avoid an under/over-release on a phi-merged shape),
 ///  - a member is read AFTER the chosen carrier on some path without itself
 ///    being a later borrowed-`Invoke` carrier (a non-carrier live-across use
-///    Cat-2's `deadAtSucc` would phantom-suppress → leak; decline conservatively).
+///    the per-edge `deadAtSucc` release would phantom-suppress → leak; decline conservatively).
 pub(in crate::lower::burden_lower::ownership_scans::borrowed_invoke_lineage) fn choose_no_sink_carrier(
     func: &ArcFunction,
     members: &FxHashSet<ArcVarId>,
@@ -113,7 +113,7 @@ pub(in crate::lower::burden_lower::ownership_scans::borrowed_invoke_lineage) fn 
         else {
             continue;
         };
-        // May-unwind requires a genuine edge split (the Cat-2 per-edge release
+        // May-unwind requires a genuine edge split (the per-edge release
         // fires on the dying normal + unwind edges). A self-loop normal==unwind
         // is not a may-unwind carrier.
         if normal == unwind {
@@ -177,7 +177,7 @@ pub(in crate::lower::burden_lower::ownership_scans::borrowed_invoke_lineage) fn 
         if is_final {
             if final_carrier.is_some() {
                 // Two execution-final carriers — a fork the single per-class
-                // Cat-2 release cannot disambiguate. Decline conservatively.
+                // per-edge release cannot disambiguate. Decline conservatively.
                 return None;
             }
             final_carrier = Some((carrier_block, carrier_var));

@@ -82,7 +82,6 @@ fn absent_param() -> ParamContract {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
-        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
@@ -940,21 +939,14 @@ fn class_ledger_replaces_clean_function_with_lowered_plan() {
     );
 }
 
-/// A declined class on the DEFAULT (coexistence) path: the function falls
-/// back to the legacy walk per-function; the legacy path marks
-/// `burden_emitted`. On the BURDEN-SOLE path the same decline is an ICE
-/// (the fail-loud migration gate) — pinned end-to-end by the gated aot
-/// corpus, whose every compile runs the assert.
+/// A declined class is FAIL-LOUD on every path: the class-ledger plan is
+/// the sole RC emitter (the legacy repair passes are deleted; no fallback
+/// emitter exists), so a decline is an ICE naming the function + gate.
 #[test]
-fn class_ledger_declined_function_falls_back_on_default_path() {
+#[should_panic(expected = "class-ledger replacement declined")]
+fn class_ledger_declined_function_fails_loud() {
     let mut func = class_ledger_declined_fixture();
     run_pipeline(&mut func);
-
-    assert!(!func.class_ledger_emission, "declined class must fall back");
-    assert!(
-        func.burden_emitted.iter().any(|marked| *marked),
-        "the legacy fallback marks burden_emitted"
-    );
 }
 
 /// Double-emission guard: the replaced output carries the plan's single

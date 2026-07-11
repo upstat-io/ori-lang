@@ -35,18 +35,18 @@ pub(super) enum DeathPoint {
     },
     /// NO-SINK MODE: the lineage has NO dead-param sink — the receiver dies on
     /// the borrowed-`Invoke` carrier's successor edges directly. The per-edge
-    /// release is handed to the landed Category-2 `deadAtSucc` machinery; the
-    /// carrier var is claimed (`burden_emitted` set) so Cat-2's paired
+    /// release is handed to the class-ledger per-edge `deadAtSucc` placement; the
+    /// carrier var is claimed (`burden_emitted` set) so the ledger's paired
     /// `BurdenDec` is admitted. `claim` is the closure member that is the
     /// borrowed-`Invoke` terminator arg (the carrier whose per-edge release
-    /// Cat-2 emits).
+    /// the ledger emits).
     NoSink { claim: ArcVarId },
     /// CARRIER-SUCC MODE (builtin-result roots only): the lineage's
     /// execution-final read is a borrowed may-unwind `Invoke` arg (the
     /// carrier); the sole release lands at the consuming `Invoke`'s
     /// NORMAL-successor entry, after the borrowed read completes
     /// (`RL2_borrowed_param_emits_caller_dec`). Dying unwind edges stay with
-    /// the Category-2 `deadAtSucc` conjunct, as in dead-param mode. `dec_var`
+    /// the class-ledger per-edge `deadAtSucc` placement, as in dead-param mode. `dec_var`
     /// is the carrier var (defined at the carrier block, in scope at its
     /// single-predecessor normal successor). Spec: Annex E §AIMS RL-2 + RL-4.
     CarrierSucc {
@@ -60,8 +60,8 @@ pub(super) enum DeathPoint {
     /// release lands at that block's entry (`dec_var` = the root; its definer
     /// dominates the exit). Without this mode the per-iteration alias release
     /// frees the buffer on iteration 1 — a use-after-free on every later
-    /// iteration. Dying unwind edges stay owned by the Category-2
-    /// `deadAtSucc` conjunct, as in dead-param mode. Spec: Annex E §AIMS RL-2 + RL-4.
+    /// iteration. Dying unwind edges stay owned by the class-ledger
+    /// per-edge `deadAtSucc` placement, as in dead-param mode. Spec: Annex E §AIMS RL-2 + RL-4.
     LoopExit {
         site_block: usize,
         site_pos: ForwarderReleasePos,

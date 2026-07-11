@@ -900,9 +900,7 @@ pub(super) fn find_return_flow_params(
 /// burden-path transitive-drop alias machinery (`intraprocedural/apply_aliases.rs`
 /// aliasing-params filter + `post_convergence.rs::materialize_transitive_drop_singleton_classes`)
 /// consumes to admit the param's caller-side transitive-drop containment even
-/// when its access is `Borrowed`, and `ParamContract::return_payload_contains_param_all_paths`
-/// (the `all_paths` set), which the Phase-6.99 WRAPPED transfer-anchor
-/// admission consumes as the per-path wrap proof.
+/// when its access is `Borrowed`.
 pub(super) fn find_payload_containment_params(
     func: &ArcFunction,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
@@ -920,10 +918,6 @@ pub(super) fn find_payload_containment_params(
     }
     let def_map = build_definition_map(func);
     let mut containment: FxHashSet<usize> = FxHashSet::default();
-    // Per-return EnumVariant-Construct containment sets; intersected into
-    // `all_paths` below. A return that does NOT trace to an EnumVariant
-    // `Construct` contributes the empty set (no wrap on that path).
-    let mut per_return_variant_sets: Vec<FxHashSet<usize>> = Vec::new();
     for &ret_var in &return_values {
         // Trace through Let { Var } aliases to find the defining
         // Construct/PartialApply (if any).
@@ -968,12 +962,10 @@ pub(super) fn find_payload_containment_params(
                     if !is_variant {
                         break;
                     }
-                    let mut this_return: FxHashSet<usize> = FxHashSet::default();
                     for arg in args {
                         if let Some(param_indices) = alias_to_param.get(arg) {
                             for &idx in param_indices {
                                 containment.insert(idx);
-                                this_return.insert(idx);
                                 tracing::debug!(
                                     func = ?func.name,
                                     arg = arg.raw(),
@@ -983,15 +975,12 @@ pub(super) fn find_payload_containment_params(
                             }
                         }
                     }
-                    per_return_variant_sets.push(this_return);
                     break;
                 }
                 ArcInstr::PartialApply { args, .. } => {
                     // PartialApply produces a closure environment, which
                     // is a transitive-drop container per CtorKind::Closure
                     // semantics in the realize-side strategy assignment.
-                    // Contributes to `any` ONLY — a closure capture is not
-                    // an all-paths variant wrap.
                     for arg in args {
                         if let Some(param_indices) = alias_to_param.get(arg) {
                             for &idx in param_indices {
@@ -1005,30 +994,13 @@ pub(super) fn find_payload_containment_params(
             }
         }
     }
-    // All-paths wrap proof: a param is in `all_paths` iff EVERY return value
-    // traced to an EnumVariant Construct directly containing it. A return
-    // that traced elsewhere (param alias, Project, PartialApply, call
-    // result) pushed no set, so the count mismatch below empties the proof.
-    let all_paths = if per_return_variant_sets.len() == return_values.len() {
-        let mut iter = per_return_variant_sets.into_iter();
-        let first = iter.next().unwrap_or_default();
-        iter.fold(first, |acc, s| acc.intersection(&s).copied().collect())
-    } else {
-        FxHashSet::default()
-    };
-    PayloadContainment {
-        any: containment,
-        all_paths,
-    }
+    PayloadContainment { any: containment }
 }
 
 /// Payload-containment facts per [`find_payload_containment_params`]:
 /// `any` = contained on SOME return path (OR semantics — feeds
-/// `return_payload_contains_param`); `all_paths` = contained in an
-/// EnumVariant-Construct payload on EVERY return path (AND semantics —
-/// feeds `return_payload_contains_param_all_paths`).
+/// `return_payload_contains_param`).
 #[derive(Default)]
 pub(super) struct PayloadContainment {
     pub(super) any: FxHashSet<usize>,
-    pub(super) all_paths: FxHashSet<usize>,
 }

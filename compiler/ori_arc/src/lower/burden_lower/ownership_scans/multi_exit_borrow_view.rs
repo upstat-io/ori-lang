@@ -329,7 +329,7 @@ fn place_per_path_releases(
 /// (the read is over once control reaches the normal successor); the dec
 /// targets the root (it dominates every successor). The terminator read's
 /// UNWIND edge is owned by the RL-4 live-out → dead-in edge logic + the
-/// downstream Category-2 `deadAtSucc` conjunct — disjoint edges, no double
+/// downstream class-ledger per-edge `deadAtSucc` placement — disjoint edges, no double
 /// release. Spec: Annex E §AIMS RL-2 + RL-4.
 pub(super) fn place_per_path_releases_with(
     func: &ArcFunction,

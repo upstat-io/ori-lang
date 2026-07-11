@@ -735,8 +735,8 @@ pub(crate) fn populate_context_events(
 // INVARIANT: every transitive-drop payload edge (Construct/PartialApply/
 // Apply/Set/Invoke arg → dst) materializes a singleton `class_members` entry
 // for both endpoints so the `class_members(class_id)` lookups in
-// `realize/cleanup_redundant.rs` + `emit_rc/edge_cleanup/{branch,invoke}.rs`
-// succeed for singleton classes (AIMS Invariant #5, unified model).
+// `realize/cleanup_redundant.rs` succeed for singleton classes (AIMS
+// Invariant #5, unified model).
 
 /// Materialize a singleton `class_members` entry for both endpoints of a
 /// transitive-drop payload edge.
@@ -783,8 +783,8 @@ fn dst_strategy_of(func: &ArcFunction, dst: ArcVarId) -> Option<RcStrategy> {
 /// using the same Path-c edge-eligibility as the union-find pass. For each
 /// eligible edge, materializes a singleton `class_members` entry for both the
 /// arg and dst classes so the `class_members(class_id)` consumers in the
-/// realize walks (`cleanup_redundant.rs`, `emit_rc/edge_cleanup/`) succeed for
-/// singleton parents/children. Records no inter-class relation — singleton
+/// realize walk (`cleanup_redundant.rs`) succeed for singleton
+/// parents/children. Records no inter-class relation — singleton
 /// `class_members` entries only, no predicate-stack edge map.
 #[expect(
     clippy::too_many_lines,

@@ -25,7 +25,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKi
 ///    (`base.substring(..).split(..)` — every part is a seamless slice co-owning
 ///    the base buffer) then dead at the normal-exit `Return` is the SAME
 ///    receiver-lineage shape as a collection `Construct`: the base walk places
-///    the whole-var release on the dying unwind edges (Cat-2 `deadAtSucc`) but
+///    the whole-var release on the dying unwind edges (the per-edge `deadAtSucc` release) but
 ///    NOT on the normal `Return`, leaking the base allocation on the normal path
 ///    (`RL2_release_exactly_once`: every concrete path nets to 0; the normal
 ///    path nets +1). The same death-point treatment + same-alloc vetting +

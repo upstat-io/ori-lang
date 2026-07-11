@@ -2164,12 +2164,12 @@ fn augment_own_contract_declines_when_own_name_called_in_body() {
     );
 }
 
-// Payload-containment all-paths proof (find_payload_containment_params)
+// Payload containment (find_payload_containment_params)
 
 /// `@wrap_ok (m: T) -> Result<T, E> = Ok(m)` — the single return wraps the
-/// param, so BOTH the OR containment bit and the all-paths proof publish.
+/// param, so the containment bit publishes.
 #[test]
-fn extract_contract_single_return_wrap_proves_all_paths_containment() {
+fn extract_contract_single_return_wrap_publishes_containment() {
     let func = ArcFunction {
         name: name(30),
         params: vec![ArcParam {
@@ -2211,18 +2211,12 @@ fn extract_contract_single_return_wrap_proves_all_paths_containment() {
 
     let p = &contract.params[0];
     assert!(p.return_payload_contains_param, "wrapped on some path");
-    assert!(
-        p.return_payload_contains_param_all_paths,
-        "single return wrapping the param proves the per-path wrap"
-    );
 }
 
 /// `@maybe_wrap (m: T) -> Result<T, E> = if c then Ok(m) else Err(0)` — the
-/// OR containment bit publishes but the all-paths proof must NOT (the
-/// non-wrapping return path makes the wrapper's payload credit
-/// path-dependent).
+/// OR containment bit publishes even when only one return path wraps.
 #[test]
-fn extract_contract_branchy_wrap_keeps_all_paths_conservative() {
+fn extract_contract_branchy_wrap_publishes_containment() {
     let func = ArcFunction {
         name: name(31),
         params: vec![ArcParam {
@@ -2294,10 +2288,6 @@ fn extract_contract_branchy_wrap_keeps_all_paths_conservative() {
 
     let p = &contract.params[0];
     assert!(p.return_payload_contains_param, "wrapped on SOME path");
-    assert!(
-        !p.return_payload_contains_param_all_paths,
-        "a non-wrapping return path keeps the per-path proof conservative"
-    );
 }
 
 #[test]

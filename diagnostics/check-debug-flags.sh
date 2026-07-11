@@ -118,11 +118,13 @@ for flag in "${DEFINED_FLAGS[@]}"; do
     done
     if [[ $skip -eq 1 ]]; then continue; fi
 
-    # Search for usage in compiler/ (excluding debug_flags.rs itself and plans/)
+    # Search for usage in compiler/ (excluding debug_flags.rs itself and plans/).
+    # A zero-match grep exits 1; under pipefail + set -e the || true keeps a
+    # stale flag reportable instead of killing the script at its first hit.
     usage_count=$(grep -r --include='*.rs' "$flag" "$ROOT_DIR/compiler/" \
         | grep -v "debug_flags.rs" \
         | grep -v "/target/" \
-        | wc -l)
+        | wc -l || true)
 
     if [[ "$usage_count" -eq 0 ]]; then
         printf "  ${C_RED}STALE${C_NC}: %s — defined but never referenced\n" "$flag"
@@ -140,7 +142,7 @@ printf "\n${C_BOLD}2. Runtime flags (used in ori_rt):${C_NC}\n"
 for flag in "${RUNTIME_FLAGS[@]}"; do
     usage_count=$(grep -r --include='*.rs' "$flag" "$ROOT_DIR/compiler/ori_rt/src/" \
         | grep -v "/target/" \
-        | wc -l)
+        | wc -l || true)
 
     if [[ "$usage_count" -eq 0 ]]; then
         printf "  ${C_RED}STALE${C_NC}: %s — defined as runtime flag but not used in ori_rt\n" "$flag"

@@ -208,7 +208,7 @@ fn collect_roots_declines_scalar_payload_enum_variant() {
 
 /// An `EnumVariant` root borrowed into a may-unwind Invoke dying on the call edges
 /// with no dead-param sink is admitted in NO-SINK mode and the carrier is claimed
-/// for the Cat-2 per-edge release.
+/// for the per-edge release.
 #[test]
 fn enum_variant_root_no_sink_admitted_and_claimed() {
     // bb0: %0 = Construct EnumVariant(..) ; %1 = %0 ;
@@ -252,11 +252,11 @@ fn enum_variant_root_no_sink_admitted_and_claimed() {
     assert_eq!(
         out.claimed_no_sink_vars.iter().copied().collect::<Vec<_>>(),
         vec![vv(1)],
-        "EXACTLY the carrier %1 is claimed for the Cat-2 per-edge release",
+        "EXACTLY the carrier %1 is claimed for the per-edge release",
     );
     assert!(
         out.releases.is_empty(),
-        "no dead-param release is placed — Cat-2 owns the per-edge release",
+        "no dead-param release is placed — the ledger owns the per-edge release",
     );
 }
 
@@ -712,7 +712,7 @@ fn no_sink_minimal_func() -> ArcFunction {
 fn no_sink_minimal_classified_as_edge_death() {
     // `choose_no_sink_carrier` finds the borrowed-Invoke carrier `%1` (the
     // member at a borrowed Invoke arg, may-unwind, execution-final). The lineage
-    // enters NO-SINK mode and the carrier is claimed for Category-2.
+    // enters NO-SINK mode and the carrier is claimed for the per-edge release.
     let f = no_sink_minimal_func();
     let members = vet_or_panic(&f, vv(0));
     assert_eq!(
@@ -725,8 +725,8 @@ fn no_sink_minimal_classified_as_edge_death() {
 #[test]
 fn no_sink_lineage_suppresses_and_claims_carrier() {
     // End-to-end: the no-sink minimal closure is suppressed (no inline dec /
-    // dup inc) AND the carrier `%1` is claimed for the Cat-2 per-edge release.
-    // No dead-param `releases` are placed (Cat-2 owns the per-edge dec).
+    // dup inc) AND the carrier `%1` is claimed for the per-edge release.
+    // No dead-param `releases` are placed (the ledger owns the per-edge dec).
     let f = no_sink_minimal_func();
     let mut owned: FxHashSet<ArcVarId> = FxHashSet::default();
     owned.insert(vv(0));
@@ -748,12 +748,12 @@ fn no_sink_lineage_suppresses_and_claims_carrier() {
     );
     assert!(
         out.releases.is_empty(),
-        "no dead-param release is placed — Cat-2 owns the per-edge release",
+        "no dead-param release is placed — the ledger owns the per-edge release",
     );
     assert_eq!(
         out.claimed_no_sink_vars.iter().copied().collect::<Vec<_>>(),
         vec![vv(1)],
-        "EXACTLY the carrier %1 is claimed for the Cat-2 deadAtSucc per-edge release",
+        "EXACTLY the carrier %1 is claimed for the deadAtSucc per-edge release",
     );
 }
 

@@ -415,7 +415,7 @@ fn dead_param_single_feeding_rep_fractures_across_loop_back_edge() {
 fn sole_carrier_borrowed_invoke_alias_claimed() {
     // bb0: %0 = Invoke @callee() normal bb1; bb1: %2 = %0;
     // Invoke @wrap(%2 [borrow]) — the alias carries the lineage's only
-    // release; it must be claimed for the Cat-2 edge release, never an
+    // release; it must be claimed for the per-edge release, never an
     // inline pre-call dec.
     let func = func_of(
         vec![

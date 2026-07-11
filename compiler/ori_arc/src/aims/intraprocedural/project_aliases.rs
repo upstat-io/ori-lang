@@ -474,7 +474,7 @@ fn merge_sources(
 /// correct for the backward analysis (keeps parent aggregates alive on each
 /// predecessor's path) but the emission side must filter: variables that
 /// exist only on one predecessor path must NOT get block-level `RcDec` at the
-/// merge point. See `emit_dead_at_entry_decs` and `collect_branch_edge_decs`.
+/// merge point.
 pub(super) fn propagate_project_source_demand(
     current: &mut FxHashMap<ArcVarId, AimsState>,
     state_map: &AimsStateMap,

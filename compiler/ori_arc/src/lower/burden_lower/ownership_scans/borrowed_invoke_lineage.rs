@@ -47,14 +47,14 @@ struct Candidate {
 /// Result of [`compute_borrowed_invoke_collection_lineage`]: the same-alloc
 /// closure to suppress (the inline borrowed-`Invoke` dec + lineage-wide
 /// duplication incs) + the single placed release at the lineage's death point
-/// (dead-param mode) OR the claim that hands the per-edge release to the landed
-/// Category-2 `deadAtSucc` machinery (no-sink mode).
+/// (dead-param mode) OR the claim that hands the per-edge release to the
+/// class-ledger per-edge placement (no-sink mode).
 pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
     /// Every var in an admitted fresh-collection borrowed-`Invoke` closure.
     /// Removed from `owned_vars_needing_rc` so the walk emits NO inline
     /// terminator dec (the use-after-free) AND no lineage-wide duplication inc
     /// (the multi-borrow `%5 = %2` dup-alias inc); the sole release is the
-    /// placed dec below (dead-param mode) or the per-edge Category-2 dec
+    /// placed dec below (dead-param mode) or the ledger-placed per-edge dec
     /// (no-sink mode).
     pub suppressed_lineage_vars: FxHashSet<ArcVarId>,
     /// `(block_idx, pos) -> [dec var]` — DEAD-PARAM MODE ONLY: exactly ONE
@@ -64,22 +64,20 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
     /// lineage). Merged into the `forwarder_result_releases` emission surface
     /// (identical `ForwarderReleasePos` placement contract). The unwind /
     /// unreachable per-edge releases on the dying paths are owned by the
-    /// Surface-1 Category-2 `collect_invoke_edge_decs` `deadAtSucc` conjunct
-    /// (`edge_cleanup.rs`) — disjoint edges, no double-release.
+    /// class-ledger per-edge placement — disjoint edges, no double-release.
     pub releases: FxHashMap<(usize, ForwarderReleasePos), Vec<ArcVarId>>,
     /// NO-SINK MODE: the receiver var (the borrowed-`Invoke` carrier) of an
-    /// admitted no-dead-param closure, CLAIMED for the landed Category-2 per-edge
-    /// `deadAtSucc` emission. The inline-before-terminator dec is suppressed
-    /// (via `suppressed_lineage_vars`); the per-edge release lands on each dying
-    /// successor edge of the carrier's `Invoke` (normal + unwind). Cat-2's
-    /// `release_with_burden_edge` gates its paired `BurdenDec` on
-    /// `carries_burden` (`func.burden_emitted[var]`), so the claim sets that bit
-    /// — without it the suppressed var carries no burden ops and Cat-2 filters
-    /// out the burden dec, leaving the lowered path's per-value ledger unbalanced.
-    /// A live-across receiver (read past the carrier) takes its release at the
-    /// LAST borrowed-`Invoke` in its lineage — Cat-2's per-edge `deadAtSucc`
-    /// fires only where the carrier is genuinely dead at the successor, so the
-    /// post-call last read is the natural death point with no separate placement.
+    /// admitted no-dead-param closure, CLAIMED for the per-edge release. The
+    /// inline-before-terminator dec is suppressed (via
+    /// `suppressed_lineage_vars`); the per-edge release lands on each dying
+    /// successor edge of the carrier's `Invoke` (normal + unwind). The claim
+    /// sets `func.burden_emitted[var]` — without it the suppressed var carries
+    /// no burden ops and the class-ledger placement drops the paired
+    /// `BurdenDec`, leaving the per-value ledger unbalanced. A live-across
+    /// receiver (read past the carrier) takes its release at the LAST
+    /// borrowed-`Invoke` in its lineage — the per-edge release fires only
+    /// where the carrier is genuinely dead at the successor, so the post-call
+    /// last read is the natural death point with no separate placement.
     pub claimed_no_sink_vars: FxHashSet<ArcVarId>,
 }
 
@@ -97,7 +95,7 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
 /// (suppressing the dup-alias incs + inline terminator dec) and emits EXACTLY
 /// ONE whole-var `BurdenDec` after the closure's execution-final borrow-read
 /// (`RL2_release_exactly_once`); dying unwind / unreachable edges are released
-/// by the Category-2 `deadAtSucc` conjunct (`edge_cleanup.rs`) — disjoint.
+/// by the class-ledger per-edge placement — disjoint.
 ///
 /// # Admission gates
 ///
@@ -125,14 +123,14 @@ pub(in crate::lower::burden_lower) struct BorrowedInvokeCollectionLineage {
 ///      - DEAD-PARAM MODE: the closure reaches EXACTLY ONE dead merge
 ///        block-param, forward-reachable from every member-borrow-read block, so
 ///        the placed dec lands after the closure's final borrow-read on every
-///        normal exit; unwind / unreachable paths are owned by Surface 1.
+///        normal exit; unwind / unreachable paths are owned by the class-ledger per-edge placement.
 ///      - NO-SINK MODE: the closure has NO dead-param sink — the
 ///        receiver dies on the borrowed-`Invoke` carrier's successor edges
 ///        directly (the `is_ref(a: [7,8])` minimal — the base walk's inline
 ///        `BurdenDec` before the borrowing terminator nets the fresh inc to zero
 ///        pre-call, leaking the rc=1 allocation on every executing path). The
-///        per-edge release is handed to the Category-2 `deadAtSucc` machinery
-///        (`edge_cleanup.rs`); the carrier var is CLAIMED so Cat-2's paired
+///        per-edge release is handed to the class-ledger per-edge
+///        `deadAtSucc` placement; the carrier var is CLAIMED so the ledger's paired
 ///        `BurdenDec` is admitted. Requires a may-unwind carrier `Invoke` and
 ///        a receiver not live past its LAST borrowed-`Invoke` carrier.
 ///        Spec: Annex E §AIMS RL-2 + RL-4.
@@ -413,7 +411,7 @@ fn try_build_candidate(
     // `Construct` roots (a buffer the caller allocates at rc=1 and owns) — a
     // RESULT root is a borrowed-call result whose release is the callee's
     // transfer / the existing result-lineage machinery, NOT a caller-fresh
-    // allocation; the no-sink claim would place a spurious Cat-2 dec on a slice /
+    // allocation; the no-sink claim would place a spurious per-edge dec on a slice /
     // forwarded view (`@substring`/`@repeat` return a same-buffer slice →
     // double-free). A RESULT root joins the no-sink mode ONLY when its callee
     // contract proves a FRESH allocation (Unique + preserves_freshness, never

@@ -32,7 +32,6 @@ pub mod rc_remark;
 pub mod rl31_disjoint;
 #[cfg(test)]
 mod tests;
-mod transfer_anchor_net;
 
 pub(crate) use burden_elim::eliminate_burden_ops;
 pub(crate) use burden_elim::emit_survivor_remarks_all_kept;

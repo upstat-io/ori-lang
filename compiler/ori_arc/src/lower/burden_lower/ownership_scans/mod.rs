@@ -61,11 +61,9 @@ pub(super) use fresh_call_result_borrowed_arg::compute_fresh_call_result_borrowe
 pub(super) use sharing_view_surplus::compute_sharing_view_surplus_inc_dsts;
 // Test-only re-export: the RAW classification is consumed by the `tests`
 // sibling; production consumers take the FUNDED set.
+pub(crate) use call_arg_dup::compute_funded_call_arg_dup_aliases;
 #[cfg(test)]
 pub(super) use call_arg_dup::compute_genuine_dup_call_arg_aliases;
-pub(crate) use call_arg_dup::{
-    compute_funded_call_arg_dup_aliases, contract_consuming_arg_position,
-};
 pub(super) use construct_fed::{
     compute_construct_fed_dead_param_lineage, ConstructFedDeadParamLineage,
 };
@@ -104,7 +102,7 @@ pub(super) use multi_exit_borrow_view::compute_multi_exit_borrow_view_lineage;
 pub(super) use nested_construct_return_passthrough::compute_nested_construct_return_passthrough;
 pub(super) use owner_borrow_view::extend_owner_last_use_for_borrow_views;
 pub(super) use reassign_release::compute_reassign_rebind_releases;
-pub(crate) use store_dup::{compute_funded_store_dup_aliases, store_family_funding_disabled};
+pub(crate) use store_dup::compute_funded_store_dup_aliases;
 pub(super) use sum_payload_iter_consume::compute_sum_payload_iter_consume_dup_inc_suppression;
 pub(super) use walk::{
     collect_owned_burdens, compute_owned_vars_needing_rc, detect_last_uses, detect_transfer_points,

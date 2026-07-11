@@ -226,7 +226,6 @@ fn param_contract_for(
         // Per-path wrap proof — contained in the returned EnumVariant
         // payload on EVERY return path. Gates the Phase-6.99 wrapped
         // transfer-anchor credit (RL-1 mint / RL-2 transfer-through).
-        return_payload_contains_param_all_paths: facts.payload_containment_all_paths.contains(&i),
         // RL-2 iter-consume transfer fact (proven sound:
         // `AimsProof.Realization::RL2_iter_consuming_caller_dec_splits`).
         iter_consumes: facts.iter_consume.contains(&i),
@@ -334,7 +333,6 @@ struct ParamFacts {
     /// Subset of `payload_containment`: params contained in the returned
     /// `EnumVariant` payload on EVERY return path — the per-path wrap proof
     /// consumed by the Phase-6.99 wrapped transfer-anchor admission.
-    payload_containment_all_paths: FxHashSet<usize>,
     /// Params iter-consumed (`@iter` -> `ori_iter_drop`) inside the body —
     /// the RL-2 inward ownership transfer.
     iter_consume: FxHashSet<usize>,
@@ -427,7 +425,6 @@ fn detect_param_facts(
         return_flow,
         return_alias_shapes,
         payload_containment: containment.any,
-        payload_containment_all_paths: containment.all_paths,
         iter_consume,
         borrowed_read_only,
         borrowed_cow_consumed,

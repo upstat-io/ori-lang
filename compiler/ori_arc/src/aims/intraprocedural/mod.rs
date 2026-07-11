@@ -375,8 +375,7 @@ pub fn analyze_function(
     //
     // Materialize singleton `class_members` entries for transitive-drop
     // payload edges so the `class_members(class_id)` consumers in the realize
-    // walks (`cleanup_redundant.rs`, `emit_rc/edge_cleanup/`) succeed for
-    // singleton parents/children.
+    // walk (`cleanup_redundant.rs`) succeed for singleton parents/children.
     post_convergence::materialize_transitive_drop_singleton_classes(func, sigs, &mut state_map);
     post_convergence::populate_borrow_sources(&mut state_map, func);
     post_convergence::populate_call_result_states(&mut state_map, func, sigs);

@@ -470,15 +470,11 @@ pub(crate) fn apply_class_ledger_replacement(
         legacy_emission_enabled,
     );
     report_readiness(func, interner, &outcome);
-    // Fail-loud (migration gate), scoped to the BURDEN-SOLE path — the sole
-    // RC path of record: a decline there is an ICE naming the function +
-    // failed gate, never a silent legacy fallback. The default coexistence
-    // path (predicate stack live) still changes upstream IR shapes and
-    // declines shapes the sole path replaces; it retires with the walk.
+    // Fail-loud: the class-ledger plan is the SOLE RC emitter — a decline
+    // is an ICE naming the function + failed gate, never a silent fallback
+    // (the legacy repair passes are deleted; no fallback emitter exists).
     assert!(
-        !legacy_emission_enabled
-            || !crate::aims::realize::rc_remark::on_burden_sole_path()
-            || outcome.mode == EmissionMode::Replaced,
+        !legacy_emission_enabled || outcome.mode == EmissionMode::Replaced,
         "class-ledger replacement declined for `{}`: {} — every production shape must replace (the legacy Step-4b walk is being removed)",
         interner.lookup(func.name),
         outcome

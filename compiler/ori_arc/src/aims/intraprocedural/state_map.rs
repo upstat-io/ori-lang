@@ -944,9 +944,8 @@ impl AimsStateMap {
     /// the var via `ArcVarId::new(class_id)` and inserts both the
     /// class-members and ssa-alias-classes entries idempotently.
     /// Required by `materialize_transitive_drop_singleton_classes` so the
-    /// `class_members(class_id)` lookups in the realize walks
-    /// (`cleanup_redundant.rs`, `emit_rc/edge_cleanup/`) succeed for singleton
-    /// parents/children.
+    /// `class_members(class_id)` lookups in the realize walk
+    /// (`cleanup_redundant.rs`) succeed for singleton parents/children.
     pub(crate) fn ensure_singleton_class(&mut self, class_id: u32) {
         if self.class_members.contains_key(&class_id) {
             return;

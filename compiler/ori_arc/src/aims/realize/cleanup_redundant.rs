@@ -2,9 +2,8 @@
 //!
 //! The over-emission
 //! shape for nested-Project chains over transitive-drop variant containers
-//! cannot be cured at PIN-6 walker level alone — the failing decs bypass PIN-6
-//! and emit via `dead_cleanup::emit_dead_at_entry_decs` and
-//! `edge_cleanup::collect_invoke_edge_decs` Cat 1/Cat 2.
+//! cannot be cured at any single emission site — the failing decs arrive from
+//! multiple producers with no shared per-class budget.
 //!
 //! Cure: a single emission-time service consumed indirectly via post-pass
 //! cleanup. For each project-only class (no Direct/Conditional apply-result
@@ -15,16 +14,11 @@
 //!
 //! ## Why a post-pass
 //!
-//! The realize pipeline emits `RcDec` from FOUR distinct producers:
-//! 1. `walk_dec::emit_post_instr_decs_unified` (body last-use + defined-dead)
-//! 2. `dead_cleanup::emit_dead_at_entry_decs` (entry-dead vars)
-//! 3. `edge_cleanup::collect_invoke_edge_decs` (Invoke edge cleanup, Cat 1+2)
-//! 4. `edge_cleanup::collect_branch_edge_decs` (Branch/Switch edge cleanup)
-//!
-//! Each producer owns its own gating (PIN-4 canonical-rep, PIN-5 per-edge,
-//! PIN-6 ancestor coverage). Coordinating per-class budget across producers
-//! at emission time requires shared state none currently has. A post-pass
-//! that runs after all emission is the cleanest cure surface.
+//! The realize pipeline emits `RcDec` from multiple producers (body last-use
+//! placement, entry-dead cleanup, per-edge dying-successor releases), each
+//! owning its own gating. Coordinating a per-class budget across producers
+//! at emission time requires shared state none has. A post-pass that runs
+//! after all emission is the cleanest cure surface.
 //!
 //! ## Discriminator
 //!

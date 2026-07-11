@@ -23,7 +23,7 @@ use super::super::super::successor_reachable_blocks;
 ///       earlier iteration's instance;
 ///  (l4) the cycle has zero or multiple non-unwind exit blocks (a fork the
 ///       single release cannot cover; dying unwind edges are excluded — owned
-///       by the Category-2 `deadAtSucc` per-edge release, disjoint);
+///       by the class-ledger per-edge `deadAtSucc` release, disjoint);
 ///  (l5) the exit block itself re-reaches a cycle containing it (a re-reached
 ///       release double-frees);
 ///  (l6) the root's definer does not DOMINATE the exit (the release reads the

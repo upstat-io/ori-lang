@@ -434,7 +434,6 @@ const PARAM_BORROWED: ParamContract = ParamContract {
     transfers_through_return: false,
     return_alias: None,
     return_payload_contains_param: false,
-    return_payload_contains_param_all_paths: false,
     iter_consumes: false,
     // Conservative: builtin seed contracts never carry a read-only claim. The
     // user-call carve-out gate (`compute_user_call_arg_lineages`) returns early
@@ -470,7 +469,6 @@ const PARAM_OWNED_LINEAR: ParamContract = ParamContract {
     transfers_through_return: false,
     return_alias: None,
     return_payload_contains_param: false,
-    return_payload_contains_param_all_paths: false,
     iter_consumes: false,
     // Owned param is consumed, never read-only.
     borrowed_read_only: false,

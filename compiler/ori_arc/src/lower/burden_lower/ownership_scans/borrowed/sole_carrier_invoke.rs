@@ -29,8 +29,8 @@ static SOLE_CARRIER_BORROWED_INVOKE_CLAIM_DISABLED: LazyLock<bool> = LazyLock::n
 /// allocation BEFORE the borrowed call reads it (use-after-free; a double-free
 /// when the callee aliases the value into its result). The cure removes the
 /// dst from `owned_vars_needing_rc` (suppressing the early inline dec) and
-/// CLAIMS it for the Category-2 `deadAtSucc` per-edge release (`edge_cleanup.rs`
-/// via `claimed_no_sink_vars` / `burden_emitted`): the dst is dead at EVERY
+/// CLAIMS it for the class-ledger per-edge `deadAtSucc` release (via
+/// `claimed_no_sink_vars` / `burden_emitted`): the dst is dead at EVERY
 /// successor of its carrier `Invoke`, so each executing path releases exactly
 /// once AFTER the call completes.
 ///

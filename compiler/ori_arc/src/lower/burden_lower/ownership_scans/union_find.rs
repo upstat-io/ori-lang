@@ -13,7 +13,7 @@ use super::forwarder::arg_owned_transfers_through_return;
 
 /// Structural forwarder-identity union-find over Let{Var} aliases (`%6 = %4`) +
 /// forwarder result→arg edges (Invoke/Apply `transfers_through_return ∧ Owned`,
-/// `%7 = id(%6 [own])`). Mirrors `compute_same_alloc_reps` (`edge_cleanup.rs`) EXCEPT it
+/// `%7 = id(%6 [own])`). Mirrors `compute_same_alloc_reps` (`emit_rc/mod.rs`) EXCEPT it
 /// is structural (no `state_map.apply_result_aliases()` — unavailable at Phase 5) and
 /// intentionally EXCLUDES the Jump-arg → block-param edge (a phi merge over DISTINCT
 /// allocations is NOT a same-allocation relation). `is_forwarder_rep` records reps that

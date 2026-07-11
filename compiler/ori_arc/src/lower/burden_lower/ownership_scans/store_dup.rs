@@ -27,13 +27,6 @@ use super::{collect_def_blocks, successor_reachable_blocks_with_cut};
 static STORE_FAMILY_FUNDING_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_STORE_FAMILY_FUNDING").as_deref() == Ok("1"));
 
-/// Whether the RL-1 store-family funding is disabled
-/// (`ORI_DISABLE_STORE_FAMILY_FUNDING=1`). Consumed by the Phase-7
-/// store-lineage debited-net admission alongside the funded alias set.
-pub(crate) fn store_family_funding_disabled() -> bool {
-    *STORE_FAMILY_FUNDING_DISABLED
-}
-
 /// Genuine-duplication STORE-out aliases (standalone form): `Let { Var(src) }`
 /// dsts whose single-use move chain terminates at an aggregate-STORE consume
 /// (`Construct` / `Reuse` / `CollectionReuse` arg or `Set.value` — NEVER an

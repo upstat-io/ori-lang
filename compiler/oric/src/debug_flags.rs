@@ -155,9 +155,10 @@ flags! {
 
     /// Disable the burden-op emission pass (Step 4b of the AIMS pipeline).
     ///
-    /// Consumed in `ori_arc::pipeline::aims_pipeline::run_aims_pipeline` for the
-    /// empty-harness predicate-parity check. When set, `emit_burden_ops` is skipped
-    /// entirely and the predicate-stack realization path runs as the baseline.
+    /// Consumed in `ori_arc::pipeline::aims_pipeline::run_aims_pipeline`. Burden
+    /// emission is the sole RC-emission input (no fallback emitter exists), so
+    /// setting this aborts compilation via the fail-loud migration gate for any
+    /// function needing RC management — a negative-pin probe, never a build mode.
     /// Usage: `ORI_DISABLE_BURDEN_OPS=1 ori build file.ori`
     ORI_DISABLE_BURDEN_OPS
 
@@ -330,32 +331,6 @@ flags! {
     /// dead-owned-param-branch leak to that emission.
     /// Usage: `ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE=1 ori build file.ori`
     ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE
-
-    /// Decline the Phase-6.99 dead-at-bypass-entry fallback in
-    /// `compute_take_project_source_plan`: an iterator-bearing take-project
-    /// source enum dead-at-entry on the BYPASS edge of an outer runtime gate
-    /// reverts to the pre-cure under-release (the bypass path's `+1` iterator
-    /// leak).
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified`. Bisects an
-    /// outer-gated take-project bypass-path leak to this fallback vs the rest
-    /// of the take-project source-dec pass. Default (unset) emits the
-    /// dominance-safe dead-at-bypass-entry release.
-    /// Usage: `ORI_DISABLE_TAKE_PROJECT_BYPASS_ENTRY_RELEASE=1 ori build file.ori`
-    ORI_DISABLE_TAKE_PROJECT_BYPASS_ENTRY_RELEASE
-
-    /// Revert the Phase-6.68 nested-aggregate-into-in-scope-consumed-collection
-    /// keep-alive admission (`aggregate_pushed_into_in_scope_consumed_collection`
-    /// returns false): the `for p in parts yield Some(p); for opt in opts do ..`
-    /// shape reverts to the under-funded double-free (the stored slice view's
-    /// backing released by BOTH the source iter-drop and the in-scope
-    /// `elem_dec_fn`).
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified`. Bisects the
-    /// nested-aggregate arm vs the rest of Phase 6.68. Default (unset) keeps the
-    /// RL-1 keep-alive.
-    /// Usage: `ORI_DISABLE_NESTED_AGG_INSCOPE_KEEPALIVE=1 ori build file.ori`
-    ORI_DISABLE_NESTED_AGG_INSCOPE_KEEPALIVE
 
     /// Disable the Phase-5 RL-4 per-edge release for a FRESH local `Construct`
     /// lineage consumed at an owned position on a strict subset of branch
@@ -642,17 +617,6 @@ flags! {
     /// Usage: `ORI_DISABLE_PANIC_MSG_TRANSFER=1 ori build file.ori`
     ORI_DISABLE_PANIC_MSG_TRANSFER
 
-    /// Bypass the Phase-6.98 RL-4 release on dying Invoke UNWIND edges for
-    /// vars whose predecessor carries a self-canceling whole-var burden pair
-    /// (default: the caught-panic path's dying borrowed arg is released at
-    /// the unwind-successor front).
-    ///
-    /// Consumed in `ori_arc::aims::emit_rc::edge_cleanup` (raw `var`).
-    /// Defined here for documentation and `check-debug-flags.sh`
-    /// consistency. Bisects a caught-panic-path leak to this release.
-    /// Usage: `ORI_DISABLE_INVOKE_UNWIND_PAIR_RELEASE=1 ori build file.ori`
-    ORI_DISABLE_INVOKE_UNWIND_PAIR_RELEASE
-
     /// Decline the Phase-5 borrowed-`Invoke` lineage treatment: the inline
     /// borrowed-`Invoke`-terminator dec suppression + the single placed
     /// death-point release for a FRESH collection-`Construct` buffer (or a
@@ -676,29 +640,6 @@ flags! {
     /// Usage: `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1 ori build file.ori`
     ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE
 
-    /// Decline the Phase-6.695 RL-4 both-edge release for an OWNED CLOSURE value
-    /// borrowed at a DIRECT terminator-`Invoke` arg (`xs.fold(init, op)` — the
-    /// `op` closure), dead at both successors, whose Phase-5 release the base walk
-    /// placed as an inline self-canceling `BurdenInc`/`BurdenDec` pair in the call
-    /// block. An `InvokeIndirect` (unknown callee) declines unconditionally — its
-    /// iter-consume transfer cannot be ruled out. The release fires only when BOTH
-    /// dead edges are single-predecessor (a merge / shared unwind landing pad
-    /// would double-count the front-inserted dec).
-    ///
-    /// Default (unset): the inline net-0 pair is REMOVED and one `BurdenDec` is
-    /// placed at the front of BOTH successor edges (born rc=1 → one release per
-    /// dead edge); removing the pair makes Phase-6.98 a no-op for the rep (no
-    /// double unwind dec). With the toggle set, the inline pair stays (coalesced
-    /// away → the closure env leaks on the normal path). The borrowed-CLOSURE
-    /// analog of `ORI_DISABLE_BORROWED_TERMINATOR_ARG_*` (the collection case).
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var`). Defined
-    /// here for documentation and `check-debug-flags.sh` consistency. Bisects a
-    /// borrowed-closure-arg leak to this relocation vs the rest of the Phase-6
-    /// strip pipeline. Spec: Annex E §AIMS RL-2 + RL-4.
-    /// Usage: `ORI_DISABLE_BORROWED_TERMINATOR_CLOSURE_ARG_RELOCATION=1 ori build file.ori`
-    ORI_DISABLE_BORROWED_TERMINATOR_CLOSURE_ARG_RELOCATION
-
     /// Restore the inline last-use dec for a SOLE-CARRIER borrowed-`Invoke`
     /// alias (`compute_sole_carrier_borrowed_invoke_aliases` returns empty):
     /// the lineage's single release lands BEFORE the borrowed terminator that
@@ -718,52 +659,6 @@ flags! {
     /// Phase-5 walk. Spec: Annex E §AIMS RL-2 + RL-4.
     /// Usage: `ORI_DISABLE_SOLE_CARRIER_BORROWED_INVOKE_CLAIM=1 ori build file.ori`
     ORI_DISABLE_SOLE_CARRIER_BORROWED_INVOKE_CLAIM
-
-    /// Bypass the Phase-6.99 transfer-anchor credit-net repair on the
-    /// result-side lineage of a `transfers_through_return ∧ Owned ∧ Direct`
-    /// forwarder call with a caller-fresh arg-side lineage (default: the
-    /// net-verified repair removes the single spurious fresh-site keep-alive
-    /// inc OR places one release after the execution-final value-read so
-    /// every Return path nets 0).
-    ///
-    /// Consumed in `ori_arc::aims::realize::transfer_anchor_net` (raw
-    /// `var`). Defined here for documentation and `check-debug-flags.sh`
-    /// consistency. Bisects a forwarder-result leak / double-free to this
-    /// repair vs the rest of the burden-strip pipeline.
-    /// Usage: `ORI_DISABLE_TRANSFER_ANCHOR_CREDIT_NET=1 ori build file.ori`
-    ORI_DISABLE_TRANSFER_ANCHOR_CREDIT_NET
-
-    /// Force every Phase-6.99 same-allocation view into the Opaque
-    /// (balanced-pair-or-decline) class, disabling the unified member+view
-    /// ledger admission of niche-family (`Option` / `Result`) single-payload
-    /// borrow-views (default: a proven same-alloc view's whole-var RC ops
-    /// join the per-rep credit net at `±1`, so a lone niche-payload release
-    /// is modeled instead of declining the lineage).
-    ///
-    /// Consumed in `ori_arc::aims::realize::transfer_anchor_net::views`
-    /// (raw `var`). Defined here for documentation and
-    /// `check-debug-flags.sh` consistency. Bisects a forwarder-result
-    /// Option-family verdict change to the view-ledger admission vs the
-    /// member-only net.
-    /// Usage: `ORI_DISABLE_VIEW_LEDGER_ADMISSION=1 ori build file.ori`
-    ORI_DISABLE_VIEW_LEDGER_ADMISSION
-
-    /// Decline the Phase-6.99 WRAPPED transfer-anchor class (the
-    /// `Ok(m)`-style wrap-forwarder credit: a callee whose contract proves
-    /// `return_payload_contains_param` on EVERY return path with a
-    /// same-allocation wrapper result), reverting wrap-forwarder call
-    /// sites to the unadmitted treatment (default: the returned wrapper
-    /// carries one credit on the payload's allocation; the wrapper, its
-    /// payload args, and live extractions form one coupled lineage
-    /// eligible for the combined remove-inc + place-release repair).
-    ///
-    /// Consumed in `ori_arc::aims::realize::transfer_anchor_net::anchors`
-    /// (raw `var`). Defined here for documentation and
-    /// `check-debug-flags.sh` consistency. Bisects a wrap-forwarder-result
-    /// leak / repair change to the wrapped-credit admission vs the Direct
-    /// anchor machinery.
-    /// Usage: `ORI_DISABLE_WRAPPED_CREDIT_ANCHOR=1 ori build file.ori`
-    ORI_DISABLE_WRAPPED_CREDIT_ANCHOR
 
     /// Disable the as-compiled impl-method contract pre-pass + per-caller
     /// Phase-5 binding; impl-method call sites revert to the conservative
@@ -813,27 +708,6 @@ flags! {
     /// the Phase-5 walk.
     /// Usage: `ORI_DISABLE_SCALAR_REPR_BURDEN_SKIP=1 ori build file.ori`
     ORI_DISABLE_SCALAR_REPR_BURDEN_SKIP
-
-    /// Bypass the Phase-6.68c returned-collection surplus-inc strip (the
-    /// spurious cross-call `BurdenInc` on a callee-returned scalar-list
-    /// acquired at N>=2 call sites and iter-consumed live).
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var_os`).
-    /// Defined here for documentation and `check-debug-flags.sh` consistency.
-    /// Bisects a returned-scalar-list leak to this pass vs the base walk.
-    /// Usage: `ORI_DISABLE_RETURNED_COLLECTION_SURPLUS_INC_STRIP=1 ori build file.ori`
-    ORI_DISABLE_RETURNED_COLLECTION_SURPLUS_INC_STRIP
-
-    /// Bypass the Phase-6.66c borrowed-`Invoke` iter-consume source
-    /// suppression (the spurious caller FRESH `BurdenInc` + scope-exit
-    /// `BurdenDec` on an owned fresh collection iter-consumed via a
-    /// borrowed-`Invoke` arg).
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var_os`).
-    /// Defined here for documentation and `check-debug-flags.sh` consistency.
-    /// Bisects a returned-collection-source leak to this pass vs the base walk.
-    /// Usage: `ORI_DISABLE_BORROWED_INVOKE_ITER_CONSUME_SUPPRESS=1 ori build file.ori`
-    ORI_DISABLE_BORROWED_INVOKE_ITER_CONSUME_SUPPRESS
 
     /// Omit the RL-31 param `noalias` attribute emission on function
     /// declarations.
@@ -1133,68 +1007,6 @@ flags! {
     /// Usage: `ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP=1 ori build file.ori`
     ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP
 
-    /// Decline the Phase-6.66e loop-invariant iter-consumed SURVIVOR surplus
-    /// suppression. A loop-INVARIANT collection (`Construct` outside the loop)
-    /// iter-consumed via the inline for-loop `@iter [own]` and READ AFTER the loop
-    /// via a borrow (`words.len()`) is the survivor shape; the base walk over-emits
-    /// across the loop-carried lineage (`same_alloc_reps` drops the Jump-phi
-    /// back-edge) — a surplus fresh-site `BurdenInc` + a surplus pre-read
-    /// `BurdenDec` beyond the keep-alive inc + the one post-read survivor release →
-    /// net -1, double-free (exit -134). Default (unset): rewrite the survivor rep's
-    /// burden ops to the proven oracle ledger (keep ONE keep-alive inc the
-    /// `@iter`/`ori_iter_drop` pair balances + the LAST dec, the post-read survivor
-    /// release; strip the surplus). The post-loop COLLECTION borrow-read is the
-    /// discriminator vs `str_split`/`set_to_list`/`derive_clone` (no COLLECTION
-    /// survivor read), so their `@iter` COW protection is untouched.
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var`). Defined here
-    /// for documentation and `check-debug-flags.sh` consistency. Bisects the
-    /// loop-invariant iter-survivor double-free to this pass vs the rest of the
-    /// burden path. Spec: Annex E §AIMS RL-1 + RL-2.
-    /// Usage: `ORI_DISABLE_LOOP_INVARIANT_ITER_SURVIVOR_SURPLUS=1 ori build file.ori`
-    ORI_DISABLE_LOOP_INVARIANT_ITER_SURVIVOR_SURPLUS
-
-    /// Decline the Phase-6.66f sharing-view slice + iter-consume surplus-inc
-    /// suppression. A FRESH owned collection (`let words = [..]`) BORROWED into a
-    /// seamless-slice producer (`words.take(2)` / `.slice(..)` / `.substring(..)` /
-    /// `.drop(..)`) AND iter-consumed via the inline for-loop `@iter [own]` is the
-    /// slice+iter-interaction shape. The sharing-view producer rc-INCs the shared
-    /// backing buffer (funding the surviving slice's ref, released by the slice's
-    /// own scope-exit dec), and the `@iter [own]` -> `ori_iter_drop` is the source
-    /// allocation's single transfer release — so the source's correct burden ledger
-    /// is ZERO incs. The base walk over-emits keep-alive `BurdenInc`s on the source
-    /// lineage (treating the live-across iter-consume of the slice's source as a
-    /// duplication) beyond the producer's own inc, so the rc-1 buffer never reaches
-    /// 0 (the buffer + its owned element strings leak via the never-run
-    /// `elem_dec_fn`). Default (unset): strip every normal-path source `BurdenInc`/
-    /// `BurdenDec` on the iter-consumed sharing-view source lineage (unwind-path ops
-    /// are panic cleanup, left intact). The surviving-slice borrow-read after the
-    /// producer is the discriminator vs the dead-after-slice case the base walk
-    /// already balances.
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var`). Defined here
-    /// for documentation and `check-debug-flags.sh` consistency. Bisects the
-    /// slice+iter-consume leak to this pass vs the rest of the burden path.
-    /// Spec: Annex E §AIMS RL-1 + RL-2.
-    /// Usage: `ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS=1 ori build file.ori`
-    ORI_DISABLE_SHARING_VIEW_ITER_CONSUME_SURPLUS
-
-    /// Keep the comparison-operand same-root guard purely structural. Default: a
-    /// `==`/`!=` whose two operands share one `same_alloc` rep BECAUSE one operand is
-    /// a `transfers_through_return ∧ Direct` forwarder RESULT (`result == a` where
-    /// `result` aliases the arg's allocation) is EXEMPTED from the same-root guard —
-    /// the two operands are genuinely distinct co-references (the `b = a` duplication
-    /// funds the transfer, rc 1 -> 2), so the M3/M4 comparison-operand strip fires
-    /// (stripping the spurious operand keep-alive `BurdenInc`, leaving its dec as one
-    /// of the two genuine releases). With the toggle set, the guard stays structural
-    /// and the forwarder-transfer comparison reverts to the orphaned-dec double-free
-    /// (Phase-6 elim strips the spurious inc, the paired dec survives unmatched).
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified` (Phase 6.97). Bisects a
-    /// forwarder-transfer comparison double-free to this exemption.
-    /// Usage: `ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT=1 ori build file.ori`
-    ORI_DISABLE_COMPARISON_FORWARDER_SAME_ROOT_EXEMPT
-
     /// Restore the surplus FRESH-site `BurdenInc` on a fresh local consumed
     /// EXACTLY ONCE as a `Binary(Add)` concat operand. Default (unset): such an
     /// operand is move-once-linear — the runtime concat helper
@@ -1231,37 +1043,6 @@ flags! {
     /// Spec: Annex E §AIMS RL-1 + RL-2.
     /// Usage: `ORI_DISABLE_COLLECTION_LITERAL_DEAD_SOURCE_SUPPRESS=1 ori build file.ori`
     ORI_DISABLE_COLLECTION_LITERAL_DEAD_SOURCE_SUPPRESS
-
-    /// Decline the Phase-6.95b for_yield-result premature-release relocation. An
-    /// eligible non-transferred-out `ori_list_take` result list (`let copied = for
-    /// w in words yield w`) read via sibling `Let`-Var aliases across two blocks
-    /// (`copied[0]` then `copied[1]`) has its single normal-path release placed by
-    /// the base walk at the EARLY sibling's SSA last-use — the per-SSA-var `live_out`
-    /// suppressor misses that a later-block sibling alias keeps the SAME allocation
-    /// live, so the list is freed before the later block re-reads it (-134 UAF).
-    /// Default (unset): relocate the single premature `BurdenDec` to AFTER the
-    /// lineage's execution-final read (one release, moved later; `RL2_release_exactly_once`
-    /// preserved). Unwind-path (`Resume`) releases untouched.
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var`). Defined here
-    /// for documentation and `check-debug-flags.sh` consistency. Bisects the
-    /// for_yield-result premature-free to this pass vs the rest of the burden path.
-    /// Spec: Annex E §AIMS RL-2 + RL-4.
-    /// Usage: `ORI_DISABLE_FOR_YIELD_RESULT_PREMATURE_RELEASE_RELOCATION=1 ori build file.ori`
-    ORI_DISABLE_FOR_YIELD_RESULT_PREMATURE_RELEASE_RELOCATION
-
-    /// Bypass the iter-consume + transfer-through-return source-dec
-    /// suppression: an owned param both iter-consumed via an `@iter [own]`
-    /// call AND transferred through the function's own `Return` keeps its
-    /// premature normal-path source `BurdenDec` (freeing the param before the
-    /// Return). With the suppression ON, the source dec is dropped so the
-    /// kept-from-arrival reference survives as the live Return value.
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified` (raw `var_os`).
-    /// Defined here for documentation and `check-debug-flags.sh` consistency.
-    /// Bisects an iter-then-return UAF to this pass vs the base walk.
-    /// Usage: `ORI_DISABLE_ITER_CONSUME_RETURN_SOURCE_SUPPRESS=1 ori build file.ori`
-    ORI_DISABLE_ITER_CONSUME_RETURN_SOURCE_SUPPRESS
 
     // Alive2 IR Capture
 
@@ -1429,26 +1210,6 @@ flags! {
     /// read-only-co-owner slice leak to this suppression.
     /// Usage: `ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS=1 ori build file.ori`
     ORI_DISABLE_SHARING_VIEW_SURPLUS_INC_SUPPRESS
-
-    /// Disable the aggregate-field iter-consume partial-dec rewrite
-    /// (`rewrite_aggregate_iter_consume_field_decs`): an aggregate field whose
-    /// iterator is partially consumed reverts to the pre-rewrite dec placement.
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified`. Bisects an
-    /// aggregate-field iter-consume leak / double-free to this rewrite.
-    /// Usage: `ORI_DISABLE_AGG_FIELD_ITER_CONSUME_PARTIAL=1 ori build file.ori`
-    ORI_DISABLE_AGG_FIELD_ITER_CONSUME_PARTIAL
-
-    /// Decline the borrowed-iter-consume keep-alive retarget: an
-    /// `ApplyToIterConsumingParam` transfer's paired dec is NOT retargeted onto
-    /// the non-param keep-alive alias `inc_arg`.
-    ///
-    /// Default (unset): the paired dec is retargeted onto the non-param
-    /// keep-alive alias (balanced pair, same site, no borrowed-param dec).
-    /// Consumed in `ori_arc::aims::realize::emit_unified`. Spec: Annex E §AIMS
-    /// RL-2 (`RL2_iter_consuming_no_caller_dec`).
-    /// Usage: `ORI_DISABLE_BORROWED_ITER_CONSUME_KEEPALIVE_DECLINE=1 ori build file.ori`
-    ORI_DISABLE_BORROWED_ITER_CONSUME_KEEPALIVE_DECLINE
 
     /// Disable the Phase-5 catch-recover release for the recovered message
     /// buffer (the recovered message buffer leaks on the normal path).
