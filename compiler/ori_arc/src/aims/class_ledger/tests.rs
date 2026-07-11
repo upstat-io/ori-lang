@@ -4757,3 +4757,95 @@ fn replacement_admits_scalar_user_drop_value_with_planned_release() {
          release (the scalar user-drop strategy runs @drop exactly once)"
     );
 }
+
+/// The corpus main-fn shape: HEAP user-drop locals CONSUMED INTO an owning
+/// `Construct` chain whose collection root carries the whole-var planned
+/// release. The root's recursive drop glue runs each consumed value's
+/// `@drop` (an RL-2 `Construct`-arg transfer), so the
+/// consumed values owe no per-var release of their own.
+#[test]
+fn replacement_admits_heap_user_drop_locals_consumed_into_owner() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let logged_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "Logged",
+        logged_idx,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+    let resource_idx = ty(65);
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "Resource",
+        resource_idx,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    // %0 = Construct Struct(Logged)(); %1 = Construct Struct(Resource)(%0);
+    // %2 = Construct List(%1); %3 = int literal; ret %3.
+    let mut func = one_block_func(
+        4,
+        vec![
+            ArcInstr::Construct {
+                dst: v(0),
+                ty: logged_idx,
+                ctor: CtorKind::Struct(Name::from_raw(64)),
+                args: vec![],
+            },
+            ArcInstr::Construct {
+                dst: v(1),
+                ty: resource_idx,
+                ctor: CtorKind::Struct(Name::from_raw(65)),
+                args: vec![v(0)],
+            },
+            ArcInstr::Construct {
+                dst: v(2),
+                ty: ty(66),
+                ctor: CtorKind::ListLiteral,
+                args: vec![v(1)],
+            },
+            ArcInstr::Let {
+                dst: v(3),
+                ty: ty(0),
+                value: ArcValue::Literal(crate::ir::LitValue::Int(0)),
+            },
+        ],
+        ret(3),
+    );
+    func.var_types = vec![logged_idx, resource_idx, ty(66), ty(0)];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let outcome = attempt_replacement(
+        &mut func,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
+    assert_eq!(
+        outcome
+            .fallback_reason
+            .map(super::replace::FallbackReason::as_str),
+        None,
+        "consumed-into-owner shape declined"
+    );
+    assert_eq!(
+        outcome.mode,
+        EmissionMode::Replaced,
+        "consumed-into-owner user-drop locals are released by the root's \
+         recursive drop glue"
+    );
+}

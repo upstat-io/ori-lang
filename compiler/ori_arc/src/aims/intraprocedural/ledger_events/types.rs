@@ -237,4 +237,9 @@ pub(crate) struct LedgerClassification {
     /// `@drop` call only — nothing is freed, so its field-path views are
     /// never demand-endangered by the release.
     pub(crate) user_drop_admitted: rustc_hash::FxHashSet<crate::ir::ArcVarId>,
+    /// Vars whose WHOLE-VAR node's class carries a `Consume` event: the
+    /// reference transfers to an owner (a `Construct` arg, an owned call
+    /// arg, a `Return`), so the owner's release chain runs the value's
+    /// drop glue recursively.
+    pub(crate) consume_covered: rustc_hash::FxHashSet<crate::ir::ArcVarId>,
 }

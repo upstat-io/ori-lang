@@ -281,11 +281,14 @@ fn gate_rejection(
     }
     // ADMITTED scalar user-drop vars (booked drop obligations) are verified
     // by their class verdicts: Clean = every path discharges, by planned
-    // Dec or transfer-consume. Every OTHER user-drop var keeps the
-    // conservative coverage requirement — a whole-var planned release of
-    // its own, or a BORROWED param (the caller owns the release; the
-    // `@drop` impl body's own `self` is the canonical case). The heap
-    // collection-store shapes stay with the legacy walk's @drop ordering.
+    // Dec or transfer-consume. Every OTHER user-drop var needs one of:
+    // a whole-var planned release of its own; a BORROWED-rooted alias of a
+    // borrowed param (the caller owns the release; the `@drop` impl body's
+    // own `self` and its aliases are the canonical case); or a CONSUME
+    // discharge on its class (the reference transfers to an owner — a
+    // `Construct` arg, an owned call arg, a `Return` — whose release chain
+    // runs the drop glue recursively; same discipline as the legacy walk,
+    // which also releases moved values through the owner's teardown).
     let admitted_scalar =
         |var: crate::ir::ArcVarId| state_map.is_scalar(var) && !state_map.is_immortal(var);
     let var_has_own_dec = |var: crate::ir::ArcVarId| {
@@ -311,6 +314,7 @@ fn gate_rejection(
             && !admitted_scalar(var)
             && !var_has_own_dec(var)
             && !borrowed_rooted.contains(&var)
+            && !analysis.consume_covered.contains(&var)
     }) {
         return Some(FallbackReason::UserDropGlue);
     }

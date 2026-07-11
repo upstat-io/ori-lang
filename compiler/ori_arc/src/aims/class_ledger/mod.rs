@@ -75,6 +75,10 @@ pub(crate) struct ClassLedgerAnalysis {
     /// Every variable excluded under the classifier's own semantics (per
     /// the classification flag) — the zero-class empty plan is admitted.
     pub(crate) all_vars_excluded: bool,
+    /// Vars whose whole-var node's class carries a `Consume` event (per the
+    /// classification): the reference transfers to an owner whose release
+    /// chain runs the value's drop glue recursively.
+    pub(crate) consume_covered: rustc_hash::FxHashSet<crate::ir::ArcVarId>,
 }
 
 /// Run classification, planning, and per-class verification from the
@@ -305,6 +309,7 @@ pub(crate) fn analyze_class_ledger(
         field_view_hazard,
         indirect_arg_handoff: classification.indirect_arg_handoff,
         all_vars_excluded: classification.all_vars_excluded,
+        consume_covered: classification.consume_covered.clone(),
     }
 }
 

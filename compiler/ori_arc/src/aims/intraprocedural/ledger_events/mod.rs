@@ -344,15 +344,19 @@ pub(crate) fn classify_function_with_admitted(
     // booking exists for the shape, its class carries events and the
     // forgiveness stops applying.
     let mut evented_reps = rustc_hash::FxHashSet::default();
+    let mut consumed_reps = rustc_hash::FxHashSet::default();
     for block_idx in 0..classifier.out.blocks.len() {
         for event_idx in 0..classifier.out.blocks[block_idx].len() {
             let class = match classifier.out.blocks[block_idx][event_idx] {
                 ClassInstr::Birth { class, .. }
                 | ClassInstr::Credit { class }
                 | ClassInstr::SelectCredit { class, .. }
-                | ClassInstr::Consume { class }
                 | ClassInstr::Read { class, .. }
                 | ClassInstr::Mutate { class, .. } => class,
+                ClassInstr::Consume { class } => {
+                    consumed_reps.insert(classifier.partition.rep_of(class));
+                    class
+                }
             };
             evented_reps.insert(classifier.partition.rep_of(class));
         }
@@ -379,6 +383,15 @@ pub(crate) fn classify_function_with_admitted(
         .out
         .user_drop_admitted
         .clone_from(&classifier.user_drop_admitted);
+    classifier.out.consume_covered = classifier
+        .partition
+        .nodes_snapshot()
+        .into_iter()
+        .filter(|(_, path, node)| {
+            path.is_whole_var() && consumed_reps.contains(&classifier.partition.rep_of(*node))
+        })
+        .map(|(var, _, _)| var)
+        .collect();
     classifier.out
 }
 
