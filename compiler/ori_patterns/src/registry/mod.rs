@@ -11,8 +11,7 @@ use crate::spawn::SpawnPattern;
 use crate::timeout::TimeoutPattern;
 use crate::with_pattern::WithPattern;
 use crate::{
-    EvalContext, EvalResult, FusedPattern, OptionalArg, PatternDefinition, PatternExecutor,
-    ScopedBinding,
+    EvalContext, EvalResult, OptionalArg, PatternDefinition, PatternExecutor, ScopedBinding,
 };
 
 /// Enum dispatch for all built-in patterns.
@@ -83,25 +82,8 @@ impl PatternDefinition for Pattern {
         dispatch_to_variant!(self, scoped_bindings)
     }
 
-    fn allows_arbitrary_props(&self) -> bool {
-        dispatch_to_variant!(self, allows_arbitrary_props)
-    }
-
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
         dispatch_to_variant!(self, evaluate, ctx, exec)
-    }
-
-    fn can_fuse_with(&self, next: &dyn PatternDefinition) -> bool {
-        dispatch_to_variant!(self, can_fuse_with, next)
-    }
-
-    fn fuse_with(
-        &self,
-        next: &dyn PatternDefinition,
-        self_ctx: &EvalContext,
-        next_ctx: &EvalContext,
-    ) -> Option<FusedPattern> {
-        dispatch_to_variant!(self, fuse_with, next, self_ctx, next_ctx)
     }
 }
 

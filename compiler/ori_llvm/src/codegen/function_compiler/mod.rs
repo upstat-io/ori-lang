@@ -169,7 +169,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     pub fn declare_all(&mut self, module_functions: &[Function], function_sigs: &[FunctionSig]) {
         // Build a name→sig lookup. function_sigs is deduped by name (one per
         // unique function). Multi-clause functions have multiple entries in
-        // module_functions but only one sig — we look up by name to avoid
+        // module_functions but only one sig — lookup is by name to avoid
         // positional misalignment.
         let sig_map: rustc_hash::FxHashMap<Name, &FunctionSig> =
             function_sigs.iter().map(|s| (s.name, s)).collect();

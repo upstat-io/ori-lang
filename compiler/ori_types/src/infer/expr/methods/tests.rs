@@ -407,6 +407,13 @@ fn trace_entries_on_named_error_struct_resolves_to_trace_entry_list() {
         Tag::Named,
         "Error.trace_entries() element must be Named (TraceEntry), not Var/Error"
     );
+    let elem_name = engine.pool().named_name(elem);
+    assert_eq!(
+        engine.lookup_name(elem_name),
+        Some("TraceEntry"),
+        "Error.trace_entries() element must resolve to the interned name \
+         \"TraceEntry\", not merely any Named type"
+    );
     assert_ne!(
         ret,
         Idx::ERROR,

@@ -1803,10 +1803,9 @@ fn extract_contract_with_trmc_computes_context_behavior() {
     assert!(cb.consumes_hole, "TRMC region → consumes hole");
     // Modulo-cons always requires uniqueness.
     assert!(cb.requires_unique_context, "modulo-cons → requires unique");
-    // TRMC functions return a Construct → HeapEscaping → may_share = true.
-    // This is a design tension: the
-    // HeapEscaping → may_share rule makes ALL TRMC candidates trigger
-    // may_resume_nonlinearly. A future refinement will tighten this gate.
+    // TRMC functions return a Construct → HeapEscaping → may_share = true,
+    // so the HeapEscaping → may_share rule makes every TRMC candidate
+    // trigger may_resume_nonlinearly.
     assert!(
         cb.may_resume_nonlinearly,
         "HeapEscaping return → may_share → non-linear"

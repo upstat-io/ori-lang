@@ -18,8 +18,8 @@ fn var(n: u32) -> ArcVarId {
 /// Owned access, Linear consumption, Once cardinality, `NonReusable` shape,
 /// not borrow-disjoint.
 fn cow_ctx(var: ArcVarId, uniqueness: Uniqueness) -> AnnotationSiteContext<'static> {
-    // Leak a boxed empty set so we can return a static reference.
-    // Fine for tests — bounded number of calls.
+    // Leaks a boxed empty set to return a static reference.
+    // Acceptable in tests — bounded number of calls.
     let empty: &'static FxHashSet<ArcVarId> = Box::leak(Box::default());
     AnnotationSiteContext {
         var,
@@ -719,7 +719,7 @@ fn synergy_reuse_during_analysis_shape() {
     // The state map records shape from backward demand. For params,
     // the shape may be NonReusable at the entry (params get shape
     // from their constructor kind which is unknown at the callee).
-    // What we CAN verify: v2 (the Construct result) gets shape via
+    // Verifiable here: v2 (the Construct result) gets shape via
     // fresh-construct transfer → it should have ReusableCtor in
     // its per-variable shape.
     let v2_shape = state_map.var_shape(syn_var(2));
@@ -960,8 +960,6 @@ fn synergy_local_pure_chain_effects() {
 
 #[test]
 fn synergy_metrics_default_is_zero() {
-    // Trimmed per `cow_upgrades` and `cross_dim_reuse` fields
-    // removed together with the unsound paths they tracked.
     let m = super::metrics::SynergyMetrics::default();
     assert_eq!(m.total_rc_decisions, 0);
     assert_eq!(m.reuse_decisions, 0);
@@ -972,7 +970,6 @@ fn synergy_metrics_default_is_zero() {
 
 #[test]
 fn synergy_metrics_merge_additive() {
-    // Trimmed per removed cow_upgrades / cross_dim_reuse assertions.
     let mut a = super::metrics::SynergyMetrics {
         reuse_decisions: 3,
         total_rc_decisions: 10,
@@ -997,7 +994,6 @@ fn synergy_metrics_merge_additive() {
 
 #[test]
 fn synergy_metrics_reuse_percent() {
-    // Preserved unchanged — only uses surviving fields.
     let m = super::metrics::SynergyMetrics {
         reuse_decisions: 3,
         total_rc_decisions: 10,
@@ -1009,17 +1005,13 @@ fn synergy_metrics_reuse_percent() {
 
 #[test]
 fn synergy_metrics_percent_zero_total() {
-    // Preserved unchanged.
     let m = super::metrics::SynergyMetrics::default();
     assert!((m.reuse_percent()).abs() < f64::EPSILON);
 }
 
 #[test]
 fn synergy_metrics_cross_dim_evidence() {
-    // Trimmed per `cross_dim_evidence_total()` was refactored
-    // to sum only `canonicalize_cross_fires` after `cow_upgrades` and
-    // `cross_dim_reuse` were removed. Test preserves coverage of the
-    // surviving helper on the surviving field.
+    // `cross_dim_evidence_total()` sums `canonicalize_cross_fires`.
     let m = super::metrics::SynergyMetrics {
         canonicalize_cross_fires: 100,
         ..Default::default()

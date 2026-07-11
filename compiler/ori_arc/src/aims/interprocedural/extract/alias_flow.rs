@@ -58,7 +58,7 @@ pub(super) fn find_return_alias_shapes(
         .collect();
 
     // Every `Project` dst (not only directly-returned ones) keyed to its
-    // `(source, field)`. Used by the indirect-return trace below to recognize a
+    // `(source, field)`. Used by `resolve_indirect_project_return` to recognize a
     // Project reached through a Let-Var / Jump-arg alias chain (the match-extract
     // -through-block-param return shape), not only a direct `Return (Project dst)`.
     let all_projects: FxHashMap<ArcVarId, (ArcVarId, u32)> = func
@@ -74,8 +74,9 @@ pub(super) fn find_return_alias_shapes(
         .collect();
     let alias_sources = build_return_alias_source_map(func);
     // Every `Apply` / `Invoke` call-result dst keyed to its `(callee, args)`.
-    // Used by the forwarder branch below: a Return value forwarding a callee's
-    // `Project` return-alias result inherits the same `Project { field }`.
+    // Used by the forwarder-Project handling in this function: a Return value
+    // forwarding a callee's `Project` return-alias result inherits the same
+    // `Project { field }`.
     let call_results = build_call_result_map(func);
     // Every struct `Construct` dst keyed to its field args. Used by the
     // construct-project round-trip branch: `Project (Construct args) field`

@@ -235,9 +235,9 @@ fn seed_internal_runtime_contracts(
     // `Box::from_raw(iter.cast::<IterState>())`. Before the iterator
     // triviality flip, this was invisible to the ARC pipeline because
     // iterators were Scalar and no drops were emitted. Now that
-    // iterators are non-trivial, we must tell the borrow inference
-    // that these calls are consumption events — otherwise the ARC
-    // pipeline will insert a scope-exit `ori_iter_drop` for the same
+    // iterators are non-trivial, the borrow inference must mark
+    // these calls as consumption events — otherwise the ARC
+    // pipeline inserts a scope-exit `ori_iter_drop` for the same
     // handle that the adapter/consumer already freed (double-free).
     //
     // The remaining arguments (transform_fn, elem_size, predicates,

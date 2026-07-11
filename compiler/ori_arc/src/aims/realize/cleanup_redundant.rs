@@ -148,9 +148,9 @@ pub(crate) fn cleanup_redundant_project_alias_decs(
     let dom = DominatorTree::build(func);
     let mut removals: FxHashSet<(usize, usize)> = FxHashSet::default();
 
-    // Pre-compute decs-per-class function-wide so we can
-    // count source-class decs (each walks payload via type-driven drop,
-    // contributing one cover per dec).
+    // Pre-compute decs-per-class function-wide to count source-class decs
+    // (each walks payload via type-driven drop, contributing one cover per
+    // dec).
     let mut all_class_dec_counts: FxHashMap<u32, usize> = FxHashMap::default();
     for block in &func.blocks {
         for instr in &block.body {

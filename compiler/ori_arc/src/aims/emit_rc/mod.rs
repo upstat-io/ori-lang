@@ -8,7 +8,6 @@
 //! - [`borrowed_defs`] — borrowed-definition collection for RC emission
 //! - [`coalesce`] — static RC coalescing peephole pass
 //! - [`cow`] — COW annotation helpers
-//! - [`dec_suppression`] — Apply-aliased RC-dec suppression predicates
 //! - [`drop_hints`] — drop hint helpers
 //! - [`queries`] — post-emission RC-incremented variable tracking
 //! - [`unwind_cleanup`] — Invoke-terminator unwind cleanup
@@ -23,7 +22,6 @@ pub mod arg_ownership;
 pub(crate) mod borrowed_defs;
 mod coalesce;
 pub mod cow;
-mod dec_suppression;
 pub mod drop_hints;
 pub(crate) mod queries;
 pub(crate) mod unwind_cleanup;

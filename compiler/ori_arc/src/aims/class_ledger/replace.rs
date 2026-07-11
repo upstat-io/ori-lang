@@ -110,9 +110,10 @@ pub(crate) enum FallbackReason {
     /// and `field_decomposition_cure_declines_replacement_on_skip_field_mismatch`.
     FieldDecompositionShape,
     /// The applied plan failed the post-apply VF-1 structural check.
-    /// Defense in depth over the pre-apply gates above, which already rule
-    /// out every ill-formed shape those gates recognize; `check_function`
-    /// itself carries its own dedicated pin corpus in `verify::tests`.
+    /// Defense in depth over the other pre-apply gates in this enum, which
+    /// already rule out every ill-formed shape those gates recognize;
+    /// `check_function` itself carries its own dedicated pin corpus in
+    /// `verify::tests`.
     StructuralVerify,
 }
 
@@ -215,7 +216,7 @@ fn gate_rejection(
     // three placement clauses hold vacuously per
     // `AimsProof.Ledger::three_clauses_iff_ledger_safe`). The later gates
     // (`UserDropGlue` for a scalar-repr type carrying a user `@drop`,
-    // `ReuseShape`, ...) still run below and decline the shapes an empty
+    // `ReuseShape`, ...) still run and decline the shapes an empty
     // emission would mis-handle. A zero-class function with ANY non-excluded
     // variable stays on the fallback — the classifier missing a live heap
     // value is a coverage gap the legacy walk must keep owning.

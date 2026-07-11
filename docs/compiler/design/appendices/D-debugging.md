@@ -231,7 +231,7 @@ The `diagnostics/` directory contains shell scripts that compose the low-level d
 
 ### Consistency Checking
 
-**`check-debug-flags.sh`** validates that the debugging infrastructure itself is consistent. It performs three checks: every `ORI_*` flag defined in the central `debug_flags.rs` is actually used somewhere in the codebase (no stale flags); every raw `std::env::var("ORI_*")` check in the codebase references a flag defined in `debug_flags.rs` (no orphan checks); and `CLAUDE.md` documents all diagnostic environment variables (no undocumented flags).
+**`check-debug-flags.sh`** validates that the debugging infrastructure itself is consistent. It performs two checks: every `ORI_*` flag defined under the central `debug_flags/` module is actually used somewhere in the codebase (no stale flags), and every raw `std::env::var("ORI_*")` check in the codebase references a flag defined under `debug_flags/` (no orphan checks).
 
 ## Common Debug Scenarios
 
@@ -366,7 +366,7 @@ The Ori compiler's debugging infrastructure draws on established patterns from p
 
 Three significant tradeoffs shaped the debugging infrastructure's design:
 
-**Environment variables vs. CLI flags.** All debugging controls use environment variables rather than compiler command-line flags. This avoids polluting the user-facing CLI with developer-only options, allows flags to compose freely (set as many as needed in any combination), and works consistently across all invocation methods (direct, via build scripts, via IDE integrations). The cost is discoverability --- a developer must know the variable names. The `check-debug-flags.sh` consistency script and centralized `debug_flags.rs` documentation mitigate this.
+**Environment variables vs. CLI flags.** All debugging controls use environment variables rather than compiler command-line flags. This avoids polluting the user-facing CLI with developer-only options, allows flags to compose freely (set as many as needed in any combination), and works consistently across all invocation methods (direct, via build scripts, via IDE integrations). The cost is discoverability --- a developer must know the variable names. The `check-debug-flags.sh` consistency script and the centralized `debug_flags/` module documentation mitigate this.
 
 **The `tracing` crate vs. a custom logging system.** The `tracing` crate adds compile-time and runtime overhead: each instrumented span creates a `Span` object, and the subscriber dispatch involves a virtual call per event. A custom system could eliminate this overhead for disabled targets. The tradeoff favors `tracing` because it integrates with the Rust ecosystem (any `tracing`-compatible subscriber works), provides the hierarchical span model that naturally fits compiler phase nesting, and the overhead is negligible relative to the work the compiler performs at each traced point. Benchmarks show less than 1% overhead with all tracing disabled.
 

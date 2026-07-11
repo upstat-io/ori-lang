@@ -13,11 +13,6 @@
 //! exercise the SAME shapes on the interpreter (`cargo st`) for dual-backend
 //! parity.
 
-#![allow(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::{assert_aot_success, compile_and_run_with_build_env};
 
 /// Assert the `ORI_DISABLE_BURDEN_OPS=1` control build FAILS LOUD: with

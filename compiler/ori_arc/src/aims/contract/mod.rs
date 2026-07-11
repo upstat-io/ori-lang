@@ -104,7 +104,7 @@ impl MemoryContract {
     /// contract has converged.
     #[must_use]
     pub fn join(&self, other: &Self) -> Self {
-        debug_assert_eq!(
+        assert_eq!(
             self.params.len(),
             other.params.len(),
             "cannot join contracts with different parameter counts"
@@ -136,7 +136,7 @@ impl MemoryContract {
     /// - `ParamContract.access == Borrowed` → `Ownership::Borrowed`
     /// - `ParamContract.access == Owned` → `Ownership::Owned`
     pub fn to_annotated_sig(&self, func_params: &[ArcParam], return_type: Idx) -> AnnotatedSig {
-        debug_assert_eq!(
+        assert_eq!(
             self.params.len(),
             func_params.len(),
             "MemoryContract params must match function params"
@@ -876,7 +876,7 @@ impl FipContract {
                     requires_unique_params: b,
                 },
             ) => {
-                debug_assert_eq!(a.len(), b.len(), "FipContract param counts must match");
+                assert_eq!(a.len(), b.len(), "FipContract param counts must match");
                 Self::Conditional {
                     requires_unique_params: a.iter().zip(b.iter()).map(|(x, y)| *x || *y).collect(),
                 }

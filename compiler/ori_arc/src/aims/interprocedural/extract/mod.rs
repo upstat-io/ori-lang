@@ -308,7 +308,8 @@ fn compute_context_behavior(
 /// parameters via merge-block phi nodes. Branch+Jump merges both x and y
 /// into the merge-block's param r, so r aliases BOTH parameter indices.
 /// Select aliases work the same way (`true_val` and `false_val` both reach
-/// dst at runtime); the Select arm below tracks both as alias sources.
+/// dst at runtime); [`absorb_instr_aliases`]'s `Select` arm tracks both as
+/// alias sources.
 /// Per-param facts detected for contract construction by [`detect_param_facts`].
 struct ParamFacts {
     /// Params consumed via callees OR returned — promoted to `Owned` access.

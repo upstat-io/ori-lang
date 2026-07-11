@@ -82,7 +82,6 @@ pub enum AimsEvent {
     /// Records the allocation balance (constructs - consumed deaths) for each
     /// successor of a Switch terminator. FIP certification requires each branch
     /// to independently maintain non-negative credit balance (`FIPTree` DMATCH! rule).
-    /// Effect Activation.
     AllocCreditBalance {
         /// The Switch terminator's block.
         block: ArcBlockId,
@@ -301,13 +300,12 @@ pub struct AimsStateMap {
     /// Records whether the function allocates, shares references, or throws.
     /// Read by `extract_contract()` to set `MemoryContract.effects`.
     ///
-    /// `HeapEscaping` → `may_share` and Effect Activation.
+    /// `HeapEscaping` locality accumulates into `may_share`.
     effect_summary: EffectSummary,
 
     /// FIP token balance: number of `Construct` instructions with reusable
     /// constructor kinds (struct, enum variant) on non-scalar destinations.
     /// Populated post-convergence by `populate_fip_balance()`.
-    /// Effect Activation.
     fip_construct_count: u32,
 
     /// FIP token balance: number of consumed non-scalar function parameters
@@ -315,7 +313,6 @@ pub struct AimsStateMap {
     /// parameter provides a "reuse token" — its memory can be recycled by a
     /// Construct. Shape compatibility checked at emission time.
     /// Populated post-convergence by `populate_fip_balance()`.
-    /// Effect Activation.
     fip_consumed_count: u32,
 
     /// Per-variable shape classification, derived from definition instructions.
@@ -329,7 +326,6 @@ pub struct AimsStateMap {
     /// Populated post-convergence by `populate_var_shapes()` (for Construct/
     /// Reuse/CollectionReuse) and `populate_call_result_states()` (for
     /// Apply/Invoke results from contracts).
-    /// Shape Activation.
     var_shapes: FxHashMap<ArcVarId, ShapeClass>,
 
     /// Per-variable contract-narrowed return uniqueness for Apply/Invoke results.
@@ -422,8 +418,6 @@ pub struct AimsStateMap {
     /// rounds (cross-dimension chaining detected). Set by post-convergence
     /// verification in `verify_canonical_fixed_point()`. With current rules
     /// this should always be `false`.
-    ///
-    /// Convergence Feedback.
     cross_dimension_detected: bool,
 }
 
@@ -712,8 +706,6 @@ impl AimsStateMap {
     ///
     /// With current rules, this should always be `false`.
     /// A `true` value indicates a new rule created a cross-dimension chain.
-    ///
-    /// Convergence Feedback.
     #[must_use]
     pub fn cross_dimension_detected(&self) -> bool {
         self.cross_dimension_detected
@@ -995,8 +987,6 @@ impl AimsStateMap {
     /// This is a per-variable property (set at the definition point),
     /// NOT a per-block state. Unlike the backward-computed lattice dimensions,
     /// shape doesn't change across block boundaries.
-    ///
-    /// Shape Activation.
     #[must_use]
     pub fn var_shape(&self, var: ArcVarId) -> ShapeClass {
         self.var_shapes
@@ -1088,10 +1078,7 @@ impl AimsStateMap {
         var: ArcVarId,
     ) -> Uniqueness {
         let lattice = self.var_state_at_block_entry(block, var).uniqueness;
-        match self.contract_uniqueness(var) {
-            Some(contract) => contract.join(lattice),
-            None => lattice,
-        }
+        join_contract_over_lattice(lattice, self.contract_uniqueness(var), Uniqueness::join)
     }
 
     /// Effective uniqueness combining contract-narrowed forward state with
@@ -1108,10 +1095,7 @@ impl AimsStateMap {
         var: ArcVarId,
     ) -> Uniqueness {
         let lattice = self.var_state_at_block_exit(block, var).uniqueness;
-        match self.contract_uniqueness(var) {
-            Some(contract) => contract.join(lattice),
-            None => lattice,
-        }
+        join_contract_over_lattice(lattice, self.contract_uniqueness(var), Uniqueness::join)
     }
 
     /// Effective locality combining contract-narrowed forward state with
@@ -1122,10 +1106,7 @@ impl AimsStateMap {
     #[must_use]
     pub fn effective_locality_at_block_entry(&self, block: ArcBlockId, var: ArcVarId) -> Locality {
         let lattice = self.var_state_at_block_entry(block, var).locality;
-        match self.contract_locality(var) {
-            Some(contract) => contract.join(lattice),
-            None => lattice,
-        }
+        join_contract_over_lattice(lattice, self.contract_locality(var), Locality::join)
     }
 
     /// Effective locality combining contract-narrowed forward state with
@@ -1133,10 +1114,7 @@ impl AimsStateMap {
     #[must_use]
     pub fn effective_locality_at_block_exit(&self, block: ArcBlockId, var: ArcVarId) -> Locality {
         let lattice = self.var_state_at_block_exit(block, var).locality;
-        match self.contract_locality(var) {
-            Some(contract) => contract.join(lattice),
-            None => lattice,
-        }
+        join_contract_over_lattice(lattice, self.contract_locality(var), Locality::join)
     }
 
     // Sparse event table
@@ -1185,15 +1163,12 @@ impl AimsStateMap {
     ///
     /// `construct_count`: non-scalar `Construct` instructions with reusable ctor kinds.
     /// `consumed_count`: consumed values with `ReusableCtor` shape (provide reuse tokens).
-    /// Effect Activation.
     pub fn set_fip_balance(&mut self, construct_count: u32, consumed_count: u32) {
         self.fip_construct_count = construct_count;
         self.fip_consumed_count = consumed_count;
     }
 
     /// Number of non-scalar `Construct` instructions with reusable ctor kinds.
-    ///
-    /// Effect Activation.
     #[must_use]
     pub fn fip_construct_count(&self) -> u32 {
         self.fip_construct_count
@@ -1201,8 +1176,6 @@ impl AimsStateMap {
 
     /// Number of consumed non-scalar values with reusable shape (provide reuse
     /// tokens).
-    ///
-    /// Effect Activation.
     #[must_use]
     pub fn fip_consumed_count(&self) -> u32 {
         self.fip_consumed_count
@@ -1213,7 +1186,6 @@ impl AimsStateMap {
     /// `true` means consumed values with reusable shape >= construct allocations,
     /// so every Construct can potentially reuse memory from a consumed value.
     /// This is a necessary condition for FIP certification.
-    /// Effect Activation.
     #[must_use]
     pub fn fip_token_balanced(&self) -> bool {
         self.fip_consumed_count >= self.fip_construct_count
@@ -1223,7 +1195,6 @@ impl AimsStateMap {
     ///
     /// Returns 0 when balanced (FIP), positive when the function needs more
     /// allocations than it can reuse. Used for `FipContract::Bounded(n)`.
-    /// Effect Activation.
     #[must_use]
     pub fn fip_net_allocation(&self) -> u32 {
         self.fip_construct_count
@@ -1242,5 +1213,20 @@ impl AimsStateMap {
     #[must_use]
     pub fn num_vars(&self) -> usize {
         self.scalars.len()
+    }
+}
+
+/// Shared JOIN semantics behind every `effective_*_at_block_*` query
+/// (Invariant 5 — the side table feeds the lattice via JOIN, never
+/// overrides it). `None` (no contract narrowing) returns `lattice`
+/// unchanged; `Some(contract)` returns `join(contract, lattice)`.
+fn join_contract_over_lattice<T: Copy>(
+    lattice: T,
+    contract: Option<T>,
+    join: impl FnOnce(T, T) -> T,
+) -> T {
+    match contract {
+        Some(contract) => join(contract, lattice),
+        None => lattice,
     }
 }

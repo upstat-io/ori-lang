@@ -111,8 +111,8 @@ pre-commit:
       run: python3 scripts/comment-refactor-narration-lint.py --warn-only
     debug-flags-consistency:
       # ORI_* debug-flag registry consistency (diagnostics/check-debug-flags.sh):
-      # every flag used in source (raw std::env::var_os) is registered in
-      # oric/src/debug_flags.rs (orphan check), and every registered flag is used
+      # every flag used in source (raw std::env::var_os) is registered under
+      # oric/src/debug_flags/ (orphan check), and every registered flag is used
       # (stale check). Catches an unregistered or stale debug flag at commit time
       # instead of late in the full test run. Fast grep-based scan, exact (no
       # heuristics), gated blocking on Rust source changes.

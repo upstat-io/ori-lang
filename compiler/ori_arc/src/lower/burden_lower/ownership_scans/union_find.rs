@@ -117,27 +117,28 @@ impl ForwarderUnionFind {
     /// sum-aggregate `Construct` — the construct-fed lineage gate. Resolves every
     /// recorded sum-Construct dst to its rep and checks for a match.
     pub(super) fn is_sum_aggregate_construct_rep(&mut self, rep: ArcVarId) -> bool {
-        #[expect(
-            clippy::needless_collect,
-            reason = "collect copies the dsts out of the &self.sum_aggregate_construct_dsts borrow so the any() closure can call self.find with &mut self"
-        )]
         let dsts: Vec<ArcVarId> = self.sum_aggregate_construct_dsts.iter().copied().collect();
-        dsts.into_iter().any(|d| self.find(d) == rep)
+        self.any_resolves_to_rep(dsts, rep)
     }
 
     /// True iff `rep`'s allocation root is a FRESH heap-buffer allocation — a
     /// collection-buffer `Construct` (`ListLiteral`/`MapLiteral`/`SetLiteral`) OR
     /// a `Let { Literal::String }` (heap str body).
     pub(super) fn is_fresh_collection_construct_rep(&mut self, rep: ArcVarId) -> bool {
-        #[expect(
-            clippy::needless_collect,
-            reason = "collect copies the dsts out of the &self.fresh_collection_construct_dsts borrow so the any() closure can call self.find with &mut self"
-        )]
         let dsts: Vec<ArcVarId> = self
             .fresh_collection_construct_dsts
             .iter()
             .copied()
             .collect();
+        self.any_resolves_to_rep(dsts, rep)
+    }
+
+    /// Shared query core behind [`Self::is_sum_aggregate_construct_rep`] and
+    /// [`Self::is_fresh_collection_construct_rep`]: true iff any var in `dsts`
+    /// resolves (via `find`) to `rep`. Callers pass an owned `Vec` (already
+    /// copied out of the field they query) so this can call `self.find` with
+    /// `&mut self` while iterating.
+    fn any_resolves_to_rep(&mut self, dsts: Vec<ArcVarId>, rep: ArcVarId) -> bool {
         dsts.into_iter().any(|d| self.find(d) == rep)
     }
 

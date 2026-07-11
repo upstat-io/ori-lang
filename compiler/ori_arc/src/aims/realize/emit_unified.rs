@@ -94,7 +94,7 @@ pub(super) fn emit_rc_unified(
     Vec<AllocEvent>,
     metrics::SynergyMetrics,
 ) {
-    debug_assert!(
+    assert!(
         !func.var_reprs.is_empty(),
         "var_reprs must be populated before RC emission"
     );
@@ -1107,7 +1107,8 @@ fn lower_burden_ops_to_rc(
             let has_user_drop = type_has_user_drop(ty, type_registry);
             // Why: a Scalar repr carries no RC header — skip it (no RC op) UNLESS
             // its type has a user `@drop`, which falls through to the `UserDrop`
-            // branch below (the `@drop` call alone). Spec: Annex E §AIMS RL-DROP.
+            // strategy in the match that follows (the `@drop` call alone).
+            // Spec: Annex E §AIMS RL-DROP.
             if matches!(repr, crate::ir::ValueRepr::Scalar) && !has_user_drop {
                 continue;
             }

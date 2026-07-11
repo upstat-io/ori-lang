@@ -262,11 +262,9 @@ fn oracle_detects_may_deallocate_mismatch() {
     );
 }
 
-// 05.PRE: Failing tests that expose known soundness bugs in the current oracle
+// Alias-aware, ownership-aware, and count-aware oracle derivation
 
-/// The oracle must detect RC operations on parameter aliases created via `Let` bindings.
-/// Bug: current oracle only checks direct parameter vars, not aliases.
-/// 05.PRE TDD: now passes with aliasing-aware oracle (05.1 rewrite).
+/// The oracle detects RC operations on parameter aliases created via `Let` bindings.
 #[test]
 fn oracle_tracks_aliased_param_via_let_binding() {
     // param0 -> v1 via Let { dst: v1, value: Var(param0) }
@@ -289,8 +287,7 @@ fn oracle_tracks_aliased_param_via_let_binding() {
     );
 
     let contracts = derive_param_contracts(&func);
-    // The oracle SHOULD detect this as Owned + Unrestricted (RcInc on an alias).
-    // Currently fails: oracle sees Borrowed + Linear (misses the aliased RcInc).
+    // An RcInc on an alias of param0 makes access=Owned + consumption=Unrestricted.
     assert_eq!(
         contracts[0].access,
         AccessClass::Owned,
@@ -303,8 +300,8 @@ fn oracle_tracks_aliased_param_via_let_binding() {
     );
 }
 
-/// The oracle must count batched `RcInc.count`, not just increment by 1.
-/// Bug: current oracle does `rc_incs[idx] += 1` instead of `+= count`.
+/// The oracle counts batched `RcInc.count` rather than incrementing by 1
+/// per instruction.
 #[test]
 fn oracle_counts_batched_rc_inc() {
     let func = func_with_body(
@@ -318,17 +315,13 @@ fn oracle_counts_batched_rc_inc() {
     );
 
     let contracts = derive_param_contracts(&func);
-    // With count=3, the oracle should see 3 increments, not 1.
-    // Both current and correct oracle say Unrestricted (any rc_incs > 0),
-    // so the bug is unobservable at the current API surface. The real impact
-    // is in future `may_share` derivation and diagnostic detail.
+    // With count=3, the oracle sees 3 increments; access/consumption still
+    // derive to Owned/Unrestricted (any rc_incs > 0).
     assert_eq!(contracts[0].access, AccessClass::Owned);
     assert_eq!(contracts[0].consumption, Consumption::Unrestricted);
 }
 
-/// The oracle must detect ownership transfers via `arg_ownership` on `Apply`.
-/// Bug: current oracle treats all `Apply` args as non-RC uses, ignoring `arg_ownership`.
-/// 05.PRE TDD: now passes with ownership-aware oracle (05.1 rewrite).
+/// The oracle detects ownership transfers via `arg_ownership` on `Apply`.
 #[test]
 fn oracle_accounts_for_arg_ownership_transfer() {
     let func = func_with_body(
@@ -344,9 +337,8 @@ fn oracle_accounts_for_arg_ownership_transfer() {
     );
 
     let contracts = derive_param_contracts(&func);
-    // When param0 is passed as Owned to a callee, the oracle SHOULD detect
-    // this as access=Owned (ownership was transferred). Currently the oracle
-    // sees this as a non-RC use -> Borrowed + Linear.
+    // param0 passed as an Owned arg to the callee makes access=Owned
+    // (ownership was transferred).
     assert_eq!(
         contracts[0].access,
         AccessClass::Owned,
@@ -354,8 +346,7 @@ fn oracle_accounts_for_arg_ownership_transfer() {
     );
 }
 
-/// The oracle should derive `may_share` from `rc_incs > 0`.
-/// Bug: current `RealizedParamContract` has no `may_share` field.
+/// The oracle derives `may_share` from `rc_incs > 0`.
 #[test]
 fn oracle_derives_may_share_from_rc_incs() {
     let func = func_with_body(
@@ -369,8 +360,6 @@ fn oracle_derives_may_share_from_rc_incs() {
     );
 
     let _contracts = derive_param_contracts(&func);
-    // The oracle SHOULD expose `may_share`. Currently `RealizedParamContract`
-    // has no `may_share` field. Verify the coherence comparison misses it.
     let inferred = make_contract(vec![ParamContract {
         access: AccessClass::Owned,
         consumption: Consumption::Unrestricted,
@@ -391,12 +380,8 @@ fn oracle_derives_may_share_from_rc_incs() {
     }]);
 
     let mismatches = verify_coherence(&func, &inferred, 0);
-    // The oracle SHOULD detect that inferred.may_share=false but realized
-    // has rc_incs > 0 (meaning may_share should be true). Currently the
-    // oracle does not check may_share at all -- verify_coherence returns
-    // NO mismatches for this case, which is the bug.
-    //
-    // After 05.1 rewrite: oracle now checks may_share via ParamMayShare.
+    // The oracle detects that inferred.may_share=false but realized has
+    // rc_incs > 0 (meaning may_share should be true) via ParamMayShare.
     assert!(
         mismatches
             .iter()
@@ -406,9 +391,6 @@ fn oracle_derives_may_share_from_rc_incs() {
 }
 
 /// `RcDec` after a non-RC use should be `Linear`, not `Affine`.
-/// Bug: current oracle derives `Affine` for any "`RcDec` only" pattern,
-/// regardless of whether there was a prior non-RC use.
-/// 05.PRE TDD: now passes with aggregate-count derivation (05.1 rewrite).
 #[test]
 fn oracle_distinguishes_affine_from_linear() {
     let func = func_with_body(
@@ -433,10 +415,9 @@ fn oracle_distinguishes_affine_from_linear() {
     );
 
     let contracts = derive_param_contracts(&func);
-    // The current oracle sees rc_incs=0, rc_decs=1, and derives Affine.
-    // But there IS a non-RC use (the Apply), so the correct derivation
-    // is Linear (consumed at use, then dropped). Affine means "dropped
-    // WITHOUT use" -- which is not the case here.
+    // A prior non-RC use (the Apply) means the value is consumed at use,
+    // then dropped, so the correct derivation is Linear — Affine means
+    // "dropped WITHOUT use", which is not the case here.
     assert_eq!(
         contracts[0].consumption,
         Consumption::Linear,
@@ -446,10 +427,8 @@ fn oracle_distinguishes_affine_from_linear() {
 
 // Alias propagation across Jump→block-param→Let chains
 
-/// Regression: alias introduced via Let AFTER a Jump block-param propagation.
-/// Bug: the Let pass ran outside the fixpoint loop, so Let bindings in blocks
-/// reached by Jump were never resolved when the source was a block param.
-/// Fix: both Let and Jump propagation are now inside the fixpoint loop.
+/// An alias introduced via `Let` after a Jump block-param propagation is
+/// resolved — both `Let` and Jump propagation run inside the fixpoint loop.
 #[test]
 fn oracle_tracks_alias_through_jump_then_let() {
     // Block 0: Jump to block 1, passing param0 as arg
@@ -503,8 +482,8 @@ fn oracle_tracks_alias_through_jump_then_let() {
     );
 }
 
-/// Regression: effect derivation must detect `PartialApply` as allocation source.
-/// Bug: `derive_effects()` only checked Construct, missing closure env allocation.
+/// Effect derivation detects `PartialApply` as an allocation source (closure
+/// env allocation), not only `Construct`.
 #[test]
 fn oracle_detects_may_allocate_from_partial_apply() {
     let func = func_with_body(
@@ -524,7 +503,7 @@ fn oracle_detects_may_allocate_from_partial_apply() {
     );
 }
 
-// 05.1.3 Additional matrix tests
+// Additional matrix tests
 
 /// Transitive alias chain: param0 -> v1 -> v2, `RcInc` on v2 detected.
 #[test]
@@ -660,7 +639,7 @@ fn oracle_detects_owned_transfer_via_partial_apply() {
     assert_eq!(contracts[0].consumption, Consumption::Linear);
 }
 
-// 05.2 Effect derivation tests
+// Effect derivation tests
 
 /// `may_allocate` detected from `Construct` instruction in the function.
 #[test]

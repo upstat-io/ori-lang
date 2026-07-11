@@ -188,20 +188,26 @@ pub(in crate::lower::burden_lower) fn compute_borrowed_invoke_collection_lineage
 
     let mut candidates: Vec<Candidate> = Vec::new();
     let mut claimed_roots: FxHashSet<ArcVarId> = FxHashSet::default();
+    let classification = RootClassification {
+        result_roots: &result_roots,
+        fresh_result_roots: &fresh_result_roots,
+        builtin_result_roots: &builtin_result_roots,
+        struct_roots: &struct_roots,
+    };
 
     for root in roots {
+        let claims = PriorClaims {
+            construct_fed: claimed_by_construct_fed,
+            live_extract: claimed_by_live_extract,
+            in_scan: &claimed_roots,
+        };
         if let Some(cand) = try_build_candidate(
             func,
             root,
             &used,
             owned_vars_needing_rc,
-            claimed_by_construct_fed,
-            claimed_by_live_extract,
-            &result_roots,
-            &fresh_result_roots,
-            &builtin_result_roots,
-            &struct_roots,
-            &claimed_roots,
+            claims,
+            classification,
             contracts,
             interner,
         ) {
@@ -308,26 +314,55 @@ fn struct_root_has_field_extract(func: &ArcFunction, members: &FxHashSet<ArcVarI
     !collect_member_field_extract_seeds(func, members).is_empty()
 }
 
+/// Per-root classification sets computed once before the gate loop and reused
+/// for every candidate root: which roots are RESULT-family (borrowed-call
+/// results), which of those are provably-fresh, which are self-allocating-
+/// builtin results, and which are plain-`Struct` roots. The four sets always
+/// co-vary — every candidate root is checked against all four together — so
+/// they travel as one bundle rather than four parallel parameters.
+#[derive(Clone, Copy)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "each field is a distinct root-classification set; the shared \
+              `_roots` suffix documents that shared role, dropping it would \
+              obscure the struct's purpose"
+)]
+struct RootClassification<'a> {
+    result_roots: &'a FxHashSet<ArcVarId>,
+    fresh_result_roots: &'a FxHashSet<ArcVarId>,
+    builtin_result_roots: &'a FxHashSet<ArcVarId>,
+    struct_roots: &'a FxHashSet<ArcVarId>,
+}
+
+/// Prior-claim sets gate (b)/(b') consult to avoid re-admitting a var another
+/// Phase-5 ownership scan (or an earlier candidate in this same scan) already
+/// placed a release for. Bundles the three claim sets that travel together at
+/// every call site into one parameter.
+#[derive(Clone, Copy)]
+struct PriorClaims<'a> {
+    construct_fed: &'a FxHashSet<ArcVarId>,
+    live_extract: &'a FxHashSet<ArcVarId>,
+    in_scan: &'a FxHashSet<ArcVarId>,
+}
+
 /// Run gates (b) .. (e) for one `root`, returning the admitted [`Candidate`] or
 /// `None` (declined).
 #[expect(
     clippy::too_many_arguments,
     reason = "the per-root gate sequence threads the full claimed-set context \
-              (construct-fed, live-extract, in-scan, result-roots) — bundling \
-              would obscure the gate-(b)/(b')/(c) claim disjointness"
+              (bundled into PriorClaims + RootClassification) plus the \
+              function/root/used/owned-set/contracts/interner identity — \
+              already collapsed from 13 params to 8 via the two bundles; \
+              further bundling would obscure the gate-(b)/(b')/(c) claim \
+              disjointness"
 )]
 fn try_build_candidate(
     func: &ArcFunction,
     root: ArcVarId,
     used: &FxHashSet<ArcVarId>,
     owned_vars_needing_rc: &FxHashSet<ArcVarId>,
-    claimed_by_construct_fed: &FxHashSet<ArcVarId>,
-    claimed_by_live_extract: &FxHashSet<ArcVarId>,
-    result_roots: &FxHashSet<ArcVarId>,
-    fresh_result_roots: &FxHashSet<ArcVarId>,
-    builtin_result_roots: &FxHashSet<ArcVarId>,
-    struct_roots: &FxHashSet<ArcVarId>,
-    claimed_roots: &FxHashSet<ArcVarId>,
+    claims: PriorClaims<'_>,
+    classification: RootClassification<'_>,
     contracts: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
 ) -> Option<Candidate> {
@@ -344,8 +379,8 @@ fn try_build_candidate(
     // dead-param family (the call-site-count ≤ 1 dead-param shape) + not already
     // claimed within this scan.
     if !owned_vars_needing_rc.contains(&root)
-        || claimed_by_construct_fed.contains(&root)
-        || claimed_roots.contains(&root)
+        || claims.construct_fed.contains(&root)
+        || claims.in_scan.contains(&root)
     {
         decline("b:owned/claimed");
         return None;
@@ -363,7 +398,7 @@ fn try_build_candidate(
     // web is the SAME allocation the live-extract scan already placed its
     // execution-final release on; admitting it here would place a second
     // death-point release → double-free. Decline the whole closure.
-    if !members.is_disjoint(claimed_by_live_extract) {
+    if !members.is_disjoint(claims.live_extract) {
         decline("b':live-extract-claimed");
         return None;
     }
@@ -371,7 +406,9 @@ fn try_build_candidate(
     // (the carrier whose inline dec is the bug). A RESULT root is itself a
     // may-unwind `Invoke` result (qualified by the collector) — no borrowed-arg
     // carrier needed.
-    if !result_roots.contains(&root) && !closure_has_borrowed_invoke_arg(func, &members) {
+    if !classification.result_roots.contains(&root)
+        && !closure_has_borrowed_invoke_arg(func, &members)
+    {
         decline("c:no-borrowed-invoke");
         return None;
     }
@@ -382,7 +419,8 @@ fn try_build_candidate(
     // any `Project` of a member with a non-member dst declines the candidate
     // (declining is memory-safe — status-quo emission). Spec: Annex E §AIMS
     // RL-2 + TF-4.
-    if struct_roots.contains(&root) && struct_root_has_field_extract(func, &members) {
+    if classification.struct_roots.contains(&root) && struct_root_has_field_extract(func, &members)
+    {
         decline("s1:struct-field-extract");
         return None;
     }
@@ -418,15 +456,16 @@ fn try_build_candidate(
     // ttr) — the contract-aware discriminator separating provably-fresh results
     // from same-buffer views (`@substring` / `@repeat`, where an edge release
     // double-frees); all other result roots stay DEAD-PARAM-mode-only.
-    let allow_no_sink = !result_roots.contains(&root) || fresh_result_roots.contains(&root);
+    let allow_no_sink = !classification.result_roots.contains(&root)
+        || classification.fresh_result_roots.contains(&root);
     // LOOP-EXIT mode is COLLECTION-root-only: a loop-invariant fresh buffer the
     // caller allocates before the loop and borrow-reads inside it. A RESULT
     // root is defined by an in-loop `Invoke` (per-iteration; (l3) declines it
     // anyway) and stays with the dead-param / no-sink modes.
     // STRUCT roots stay with the dead-param / no-sink modes (loop-exit +
     // carrier-succ are excluded at admission until a failing cell exists).
-    let allow_loop_exit = !result_roots.contains(&root)
-        && !struct_roots.contains(&root)
+    let allow_loop_exit = !classification.result_roots.contains(&root)
+        && !classification.struct_roots.contains(&root)
         && !loop_borrowed_lineage_exit_release_disabled();
     // CARRIER-SUCC mode is restricted to the SELF-ALLOCATING-BUILTIN result
     // family: the root is structurally a fresh rc=1 buffer the runtime
@@ -434,7 +473,7 @@ fn try_build_candidate(
     // placed release at the consuming `Invoke`'s normal-successor entry frees
     // exactly the allocation's own +1. Collection / contract-result roots stay
     // with the dead-param / no-sink / loop-exit modes.
-    let allow_carrier_succ = builtin_result_roots.contains(&root);
+    let allow_carrier_succ = classification.builtin_result_roots.contains(&root);
     let death = choose_death_point(
         func,
         &members,

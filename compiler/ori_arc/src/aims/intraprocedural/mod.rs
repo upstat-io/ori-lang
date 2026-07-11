@@ -56,7 +56,7 @@ use crate::ArcClassification;
 use super::contract::{ContextRegion, MemoryContract};
 use super::lattice::AimsState;
 
-///  — IC-7 convergence bound counter (debug-only).
+/// IC-7 convergence bound counter (debug-only).
 ///
 /// Records the max iteration count observed across `analyze_function` calls
 /// during the current process. Used by the burden-lattice smoke harness to
@@ -141,7 +141,9 @@ fn build_invoke_dst_to_owner(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcBlock
 )]
 #[expect(
     clippy::too_many_lines,
-    reason = "pre-existing; intraprocedural analysis entry point is inherently long"
+    reason = "orchestrates the fixed-point iteration loop over block postorder \
+        with interleaved invoke-edge and def-demand bookkeeping; splitting would \
+        fragment one atomic convergence loop across helper boundaries"
 )]
 pub fn analyze_function(
     func: &ArcFunction,
@@ -324,7 +326,7 @@ pub fn analyze_function(
         if state_map.is_converged() {
             #[cfg(debug_assertions)]
             {
-                //  — record watermark for IC-7 bound assertion.
+                // Record watermark for IC-7 bound assertion.
                 let prev = MAX_ITERATIONS_OBSERVED.load(std::sync::atomic::Ordering::Relaxed);
                 if iteration > prev {
                     MAX_ITERATIONS_OBSERVED.store(iteration, std::sync::atomic::Ordering::Relaxed);
@@ -408,8 +410,6 @@ pub fn analyze_function(
 /// `cross_dimension_detected` flag is set.
 ///
 /// With current rules, this should always pass.
-///
-/// Convergence Feedback.
 fn verify_canonical_fixed_point(state_map: &mut AimsStateMap, func: &ArcFunction) {
     let mut max_rounds: u8 = 0;
 

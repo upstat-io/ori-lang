@@ -122,8 +122,8 @@ pub fn realize_rc_reuse(
     // no stale summaries). This function therefore does NOT invoke
     // emit_arg_ownership — the prelude has already populated arg_ownership
     // before it runs. `_builtins` is unused here (kept for signature
-    // stability); contracts / interner / pool are consumed by Sub-steps
-    // B / C below.
+    // stability); contracts / interner / pool are consumed by the
+    // RC-emission (Sub-step B) and reuse-emission (Sub-step C) sub-steps.
 
     // Sub-step B: unified RC emission via the burden path. The burden path's
     // own RL-1 duplication inc (emit_burden_ops dup-alias / FRESH-site inc)
@@ -356,9 +356,10 @@ fn annotate_block(
         if ctx.cow_names.contains(callee) && !args.is_empty() {
             let receiver = args[0];
             let state = ctx.state_map.var_state_at_block_entry(blk, receiver);
-            // Same effective-uniqueness helper as the body-Apply path
-            // above; symmetric for Invoke terminators whose dst contract
-            // narrowing is populated by populate_call_result_states.
+            // Uses the same effective-uniqueness helper as the body-Apply
+            // COW site, applied symmetrically to Invoke terminators whose
+            // dst contract narrowing is populated by
+            // populate_call_result_states.
             let site_ctx = AnnotationSiteContext {
                 var: receiver,
                 uniqueness: ctx

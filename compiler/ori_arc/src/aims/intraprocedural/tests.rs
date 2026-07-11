@@ -99,7 +99,7 @@ fn single_block_literal_return() {
     // Literal returns SCALAR. But the classifier says it's a ref type.
     // The analyzer marks scalars based on the classifier, not the literal.
     //
-    // Since ty(0) is DefiniteRef in our classifier, v0 is NOT scalar.
+    // Since ty(0) is DefiniteRef per the classifier, v0 is NOT scalar.
     // But Let { Literal } transfer function gives it SCALAR state.
     // The backward demand from Return adds Once.
     let entry = state_map.var_state_at_block_entry(block_id(0), var(0));
@@ -260,7 +260,7 @@ fn sequential_uses_in_same_block_are_many() {
     // seq_add(Once, Once) = Many — sequential composition.
     // But v0 is defined in this block (Construct), so its entry state is BOTTOM.
     // The exit state captures the demand before the block's instructions run.
-    // We need to check the exit state to see the accumulated demand.
+    // The accumulated demand is visible by checking the exit state.
 
     // v0 is defined in this block, so entry has no demand for v0 (it's produced here).
     assert_eq!(
@@ -1243,7 +1243,7 @@ fn sparse_events_local_alloc_for_function_local_variable() {
         .filter(|e| matches!(e, super::state_map::AimsEvent::LocalAllocCandidate { .. }))
         .collect();
 
-    // If locality is FunctionLocal or BlockLocal, we should have an event.
+    // If locality is FunctionLocal or BlockLocal, an event should be recorded.
     // If locality is Unknown/HeapEscaping (conservative default), no event.
     if matches!(
         exit_v0.locality,
@@ -1518,8 +1518,8 @@ fn callee_contract_locality_widens_arg() {
 
     // Key verification: analysis converges successfully with contract locality.
     // The contract-aware demand influences the entry state of the function
-    // (for parameters), which we test via interprocedural tests.
-    // v0 is defined in this block (removed from entry), so we verify via
+    // (for parameters), covered separately by interprocedural tests.
+    // v0 is defined in this block (removed from entry), so this is verified via
     // event table: v0 should NOT be a LocalAllocCandidate because the
     // callee escapes it.
     let events = state_map.events_in_block(block_id(0));
@@ -5655,8 +5655,8 @@ fn context_hole_shape_does_not_register_synthetic_typeid_in_type_registry() {
     // produce a fresh entry. A "register UserBurdenSpec on synthetic
     // ContextHole TypeId" path must NOT manifest.
     //
-    // We construct an empty TypeRegistry, run the lattice analysis with
-    // ContextHole annotation applied post-convergence, and verify:
+    // Constructs an empty TypeRegistry, runs the lattice analysis with
+    // ContextHole annotation applied post-convergence, and verifies:
     // (a) no burden_signature claim was made;
     // (b) `TypeRegistry::burden` lookup on the underlying TypeId returns
     //     None (the underlying type was never registered as a user type).
@@ -5755,8 +5755,8 @@ fn negative_pin_no_synthetic_context_hole_typeid_minting_pathway_exists() {
     // synthetic TypeId carrying a "ContextHole" tag. Such an API must NOT
     // exist; this test pins its absence.
     //
-    // The verification is structural: we exercise every shape-related
-    // surface on `AimsStateMap` and confirm none returns a synthetic Idx.
+    // The verification is structural: it exercises every shape-related
+    // surface on `AimsStateMap` and confirms none returns a synthetic Idx.
     let func = ArcFunction {
         var_types: vec![Idx::INT],
         blocks: vec![ArcBlock {

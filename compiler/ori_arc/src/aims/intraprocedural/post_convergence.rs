@@ -133,9 +133,9 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
 
         // Invoke terminator's dst is also a forward-defined call result;
         // treat symmetrically to body-Apply per `populate_call_result_states`.
-        // The body loop above never visits the terminator — Invoke results
-        // would otherwise be silently skipped. `is_excluded` matches the body
-        // loop's exclusion criteria (scalars + immortals).
+        // The body loop iterating `block.body` never visits the terminator —
+        // Invoke results would otherwise be silently skipped. `is_excluded`
+        // matches the body loop's exclusion criteria (scalars + immortals).
         if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
             if !state_map.is_excluded(*dst) {
                 let effective_loc = state_map.effective_locality_at_block_exit(blk, *dst);
@@ -298,8 +298,6 @@ pub(crate) fn populate_call_result_states(
 /// - Cross-dimensional uniqueness proof (Once+ReusableCtor → static reuse)
 /// - COW annotation for `CollectionBuffer` non-parameters
 /// - TRMC candidate detection (`ContextHole`)
-///
-/// Shape Activation.
 pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFunction) {
     for block in &func.blocks {
         for instr in &block.body {
@@ -530,7 +528,8 @@ fn step_join_alias(state_map: &mut AimsStateMap, dst: ArcVarId, sources: &[ArcVa
 /// TRMC requires TWO soundness gates:
 ///
 /// 1. **Per-variable uniqueness (enforced):** The context variable must have
-///    `Uniqueness::Unique` at the mutation point. Checked below.
+///    `Uniqueness::Unique` at the mutation point (enforced by the
+///    `state.uniqueness != Uniqueness::Unique` guard in this scan).
 ///
 /// 2. **Effect purity (logged, not enforced):** In principle,
 ///    `may_resume_nonlinearly` (derived from `EffectSummary.may_share`)
@@ -549,8 +548,6 @@ fn step_join_alias(state_map: &mut AimsStateMap, dst: ArcVarId, sources: &[ArcVa
 /// When all conditions hold, the constructor's shape is upgraded to
 /// `ContextHole`, enabling Stage 3 TRMC normalization to rewrite the
 /// recursive call into an in-place fill of the constructor's hole.
-///
-/// Shape Activation — `ContextHole` detection.
 pub(crate) fn detect_trmc_candidates(
     state_map: &mut AimsStateMap,
     func: &ArcFunction,
@@ -874,7 +871,8 @@ pub(crate) fn materialize_transitive_drop_singleton_classes(
             if let Some(strat) = dst_strategy_of(func, *dst) {
                 if is_transitive_drop_strategy(strat) {
                     for (i, arg) in args.iter().enumerate() {
-                        // Path-c: see Apply branch above.
+                        // Path-c: same edge-eligibility rule as the Apply arm
+                        // (Owned-access OR contract-claimed payload containment).
                         let edge_eligible = match sigs.get(callee) {
                             Some(contract) => contract.params.get(i).map_or_else(
                                 || {
