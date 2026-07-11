@@ -381,6 +381,43 @@ fn jump_args_contain(func: &ArcFunction, b: usize, var: ArcVarId) -> bool {
 /// The transitive `Let { Var }` alias closure of `vars`: every binding
 /// renaming a member of the set joins it (fixpoint over the body streams —
 /// forward block order does not bound alias chains threaded through jumps).
+/// Close `vars` over `Let { Var }` aliases AND `Project` results — the
+/// BORROW-VIEW closure: a projection of a borrowed-rooted value views the
+/// same caller-owned allocation tree (TF-4), so the callee releases nothing
+/// for it.
+pub(super) fn close_over_borrow_views(
+    func: &ArcFunction,
+    mut vars: rustc_hash::FxHashSet<ArcVarId>,
+) -> rustc_hash::FxHashSet<ArcVarId> {
+    use crate::ir::{ArcInstr, ArcValue};
+
+    if vars.is_empty() {
+        return vars;
+    }
+    loop {
+        let mut changed = false;
+        for arc_block in &func.blocks {
+            for instr in &arc_block.body {
+                let (dst, src) = match instr {
+                    ArcInstr::Let {
+                        dst,
+                        value: ArcValue::Var(src),
+                        ..
+                    } => (dst, src),
+                    ArcInstr::Project { dst, value, .. } => (dst, value),
+                    _ => continue,
+                };
+                if vars.contains(src) && vars.insert(*dst) {
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return vars;
+        }
+    }
+}
+
 pub(super) fn close_over_let_aliases(
     func: &ArcFunction,
     mut vars: rustc_hash::FxHashSet<ArcVarId>,

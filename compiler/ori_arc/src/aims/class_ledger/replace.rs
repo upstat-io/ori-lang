@@ -297,8 +297,10 @@ fn gate_rejection(
     };
     // Borrowed-ROOTED, not just the param var: a `Let { Var }` alias of a
     // borrowed param names the SAME caller-released allocation (the @drop
-    // body's `%2 = %0` self alias is the canonical case).
-    let borrowed_rooted = super::emit::close_over_let_aliases(
+    // body's `%2 = %0` self alias is the canonical case), and a `Project`
+    // of one is a borrow-view of the same caller-owned allocation tree
+    // (the recursive-`@drop` body's field views).
+    let borrowed_rooted = super::emit::close_over_borrow_views(
         func,
         func.params
             .iter()

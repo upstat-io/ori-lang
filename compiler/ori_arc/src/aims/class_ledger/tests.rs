@@ -4849,3 +4849,77 @@ fn replacement_admits_heap_user_drop_locals_consumed_into_owner() {
          recursive drop glue"
     );
 }
+
+/// The recursive-`@drop` corpus shape: the borrowed self's user-drop-typed
+/// FIELD VIEW (`Project` of the self alias) is a borrow of the same
+/// caller-owned allocation tree — the callee releases nothing for it
+/// (TF-4 borrow; the drop glue walking the fields is the caller).
+#[test]
+fn replacement_admits_borrowed_self_user_drop_field_view() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let struct_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "Guarded",
+        struct_idx,
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    // %1 = %0 (alias of borrowed self); %2 = Project %1.2 (user-drop field
+    // view); %3 = IsShared %2; ret %3.
+    let mut func = one_block_func(
+        4,
+        vec![
+            ArcInstr::Let {
+                dst: v(1),
+                ty: struct_idx,
+                value: ArcValue::Var(v(0)),
+            },
+            ArcInstr::Project {
+                dst: v(2),
+                ty: struct_idx,
+                value: v(1),
+                field: 2,
+            },
+            is_shared(3, 2),
+        ],
+        ret(3),
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: struct_idx,
+        ownership: Ownership::Borrowed,
+    }];
+    func.var_types = vec![struct_idx, struct_idx, struct_idx, ty(0)];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let outcome = attempt_replacement(
+        &mut func,
+        &state_map,
+        &contracts,
+        &registry,
+        &test_interner(),
+        true,
+    );
+    assert_eq!(
+        outcome
+            .fallback_reason
+            .map(super::replace::FallbackReason::as_str),
+        None,
+        "borrowed-self field view declined"
+    );
+    assert_eq!(
+        outcome.mode,
+        EmissionMode::Replaced,
+        "a field view of the borrowed self is caller-released"
+    );
+}
