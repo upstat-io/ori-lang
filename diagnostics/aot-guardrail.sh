@@ -273,7 +273,9 @@ if [[ -n "$BASELINE" ]]; then
     echo "${FIXED:-<none>}"
     if [[ -n "$NEW" ]]; then
         echo "GUARDRAIL-2 REGRESSION: $(echo "$NEW" | grep -c .) new failure(s)." >&2
+        echo "EXIT=1"
         exit 1
     fi
 fi
+echo "EXIT=0"
 exit 0

@@ -257,11 +257,38 @@ fn gate_rejection(
     if analysis.field_view_hazard {
         return Some(FallbackReason::FieldViewLiveness);
     }
-    if func
-        .var_types
-        .iter()
-        .any(|&ty| type_has_user_drop(ty, type_registry))
-    {
+    // User `@drop` admission: a WHOLE-VAR planned release lowers to the
+    // standard drop glue (heap repr) or `RcStrategy::UserDrop` (scalar
+    // repr), running the user `@drop` exactly once at the class's death
+    // point — same observable discipline as the legacy walk (RL-DROP:
+    // `userDrop` is balance-neutral). Declines:
+    // (a) a FIELD-GRAIN release on a user-drop type — a partial dec
+    //     releases fields around the type's own drop glue, so `@drop`
+    //     would run never or on a gutted value;
+    // (b) a user-drop-typed var with NO whole-var planned release of its
+    //     own — an excluded scalar or a suppressed/transferred shape whose
+    //     `@drop` the plan does not carry (the legacy walk's RL-DROP
+    //     completeness pass covers those).
+    let user_drop_var = |var: crate::ir::ArcVarId| {
+        func.var_types
+            .get(var.index())
+            .is_some_and(|&ty| type_has_user_drop(ty, type_registry))
+    };
+    if ops.iter().any(|op| {
+        matches!(op.kind, super::emit::PlannedOpKind::DecPartial { .. }) && user_drop_var(op.var)
+    }) {
+        return Some(FallbackReason::UserDropGlue);
+    }
+    let var_has_own_dec = |var: crate::ir::ArcVarId| {
+        ops.iter()
+            .any(|op| op.var == var && matches!(op.kind, super::emit::PlannedOpKind::Dec))
+    };
+    if (0..func.var_types.len()).any(|i| {
+        let var = crate::ir::ArcVarId::new(
+            u32::try_from(i).unwrap_or_else(|_| panic!("var index {i} fits in u32")),
+        );
+        user_drop_var(var) && !var_has_own_dec(var)
+    }) {
         return Some(FallbackReason::UserDropGlue);
     }
     if !ops_placeable(func, ops) {

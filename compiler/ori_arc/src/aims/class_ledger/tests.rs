@@ -961,10 +961,13 @@ fn replacement_declines_all_scalar_function_with_user_drop_type() {
     assert_eq!(gated, func);
 }
 
-/// A function whose type surface carries a user `@drop` falls back — the
-/// RL-DROP user-drop completeness pass belongs to the legacy walk.
+/// A user-`@drop` value whose class plans its own WHOLE-VAR release is
+/// ADMITTED: the planned dec lowers to the standard drop glue, which runs
+/// the user `@drop` exactly once at the death point (RL-DROP discipline —
+/// same observable behavior as the legacy walk). Only field-grain releases
+/// or plan-uncovered user-drop vars decline.
 #[test]
-fn replacement_declines_user_drop_glue_function() {
+fn replacement_admits_user_drop_value_with_whole_var_release() {
     use core::num::NonZeroU32;
     use ori_registry::burden::FnSym;
     use ori_types::burden::UserBurdenSpec;
@@ -999,9 +1002,15 @@ fn replacement_declines_user_drop_glue_function() {
         &test_interner(),
         true,
     );
-    assert_eq!(outcome.mode, EmissionMode::Fallback);
-    assert_eq!(outcome.fallback_reason, Some(FallbackReason::UserDropGlue));
-    assert_eq!(gated, func);
+    assert_eq!(outcome.mode, EmissionMode::Replaced);
+    assert!(
+        gated.blocks[0]
+            .body
+            .iter()
+            .any(|instr| matches!(instr, ArcInstr::BurdenDec { var } if *var == v(0))),
+        "the admitted user-drop value carries its whole-var release (the \
+         drop glue runs the user @drop exactly once)"
+    );
 }
 
 // Op-placement guard (`replace::ops_placeable`)
