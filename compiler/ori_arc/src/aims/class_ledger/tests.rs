@@ -500,6 +500,58 @@ fn branch_death_gets_edge_dec_on_dying_arm_only() {
     assert!(analysis.readiness.all_classes_clean);
 }
 
+/// A class consumed at a jump-arg hand-off on ONE merge edge and dying
+/// UNPASSED on the other exits the two predecessor edges with divergent
+/// owed counts — the completed-plan merge gate equalizes the surplus edge
+/// with an RL-4-style release at the predecessor's end instead of
+/// declining (the while-loop closure-reassignment shape: the overwritten
+/// binding's reference dies on the reassigned arm).
+#[test]
+fn merge_disagree_equalizes_with_per_edge_release() {
+    // The while-loop closure-reassignment CFG: b0 births C into the loop
+    // header's merge param %1; the body branches to a reassignment arm
+    // (b4: fresh D passed to the if-merge — %1 dies UNPASSED) or a
+    // passthrough arm (b5: %1 handed off); b6 jumps the back edge.
+    let lit = |dst: u32| ArcInstr::Let {
+        dst: v(dst),
+        ty: ty(0),
+        value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+    };
+    let func = func_with_blocks(
+        7,
+        vec![
+            block(0, vec![], vec![construct(0, vec![])], jump(1, vec![0])),
+            block(1, vec![1], vec![lit(2)], branch(2, 2, 3)),
+            block(2, vec![], vec![is_shared(3, 1)], ret(3)),
+            block(3, vec![], vec![lit(4)], branch(4, 4, 5)),
+            block(4, vec![], vec![construct(5, vec![])], jump(6, vec![5])),
+            block(5, vec![], vec![], jump(6, vec![1])),
+            block(6, vec![6], vec![], jump(1, vec![6])),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    state_map.set_permanent_scalar(v(3));
+    state_map.set_permanent_scalar(v(4));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let class = class_rep(&mut partition, 1);
+    assert_eq!(
+        verdict_for(&analysis, class),
+        ClassVerdict::Clean,
+        "the surplus-owing unpassed edge gets the equalizing release"
+    );
+    assert!(
+        ops_for(&analysis, class)
+            .iter()
+            .any(|op| matches!(op.kind, PlannedOpKind::Dec)
+                && op.slot.block() == 4
+                && op.var == v(1)),
+        "the equalizing release lands on the reassignment arm"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
+
 // Verifier soundness (`verify::verify_class`)
 
 /// A residual owed reference reaching a `Resume` terminal is a leak exactly
