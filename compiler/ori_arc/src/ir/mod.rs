@@ -506,14 +506,14 @@ pub struct ArcFunction {
     /// emitted at least one `BurdenInc` / `BurdenDec` / `BurdenDecPartial` /
     /// `BurdenDecField` / `BurdenDecVariant` instruction.
     ///
-    /// Indexed by `ArcVarId::index()`. `true` = burden walker owns this var's
-    /// RC traffic; the coexistence handshake (`Spec: Annex E §AIMS`, CH-1) has
-    /// the residual predicate-stack realization defer to the burden walk for
-    /// vars in this set on the default (coexistence) path.
+    /// Indexed by `ArcVarId::index()`. `true` = the burden walk owns this
+    /// var's RC traffic (CH-1 `burden_emitted` IS the lattice `burden_owned`,
+    /// `Spec: Annex E §AIMS`).
     ///
-    /// Default: empty. Populated by `emit_burden_ops`. Read by `decide()` at
-    /// realization (the coexistence handshake — CH-1 `burden_emitted` IS the
-    /// lattice `burden_owned`). Skipped during cache serialization — derived data.
+    /// Default: empty. Populated by `emit_burden_ops` (plus the ownership-scan
+    /// per-edge release claims). Read by the VF-1 burden-balance verifier to
+    /// scope the per-var net-zero ledger. Skipped during cache serialization —
+    /// derived data.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub burden_emitted: Vec<bool>,
     /// Mutable-`Ident` reassignment death points: `(old_var, new_var)` pairs
@@ -562,13 +562,10 @@ pub struct ArcFunction {
     ///
     /// `true` = the burden ops in the instruction stream ARE the class-ledger
     /// plan: realization lowers them mechanically (Phase 7) and skips the
-    /// Phase-6 elimination + repair passes, which optimize over the legacy
-    /// emission baseline (a per-var DP-3 verdict would strip a planned
-    /// funding inc). `burden_emitted` stays unmarked for plan variables — the
-    /// plan defers no release to the edge-cleanup machinery, so the
-    /// `carries_burden` gates stay inert. Step-10's redundant-project-alias
-    /// dec cleanup is also skipped for replaced functions (it repairs the
-    /// legacy baseline). Set only by
+    /// Phase-6 elimination, which optimizes over the raw emission baseline
+    /// (a per-var DP-3 verdict would strip a planned funding inc). Step-10's
+    /// redundant-project-alias dec cleanup is also skipped for replaced
+    /// functions (it repairs the raw baseline). Set only by
     /// `aims::class_ledger::attempt_replacement`. Skipped during cache
     /// serialization: a cache-restored function deserializes to `false`,
     /// which is safe only because the flag is re-derived on every pipeline

@@ -207,6 +207,30 @@ pub fn consuming_receiver_only_builtin_names(interner: &StringInterner) -> FxHas
         .collect()
 }
 
+/// Map/Set COW methods whose borrowed non-receiver args are runtime-COPIED
+/// into the receiver's buffer (the runtime funds the stored copy's element
+/// refs via `elem_inc`).
+///
+/// STRICT SUBSET of [`CONSUMING_RECEIVER_ONLY_METHOD_NAMES`]: `remove` /
+/// `difference` / `intersection` / `union` borrow their args for comparison
+/// or read-only traversal WITHOUT copying them in, so they do NOT belong
+/// here. Consumed by the class-ledger copy-out classification (RL-DROP
+/// copy-out family: a borrowed user-drop value copied into a container is
+/// released fields-only by the caller; the container drop releases the copy).
+const COPY_IN_METHOD_NAMES: &[&str] = &[
+    "insert", // map/set.insert(key, val) — key/val runtime-copied into the buffer
+];
+
+/// Collect interned [`Name`]s for the copy-in methods.
+///
+/// See [`COPY_IN_METHOD_NAMES`] for the semantic contract.
+pub fn copy_in_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
+    COPY_IN_METHOD_NAMES
+        .iter()
+        .map(|name| interner.intern(name))
+        .collect()
+}
+
 /// Collect interned [`Name`]s for ALL COW methods (union of consuming-receiver
 /// and consuming-receiver-only sets).
 ///

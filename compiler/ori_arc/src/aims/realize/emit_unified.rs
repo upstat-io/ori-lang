@@ -74,17 +74,13 @@ fn trace_phase_snapshot(
     }
 }
 
-/// Unified RC emission: per-block walk with inline death/alloc event collection.
+/// RC emission for a class-ledger-replaced function.
 ///
-/// Forward walk routing every decision through `decide()`, collecting reuse
-/// events inline (no separate death/alloc scans).
-///
-/// # Phases
-///
-/// 1. Per-block: dead-at-entry → unified body walk → terminator RC → deferred
-/// 2. Dead Invoke cleanup (orphaned Invoke result variables)
-/// 3. Inter-block edge cleanup (with deferred parent decs)
-/// 4. RC coalescing peephole per block
+/// Every production shape is class-ledger-replaced (the Step-4b fail-loud
+/// gate admits nothing else), so the burden ops in the instruction stream
+/// ARE the verified plan: this lowers them mechanically to `RcInc`/`RcDec`
+/// (`lower_burden_ops_to_rc`) and finalizes emission. A non-replaced
+/// function reaching this point is an internal error (`unreachable!`).
 pub(super) fn emit_rc_unified(
     func: &mut ArcFunction,
     _state_map: &AimsStateMap,

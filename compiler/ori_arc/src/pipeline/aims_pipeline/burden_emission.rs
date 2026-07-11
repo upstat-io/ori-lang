@@ -7,9 +7,11 @@ use crate::ir::ArcFunction;
 
 use super::AimsPipelineConfig;
 
-/// `ORI_DISABLE_BURDEN_OPS=1` skips `emit_burden_ops` at Step 4b; the
-/// predicate-stack realization path runs as in the pre-burden baseline. Read
-/// once at first access; permanent empty-harness parity + bisection flag.
+/// `ORI_DISABLE_BURDEN_OPS=1` skips `emit_burden_ops` at Step 4b. Burden
+/// emission is the sole RC-emission input (no fallback emitter exists), so
+/// setting this aborts compilation via the fail-loud migration gate for any
+/// function needing RC management — a negative-pin probe, never a build
+/// mode. Read once at first access.
 static BURDEN_OPS_DISABLED: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() == Ok("1"));
 
@@ -37,7 +39,8 @@ pub(super) fn legacy_emission_enabled() -> bool {
 
 /// Step 4b: emit `BurdenInc`/`BurdenDec*` ops from the converged state map.
 ///
-/// `ORI_DISABLE_BURDEN_OPS=1` skips emission entirely.
+/// `ORI_DISABLE_BURDEN_OPS=1` skips emission entirely (compilation then
+/// aborts at the fail-loud gate for any function needing RC management).
 ///
 /// The live `TypeRegistry` is threaded so `lookup_burden` resolves both the
 /// builtin (`BURDEN_TABLE`) partition AND user-side `[T]` / `{K:V}` / `Set<T>` /

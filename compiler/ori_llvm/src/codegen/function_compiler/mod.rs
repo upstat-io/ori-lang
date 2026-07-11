@@ -310,7 +310,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         // be a UAF/miscompile for a caller passing aliasing distinct-type views.
         // `ORI_DISABLE_RL31_NOALIAS=1` omits the RL-31 param `noalias` emission
         // (diagnostic bisection of alias-metadata vs upstream RC bugs; sibling
-        // of `ORI_DISABLE_BURDEN_OPS` / `ORI_DISABLE_BURDEN_ELIM`).
+        // of `ORI_DISABLE_BURDEN_OPS`).
         let rl31_disabled = *RL31_NOALIAS_DISABLED;
         let param_types: Vec<Idx> = abi.params.iter().map(|p| p.ty).collect();
         let noalias_proof = ori_arc::prove_param_noalias(&param_types, self.pool);

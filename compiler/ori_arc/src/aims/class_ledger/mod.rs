@@ -100,7 +100,7 @@ fn copy_out_store_args(
 ) -> FxHashSet<crate::ir::ArcVarId> {
     use crate::ir::{ArcInstr, ArcValue, CtorKind};
 
-    let insert_name = interner.intern("insert");
+    let copy_in_names = crate::borrow::copy_in_builtin_names(interner);
     let definer_is_map_or_set = |mut var: crate::ir::ArcVarId| loop {
         let mut definer = None;
         for arc_block in &func.blocks {
@@ -138,7 +138,7 @@ fn copy_out_store_args(
         else {
             continue;
         };
-        if *callee != insert_name || args.is_empty() {
+        if !copy_in_names.contains(callee) || args.is_empty() {
             continue;
         }
         if !definer_is_map_or_set(args[0]) {

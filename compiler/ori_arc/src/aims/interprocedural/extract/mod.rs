@@ -223,9 +223,6 @@ fn param_contract_for(
         // param. Consumed by the burden-path transitive-drop alias machinery
         // (`intraprocedural/apply_aliases.rs` + `post_convergence.rs`).
         return_payload_contains_param: facts.payload_containment.contains(&i),
-        // Per-path wrap proof — contained in the returned EnumVariant
-        // payload on EVERY return path. Gates the Phase-6.99 wrapped
-        // transfer-anchor credit (RL-1 mint / RL-2 transfer-through).
         // RL-2 iter-consume transfer fact (proven sound:
         // `AimsProof.Realization::RL2_iter_consuming_caller_dec_splits`).
         iter_consumes: facts.iter_consume.contains(&i),
@@ -330,9 +327,6 @@ struct ParamFacts {
     /// to it. Consumed by the burden-path transitive-drop alias machinery
     /// (`intraprocedural/post_convergence.rs::materialize_transitive_drop_singleton_classes`).
     payload_containment: FxHashSet<usize>,
-    /// Subset of `payload_containment`: params contained in the returned
-    /// `EnumVariant` payload on EVERY return path — the per-path wrap proof
-    /// consumed by the Phase-6.99 wrapped transfer-anchor admission.
     /// Params iter-consumed (`@iter` -> `ori_iter_drop`) inside the body —
     /// the RL-2 inward ownership transfer.
     iter_consume: FxHashSet<usize>,
