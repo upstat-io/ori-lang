@@ -26,6 +26,7 @@ use ori_types::{FunctionSig, TypeCheckResult};
 
 use crate::db::Db;
 use crate::imports;
+use crate::input::SourceFile;
 use crate::ir::{Name, Span, StringInterner};
 use crate::parser::ParseOutput;
 
@@ -166,6 +167,69 @@ pub(crate) fn register_builtins(
     }
 }
 
+/// Type-check `sf` via `crate::query::typed`, or synthesize a poisoned
+/// result carrying a `CircularImport` diagnostic when `sf` is already
+/// mid-typecheck on the current call stack.
+///
+/// Salsa's own cycle detector fires at the CALL SITE (before a `#[salsa::tracked]`
+/// query's body runs), so this check MUST happen before `crate::query::typed`
+/// is invoked — checking inside `typed()`'s own body would be too late.
+fn typed_or_poison(db: &dyn Db, sf: SourceFile) -> TypeCheckResult {
+    let path = sf.path(db);
+    match db.typing_stack().cycle_path(path) {
+        Some(cycle) => poisoned_circular_import_result(&cycle),
+        None => crate::query::typed(db, sf),
+    }
+}
+
+/// Build a poisoned `TypeCheckResult` carrying one `CircularImport` error
+/// naming the full cycle (per spec 18.7 "reports all cycles found").
+fn poisoned_circular_import_result(cycle: &[PathBuf]) -> TypeCheckResult {
+    let joined = cycle
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" -> ");
+    let error = ori_types::TypeCheckError::import_error(
+        format!("circular import detected: {joined}"),
+        Span::DUMMY,
+        ori_types::ImportErrorKind::CircularImport,
+    );
+    ori_types::TypeCheckResult::from_typed(ori_types::TypedModule {
+        errors: vec![error],
+        ..ori_types::TypedModule::default()
+    })
+}
+
+/// Copy every `CircularImport` diagnostic found among `results` into
+/// `checker`'s own error list.
+///
+/// A cyclic import is discovered at whichever recursion level directly
+/// attempts the doomed `typed()` call (via [`typed_or_poison`]'s poisoned
+/// fallback); without this propagation step the diagnostic stays trapped in
+/// that one result and never reaches the entry file the user actually asked
+/// to check. Called uniformly at every level of the `register_resolved_imports`
+/// recursion, so the diagnostic bubbles all the way up regardless of which
+/// file in the cycle is the driver's entry point.
+fn propagate_circular_import_errors<'a>(
+    checker: &mut ori_types::ModuleChecker<'_>,
+    results: impl Iterator<Item = &'a TypeCheckResult>,
+) {
+    for result in results {
+        for error in result.errors() {
+            if matches!(
+                error.kind,
+                ori_types::TypeErrorKind::ImportError {
+                    kind: ori_types::ImportErrorKind::CircularImport,
+                    ..
+                }
+            ) {
+                checker.push_error(error.clone());
+            }
+        }
+    }
+}
+
 /// Register prelude and imported functions with the type checker from resolved imports.
 ///
 /// Consumes a `ResolvedImports` produced by the unified import pipeline.
@@ -181,7 +245,8 @@ fn register_resolved_imports(
     if let Some(ref prelude) = resolved.prelude {
         // Get prelude's type-checked signatures for hash-first resolution.
         // Triggers prelude type checking (or returns cached result) via Salsa.
-        let prelude_tcr = prelude.source_file.map(|sf| crate::query::typed(db, sf));
+        let prelude_tcr = prelude.source_file.map(|sf| typed_or_poison(db, sf));
+        propagate_circular_import_errors(checker, prelude_tcr.iter());
 
         for func in &prelude.parse_output.module.functions {
             if func.visibility.is_public() {
@@ -229,8 +294,9 @@ fn register_resolved_imports(
     let module_results: Vec<Option<TypeCheckResult>> = resolved
         .modules
         .iter()
-        .map(|m| m.source_file.map(|sf| crate::query::typed(db, sf)))
+        .map(|m| m.source_file.map(|sf| typed_or_poison(db, sf)))
         .collect();
+    propagate_circular_import_errors(checker, module_results.iter().flatten());
 
     // 3a. Collect imported metadata for transitive forwarding.
     // Both type metadata and collection surfaces flow through the same sources.
@@ -238,7 +304,8 @@ fn register_resolved_imports(
         let prelude_result = resolved
             .prelude
             .as_ref()
-            .and_then(|p| p.source_file.map(|sf| crate::query::typed(db, sf)));
+            .and_then(|p| p.source_file.map(|sf| typed_or_poison(db, sf)));
+        propagate_circular_import_errors(checker, prelude_result.iter());
 
         let imported_metadata =
             collect_metadata_from_results(prelude_result.as_ref(), &module_results);

@@ -56,7 +56,6 @@ fn void_returning_import_calls_direct() {
 }
 
 #[test]
-#[ignore = "BUG-04-264: transitive module imports broken in the interpreter (imported module's own imports absent from its eval env); the AOT half of this shape is the concrete-import resolution defect this file pins"]
 fn chained_imports_resolve_transitively() {
     assert_multifile_cell_output(
         &[

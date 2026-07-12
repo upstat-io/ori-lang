@@ -3,7 +3,7 @@
 //!
 //! Drives the full pipeline — lex -> parse -> typecheck -> canonicalize -> ARC
 //! lowering -> AIMS interprocedural contract computation — then, per top-level
-//! function, projects the 18-property `MemoryContract` / `ReturnContract`
+//! function, projects the 19-property `MemoryContract` / `ReturnContract`
 //! / `EffectSummary` / `FipContract` surface plus the converged `AimsStateMap`
 //! per-variable lattice values to one JSONL record. The enum serialization runs
 //! through explicit snake-case match tables in [`record`], never a derive.

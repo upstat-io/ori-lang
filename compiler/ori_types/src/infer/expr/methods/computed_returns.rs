@@ -114,6 +114,24 @@ fn computed_list_return(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: 
             let elem = engine.pool().list_elem(receiver_ty);
             engine.pool_mut().option(elem)
         }
+        // flatten peels one level when the receiver's element is itself a
+        // list ([[T]] -> [T]), identity otherwise ([T] -> [T]). The
+        // first-peeled element can be an unresolved unification variable
+        // in a generic context (e.g. bound to a concrete type only via a
+        // wrapping call's own unification, never dereferenced by the
+        // shallow top-level resolve in method-receiver resolution) — it
+        // must be resolved before the Tag::List check, or the check
+        // incorrectly falls through to the identity branch.
+        "flatten" => {
+            let elem_raw = engine.pool().list_elem(receiver_ty);
+            let elem = engine.pool().resolve_fully(elem_raw);
+            if engine.pool().tag(elem) == Tag::List {
+                let inner = engine.pool().list_elem(elem);
+                engine.pool_mut().list(inner)
+            } else {
+                receiver_ty
+            }
+        }
         _ => engine.fresh_var(),
     }
 }

@@ -85,7 +85,6 @@ fn list_self_returning_mutations() {
         "sort_stable",
         "sorted",
         "unique",
-        "flatten",
         "push",
         "append",
         "prepend",
@@ -209,4 +208,34 @@ fn list_methods_alphabetically_sorted() {
     let mut sorted = names.clone();
     sorted.sort_unstable();
     assert_eq!(names, sorted, "List methods must be alphabetically sorted");
+}
+
+#[test]
+fn list_flatten_returns_fresh() {
+    let m = LIST
+        .methods
+        .iter()
+        .find(|m| m.name == "flatten")
+        .unwrap_or_else(|| panic!("flatten method should exist"));
+    assert_eq!(
+        m.returns, FRESH,
+        "List.flatten should return Fresh — its whole purpose is to change \
+         the receiver's shape, which SelfType (bare identity) cannot express."
+    );
+}
+
+#[test]
+fn list_flatten_is_backend_required() {
+    let m = LIST
+        .methods
+        .iter()
+        .find(|m| m.name == "flatten")
+        .unwrap_or_else(|| panic!("flatten method should exist"));
+    assert!(
+        m.backend_required,
+        "List.flatten must be backend_required: true now that the direct-list-method \
+         codegen dispatch arm exists — the backend_required_methods_in_llvm parity test \
+         then mechanically requires the (\"list\",\"flatten\") emitter to stay registered \
+         in the LLVM BuiltinTable, catching a future accidental removal."
+    );
 }

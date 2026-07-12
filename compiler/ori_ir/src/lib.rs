@@ -130,6 +130,7 @@ pub use ast::{
     // Impl types
     ImplDef,
     ImplMethod,
+    ImportCycleGuard,
     ImportErrorKind,
     ImportPath,
     // List with spread types

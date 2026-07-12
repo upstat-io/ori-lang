@@ -235,8 +235,14 @@ pub fn typed(db: &dyn Db, file: SourceFile) -> TypeCheckResult {
     // proves to type_check_with_imports_and_pool() that invalidation was performed.
     let guard = invalidate_file_caches(db, file_path);
 
+    // Mark this file mid-typecheck for the cycle guard. Every recursive
+    // caller (register_resolved_imports) already consulted `would_cycle`
+    // before reaching this call, so the push here is unconditional; `exit`
+    // always runs via the completion of this straight-line body.
+    db.typing_stack().enter(file_path);
     let (result, pool) =
         typeck::type_check_with_imports_and_pool(db, &parse_result, file_path, guard);
+    db.typing_stack().exit(file_path);
 
     // Cache the Pool for callers that need it alongside the TypeCheckResult.
     db.pool_cache().store(file_path, pool);

@@ -17,7 +17,7 @@ cat > "$WORK/compiler/oric/src/debug_flags/mod.rs" <<'EOF'
 EOF
 cat > "$WORK/compiler/use.rs" <<'EOF'
 const USED: &str = "ORI_USED";
-fn snapshot() { let _ = std::env::var_os("ORI_AOT_ARTIFACT_SNAPSHOT_DIR"); }
+fn sysroot() { let _ = std::env::var_os("ORI_SYSROOT"); }
 EOF
 cat > "$WORK/compiler/ori_rt/src/lib.rs" <<'EOF'
 const TRACE: &str = "ORI_TRACE_RC";
@@ -29,7 +29,7 @@ positive_output="$($WORK/diagnostics/check-debug-flags.sh --no-color)"
 case "$positive_output" in
     *"All checks passed."*) ;;
     *)
-        printf 'FAIL: AOT snapshot transport variable was classified as a debug flag\n%s\n' "$positive_output"
+        printf 'FAIL: non-diagnostic transport variable was classified as a debug flag\n%s\n' "$positive_output"
         exit 1
         ;;
 esac
@@ -53,4 +53,4 @@ case "$negative_output" in
         ;;
 esac
 
-echo "PASS: debug-flag classification accepts transport variables and rejects unknown flags"
+echo "PASS: debug-flag classification accepts non-diagnostic variables and rejects unknown flags"

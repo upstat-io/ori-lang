@@ -2,7 +2,7 @@
 //!
 //! Covers the explicit `snake_case` enum match tables (positive mappings +
 //! negative pins that a renamed variant or a `Debug`-derive substitution would
-//! break), the 18-property record projection, and an end-to-end emit on a tiny
+//! break), the 19-property record projection, and an end-to-end emit on a tiny
 //! compiled fixture.
 
 use ori_arc::aims::contract::FipContract;
@@ -139,9 +139,9 @@ fn lattice_value_json_carries_position_and_all_seven_dims() {
     assert_eq!(value["aims_effect_may_throw"], Value::from(true));
 }
 
-// Record projection: 18-property surface + identity + FipContract payloads.
+// Record projection: 19-property surface + identity + FipContract payloads.
 
-fn assert_eighteen_property_surface(record: &Value) {
+fn assert_nineteen_property_surface(record: &Value) {
     for key in [
         "aims_param_count",
         "aims_is_fbip",
@@ -150,6 +150,7 @@ fn assert_eighteen_property_surface(record: &Value) {
         "aims_return_locality",
         "aims_return_shape",
         "aims_return_returns_fresh_self_alloc",
+        "aims_return_returns_sharing_view",
         "aims_effect_may_allocate",
         "aims_effect_alloc_only_on_slow_path",
         "aims_effect_may_deallocate",
@@ -162,7 +163,7 @@ fn assert_eighteen_property_surface(record: &Value) {
     ] {
         assert!(
             record.get(key).is_some(),
-            "record missing 18-property surface key `{key}`"
+            "record missing 19-property surface key `{key}`"
         );
     }
     // Identity surface.
@@ -202,7 +203,7 @@ fn build_record_emits_full_surface_with_conditional_fip_array() {
         vec![lattice_value_json(0, AimsState::TOP)],
     );
 
-    assert_eighteen_property_surface(&record);
+    assert_nineteen_property_surface(&record);
     assert_eq!(record["schema_version"], Value::from(SCHEMA_VERSION));
     assert_eq!(record["repo"], Value::from(REPO));
     assert_eq!(record["aims_param_count"], Value::from(2));
@@ -215,8 +216,9 @@ fn build_record_emits_full_surface_with_conditional_fip_array() {
         record["aims_fip_conditional_requires_unique_params"],
         Value::from(vec![true, false])
     );
-    // All 5 ReturnContract fields present (incl. the 5th).
+    // All 6 ReturnContract fields are present.
     assert!(record.get("aims_return_returns_fresh_self_alloc").is_some());
+    assert!(record.get("aims_return_returns_sharing_view").is_some());
     // Lattice values carried through.
     assert_eq!(record["lattice_values"].as_array().map(Vec::len), Some(1));
 }
@@ -239,6 +241,27 @@ fn build_record_serializes_bounded_fip_payload() {
     assert!(record
         .get("aims_fip_conditional_requires_unique_params")
         .is_none());
+}
+
+#[test]
+fn build_record_serializes_returns_sharing_view_bool() {
+    let id = RecordIdentity {
+        qualified_name: "sharing_view",
+        file: "fixture.ori",
+        line: 1,
+        scip_moniker: "ori . . sharing_view().",
+    };
+
+    for expected in [false, true] {
+        let mut contract = MemoryContract::conservative(0);
+        contract.return_info.returns_sharing_view = expected;
+        let record = build_record(&id, &contract, 0, 0, vec![]);
+
+        assert_eq!(
+            record["aims_return_returns_sharing_view"],
+            Value::from(expected)
+        );
+    }
 }
 
 // End-to-end: emit on a tiny compiled fixture, asserting the producer drives the
@@ -274,7 +297,7 @@ fn build_records_emits_aims_state_for_compiled_fixture() {
         panic!("no record emitted for build_list");
     };
 
-    assert_eighteen_property_surface(record);
+    assert_nineteen_property_surface(record);
     assert_eq!(record["aims_param_count"], Value::from(1));
     assert_eq!(record["repo"], Value::from(REPO));
     assert_eq!(record["qualified_name"], Value::from("build_list"));

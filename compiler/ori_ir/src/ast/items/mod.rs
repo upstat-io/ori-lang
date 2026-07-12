@@ -14,11 +14,14 @@ pub use function::{
     Param, PostContract, PreContract, TargetAttr, TestBackend, TestDef,
 };
 pub use imports::{
-    qualified_alias_name, ExtensionImport, ExtensionImportItem, ImportErrorKind, ImportPath,
-    UseDef, UseItem,
+    qualified_alias_name, ExtensionImport, ExtensionImportItem, ImportCycleGuard, ImportErrorKind,
+    ImportPath, UseDef, UseItem,
 };
 pub use traits::{
     DefImplDef, ExtendDef, GenericParam, ImplAssocType, ImplDef, ImplMethod, TraitAssocType,
     TraitBound, TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, WhereClause,
 };
 pub use types::{ReprAttrKind, StructField, TypeDecl, TypeDeclKind, Variant, VariantField};
+
+#[cfg(test)]
+mod tests;

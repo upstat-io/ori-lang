@@ -1,6 +1,153 @@
 use super::*;
 
-use ori_types::{TypeCheckResult, TypedModule};
+use ori_types::{TypeCheckResult, TypeErrorKind, TypedModule};
+
+use crate::db::{CompilerDb, Db};
+
+// Cyclic-import regression: register_resolved_imports recursion into typed()
+
+/// Regression: a genuine two-file mutual import cycle must produce a
+/// `CircularImport` diagnostic, never an unhandled Salsa panic. Before the
+/// upstream cycle guard, `typed()` recursed into itself via
+/// `register_resolved_imports`'s `typed(db, sf)` calls with no cycle
+/// detection, and Salsa's default `CycleRecoveryStrategy::Panic` aborted the
+/// query with an opaque `Box<dyn Any>` panic reachable from `ori check`.
+#[test]
+fn cyclic_import_two_file_produces_diagnostic_not_panic() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let a_path = dir.path().join("a.ori");
+    let b_path = dir.path().join("b.ori");
+    std::fs::write(
+        &a_path,
+        "use \"./b\" { by };\npub @ax (x: int) -> int = by(x: x) + 1;\n",
+    )
+    .unwrap_or_else(|e| panic!("write a.ori: {e}"));
+    std::fs::write(
+        &b_path,
+        "use \"./a\" { ax };\npub @by (x: int) -> int = ax(x: x) + 1;\n",
+    )
+    .unwrap_or_else(|e| panic!("write b.ori: {e}"));
+
+    let db = CompilerDb::new();
+    let file_a = db
+        .load_file(&a_path)
+        .unwrap_or_else(|| panic!("failed to load a.ori"));
+
+    let result = crate::query::typed(&db, file_a);
+
+    assert!(
+        result.has_errors(),
+        "cyclic import must produce a type-check error, not succeed silently"
+    );
+    let has_circular_import_error = result.errors().iter().any(|e| {
+        matches!(
+            e.kind,
+            TypeErrorKind::ImportError {
+                kind: ori_ir::ImportErrorKind::CircularImport,
+                ..
+            }
+        )
+    });
+    assert!(
+        has_circular_import_error,
+        "expected a CircularImport diagnostic among: {:?}",
+        result
+            .errors()
+            .iter()
+            .map(|e| e.message())
+            .collect::<Vec<_>>()
+    );
+}
+
+/// Regression: a self-import (`a.ori` imports itself) is a 1-cycle and must
+/// also produce a `CircularImport` diagnostic, not a panic.
+#[test]
+fn cyclic_import_self_import_produces_diagnostic_not_panic() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let a_path = dir.path().join("a.ori");
+    std::fs::write(
+        &a_path,
+        "use \"./a\" { ax };\npub @ax (x: int) -> int = x + 1;\n",
+    )
+    .unwrap_or_else(|e| panic!("write a.ori: {e}"));
+
+    let db = CompilerDb::new();
+    let file_a = db
+        .load_file(&a_path)
+        .unwrap_or_else(|| panic!("failed to load a.ori"));
+
+    let result = crate::query::typed(&db, file_a);
+
+    assert!(
+        result.has_errors(),
+        "self-import must produce a type-check error, not succeed silently"
+    );
+    let has_circular_import_error = result.errors().iter().any(|e| {
+        matches!(
+            e.kind,
+            TypeErrorKind::ImportError {
+                kind: ori_ir::ImportErrorKind::CircularImport,
+                ..
+            }
+        )
+    });
+    assert!(
+        has_circular_import_error,
+        "expected a CircularImport diagnostic among: {:?}",
+        result
+            .errors()
+            .iter()
+            .map(|e| e.message())
+            .collect::<Vec<_>>()
+    );
+}
+
+/// Regression: a diamond import graph (A imports B and C; B and C both
+/// import D) is NOT a cycle and must type-check cleanly — a naive one-set
+/// cycle guard (vs the two-set loading_set/visited discipline) would
+/// false-positive on D being reached twice.
+#[test]
+fn diamond_import_graph_is_not_a_false_positive_cycle() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let a_path = dir.path().join("a.ori");
+    let b_path = dir.path().join("b.ori");
+    let c_path = dir.path().join("c.ori");
+    let d_path = dir.path().join("d.ori");
+    std::fs::write(
+        &a_path,
+        "use \"./b\" { bx };\nuse \"./c\" { cx };\npub @ax () -> int = bx() + cx();\n",
+    )
+    .unwrap_or_else(|e| panic!("write a.ori: {e}"));
+    std::fs::write(
+        &b_path,
+        "use \"./d\" { dx };\npub @bx () -> int = dx() + 1;\n",
+    )
+    .unwrap_or_else(|e| panic!("write b.ori: {e}"));
+    std::fs::write(
+        &c_path,
+        "use \"./d\" { dx };\npub @cx () -> int = dx() + 2;\n",
+    )
+    .unwrap_or_else(|e| panic!("write c.ori: {e}"));
+    std::fs::write(&d_path, "pub @dx () -> int = 1;\n")
+        .unwrap_or_else(|e| panic!("write d.ori: {e}"));
+
+    let db = CompilerDb::new();
+    let file_a = db
+        .load_file(&a_path)
+        .unwrap_or_else(|| panic!("failed to load a.ori"));
+
+    let result = crate::query::typed(&db, file_a);
+
+    assert!(
+        !result.has_errors(),
+        "diamond import graph is not a cycle and must type-check cleanly, got errors: {:?}",
+        result
+            .errors()
+            .iter()
+            .map(|e| e.message())
+            .collect::<Vec<_>>()
+    );
+}
 
 /// Helper to create a `TypeCheckResult` with specified collection surfaces.
 fn result_with_surfaces(surfaces: Vec<u64>) -> TypeCheckResult {

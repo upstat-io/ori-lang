@@ -1,6 +1,6 @@
 //! JSONL record projection for the `emit-aims-state` producer.
 //!
-//! Projects the AIMS 18-property contract surface plus per-variable
+//! Projects the AIMS 19-property contract surface plus per-variable
 //! lattice values to JSON through EXPLICIT snake-case match tables. The
 //! field-name + variant-name pairing is the join surface a downstream
 //! code-intelligence consumer reads — it is a stable contract, never a
@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 /// The downstream consumer validates this and fails loudly when a renamed
 /// `ReturnContract`/`EffectSummary`/`FipContract` field shifts the projected
 /// surface, so a drift never silently drops a property.
-pub(super) const SCHEMA_VERSION: u32 = 1;
+pub(super) const SCHEMA_VERSION: u32 = 2;
 
 /// Repo identity matching the intel-graph `:Symbol.repo` key.
 pub(super) const REPO: &str = "ori";
@@ -115,7 +115,7 @@ pub(super) fn lattice_value_json(position: u32, state: AimsState) -> Value {
     })
 }
 
-/// Build one JSONL record: the 18-property surface + identity +
+/// Build one JSONL record: the 19-property surface + identity +
 /// per-variable lattice values.
 pub(super) fn build_record(
     id: &RecordIdentity,
@@ -138,12 +138,13 @@ pub(super) fn build_record(
         "aims_param_count": contract.params.len(),
         "aims_is_fbip": contract.is_fbip,
 
-        // ReturnContract — all 5 fields (incl. the 5th `returns_fresh_self_alloc`).
+        // ReturnContract — all 6 fields.
         "aims_return_uniqueness": uniqueness_name(ret.uniqueness),
         "aims_return_preserves_freshness": ret.preserves_freshness,
         "aims_return_locality": locality_name(ret.locality),
         "aims_return_shape": shape_name(ret.shape),
         "aims_return_returns_fresh_self_alloc": ret.returns_fresh_self_alloc,
+        "aims_return_returns_sharing_view": ret.returns_sharing_view,
 
         // EffectSummary — 6 flags.
         "aims_effect_may_allocate": eff.may_allocate,

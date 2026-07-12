@@ -80,7 +80,7 @@ static LIST_METHODS: &[MethodDef] = &[
     MethodDef::compound("find",        &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("first",       &[],                   OPT_ELEM,  None,               Ownership::Borrow, false),
     MethodDef::compound("flat_map",    &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
-    MethodDef::compound("flatten",     &[],                   SELF,      None,               Ownership::Borrow, false),
+    MethodDef::compound("flatten",     &[],                   FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("fold",        &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("for_each",    &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("get",         &INT_PARAM,            OPT_ELEM,  None,               Ownership::Borrow, false),

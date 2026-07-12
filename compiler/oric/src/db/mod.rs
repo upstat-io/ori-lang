@@ -110,6 +110,59 @@ impl PoolCache {
 /// not once per file in the test runner).
 pub type CanonCache = SessionCache<ori_ir::canon::SharedCanonResult>;
 
+/// Session-scoped cycle guard for `typed()` recursion.
+///
+/// `register_resolved_imports` (`crate::typeck`) recurses into `typed()` for
+/// every imported module while assembling a file's typecheck result. A
+/// cyclic import chain (A imports B, B imports A) makes that recursion
+/// attempt to re-enter `typed(A)` while it is still on the call stack — a
+/// genuine Salsa query cycle. Salsa's own cycle detector fires at the CALL
+/// SITE (before the query body runs), so the guard must be consulted BEFORE
+/// `crate::query::typed(db, sf)` is invoked, never inside it.
+///
+/// `would_cycle` is the read every recursive call site in
+/// `register_resolved_imports` consults first; `enter`/`exit` bracket the
+/// body of `crate::query::typed` itself, so a would-be-caller's read always
+/// sees the truth about what is currently mid-typecheck.
+///
+/// Wraps [`ori_ir::ImportCycleGuard`] — the same cycle-detector the AOT
+/// multi-file loader (`ori_llvm::aot::multi_file`) uses — behind a `Mutex`
+/// so `register_resolved_imports` can read/mutate it through a `&dyn Db`
+/// shared reference. Not a Salsa query input: this state does not affect
+/// memoization, mirroring `ImportsCache`'s side-channel role.
+#[derive(Clone, Default)]
+pub struct TypingStack(Arc<parking_lot::Mutex<ori_ir::ImportCycleGuard>>);
+
+impl TypingStack {
+    /// Whether `path` is currently mid-`typed()` (calling `typed()` for it
+    /// now would recurse into an active Salsa query cycle).
+    #[must_use]
+    pub fn would_cycle(&self, path: &Path) -> bool {
+        self.0.lock().would_cycle(path)
+    }
+
+    /// The cycle path (currently-active stack plus `path`) when `would_cycle`
+    /// is true, else `None`.
+    #[must_use]
+    pub fn cycle_path(&self, path: &Path) -> Option<Vec<PathBuf>> {
+        self.0.lock().cycle_path(path)
+    }
+
+    /// Mark `path` as currently mid-`typed()`.
+    ///
+    /// Called once at the top of `crate::query::typed`'s body — safe to call
+    /// unconditionally there since every caller already consulted
+    /// `would_cycle` before invoking `typed()` at all.
+    pub fn enter(&self, path: &Path) {
+        self.0.lock().push(path.to_path_buf());
+    }
+
+    /// Pop `path` off the in-progress stack, marking it visited.
+    pub fn exit(&self, path: &Path) {
+        self.0.lock().finish_loading(path);
+    }
+}
+
 /// Session-scoped cache for resolved imports (keyed by file path).
 ///
 /// `ResolvedImports` is assembled by walking prelude candidates, resolving
@@ -175,6 +228,11 @@ pub trait Db: salsa::Database {
     /// Avoids re-resolving imports when multiple consumers (type checker,
     /// evaluator, LLVM backend) need the same file's imports.
     fn imports_cache(&self) -> &ImportsCache;
+
+    /// Access the session-scoped `typed()` recursion cycle guard.
+    ///
+    /// See [`TypingStack`] for why this exists.
+    fn typing_stack(&self) -> &TypingStack;
 }
 
 /// Concrete implementation of the compiler database.
@@ -228,6 +286,11 @@ pub struct CompilerDb {
     /// Stores `Arc<ResolvedImports>` by file path. Avoids re-resolving
     /// imports when multiple consumers need the same file's imports.
     imports_cache: ImportsCache,
+
+    /// Session-scoped `typed()` recursion cycle guard.
+    ///
+    /// See [`TypingStack`] for details.
+    typing_stack: TypingStack,
 }
 
 impl Default for CompilerDb {
@@ -240,6 +303,7 @@ impl Default for CompilerDb {
             pool_cache: PoolCache::default(),
             canon_cache: CanonCache::default(),
             imports_cache: ImportsCache::default(),
+            typing_stack: TypingStack::default(),
         }
     }
 }
@@ -263,6 +327,7 @@ impl CompilerDb {
             pool_cache: PoolCache::default(),
             canon_cache: CanonCache::default(),
             imports_cache: ImportsCache::default(),
+            typing_stack: TypingStack::default(),
         }
     }
 
@@ -309,6 +374,10 @@ impl Db for CompilerDb {
 
     fn imports_cache(&self) -> &ImportsCache {
         &self.imports_cache
+    }
+
+    fn typing_stack(&self) -> &TypingStack {
+        &self.typing_stack
     }
 
     fn load_file(&self, path: &Path) -> Option<SourceFile> {

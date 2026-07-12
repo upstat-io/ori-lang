@@ -1,0 +1,9 @@
+// Spec: 18-modules.md § Imports
+// Design: (modules not yet in design docs)
+//
+// Second leaf library — used alongside transitive_import_leaf.ori by
+// transitive_import_mid_multi_source.ori to pin that a module's own `use`
+// imports from MULTIPLE distinct source modules accumulate into one shared
+// scope rather than overwriting each other.
+
+pub @leaf_b_increment (x: int) -> int = x + 1;

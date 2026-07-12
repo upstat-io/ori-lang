@@ -1,0 +1,12 @@
+// Spec: 18-modules.md § Imports
+// Design: (modules not yet in design docs)
+//
+// Leaf library for transitive-import regression pins (see
+// _test/transitive_import_chain.test.ori). Deliberately minimal — the
+// reproduced defect involves an INTERMEDIATE module (transitive_import_mid.ori)
+// importing this leaf and being imported itself, not a direct root-level
+// import of this file.
+
+pub @leaf_double (x: int) -> int = x * 2;
+
+pub @leaf_triple (x: int) -> int = x * 3;

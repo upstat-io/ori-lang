@@ -36,6 +36,7 @@ pub mod cross;
 pub mod default_minmax_mono_in_generic;
 pub mod depth;
 pub mod derives;
+pub mod direct_list_flatten;
 pub mod drop_augment;
 pub mod elem_dec_scope;
 pub mod empty_container;

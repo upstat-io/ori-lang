@@ -36,6 +36,7 @@ fn fresh_return_methods_are_documented() {
         "List.filter",
         "List.find",
         "List.flat_map",
+        "List.flatten",
         "List.fold",
         "List.for_each",
         "List.group_by",
