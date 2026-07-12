@@ -5,8 +5,10 @@
 //! source-borrowed element stays owned by the source list (its drop is the
 //! sole release). `assert_cell_output` catches all three failure shapes —
 //! leak (exit 2 under `ORI_CHECK_LEAKS=1`), double-free (signal exit), and
-//! silent wrong value. Every fixture uses >23-byte strings so heap RC (not
-//! SSO inline storage) carries the elements.
+//! silent wrong value. Every str-element fixture uses >23-byte strings so
+//! heap RC (not SSO inline storage) carries the elements; the int fixture's
+//! trampoline-produced strings are SSO-inline, so that cell is behavioral
+//! only (the trampoline release is pinned by the codegen checks).
 
 use crate::util::assert_cell_output;
 
@@ -88,6 +90,27 @@ fn test_empty_source_map_join_no_release_owed() {
         include_str!("../fixtures/fat_ptr_iter/join_ownership/empty_map_join.ori"),
         "empty_map_join",
         "",
+    );
+}
+
+#[test]
+fn test_plain_skip_join_pass_through_borrowed_no_double_free() {
+    assert_cell_output(
+        include_str!("../fixtures/fat_ptr_iter/join_ownership/plain_skip_join.ori"),
+        "plain_skip_join",
+        "psi-psi-psi-psi-psi-psi-psi, omega-omega-omega-omega-omega",
+    );
+}
+
+/// Boundary cell: skip DISCARDS a map-produced fresh element inside the
+/// adapter — same discard class as the filter cell below.
+#[test]
+#[ignore = "BUG-05-019: adapter-internal discard leak — skip pulls and forgets a fresh element with no release; cured by the adapter yield/discard contract migration, not the join consumer fix"]
+fn test_map_skip_join_skipped_element_freed() {
+    assert_cell_output(
+        include_str!("../fixtures/fat_ptr_iter/join_ownership/map_skip_join.ori"),
+        "map_skip_join",
+        "delta-epsilon-zeta-delta-epsilon-suffix-suffix-suffix-suffix, eta-theta-iota-eta-theta-iota-suffix-suffix-suffix-suffix",
     );
 }
 
