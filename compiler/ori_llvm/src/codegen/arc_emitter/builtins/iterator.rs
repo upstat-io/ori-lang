@@ -252,7 +252,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "last" => self.emit_iter_last(iter_ptr, elem_ty),
             "rfind" => self.emit_iter_rfind(iter_ptr, arg_vals, args, arc_func, elem_ty),
             "rfold" => self.emit_iter_rfold(iter_ptr, arg_vals, args, arc_func, elem_ty),
-            "join" => self.emit_iter_join(iter_ptr, arg_vals, elem_ty),
+            "join" => self.emit_iter_join(iter_ptr, arg_vals, args, arc_func, elem_ty),
 
             _ => None,
         }

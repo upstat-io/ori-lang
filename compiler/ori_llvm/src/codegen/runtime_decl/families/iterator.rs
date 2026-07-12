@@ -268,8 +268,10 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_join",
-        // (iter, sep_field0, sep_field1, sep_field2, to_str_fn, to_str_env, elem_size, out_ptr)
+        // (iter, sep_field0, sep_field1, sep_field2, to_str_fn, to_str_env, elem_size, elem_dec_fn, out_ptr)
         // sep_field0-2: raw fields of OriStr {i64, i64, ptr} — SSO-safe reconstruction in runtime
+        // elem_dec_fn: consumed-element release; non-null only when the emit-site
+        // provenance walk proves every element adapter-produced (else null)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -278,6 +280,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
             Ty::Ptr,
             Ty::Ptr,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
         ],
         ret: None,

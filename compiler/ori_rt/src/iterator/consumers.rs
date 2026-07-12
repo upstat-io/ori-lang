@@ -477,6 +477,13 @@ pub extern "C" fn ori_iter_last(iter: *mut u8, elem_size: i64, out_ptr: *mut u8)
 /// layout for `OriStr`). This is SSO-safe because the runtime reconstructs the
 /// full `OriStr` union from the raw fields.
 ///
+/// `elem_dec_fn` releases each CONSUMED element after its bytes are copied
+/// into the result. Codegen passes it non-null only when it proves every
+/// element reaching join is adapter-produced (consumer-owned, RC 1,
+/// owned-by-nobody-else); it stays null for source-borrowed chains, whose
+/// elements the source buffer's own cleanup releases. The runtime never
+/// infers ownership — it only honors the verdict it was handed.
+///
 /// Writes the resulting `OriStr` to `out_ptr` (sret pattern, 24 bytes).
 #[no_mangle]
 pub extern "C" fn ori_iter_join(
@@ -487,6 +494,7 @@ pub extern "C" fn ori_iter_join(
     to_str_fn: Option<extern "C" fn(*mut u8, *const u8, *mut u8)>,
     to_str_env: *mut u8,
     elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     use crate::string::OriStr;
@@ -567,10 +575,23 @@ pub extern "C" fn ori_iter_join(
                     Some(crate::rc::ori_str_drop_buffer),
                 );
             }
+            // Release the consumed INPUT element — a SEPARATE obligation from
+            // the produced-string dec above. Null for scalar element types by
+            // construction, so the int/float/bool path is behavior-unchanged.
+            if let Some(dec) = elem_dec_fn {
+                (dec)(elem_buf.as_mut_ptr());
+            }
         } else {
             // Element is already an OriStr (24 bytes)
             let s = unsafe { ptr::read_unaligned(elem_buf.as_ptr().cast::<OriStr>()) };
             result.push_str(unsafe { s.as_str() });
+            // Release the consumed element after its bytes were copied into
+            // the accumulator. Non-null only for chains codegen proved
+            // adapter-produced; source-borrowed chains pass null (the source
+            // buffer's cleanup owns those elements).
+            if let Some(dec) = elem_dec_fn {
+                (dec)(elem_buf.as_mut_ptr());
+            }
         }
 
         first = false;

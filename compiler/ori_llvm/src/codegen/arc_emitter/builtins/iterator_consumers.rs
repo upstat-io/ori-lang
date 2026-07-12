@@ -496,10 +496,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// generates a `to_str` trampoline that calls the appropriate
     /// `ori_str_from_*` runtime function. Unsupported types (byte, Duration,
     /// Size, Ordering, structs, closures, etc.) produce a codegen error.
+    ///
+    /// The consumed-element release argument (`elem_dec_fn`) is computed by
+    /// a compile-time provenance walk over the iterator's def chain: non-null
+    /// only when every element reaching join is provably adapter-produced
+    /// (a `map`-terminal chain, possibly through element-identity adapters);
+    /// source-borrowed, mixed-provenance (`chain`), inner-dependent
+    /// (`flat_map`), and untraceable chains all pass null — the leak-safe
+    /// verdict that can never double-free.
     pub(in crate::codegen) fn emit_iter_join(
         &mut self,
         iter_ptr: ValueId,
         arg_vals: &[ValueId],
+        args: &[ArcVarId],
+        arc_func: &ArcFunction,
         elem_ty: Idx,
     ) -> Option<ValueId> {
         if arg_vals.len() < 2 {
@@ -544,6 +554,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
+        // Consumed-element release: non-null iff the provenance walk proves
+        // every element adapter-produced. `get_or_generate_elem_dec_fn`
+        // returns null for scalar element types, so the trampoline path
+        // stays behavior-unchanged even on a map-terminal scalar chain.
+        let elem_dec_fn = if args
+            .first()
+            .is_some_and(|&iter_var| join_chain_yields_fresh(arc_func, iter_var, self.interner))
+        {
+            self.get_or_generate_elem_dec_fn(elem_ty)
+        } else {
+            self.builder.const_null_ptr()
+        };
+
         // OriStr result type (always str, regardless of element type)
         let str_ty = self.resolve_type(ori_types::Idx::STR);
         let out_alloca =
@@ -561,6 +584,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 to_str_fn,
                 to_str_env,
                 elem_size_val,
+                elem_dec_fn,
                 out_alloca,
             ],
             "",
@@ -669,4 +693,98 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         Some(func_id)
     }
+}
+
+/// Provenance walk for the join consumer's element-release verdict.
+///
+/// Walks the iterator variable's def chain through element-identity adapters
+/// (`filter`/`take`/`skip`/`rev` — single upstream iterator, each surviving
+/// element passed through unchanged) to the nearest defining node:
+///
+/// - `map` — every element reaching join is a fresh trampoline-produced
+///   value (consumer-owned, RC 1): the join call releases each consumed
+///   element, so return `true`.
+/// - anything else — a source (`iter` — elements borrowed from the backing
+///   buffer), `chain` (two operands with potentially mixed provenance),
+///   `flat_map`/`flatten` (element ownership depends on the inner
+///   iterators), `cycle` (re-yields the same element), an unknown adapter,
+///   a function parameter, or a block-param merge: return `false`, the
+///   leak-safe verdict (never a double-free; byte-identical to the
+///   pre-release behavior for those chains).
+fn join_chain_yields_fresh(
+    arc_func: &ArcFunction,
+    iter_var: ArcVarId,
+    interner: &ori_ir::StringInterner,
+) -> bool {
+    // Adapter chains are expression-local and short; the bound only guards
+    // against a pathological alias cycle in malformed IR.
+    let mut current = iter_var;
+    for _ in 0..64 {
+        match find_var_definition(arc_func, current) {
+            VarDef::Alias(src) => current = src,
+            VarDef::Call { func, first_arg } => match interner.lookup(func) {
+                "map" => return true,
+                "filter" | "take" | "skip" | "rev" => match first_arg {
+                    Some(src) => current = src,
+                    None => return false,
+                },
+                _ => return false,
+            },
+            VarDef::Other => return false,
+        }
+    }
+    false
+}
+
+/// A variable's defining node, reduced to what the join provenance walk
+/// distinguishes: a transparent alias, a named direct call (instruction
+/// `Apply` or terminator `Invoke`) with its first argument, or anything else.
+enum VarDef {
+    Alias(ArcVarId),
+    Call {
+        func: ori_ir::Name,
+        first_arg: Option<ArcVarId>,
+    },
+    Other,
+}
+
+fn find_var_definition(arc_func: &ArcFunction, var: ArcVarId) -> VarDef {
+    use ori_arc::ir::{ArcInstr, ArcTerminator, ArcValue};
+
+    for block in &arc_func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } if *dst == var => return VarDef::Alias(*src),
+                ArcInstr::Apply {
+                    dst, func, args, ..
+                } if *dst == var => {
+                    return VarDef::Call {
+                        func: *func,
+                        first_arg: args.first().copied(),
+                    };
+                }
+                _ => {
+                    if instr.defined_var() == Some(var) {
+                        return VarDef::Other;
+                    }
+                }
+            }
+        }
+        if let ArcTerminator::Invoke {
+            dst, func, args, ..
+        } = &block.terminator
+        {
+            if *dst == var {
+                return VarDef::Call {
+                    func: *func,
+                    first_arg: args.first().copied(),
+                };
+            }
+        }
+    }
+    VarDef::Other
 }

@@ -1,0 +1,17 @@
+// FileCheck test: chain merges two iterators whose element provenance may
+// differ — join over a chain gets the null (leak-safe) release fn even when
+// one side is map-produced.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: i64 24, ptr null, ptr %join.out
+
+@main () -> void = {
+    let $left = ["eta-eta-eta-eta-eta-eta-eta-eta"]
+        .iter()
+        .map(transform: (s: str) -> str = s + "-suffix-suffix-suffix-suffix");
+    let $joined = ["theta-theta-theta-theta-theta"]
+        .iter()
+        .chain(other: left)
+        .join(separator: ", ");
+    print(msg: joined)
+}

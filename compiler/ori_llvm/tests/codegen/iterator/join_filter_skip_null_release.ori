@@ -1,0 +1,14 @@
+// FileCheck test: element-identity adapters (filter, skip) pass the source's
+// borrowed provenance through — join over them gets a null release fn.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: i64 24, ptr null, ptr %join.out
+
+@main () -> void = {
+    let $joined = ["epsilon-epsilon-epsilon-epsilon", "zeta-zeta-zeta-zeta-zeta-zeta"]
+        .iter()
+        .filter(predicate: (s: str) -> bool = s.len() > 3)
+        .skip(count: 0)
+        .join(separator: ", ");
+    print(msg: joined)
+}

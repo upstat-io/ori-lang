@@ -1,0 +1,15 @@
+// FileCheck test: join over a map-terminal chain passes a non-null
+// consumed-element release fn — the elements are trampoline-produced fresh
+// strings the join call must free exactly once.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: @ori_iter_join
+// CHECK-NOT: i64 24, ptr null, ptr %join.out
+
+@main () -> void = {
+    let $mapped = ["alpha-alpha-alpha-alpha-alpha", "beta-beta-beta-beta-beta-beta"]
+        .iter()
+        .map(transform: (s: str) -> str = s + "-suffix-suffix-suffix-suffix")
+        .join(separator: ", ");
+    print(msg: mapped)
+}
