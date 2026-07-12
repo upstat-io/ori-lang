@@ -1,0 +1,6 @@
+@nested_strs () -> [[str]] = [["a", "b"], ["c", "d"]];
+
+@main () -> int = {
+    let $result = nested_strs().flatten();
+    if result.length() == 4 then 0 else 1
+}

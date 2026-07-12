@@ -33,9 +33,9 @@ fn start_loading_reports_cycle_path() {
     guard
         .start_loading(a.clone())
         .unwrap_or_else(|c| panic!("unexpected cycle: {c:?}"));
-    let err = guard
-        .start_loading(a.clone())
-        .expect_err("re-entering an in-progress path must report a cycle");
+    let Err(err) = guard.start_loading(a.clone()) else {
+        panic!("re-entering an in-progress path must report a cycle");
+    };
     assert_eq!(err, vec![a.clone(), a]);
 }
 
@@ -49,9 +49,9 @@ fn self_import_is_a_one_cycle() {
     guard
         .start_loading(a.clone())
         .unwrap_or_else(|c| panic!("unexpected cycle: {c:?}"));
-    let err = guard
-        .start_loading(a.clone())
-        .expect_err("self-import must cycle");
+    let Err(err) = guard.start_loading(a.clone()) else {
+        panic!("self-import must cycle");
+    };
     assert_eq!(err.len(), 2);
     assert_eq!(err[0], a);
     assert_eq!(err[1], a);

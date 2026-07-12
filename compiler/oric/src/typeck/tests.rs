@@ -54,7 +54,7 @@ fn cyclic_import_two_file_produces_diagnostic_not_panic() {
         result
             .errors()
             .iter()
-            .map(|e| e.message())
+            .map(ori_types::TypeCheckError::message)
             .collect::<Vec<_>>()
     );
 }
@@ -97,14 +97,14 @@ fn cyclic_import_self_import_produces_diagnostic_not_panic() {
         result
             .errors()
             .iter()
-            .map(|e| e.message())
+            .map(ori_types::TypeCheckError::message)
             .collect::<Vec<_>>()
     );
 }
 
 /// Regression: a diamond import graph (A imports B and C; B and C both
 /// import D) is NOT a cycle and must type-check cleanly — a naive one-set
-/// cycle guard (vs the two-set loading_set/visited discipline) would
+/// cycle guard (vs the two-set `loading_set/visited` discipline) would
 /// false-positive on D being reached twice.
 #[test]
 fn diamond_import_graph_is_not_a_false_positive_cycle() {
@@ -144,7 +144,7 @@ fn diamond_import_graph_is_not_a_false_positive_cycle() {
         result
             .errors()
             .iter()
-            .map(|e| e.message())
+            .map(ori_types::TypeCheckError::message)
             .collect::<Vec<_>>()
     );
 }

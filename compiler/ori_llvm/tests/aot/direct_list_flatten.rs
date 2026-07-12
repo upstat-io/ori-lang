@@ -73,3 +73,22 @@ fn test_direct_list_flatten_non_nested_leak() {
         "direct_list_flatten_non_nested_leak",
     );
 }
+
+// Additional shapes: a for-yield-constructed receiver (not a list literal)
+// and a heap-typed element, exercising RC discipline beyond scalar `int`.
+
+#[test]
+fn test_direct_list_flatten_for_yield_source() {
+    assert_aot_success(
+        include_str!("fixtures/collections_ext/coll_list_flatten_for_yield_source.ori"),
+        "direct_list_flatten_for_yield_source",
+    );
+}
+
+#[test]
+fn test_direct_list_flatten_heap_element() {
+    assert_aot_success(
+        include_str!("fixtures/collections_ext/coll_list_flatten_heap_element.ori"),
+        "direct_list_flatten_heap_element",
+    );
+}

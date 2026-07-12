@@ -1,0 +1,6 @@
+@nested_via_for_yield () -> [[int]] = for x in [1, 2] yield (for y in [10, 20] yield x + y);
+
+@main () -> int = {
+    let $result = nested_via_for_yield().flatten();
+    if result.length() == 4 then 0 else 1
+}

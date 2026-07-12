@@ -1,8 +1,9 @@
 // Direct List.flatten() — the direct-list-method call surface (no `.iter()`
 // prefix), pinned separately from the Iterator-path flatten corpus in
-// tests/spec/traits/iterator/methods.ori. Codegen and typeck are sibling
-// fixes over the same registry entry; these assertions are value-exact and
-// therefore require both to have landed.
+// tests/spec/traits/iterator/methods.ori. Codegen and typeck were sibling
+// fixes over the same registry entry; typeck has landed, so the interpreter
+// backend already passes these value-exact assertions. The LLVM backend
+// still requires the codegen fix before these pass under --backend=llvm.
 
 use std.testing { assert_eq }
 
