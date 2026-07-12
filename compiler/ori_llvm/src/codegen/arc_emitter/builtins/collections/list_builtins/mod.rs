@@ -9,7 +9,7 @@
 mod list_field_access;
 mod sort_thunks;
 
-use ori_types::Idx;
+use ori_types::{Idx, Tag};
 
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
@@ -37,6 +37,59 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         list_ty: Idx,
     ) -> Option<ValueId> {
         self.emit_list_first_or_last(receiver, elem_ty, list_ty, "ori_list_last", "last")
+    }
+
+    /// Emit `list.flatten()` — one-level flatten, `[[T]] -> [T]`.
+    ///
+    /// `element` is the RECEIVER's element type from `TypeInfo::List`, i.e.
+    /// `[T]` for a genuine `[[T]]` receiver. Two branches, chosen at
+    /// compile time from the type pool (never a runtime per-element check):
+    ///
+    /// - **Nested** (`element` resolves to `Tag::List`): peel one more
+    ///   level to `T` (`pool.list_elem`, tag-guarded per the RCA's
+    ///   correctness detail — `list_elem` silently misreads a non-List tag
+    ///   in release), then call the `ori_list_flatten` runtime primitive.
+    /// - **Non-nested** (`[T].flatten()`, `element` is not a List): the
+    ///   whole input is already flat — an RC-bumped identity clone, exactly
+    ///   `ori_eval::methods::list::list_flatten`'s passthrough branch and
+    ///   `("list","clone")`'s own emission.
+    pub(crate) fn emit_list_flatten(
+        &mut self,
+        receiver: ValueId,
+        element: Idx,
+        receiver_ty: Idx,
+    ) -> Option<ValueId> {
+        let resolved_element = self.pool.resolve_fully(element);
+        if self.pool.tag(resolved_element) != Tag::List {
+            return self.emit_rc_inc_clone(receiver, receiver_ty);
+        }
+        let inner_ty = self.pool.list_elem(resolved_element);
+
+        let func_id = self.builder.runtime_fn("ori_list_flatten");
+        let (outer_data, outer_len) = self.extract_list_data_and_len(receiver);
+        let (elem_size_val, elem_align_val) =
+            self.elem_size_and_align(inner_ty, Some(resolved_element));
+        let inc_fn = self.get_or_generate_elem_inc_fn(inner_ty);
+
+        let list_struct_ty = self.list_struct_type();
+        let out =
+            self.builder
+                .create_entry_alloca(self.current_function, "flatten.out", list_struct_ty);
+
+        self.emit_rt_call(
+            func_id,
+            &[
+                outer_data,
+                outer_len,
+                elem_size_val,
+                elem_align_val,
+                inc_fn,
+                out,
+            ],
+            "flatten",
+        );
+
+        Some(self.builder.load(list_struct_ty, out, "flatten.val"))
     }
 
     /// Emit `list.contains(x)` — returns `bool`.

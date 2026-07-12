@@ -1,0 +1,6 @@
+// Scalar elements through the to_str trampoline: the produced string is the
+// only heap value and join already frees it.
+@main () -> void = {
+    let $joined = [1, 2, 3].iter().join(separator: ", ");
+    print(msg: joined)
+}

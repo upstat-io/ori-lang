@@ -1,0 +1,8 @@
+// Single adapter-produced element: exactly one fresh heap string through join.
+@main () -> void = {
+    let $joined = ["gamma-gamma-gamma-gamma-gamma"]
+        .iter()
+        .map(transform: (s: str) -> str = s + "-suffix-suffix-suffix-suffix")
+        .join(separator: ", ");
+    print(msg: joined)
+}

@@ -92,3 +92,23 @@ fn test_direct_list_flatten_heap_element() {
         "direct_list_flatten_heap_element",
     );
 }
+
+// Edge-case pins: an empty inner list and uneven inner-list lengths, both
+// exercising the two-pass sum-then-copy primitive's per-element length
+// accumulation beyond the uniform-length shapes above.
+
+#[test]
+fn test_direct_list_flatten_empty_inner() {
+    assert_aot_success(
+        include_str!("fixtures/collections_ext/coll_list_flatten_empty_inner.ori"),
+        "direct_list_flatten_empty_inner",
+    );
+}
+
+#[test]
+fn test_direct_list_flatten_uneven_inner() {
+    assert_aot_success(
+        include_str!("fixtures/collections_ext/coll_list_flatten_uneven_inner.ori"),
+        "direct_list_flatten_uneven_inner",
+    );
+}

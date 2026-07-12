@@ -117,6 +117,7 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_list_contains_str" => runtime::ori_list_contains_str as *const () as usize,
         "ori_list_concat" => runtime::ori_list_concat as *const () as usize,
         "ori_list_reverse" => runtime::ori_list_reverse as *const () as usize,
+        "ori_list_flatten" => runtime::ori_list_flatten as *const () as usize,
         // Slice operations
         "ori_list_slice" => runtime::ori_list_slice as *const () as usize,
         "ori_list_slice_take" => runtime::ori_list_slice_take as *const () as usize,

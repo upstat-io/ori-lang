@@ -6,8 +6,11 @@
 
 use crate::io::ori_panic_cstr;
 use crate::rc::{load_elem_dec_fn_const, ori_rc_alloc, store_elem_count, store_elem_dec_fn};
+use crate::slice_encoding::{is_slice_cap, slice_original_data};
 use crate::string::{deref_str, OriStr};
 use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
+
+use super::{inc_copied_elements, write_list_output};
 
 /// Bounds-checked element access: copy `elem_size` bytes at `data[index]` to `out_ptr`.
 ///
@@ -228,6 +231,110 @@ pub extern "C" fn ori_list_concat(
         out_ptr.cast::<i64>().add(1).write(total_len as i64);
         out_ptr.add(16).cast::<*mut u8>().write(new_data);
     }
+}
+
+/// Byte size of one `{i64 len, i64 cap, ptr data}` fat-pointer slot.
+const FAT_PTR_SLOT_SIZE: usize = 24;
+/// Byte offset of the `cap` field within a fat-pointer slot.
+const FAT_PTR_CAP_OFFSET: usize = 8;
+/// Byte offset of the `data` field within a fat-pointer slot.
+const FAT_PTR_DATA_OFFSET: usize = 16;
+
+/// Flatten one level of nested lists: `[[T]] -> [T]`.
+///
+/// Reads `outer_len` fat-pointer slots (`{i64 len, i64 cap, ptr data}`,
+/// `FAT_PTR_SLOT_SIZE` bytes each) starting at `outer_data`, each describing
+/// one inner list of `T` elements. Two-pass sum-then-copy: pass 1 sums each
+/// inner list's `len` (an empty inner list contributes 0); pass 2 allocates
+/// the summed-length output buffer once and byte-copies each inner list's
+/// elements into it in order.
+///
+/// `inc_fn`, when non-null, is invoked once per copied element to increment
+/// its RC children — the outer list and every inner list are borrowed (not
+/// consumed), so the new output buffer is an additional reference to any
+/// heap-backed element data.
+///
+/// The output buffer's `elem_dec_fn` is sourced from the first non-empty
+/// inner list's own header (mirrors `ori_list_concat`), resolving through a
+/// seamless-slice interior pointer to the original allocation first. When
+/// every inner list is empty, the output is empty and carries no header
+/// (never freed through a dec-fn call).
+///
+/// Writes `{total_len, total_len, new_data}` to `out_ptr` (sret pattern).
+#[no_mangle]
+pub extern "C" fn ori_list_flatten(
+    outer_data: *const u8,
+    outer_len: i64,
+    inner_elem_size: i64,
+    inner_elem_align: i64,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
+    out_ptr: *mut u8,
+) {
+    if out_ptr.is_null() {
+        return;
+    }
+    let es = inner_elem_size.max(1) as usize;
+    let ea = inner_elem_align.max(1) as usize;
+    let n_outer = outer_len.max(0) as usize;
+
+    if outer_data.is_null() || n_outer == 0 {
+        unsafe { write_list_output(out_ptr, 0, 0, std::ptr::null_mut()) };
+        return;
+    }
+
+    // Pass 1: sum each inner list's length (an empty inner list contributes 0).
+    let mut total_len: usize = 0;
+    for i in 0..n_outer {
+        let slot = unsafe { outer_data.add(i * FAT_PTR_SLOT_SIZE) };
+        let inner_len = unsafe { slot.cast::<i64>().read() }.max(0) as usize;
+        total_len += inner_len;
+    }
+
+    if total_len == 0 {
+        unsafe { write_list_output(out_ptr, 0, 0, std::ptr::null_mut()) };
+        return;
+    }
+
+    let total_bytes = total_len * es;
+    let new_data = ori_rc_alloc(total_bytes, ea);
+
+    // Pass 2: byte-copy each inner list's elements into the output buffer,
+    // incrementing each copied element's RC children and sourcing the
+    // output header's elem_dec_fn from the first non-empty inner list.
+    let mut offset: usize = 0;
+    let mut dec_fn: Option<extern "C" fn(*mut u8)> = None;
+    for i in 0..n_outer {
+        let slot = unsafe { outer_data.add(i * FAT_PTR_SLOT_SIZE) };
+        let inner_len = unsafe { slot.cast::<i64>().read() }.max(0) as usize;
+        if inner_len == 0 {
+            continue;
+        }
+        let inner_cap = unsafe { slot.add(FAT_PTR_CAP_OFFSET).cast::<i64>().read() };
+        let inner_data = unsafe { slot.add(FAT_PTR_DATA_OFFSET).cast::<*mut u8>().read() };
+        if inner_data.is_null() {
+            continue;
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(inner_data, new_data.add(offset * es), inner_len * es);
+        }
+        inc_copied_elements(unsafe { new_data.add(offset * es) }, inner_len, es, inc_fn);
+        if dec_fn.is_none() {
+            let header_src = if is_slice_cap(inner_cap) {
+                slice_original_data(inner_data, inner_cap)
+            } else {
+                inner_data
+            };
+            dec_fn = unsafe { load_elem_dec_fn_const(header_src) };
+        }
+        offset += inner_len;
+    }
+
+    unsafe {
+        store_elem_dec_fn(new_data, dec_fn);
+        store_elem_count(new_data, total_len as i64);
+    }
+
+    unsafe { write_list_output(out_ptr, total_len as i64, total_len as i64, new_data) };
 }
 
 /// Compare two lists of scalar elements for equality.

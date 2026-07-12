@@ -162,6 +162,13 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    ("list", "flatten") => {
+        if let TypeInfo::List { element } = ctx.type_info {
+            emitter.emit_list_flatten(ctx.arg_vals[0], *element, ctx.receiver_ty)
+        } else {
+            None
+        }
+    },
     ("list", "pop") => {
         if let TypeInfo::List { element } = ctx.type_info {
             // Why: pop() is typed Option<T> but the removing dual-return (element +

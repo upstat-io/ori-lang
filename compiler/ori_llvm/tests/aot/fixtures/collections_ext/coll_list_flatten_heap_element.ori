@@ -1,6 +1,8 @@
 @nested_strs () -> [[str]] = [["a", "b"], ["c", "d"]];
 
 @main () -> int = {
+    // Assert exact flattened content, not just length, so a bad element
+    // copy (wrong pointer, truncated string) is caught.
     let $result = nested_strs().flatten();
-    if result.length() == 4 then 0 else 1
+    if result.length() == 4 && result[0] == "a" && result[1] == "b" && result[2] == "c" && result[3] == "d" then 0 else 1
 }

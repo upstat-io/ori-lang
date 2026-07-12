@@ -1,14 +1,15 @@
 // Spec: 10-patterns.md § for Pattern
 //
-// Remaining gaps, each tracking a real open bug (not a phantom):
-// - `for(over:, match:, default:, map:)` pattern form: BUG-04-245 (for-loop
-//   lowering silently discards `map:` and complex `match:` patterns).
+// Remaining gaps, each tracking a real open issue (not a phantom):
+// - `for(over:, match:, default:, map:)` pattern form: for-loop lowering
+//   silently discards `map:` and complex `match:` patterns.
 // - Direct chained `for x in A for y in B yield ..` comprehension syntax:
-//   BUG-01-027 (parser rejects the grammar-valid repeated for_clause).
-// - The `.flatten()` workaround for nested for-yield: BUG-02-079 (List.flatten()
-//   registered with return-kind SELF, mistypes as identity).
+//   the parser rejects the grammar-valid repeated for_clause.
+// - The `.flatten()` workaround for nested for-yield: direct `List.flatten()`
+//   calls abort during LLVM codegen (no dispatch arm for a bare-list
+//   receiver); the interpreter backend already flattens correctly.
 // - `for x in items yield x` collecting into `{K: V}` from `(K, V)` tuples:
-//   BUG-02-080 (target-directed map collection not implemented, Spec 15.9.6).
+//   target-directed map collection is not implemented (Spec 15.9.6).
 //
 // for/do, for/yield, for/if/yield, break/continue (incl. with values), nested
 // for/do, labeled break/continue, and range-by-step all type-check and run
@@ -191,11 +192,12 @@ use std.testing { assert, assert_eq }
     count
 }
 
-// BUG-01-027: the direct chained comprehension `for x in A for y in B yield ..`
-// is valid per grammar.ebnf's `{ for_clause }` repetition but the parser
-// rejects it ("expected `do` or `yield` after for loop iterator"). The
-// `.flatten()` workaround below additionally hits BUG-02-079 (List.flatten()
-// mistyped as identity, SELF return-kind). Re-enable once both land.
+// The direct chained comprehension `for x in A for y in B yield ..` is valid
+// per grammar.ebnf's `{ for_clause }` repetition but the parser rejects it
+// ("expected `do` or `yield` after for loop iterator"). The `.flatten()`
+// workaround below additionally aborts during LLVM codegen (no dispatch arm
+// for a bare-list receiver); the interpreter already handles it correctly.
+// Re-enable once both are fixed.
 //
 // @nested_for_yield () -> [(int, int)] = for x in [1, 2, 3] for y in [1, 2, 3] yield (x, y)
 // @nested_for_yield () -> [(int, int)] = (for x in [1, 2, 3] yield (for y in [1, 2, 3] yield (x, y))).flatten();
