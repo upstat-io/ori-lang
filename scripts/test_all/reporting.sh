@@ -1,4 +1,6 @@
 # Human summary and finalization helpers for test-all.sh.
+# shellcheck shell=bash
+# shellcheck disable=SC2153 # Suite counters are assigned by the sourcing harness.
 
 print_rust_row() {
     local name="$1" passed="$2" failed="$3" skipped="$4" status="$5" extra="${6:-}"
@@ -90,31 +92,7 @@ finalize_test_all() {
         emit_json "$JSON_PATH"
     fi
 
-    if [[ $EMIT_JSON -eq 0 ]] \
-       && command -v jq >/dev/null 2>&1 \
-       && [[ -x "$(dirname "$0")/diagnostics/state.sh" ]]; then
-        if [[ -z "$JSON_SUMMARY_PATH" ]]; then
-            JSON_SUMMARY_PATH="$(dirname "$0")/build/test-all-summary.json"
-            EMIT_JSON_SUMMARY=1
-        fi
-        mkdir -p "$(dirname "$JSON_SUMMARY_PATH")"
-        emit_json "$JSON_SUMMARY_PATH"
-        INGEST_JSON=$("$(dirname "$0")/diagnostics/state.sh" refresh --from-summary="$JSON_SUMMARY_PATH" --json --by test-all 2>/dev/null || true)
-        if [[ -n "$INGEST_JSON" ]]; then
-            DISP_TOTAL=$(printf '%s' "$INGEST_JSON" | jq -r '.dispositions_total // 0')
-            DISP_UNTRACKED=$(printf '%s' "$INGEST_JSON" | jq -r '.dispositions_untracked // 0')
-            if [[ "$DISP_UNTRACKED" -gt 0 ]]; then
-                echo -e "${RED}${BOLD}Dispositions: $DISP_TOTAL total, $DISP_UNTRACKED UNTRACKED - DRIFT${NC}"
-                echo "  Every #[ignore]/#skip needs a tracking-bug ID in its reason text."
-                echo "  List the offenders:"
-                echo "    diagnostics/state.sh dispositions --untracked-only"
-                echo ""
-            else
-                echo "Dispositions: $DISP_TOTAL total, 0 untracked"
-                echo ""
-            fi
-        fi
-    elif [[ $EMIT_JSON_SUMMARY -eq 1 ]]; then
+    if [[ $EMIT_JSON_SUMMARY -eq 1 ]]; then
         emit_json "$JSON_SUMMARY_PATH"
     fi
 

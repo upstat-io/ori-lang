@@ -27,6 +27,7 @@ aot_artifact_identity_of_path() {
 # a stage dir containing spaces survives.
 aot_manifest_stage_dir() {
     [ -f "$1" ] || return 0
+    # shellcheck disable=SC2016 # The expression is an awk program.
     aot_gate_command awk '$1 == "stage-dir" { sub(/^stage-dir[ \t]+/, ""); print; exit }' "$1"
 }
 
@@ -48,6 +49,7 @@ aot_snapshot_verdict() {
     [ -f "$manifest" ] || { echo "fallback"; return 0; }
     stage_dir=$(aot_manifest_stage_dir "$manifest")
     [ -n "$stage_dir" ] || { echo "fallback"; return 0; }
+    # shellcheck disable=SC2016 # The process substitution contains an awk program.
     while read -r name recorded; do
         seen=1
         actual=$(aot_artifact_identity_of_path "$stage_dir/$name")

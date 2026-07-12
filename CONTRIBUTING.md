@@ -39,7 +39,7 @@ cargo st        # Run Ori spec tests only
 
 ## Project Structure
 
-The Ori compiler is a strictly-ordered, multi-crate pipeline: lex → parse → typecheck → canonicalize → ARC lowering → AIMS analysis → ARC realization → LLVM codegen. A parallel evaluator consumes canonical IR for const-eval and `ori run`. See `.claude/rules/canon.md §1 Pipeline Overview` and `.claude/rules/compiler.md §Architecture` for the authoritative pipeline diagram and per-crate dependencies.
+The Ori compiler is a strictly ordered, multi-crate pipeline: lex, parse, typecheck, canonicalize, ARC lowering, AIMS analysis, ARC realization, and LLVM codegen. A parallel evaluator consumes canonical IR for const evaluation and `ori run`.
 
 - `compiler/oric/` — compiler driver (CLI, Salsa orchestration, filesystem IO, LLVM integration); `src/lib.rs` + `src/main.rs` register the `ori` binary.
 - `compiler/ori_lexer_core/`, `compiler/ori_lexer/` — raw + cooked lexing.
@@ -53,7 +53,7 @@ The Ori compiler is a strictly-ordered, multi-crate pipeline: lex → parse → 
 - `compiler/ori_patterns/` — runtime value model + function-pattern dispatch.
 - `compiler/ori_ir/` — interned, flat, Salsa-compatible IR foundation.
 - `compiler/ori_rt/` — AOT runtime (C-ABI static library).
-- `compiler/ori_diagnostic/`, `compiler/ori_registry/`, `compiler/ori_stack/`, `compiler/ori_fmt/`, `compiler/ori_test_harness/`, `compiler/ori_compiler/` — supporting crates (see `.claude/rules/compiler.md §Crates`).
+- `compiler/ori_diagnostic/`, `compiler/ori_registry/`, `compiler/ori_stack/`, `compiler/ori_fmt/`, `compiler/ori_test_harness/`, `compiler/ori_compiler/` — supporting crates.
 - `library/std/` — standard library (pure Ori).
 - `tests/run-pass/` — programs that should compile and run (includes the Rosetta stress-test corpus under `tests/run-pass/rosetta/`).
 - `tests/compile-fail/` — programs that should fail to compile.

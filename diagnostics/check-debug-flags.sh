@@ -17,11 +17,6 @@
 #
 # Reports: stale flags (defined but unused), orphan checks (used but undefined).
 #
-# Flag->docs consistency (every flag documented in CLAUDE.md / .claude/rules/) is
-# enforced by the wrapper repo's pre-commit, NOT here: those docs are not present
-# in a standalone / public checkout, and a public-repo script must not reference
-# them. See scripts/check-flag-docs.sh in the wrapper.
-#
 # Exit codes:
 #   0 = all checks pass
 #   1 = one or more issues found
@@ -99,7 +94,13 @@ RUNTIME_FLAGS=("ORI_TRACE_RC" "ORI_RT_DEBUG" "ORI_CHECK_LEAKS")
 #   ORI_LOG — tracing filter (handled by tracing crate, not debug_flags)
 #   ORI_LOG_TREE — tracing tree mode
 # These should NOT be in debug_flags/.
-NON_DIAGNOSTIC=("ORI_STDLIB" "ORI_WORKSPACE_DIR" "ORI_SYSROOT" "ORI_LOG" "ORI_LOG_TREE")
+NON_DIAGNOSTIC=(
+    "ORI_STDLIB"
+    "ORI_WORKSPACE_DIR"
+    "ORI_SYSROOT"
+    "ORI_LOG"
+    "ORI_LOG_TREE"
+)
 
 # Test-only env vars (guard patterns in test files, not production flags):
 TEST_ONLY=("ORI_RC_OVERFLOW_TEST" "ORI_RC_TRACE_TEST" "ORI_LEAK_ATTRIB_TEST" "ORI_RC_UNDERFLOW_TEST")
@@ -202,13 +203,6 @@ done
 if [[ $orphan_count -eq 0 ]]; then
     printf "  ${C_GREEN}OK${C_NC} — no orphan env var checks\n"
 fi
-
-# --- Documentation check (flag -> CLAUDE.md / .claude/rules/) ---
-# Re-homed to wrapper-owned tooling: a public-repo script must NOT reach into
-# the private wrapper's CLAUDE.md / .claude/rules/ (those are not present in a
-# standalone / public CI checkout, and referencing them is a wrapper-leakage
-# violation). The flag->docs consistency check lives in the wrapper pre-commit;
-# see scripts/check-flag-docs.sh + lefthook.yml in the wrapper repo.
 
 # --- Summary ---
 printf "\n${C_BOLD}Summary:${C_NC}\n"

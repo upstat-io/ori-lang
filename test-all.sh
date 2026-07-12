@@ -32,64 +32,6 @@ TEST_ALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/aot_gate_lib.sh
 source "$TEST_ALL_DIR/scripts/aot_gate_lib.sh"
 
-# Private bounded-action entry point for scripts.test_all_runtime.
-RUNTIME_ACTION=""
-RUNTIME_DIR=""
-RUNTIME_RUN_ID=""
-RUNTIME_PLAN_DIGEST=""
-for arg in "$@"; do
-    case $arg in
-        --runtime-action=*) RUNTIME_ACTION="${arg#--runtime-action=}" ;;
-        --runtime-dir=*) RUNTIME_DIR="${arg#--runtime-dir=}" ;;
-        --runtime-run-id=*) RUNTIME_RUN_ID="${arg#--runtime-run-id=}" ;;
-        --runtime-plan-digest=*) RUNTIME_PLAN_DIGEST="${arg#--runtime-plan-digest=}" ;;
-    esac
-done
-if [ -n "$RUNTIME_ACTION" ]; then
-    if [ -z "$RUNTIME_DIR" ] || [ -z "$RUNTIME_RUN_ID" ] || [ -z "$RUNTIME_PLAN_DIGEST" ]; then
-        echo "runtime action requires --runtime-dir, --runtime-run-id, and --runtime-plan-digest" >&2
-        exit 2
-    fi
-    if [ "${ORI_TESTALL_RUN_ID:-}" != "$RUNTIME_RUN_ID" ] || [ "${ORI_TESTALL_PLAN_DIGEST:-}" != "$RUNTIME_PLAN_DIGEST" ]; then
-        echo "runtime action identity does not match ORI_TESTALL_RUN_ID/ORI_TESTALL_PLAN_DIGEST" >&2
-        exit 2
-    fi
-    case "$RUNTIME_DIR" in
-        "$TEST_ALL_DIR"/build/test-all-runs/"$RUNTIME_RUN_ID") ;;
-        *) echo "runtime directory is outside the reserved run directory" >&2; exit 2 ;;
-    esac
-    # shellcheck source=scripts/test_all/legs.sh
-    source "$TEST_ALL_DIR/scripts/test_all/legs.sh"
-    # shellcheck source=scripts/test_all/parsing.sh
-    source "$TEST_ALL_DIR/scripts/test_all/parsing.sh"
-    # shellcheck source=scripts/test_all/post_run.sh
-    source "$TEST_ALL_DIR/scripts/test_all/post_run.sh"
-    # shellcheck source=scripts/test_all/runtime_actions.sh
-    source "$TEST_ALL_DIR/scripts/test_all/runtime_actions.sh"
-    runtime_action_main
-    exit $?
-fi
-
-ACTIVE_RUNTIME="$TEST_ALL_DIR/build/test-all-runs/active.json"
-if [ -f "$ACTIVE_RUNTIME" ]; then
-    if ! ACTIVE_FIELDS=$(timeout 10 python3 - "$ACTIVE_RUNTIME" <<'PY' 2>/dev/null
-import json, sys
-doc = json.load(open(sys.argv[1], encoding="utf-8"))
-print(f"{doc.get('run_id', '')} {doc.get('phase', '')}")
-PY
-    ); then
-        echo "active test-all reservation is unreadable at $ACTIVE_RUNTIME; repair or remove it before a legacy run" >&2
-        exit 2
-    fi
-    read -r ACTIVE_RUN_ID ACTIVE_PHASE <<< "$ACTIVE_FIELDS"
-    case "$ACTIVE_PHASE" in
-        planning|ready|running|resume_required|finalizing)
-            echo "test-all run '$ACTIVE_RUN_ID' is resumable; use: python -m scripts.test_all_runtime run --run-id $ACTIVE_RUN_ID" >&2
-            exit 2
-            ;;
-    esac
-fi
-
 # Check for flags
 VERBOSE=0
 PARALLEL=1
@@ -125,29 +67,29 @@ for arg in "$@"; do
 done
 
 # Per-run build isolation. Concurrent runs sharing target/ rebuild each
-# other's artifacts mid-suite and mass-fail the AOT leg; ORI_TESTALL_BUILD_ID
+# other's artifacts mid-suite and mass-fail the AOT leg; ORI_TEST_BUILD_ID
 # isolates a caller's target/<build-id> (default "shared"). Full-suite
 # verdicts still serialize globally via a lock outside target/, so
 # cargo clean / cache cleanup cannot unlink the active lock's inode.
-TESTALL_BUILD_ID="${ORI_TESTALL_BUILD_ID:-shared}"
+TESTALL_BUILD_ID="${ORI_TEST_BUILD_ID:-shared}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(pwd)/target/test-all-${TESTALL_BUILD_ID}}"
 TARGET_DIR="$CARGO_TARGET_DIR"
 TESTALL_LOCK_DIR="$TEST_ALL_DIR/build/test-all-locks"
 mkdir -p "$TARGET_DIR" "$TESTALL_LOCK_DIR"
 TESTALL_GLOBAL_LOCK="$TESTALL_LOCK_DIR/.test-all-global.lock"
-if [ -z "${ORI_TESTALL_GLOBAL_FLOCKED:-}" ] && command -v flock >/dev/null 2>&1; then
+if [ -z "${ORI_TEST_GLOBAL_FLOCKED:-}" ] && command -v flock >/dev/null 2>&1; then
     if ! flock --nonblock "$TESTALL_GLOBAL_LOCK" true 2>/dev/null; then
         echo "waiting for another test-all run to finish..."
     fi
-    export ORI_TESTALL_GLOBAL_FLOCKED=1
+    export ORI_TEST_GLOBAL_FLOCKED=1
     exec flock --close "$TESTALL_GLOBAL_LOCK" "$0" "$@"
 fi
 TESTALL_LOCK="$TESTALL_LOCK_DIR/.test-all-${TESTALL_BUILD_ID}.lock"
-if [ -z "${ORI_TESTALL_FLOCKED:-}" ] && command -v flock >/dev/null 2>&1; then
+if [ -z "${ORI_TEST_FLOCKED:-}" ] && command -v flock >/dev/null 2>&1; then
     if ! flock --nonblock "$TESTALL_LOCK" true 2>/dev/null; then
         echo "waiting for a concurrent test-all run with build id '$TESTALL_BUILD_ID' to finish..."
     fi
-    export ORI_TESTALL_FLOCKED=1
+    export ORI_TEST_FLOCKED=1
     exec flock --close "$TESTALL_LOCK" "$0" "$@"
 fi
 # Re-exec inherits CARGO_TARGET_DIR via export; recompute the convenience var.

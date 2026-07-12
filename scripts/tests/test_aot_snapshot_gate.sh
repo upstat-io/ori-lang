@@ -5,7 +5,7 @@
 # Run: bash compiler_repo/scripts/tests/test_aot_snapshot_gate.sh
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=../aot_gate_lib.sh
+# shellcheck source=scripts/aot_gate_lib.sh
 source "$HERE/../aot_gate_lib.sh"
 
 pass=0

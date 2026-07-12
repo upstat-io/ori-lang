@@ -1,4 +1,5 @@
 # JSON emission helpers for test-all.sh.
+# shellcheck shell=bash
 
 rust_failures_json() {
     local output_file="$1"
