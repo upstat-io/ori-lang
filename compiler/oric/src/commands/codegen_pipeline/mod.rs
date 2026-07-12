@@ -200,14 +200,6 @@ pub(super) fn run_codegen_pipeline<'ctx>(
 
         type_registration::register_user_types(&resolver, &type_result.typed.types);
 
-        // INVARIANT: uniqueness analysis runs after borrow inference (needs
-        // ownership annotations) and before the per-function ARC pipeline
-        // (which consumes the summaries for CowMode annotation).
-        let uniqueness_summaries = {
-            let all_funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
-            ori_arc::run_uniqueness_analysis(&all_funcs, &classifier, interner)
-        };
-
         let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
         let aims_contracts = {
             let mut all_funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
@@ -251,7 +243,6 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             &annotated_sigs,
             &classifier,
             None, // Debug info wiring deferred to AOT pipeline integration
-            uniqueness_summaries,
             aims_contracts,
             std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok_and(|v| v != "0"),
         );

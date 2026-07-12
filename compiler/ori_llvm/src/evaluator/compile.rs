@@ -288,8 +288,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             );
         }
 
-        let (uniqueness_summaries, aims_contracts) =
-            Self::run_interprocedural_analyses(arc_cache, &classifier, interner);
+        let aims_contracts = Self::run_interprocedural_analyses(arc_cache, &classifier, interner);
 
         // Reconstruct the TypeRegistry from the type-checker exports so the
         // Phase-5 burden walker resolves collection / closure UserBurdenSpec.
@@ -319,7 +318,6 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             annotated_sigs,
             &classifier,
             None, // No debug info for JIT
-            uniqueness_summaries,
             aims_contracts,
             std::env::var("ORI_VERIFY_ARC").is_ok_and(|v| v != "0"),
         );
@@ -415,25 +413,17 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         (wrappers, errors, descriptions)
     }
 
-    /// Run interprocedural analyses: uniqueness (COW) and AIMS contracts (ownership).
+    /// Run interprocedural AIMS contract analysis (ownership).
     fn run_interprocedural_analyses(
         arc_cache: &FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
         classifier: &ori_arc::ArcClassifier,
         interner: &StringInterner,
-    ) -> (
-        FxHashMap<Name, ori_arc::UniquenessSummary>,
-        FxHashMap<Name, ori_arc::MemoryContract>,
-    ) {
+    ) -> FxHashMap<Name, ori_arc::MemoryContract> {
         let all_funcs = ori_arc::collect_all_arc_functions(arc_cache);
-        let uniqueness_summaries =
-            ori_arc::run_uniqueness_analysis(&all_funcs, classifier, interner);
 
         let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
         let mut all_funcs_mut = all_funcs;
-        let aims_contracts =
-            ori_arc::compute_aims_contracts(&mut all_funcs_mut, classifier, interner, &builtins);
-
-        (uniqueness_summaries, aims_contracts)
+        ori_arc::compute_aims_contracts(&mut all_funcs_mut, classifier, interner, &builtins)
     }
 
     /// Validate compiled IR and create the JIT execution engine.

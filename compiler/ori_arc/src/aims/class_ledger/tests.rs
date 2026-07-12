@@ -1240,7 +1240,7 @@ fn replacement_admits_user_drop_value_with_whole_var_release() {
     );
 }
 
-// Op-placement guard (`replace::ops_placeable`)
+// Op-placement guard (`placement::ops_placeable`)
 
 /// A planned op whose variable's definition dominates the slot is
 /// placeable; a definition on a sibling branch is not.
@@ -1256,16 +1256,16 @@ fn op_var_placement_requires_dominating_definition() {
     );
 
     let dominated = vec![dec(PlanSlot::BlockFront { block: 1 }, 1)];
-    assert!(super::replace::ops_placeable(&func, &dominated));
+    assert!(super::placement::ops_placeable(&func, &dominated));
 
     let off_path = vec![dec(PlanSlot::BlockFront { block: 1 }, 2)];
-    assert!(!super::replace::ops_placeable(&func, &off_path));
+    assert!(!super::placement::ops_placeable(&func, &off_path));
 
     let before_own_def = vec![dec(PlanSlot::BlockFront { block: 0 }, 1)];
-    assert!(!super::replace::ops_placeable(&func, &before_own_def));
+    assert!(!super::placement::ops_placeable(&func, &before_own_def));
 
     let after_own_def = vec![dec(PlanSlot::AfterBody { block: 0, index: 0 }, 1)];
-    assert!(super::replace::ops_placeable(&func, &after_own_def));
+    assert!(super::placement::ops_placeable(&func, &after_own_def));
 }
 
 // Invoke-with-unwind shapes
@@ -1304,7 +1304,7 @@ fn invoke_result_class_clean_and_placeable_across_unwind() {
 
     let ops = planned_ops(&analysis);
     assert!(
-        super::replace::ops_placeable(&func, &ops),
+        super::placement::ops_placeable(&func, &ops),
         "no planned op may land where its variable never materializes: {ops:?}"
     );
     assert!(

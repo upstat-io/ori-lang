@@ -36,7 +36,7 @@ pub use nounwind::rewrite_apply_targets_for_monos;
 pub(crate) use nounwind::MonoTargetMaps;
 pub use nounwind::PreparedFunction;
 
-use ori_arc::{AnnotatedSig, ArcClassifier, MemoryContract, UniquenessSummary};
+use ori_arc::{AnnotatedSig, ArcClassifier, MemoryContract};
 use ori_ir::{Function, Name, Span, StringInterner};
 use ori_types::{FunctionSig, Idx, Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
@@ -95,8 +95,6 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     arc_classifier: &'a ArcClassifier<'tcx>,
     /// Debug info context (None for JIT, Some for AOT with debug info enabled).
     debug_context: Option<&'a DebugContext<'ctx>>,
-    /// Interprocedural uniqueness summaries (unused — AIMS computes internally).
-    uniqueness_summaries: FxHashMap<Name, UniquenessSummary>,
     /// Pre-computed AIMS interprocedural contracts for param/arg ownership.
     /// Populated by [`ori_arc::compute_aims_contracts`] before the per-function loop.
     aims_contracts: FxHashMap<Name, MemoryContract>,
@@ -131,7 +129,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         annotated_sigs: &'a FxHashMap<Name, AnnotatedSig>,
         arc_classifier: &'a ArcClassifier<'tcx>,
         debug_context: Option<&'a DebugContext<'ctx>>,
-        uniqueness_summaries: FxHashMap<Name, UniquenessSummary>,
         aims_contracts: FxHashMap<Name, MemoryContract>,
         verify_arc: bool,
     ) -> Self {
@@ -148,7 +145,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             annotated_sigs,
             arc_classifier,
             debug_context,
-            uniqueness_summaries,
             aims_contracts,
             impl_method_contracts: FxHashMap::default(),
             verify_arc,

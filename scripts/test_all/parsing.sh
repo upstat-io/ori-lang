@@ -97,3 +97,9 @@ suite_status() {
         echo "passed"
     fi
 }
+
+parse_runtime_fragment() {
+    local timeout_secs="$1" fragment="$2"
+    shift 2
+    timeout --signal=TERM --kill-after=5 "${timeout_secs}s" python3 "$fragment" "$@"
+}

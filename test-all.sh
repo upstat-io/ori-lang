@@ -32,6 +32,64 @@ TEST_ALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/aot_gate_lib.sh
 source "$TEST_ALL_DIR/scripts/aot_gate_lib.sh"
 
+# Private bounded-action entry point for scripts.test_all_runtime.
+RUNTIME_ACTION=""
+RUNTIME_DIR=""
+RUNTIME_RUN_ID=""
+RUNTIME_PLAN_DIGEST=""
+for arg in "$@"; do
+    case $arg in
+        --runtime-action=*) RUNTIME_ACTION="${arg#--runtime-action=}" ;;
+        --runtime-dir=*) RUNTIME_DIR="${arg#--runtime-dir=}" ;;
+        --runtime-run-id=*) RUNTIME_RUN_ID="${arg#--runtime-run-id=}" ;;
+        --runtime-plan-digest=*) RUNTIME_PLAN_DIGEST="${arg#--runtime-plan-digest=}" ;;
+    esac
+done
+if [ -n "$RUNTIME_ACTION" ]; then
+    if [ -z "$RUNTIME_DIR" ] || [ -z "$RUNTIME_RUN_ID" ] || [ -z "$RUNTIME_PLAN_DIGEST" ]; then
+        echo "runtime action requires --runtime-dir, --runtime-run-id, and --runtime-plan-digest" >&2
+        exit 2
+    fi
+    if [ "${ORI_TESTALL_RUN_ID:-}" != "$RUNTIME_RUN_ID" ] || [ "${ORI_TESTALL_PLAN_DIGEST:-}" != "$RUNTIME_PLAN_DIGEST" ]; then
+        echo "runtime action identity does not match ORI_TESTALL_RUN_ID/ORI_TESTALL_PLAN_DIGEST" >&2
+        exit 2
+    fi
+    case "$RUNTIME_DIR" in
+        "$TEST_ALL_DIR"/build/test-all-runs/"$RUNTIME_RUN_ID") ;;
+        *) echo "runtime directory is outside the reserved run directory" >&2; exit 2 ;;
+    esac
+    # shellcheck source=scripts/test_all/legs.sh
+    source "$TEST_ALL_DIR/scripts/test_all/legs.sh"
+    # shellcheck source=scripts/test_all/parsing.sh
+    source "$TEST_ALL_DIR/scripts/test_all/parsing.sh"
+    # shellcheck source=scripts/test_all/post_run.sh
+    source "$TEST_ALL_DIR/scripts/test_all/post_run.sh"
+    # shellcheck source=scripts/test_all/runtime_actions.sh
+    source "$TEST_ALL_DIR/scripts/test_all/runtime_actions.sh"
+    runtime_action_main
+    exit $?
+fi
+
+ACTIVE_RUNTIME="$TEST_ALL_DIR/build/test-all-runs/active.json"
+if [ -f "$ACTIVE_RUNTIME" ]; then
+    if ! ACTIVE_FIELDS=$(timeout 10 python3 - "$ACTIVE_RUNTIME" <<'PY' 2>/dev/null
+import json, sys
+doc = json.load(open(sys.argv[1], encoding="utf-8"))
+print(f"{doc.get('run_id', '')} {doc.get('phase', '')}")
+PY
+    ); then
+        echo "active test-all reservation is unreadable at $ACTIVE_RUNTIME; repair or remove it before a legacy run" >&2
+        exit 2
+    fi
+    read -r ACTIVE_RUN_ID ACTIVE_PHASE <<< "$ACTIVE_FIELDS"
+    case "$ACTIVE_PHASE" in
+        planning|ready|running|resume_required|finalizing)
+            echo "test-all run '$ACTIVE_RUN_ID' is resumable; use: python -m scripts.test_all_runtime run --run-id $ACTIVE_RUN_ID" >&2
+            exit 2
+            ;;
+    esac
+fi
+
 # Check for flags
 VERBOSE=0
 PARALLEL=1

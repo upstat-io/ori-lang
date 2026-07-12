@@ -75,7 +75,7 @@ pub use aims::realize::rc_remark::write_rc_remarks_header;
 pub use aims::realize::rl31_disjoint::{prove_param_noalias, NoaliasProof};
 pub use pipeline::{
     compute_aims_contracts, run_arc_pipeline, run_arc_pipeline_all, run_arc_pipeline_with_observer,
-    run_uniqueness_analysis, CheckpointObserver,
+    CheckpointObserver,
 };
 
 pub use borrow::{
@@ -112,9 +112,7 @@ pub use ownership::{AnnotatedParam, AnnotatedSig, DerivedOwnership, Ownership};
 pub use rc_insert::annotate_arg_ownership;
 // Legacy RC insertion (insert_rc_ops_with_ownership, insert_external_invoke_cleanup)
 // has been deleted — AIMS realize_rc_reuse handles RC emission.
-pub use uniqueness::{
-    CowAnnotations, CowMode, DropHints, Uniqueness, UniquenessMap, UniquenessSummary,
-};
+pub use uniqueness::{CowAnnotations, CowMode, DropHints, Uniqueness};
 
 pub use ir::collect_all_arc_functions;
 

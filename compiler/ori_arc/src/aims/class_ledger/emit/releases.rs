@@ -9,7 +9,7 @@ use crate::aims::intraprocedural::ledger_events::EventSite;
 use crate::ir::{ArcFunction, ArcVarId};
 
 use super::super::events::{live_out, live_out_forward, successors_of, ClassEvent, ClassEvents};
-use super::super::replace::{collect_def_points, def_reaches_slot, DefPoint};
+use super::super::placement::{collect_def_points, def_reaches_slot, DefPoint};
 use super::cfg_region::CycleRegions;
 use super::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
 use rustc_hash::FxHashMap as DefMap;

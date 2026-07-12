@@ -92,7 +92,6 @@ fn declare_simple_function() {
         &classifier,
         None,
         FxHashMap::default(),
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -134,7 +133,6 @@ fn declare_void_function() {
         &classifier,
         None,
         FxHashMap::default(),
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -171,7 +169,6 @@ fn declare_sret_function() {
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         FxHashMap::default(),
         false,
     );
@@ -218,7 +215,6 @@ fn declare_main_uses_c_calling_convention() {
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         FxHashMap::default(),
         false,
     );
@@ -296,7 +292,6 @@ fn generic_functions_are_skipped() {
         &classifier,
         None,
         FxHashMap::default(),
-        FxHashMap::default(),
         false,
     );
     fc.declare_all(&[func], &[sig]);
@@ -356,7 +351,6 @@ fn function_map_returns_all_declared() {
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         FxHashMap::default(),
         false,
     );
@@ -506,7 +500,6 @@ fn compile_impls_populates_method_functions_map() {
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         aims_contracts,
         false,
     );
@@ -609,7 +602,6 @@ fn module_path_appears_in_mangled_name() {
         &classifier,
         None,
         FxHashMap::default(),
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -664,7 +656,6 @@ fn scalar_params_have_noundef() {
         &classifier,
         None,
         FxHashMap::default(),
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -709,7 +700,6 @@ fn scalar_return_has_noundef() {
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         FxHashMap::default(),
         false,
     );
@@ -759,7 +749,6 @@ fn indirect_params_have_noundef() {
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         FxHashMap::default(),
         false,
     );
@@ -814,7 +803,6 @@ fn direct_aggregate_params_have_noundef() {
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         FxHashMap::default(),
         false,
     );
@@ -877,7 +865,6 @@ fn mixed_params_selective_noundef() {
         &classifier,
         None,
         FxHashMap::default(),
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -923,7 +910,6 @@ fn make_nounwind_fc<'a, 'scx: 'ctx, 'ctx, 'tcx>(
         annotated_sigs,
         classifier,
         None,
-        FxHashMap::default(),
         FxHashMap::default(),
         false,
     )
@@ -1904,7 +1890,6 @@ fn main_wrapper_has_noundef_return() {
         &classifier,
         None,
         FxHashMap::default(),
-        FxHashMap::default(),
         false,
     );
 
@@ -1970,7 +1955,6 @@ fn test_process_arc_function_records_codegen_error_on_violation() {
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         FxHashMap::default(),
         false,
     );

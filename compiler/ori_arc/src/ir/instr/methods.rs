@@ -49,21 +49,21 @@ impl ArcInstr {
     /// Whether this instruction is a release-cleanup op — a whole-var `RcDec`
     /// or its paired whole-var `BurdenDec`.
     ///
-    /// Release-cleanup blocks (edge-cleanup trampolines, dead-at-entry cleanup,
-    /// tail-call post-Apply cleanup) hold the burden-faithful release sequence
-    /// emitted by `release_with_burden` / `release_with_burden_edge` /
-    /// `release_with_burden_into_block`: a paired `BurdenDec` adjacent to each
-    /// release `RcDec` whose var carries burden ops (Spec: Annex E §AIMS RL-2 /
-    /// RL-4 / RL-5). Those helpers emit only the WHOLE-VAR `BurdenDec` variant
-    /// alongside `RcDec` — never `BurdenDecPartial` / `BurdenDecField` /
-    /// `BurdenDecVariant`, which arise from partial-move / `Set` / `SetTag`
-    /// payload positions, not release cleanup. The predicate therefore matches
-    /// `RcDec | BurdenDec` only; broadening to the partial variants would let a
-    /// real payload-dec block be misread as a skippable cleanup trampoline.
+    /// Release-cleanup blocks (dead-at-entry cleanup, tail-call post-Apply
+    /// cleanup) hold the burden-faithful release sequence emitted by the
+    /// class-ledger's per-edge/per-death placement: a paired `BurdenDec`
+    /// adjacent to each release `RcDec` whose var carries burden ops (Spec:
+    /// Annex E §AIMS RL-2 / RL-4 / RL-5). That placement emits only the
+    /// WHOLE-VAR `BurdenDec` variant alongside `RcDec` — never
+    /// `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant`, which arise
+    /// from partial-move / `Set` / `SetTag` payload positions, not release
+    /// cleanup. The predicate therefore matches `RcDec | BurdenDec` only;
+    /// broadening to the partial variants would let a real payload-dec block
+    /// be misread as a skippable cleanup block.
     ///
     /// SSOT for the "block body is only release cleanup" test consumed by
-    /// `follow_jump_chain` (project-escape trampoline skipping) and tail-call
-    /// detection (post-Apply / normal-block cleanup gates).
+    /// tail-call detection (`find_tail_apply_in_block` / `find_invoke_tail_calls`
+    /// post-Apply / normal-block cleanup gates).
     #[inline]
     pub fn is_release_cleanup_instr(&self) -> bool {
         matches!(self, ArcInstr::RcDec { .. } | ArcInstr::BurdenDec { .. })

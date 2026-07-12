@@ -913,9 +913,9 @@ fn count_rc_shape(func: &ArcFunction, dec_var: ArcVarId) -> (usize, usize, usize
     (incs, decs_on_var, burden)
 }
 
-/// Fully-clean function: the class-ledger plan replaces the legacy
-/// emission — exactly ONE lowered release after the last read, no
-/// duplicate legacy ops, no burden residue, edge machinery unmarked.
+/// Fully-clean function: the class-ledger plan replaces the standard
+/// burden-op emission — exactly ONE lowered release after the last read, no
+/// duplicate ops, no burden residue, edge machinery unmarked.
 #[test]
 fn class_ledger_replaces_clean_function_with_lowered_plan() {
     let mut func = class_ledger_clean_fixture();
@@ -953,7 +953,7 @@ fn class_ledger_declined_function_fails_loud() {
 /// release and nothing else (two emitters on one function would double it);
 /// replacement never marks `burden_emitted`.
 #[test]
-fn class_ledger_replaced_function_carries_no_legacy_ops() {
+fn class_ledger_replaced_function_carries_no_burden_ops() {
     let mut replaced = class_ledger_clean_fixture();
     run_pipeline(&mut replaced);
 

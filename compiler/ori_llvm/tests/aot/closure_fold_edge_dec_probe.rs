@@ -14,8 +14,8 @@
 //! RC-bearing captures) leaks on every NORMAL execution. Capture-less lambdas
 //! mask it (null env -> `RcDec [Closure]` is a no-op). Fix: burden-path Phase-5/
 //! 6.6x edge relocation (relocate the inline dec to the normal successor; sibling
-//! to Phase-6.65 `relocate_borrowed_terminator_arg_dec_to_edges`) — NOT the legacy
-//! predicate-stack `compute_invoke_edge_dead_set` (narrowing Cat-2 would double-dec).
+//! to Phase-6.65 `relocate_borrowed_terminator_arg_dec_to_edges`) — never re-derive
+//! edge-deadness from a separate per-edge model (narrowing Cat-2 would double-dec).
 //!
 //! VERDICT SURFACE — burden-sole ONLY: the default codegen path co-emits the
 //! legacy predicate-stack RC, which masks this burden-path leak (FALSE-GREEN), so

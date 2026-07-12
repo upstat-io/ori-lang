@@ -66,6 +66,18 @@ readonly LEG_SEL_RUST_RT=(-p ori_rt)
 readonly LEG_SEL_RUST_LLVM=(-p ori_llvm --lib)
 readonly LEG_SEL_AOT=(-p ori_llvm --test aot)
 
+runtime_leg_selection() {
+    local suite="$1"
+    case "$suite" in
+        rust_workspace) RUNTIME_SELECTION=("${LEG_SEL_WORKSPACE[@]}") ;;
+        rust_rt) RUNTIME_SELECTION=("${LEG_SEL_RUST_RT[@]}") ;;
+        rust_llvm) RUNTIME_SELECTION=("${LEG_SEL_RUST_LLVM[@]}") ;;
+        aot) RUNTIME_SELECTION=("${LEG_SEL_AOT[@]}") ;;
+        "") RUNTIME_SELECTION=() ;;
+        *) echo "unknown runtime suite selection: $suite" >&2; return 2 ;;
+    esac
+}
+
 # Serially pre-build every leg's EXACT selection shape (cargo test --no-run;
 # nextest's harness binaries too when active) — serial by construction,
 # since backgrounding a warm reintroduces the concurrent-compile race.

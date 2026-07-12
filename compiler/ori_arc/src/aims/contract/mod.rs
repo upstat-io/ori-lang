@@ -27,7 +27,6 @@ pub use context::{ContextBehavior, ContextRegion};
 use super::lattice::{AccessClass, Cardinality, Consumption, Locality, ShapeClass, Uniqueness};
 use crate::ir::ArcParam;
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
-use crate::uniqueness::UniquenessSummary;
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
@@ -165,23 +164,6 @@ impl MemoryContract {
         AnnotatedSig {
             params,
             return_type,
-        }
-    }
-
-    /// Convert to [`UniquenessSummary`] for compatibility during migration.
-    ///
-    /// Per-parameter uniqueness is always `MaybeShared` (the current system
-    /// doesn't track per-param uniqueness from callers).
-    pub fn to_uniqueness_summary(&self) -> UniquenessSummary {
-        let legacy_uniqueness = aims_to_legacy_uniqueness(self.return_info.uniqueness);
-        UniquenessSummary {
-            params: self
-                .params
-                .iter()
-                .map(|_| crate::uniqueness::Uniqueness::MaybeShared)
-                .collect(),
-            return_val: legacy_uniqueness,
-            preserves_freshness: self.return_info.preserves_freshness,
         }
     }
 }
@@ -894,19 +876,6 @@ impl FipContract {
 
             (Self::Certified, Self::Certified) => Self::Certified,
         }
-    }
-}
-
-/// Convert AIMS [`Uniqueness`] to the legacy [`crate::uniqueness::Uniqueness`].
-///
-/// Both enums have identical variants. This bridge exists because the AIMS
-/// lattice defines its own `Uniqueness` (with `PartialOrd`/`Ord`) while the
-/// legacy uniqueness analysis has a separate type.
-fn aims_to_legacy_uniqueness(u: Uniqueness) -> crate::uniqueness::Uniqueness {
-    match u {
-        Uniqueness::Unique => crate::uniqueness::Uniqueness::Unique,
-        Uniqueness::MaybeShared => crate::uniqueness::Uniqueness::MaybeShared,
-        Uniqueness::Shared => crate::uniqueness::Uniqueness::Shared,
     }
 }
 

@@ -22,7 +22,6 @@ fn run_full_pipeline(
         &crate::BuiltinOwnershipSets::empty(),
         pool,
     );
-    let uniqueness_summaries = FxHashMap::default();
     // IC-1: the contracts map MUST cover every analyzed function. `make_func`
     // names its function `Name::from_raw(1)`; pre-populate its contract so the
     // get_required sites in the per-function pipeline do not fire on a
@@ -44,7 +43,6 @@ fn run_full_pipeline(
         &sigs,
         pool,
         &interner,
-        &uniqueness_summaries,
         &aims_contracts,
         &type_registry,
         false,

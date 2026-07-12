@@ -323,47 +323,6 @@ fn to_annotated_sig_dead_param_is_borrowed() {
     assert_eq!(sig.params[0].ownership, Ownership::Borrowed);
 }
 
-// Conversion: MemoryContract → UniquenessSummary
-
-#[test]
-fn to_uniqueness_summary_basic() {
-    let contract = MemoryContract {
-        params: vec![ParamContract::CONSERVATIVE; 2],
-        return_info: ReturnContract {
-            uniqueness: Uniqueness::Unique,
-            preserves_freshness: true,
-            locality: Locality::FunctionLocal,
-            shape: ShapeClass::NonReusable,
-            returns_fresh_self_alloc: false,
-            returns_sharing_view: false,
-        },
-        effects: EffectSummary::default(),
-        context_behavior: ContextBehavior::default(),
-        fip: FipContract::Never,
-        is_fbip: false,
-    };
-    let summary = contract.to_uniqueness_summary();
-
-    assert_eq!(summary.params.len(), 2);
-    // Per-param uniqueness is always MaybeShared in the legacy system.
-    for p in &summary.params {
-        assert_eq!(*p, crate::uniqueness::Uniqueness::MaybeShared);
-    }
-    assert_eq!(summary.return_val, crate::uniqueness::Uniqueness::Unique);
-    assert!(summary.preserves_freshness);
-}
-
-#[test]
-fn to_uniqueness_summary_shared_return() {
-    let contract = MemoryContract::conservative(0);
-    let summary = contract.to_uniqueness_summary();
-    assert_eq!(
-        summary.return_val,
-        crate::uniqueness::Uniqueness::MaybeShared
-    );
-    assert!(!summary.preserves_freshness);
-}
-
 // ContextBehavior
 
 #[test]

@@ -292,12 +292,11 @@ fn probe_coalesce_discards_heap_err_payload() {
     // RL-4 / RL-5: `a ?? default` on a `Result<int, str>` whose `a` is the
     // heap-Err variant discards the Result on the Err-taken edge. The Result's
     // heap str payload is live at the coalesce branch but dead in the default
-    // successor — its release belongs on that dying CFG edge. The predicate
-    // stack emits it via `emit_edge_cleanup`; under the probe that pass is off,
-    // so the burden path must emit the dying-edge `BurdenDec` itself (consuming
-    // the same `compute_branch_edge_dead_set` SSOT). The Err str is >23 bytes
-    // (defeats SSO) so the leak is observable. Fails before the burden-path
-    // edge-cleanup fix: `ORI_CHECK_LEAKS=1` reports `1 RC allocation not freed`.
+    // successor — its release belongs on that dying CFG edge. The class-ledger
+    // per-edge placement emits the dying-edge `BurdenDec`, lowered to the real
+    // `RcDec` under the probe. The Err str is >23 bytes (defeats SSO) so the
+    // leak is observable. Fails before the class-ledger edge-release fix:
+    // `ORI_CHECK_LEAKS=1` reports `1 RC allocation not freed`.
     let src = r#"
 @main () -> int = {
     let a: Result<int, str> = Err("an allocated failure message well past sso");
@@ -2654,9 +2653,9 @@ type Point = { x: int, y: int }
 // `ori_iter_drop`). Under sole-emitter burden lowering the Phase-5 walk
 // mis-models the take-project source: it emits a spurious dec on the consuming
 // arm (-> use-after-free, the iterator is freed before `@count` reads it) and
-// omits the dec on the bypass / Empty paths (-> leak). The cure mirrors the
-// predicate-stack `dead_cleanup` bypass-safe-entry emission via the shared
-// `TakeMoveFacts` SSOT.
+// omits the dec on the bypass / Empty paths (-> leak). The cure classifies the
+// take-project source's release per arm: consumed (no dec) on the projecting
+// arm, dead-at-scope-exit (decced) on every non-projecting arm.
 
 #[test]
 fn probe_take_project_match_consume_no_use_after_free() {

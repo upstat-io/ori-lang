@@ -5,12 +5,25 @@
 # by apply_aot_snapshot_verdict()'s "fallback" branch when no per-process stage
 # manifest was published. Manifest path is the AOT gate's other input.
 artifact_identity() {
-    stat -c '%d:%i:%Y:%s' "$CARGO_TARGET_DIR"/debug/ori "$CARGO_TARGET_DIR"/debug/libori_rt.a 2>/dev/null \
-        || stat -f '%d:%i:%m:%z' "$CARGO_TARGET_DIR"/debug/ori "$CARGO_TARGET_DIR"/debug/libori_rt.a 2>/dev/null \
-        || echo "absent"
+    printf '%s\n%s\n' \
+        "$(aot_artifact_identity_of_path "$CARGO_TARGET_DIR/debug/ori")" \
+        "$(aot_artifact_identity_of_path "$CARGO_TARGET_DIR/debug/libori_rt.a")"
 }
 
 AOT_STAGE_MANIFEST="build/aot-stage-manifest-debug.txt"
+
+capture_runtime_aot_gate() {
+    local attempt_dir="$1" baseline="$2"
+    RUNTIME_AOT_POST_IDENTITY=$(artifact_identity)
+    RUNTIME_AOT_SNAPSHOT_VERDICT=$(aot_snapshot_verdict "$AOT_STAGE_MANIFEST" "$baseline")
+    RUNTIME_AOT_MANIFEST_DIGEST=""
+    if [ -f "$AOT_STAGE_MANIFEST" ]; then
+        aot_gate_command cp "$AOT_STAGE_MANIFEST" "$attempt_dir/aot-stage-manifest.txt"
+        local digest_line
+        digest_line=$(aot_gate_command sha256sum "$attempt_dir/aot-stage-manifest.txt")
+        RUNTIME_AOT_MANIFEST_DIGEST=${digest_line%% *}
+    fi
+}
 
 print_leg_timings() {
     if compgen -G "$LEG_TIMING_DIR/*" > /dev/null 2>&1; then

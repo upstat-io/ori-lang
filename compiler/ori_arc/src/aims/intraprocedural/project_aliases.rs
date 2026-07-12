@@ -122,13 +122,14 @@ pub(crate) fn compute_project_alias_table(
     // of sum types, e.g., iterators projected from a tagged-pointer
     // enum) *could* also be skipped here to avoid keeping the parent
     // alive, but that would require plumbing a `Pool` through the
-    // public `analyze_function` API. Instead, is fixed at
-    // the borrowed_defs + is_ownership_transfer layer, which is
-    // sufficient: the take-project's projected payload is no longer
-    // classified as borrowed, so no spurious `RcInc` fires at the
-    // owned-arg call site, and the Project itself is treated as an
-    // ownership transfer, so walk_dec skips the source enum's
-    // scope-exit last-use dec.
+    // public `analyze_function` API. Instead, is fixed downstream: the
+    // class-ledger's birth-site partition (aims/intraprocedural/
+    // birth_site_partition.rs) unifies the take-project's view into the
+    // source's own field-path class rather than tracking a per-instruction
+    // ownership-transfer flag, so no spurious `RcInc` fires at the owned-arg
+    // call site, and the class's own per-class release plan
+    // (aims/class_ledger/emit/releases.rs) places the source enum's release
+    // at the class's real death point instead of the projection site.
     let mut alias_sources: FxHashMap<ArcVarId, ProjectSources> = FxHashMap::default();
     for block in &func.blocks {
         for instr in &block.body {

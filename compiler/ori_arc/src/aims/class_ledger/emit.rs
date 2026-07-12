@@ -13,6 +13,7 @@
 
 mod cfg_region;
 mod incs;
+mod merge_equalize;
 mod releases;
 
 pub(crate) use cfg_region::CycleRegions;
@@ -20,10 +21,7 @@ pub(crate) use cfg_region::CycleRegions;
 use crate::aims::verify::burden_delta::compute_burden_entry_nets;
 use crate::ir::{ArcFunction, ArcVarId};
 
-use super::events::{
-    event_blocks, live_from, live_from_forward, successors_of, ClassEvents, EventKind,
-};
-use crate::aims::intraprocedural::ledger_events::EventSite;
+use super::events::{event_blocks, live_from, live_from_forward, ClassEvents, EventKind};
 
 /// One planned burden-op insertion.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -220,7 +218,7 @@ pub(crate) fn plan_class(
     // reference dies on the reassigned arm). Release the surplus on the
     // owing edge so the merge agrees BEFORE release planning; the per-class
     // verify walk re-checks floors + terminal nets independently.
-    if !equalize_disagreeing_merges(
+    if !merge_equalize::equalize_disagreeing_merges(
         func, preds, regions, events, &mut ops, &mut delta, &mut nets,
     ) {
         return ClassOutcome::Declined(DeclineReason::NonConverged);
@@ -262,125 +260,6 @@ pub(crate) fn plan_class(
     ClassOutcome::Planned(ops)
 }
 
-/// Drive per-edge merge equalization to a fixpoint: a downstream merge's
-/// disagreement can be DERIVED from an upstream one (the frozen
-/// first-agreed net propagates), so equalize ONE resolvable merge per
-/// round and recompute; an unresolvable residue falls through to the
-/// final `MergeDisagree` gate. `false` iff a recompute failed to converge.
-fn equalize_disagreeing_merges(
-    func: &ArcFunction,
-    preds: &[Vec<usize>],
-    regions: &CycleRegions,
-    events: &ClassEvents,
-    ops: &mut Vec<PlannedOp>,
-    delta: &mut Vec<i64>,
-    nets: &mut crate::aims::verify::burden_delta::BurdenEntryNets,
-) -> bool {
-    let mut rounds = 0;
-    while !nets.disagree_blocks.is_empty() && rounds <= nets.disagree_blocks.len() {
-        rounds += 1;
-        let Some(extra) = nets.disagree_blocks.iter().find_map(|&(merge, _)| {
-            equalize_one_merge(func, preds, regions, events, delta, nets, merge)
-        }) else {
-            break;
-        };
-        ops.extend(extra);
-        *delta = per_block_delta(events, ops, func.blocks.len());
-        *nets = compute_burden_entry_nets(func, preds, delta);
-        if !nets.converged {
-            return false;
-        }
-    }
-    true
-}
-
-/// The per-edge equalizing releases for disagreeing merges: for each merge
-/// whose predecessor edges exit with divergent owed counts, release the
-/// surplus (exit − min-exit) on each owing edge at the predecessor's end.
-/// The released member is the var a MIN-exit sibling edge hands off at its
-/// Terminator (the class's merge-feeding member, dying unpassed on the
-/// owing edge). `None` when the shape is not equalizable — a pred with an
-/// undefined net, no unique sibling hand-off candidate, a multi-successor
-/// owing pred (the release would leak onto other edges), or the candidate
-/// passed by the owing pred itself.
-fn equalize_one_merge(
-    func: &ArcFunction,
-    preds: &[Vec<usize>],
-    regions: &CycleRegions,
-    events: &ClassEvents,
-    delta: &[i64],
-    nets: &crate::aims::verify::burden_delta::BurdenEntryNets,
-    merge: usize,
-) -> Option<Vec<PlannedOp>> {
-    let mut pred_exits: Vec<(usize, i64)> = Vec::new();
-    for &p in &preds[merge] {
-        let entry = nets.entry_net[p]?;
-        pred_exits.push((p, entry + delta[p]));
-    }
-    if pred_exits.len() < 2 {
-        return None;
-    }
-    let target = pred_exits.iter().map(|&(_, exit)| exit).min()?;
-    // The candidate: the member a min-exit edge hands off at its Terminator
-    // (a negative-delta Terminator event names the var whose reference the
-    // sibling edge transfers; the owing edge's copy of the SAME member dies
-    // unpassed).
-    let candidate = pred_exits
-        .iter()
-        .filter(|&&(_, exit)| exit == target)
-        .find_map(|&(p, _)| {
-            events.per_block.get(p)?.iter().find_map(|event| {
-                (matches!(event.site, EventSite::Terminator) && event.delta < 0)
-                    .then_some(event.var)
-                    .flatten()
-            })
-        })?;
-    let mut extra: Vec<PlannedOp> = Vec::new();
-    for &(p, exit) in &pred_exits {
-        let surplus = exit - target;
-        if surplus <= 0 {
-            continue;
-        }
-        // Cycle-interior edges only: the death-frontier walk owns acyclic
-        // dead-arm releases (its RL-4 edge dec); a surplus edge inside a
-        // cycle is the shape the frontier cannot place (every loop block
-        // stays activity-live).
-        if !regions.is_in_cycle(p) {
-            return None;
-        }
-        let successors = successors_of(func, p);
-        if successors.len() != 1 || successors[0] != merge {
-            return None;
-        }
-        if jump_args_contain(func, p, candidate) {
-            return None;
-        }
-        for _ in 0..surplus {
-            extra.push(PlannedOp {
-                slot: PlanSlot::BeforeTerminator { block: p },
-                kind: PlannedOpKind::Dec,
-                var: candidate,
-            });
-        }
-    }
-    if extra.is_empty() {
-        None
-    } else {
-        Some(extra)
-    }
-}
-
-/// Whether block `b`'s terminator passes `var` as a jump argument.
-fn jump_args_contain(func: &ArcFunction, b: usize, var: ArcVarId) -> bool {
-    match &func.blocks[b].terminator {
-        crate::ir::ArcTerminator::Jump { args, .. } => args.contains(&var),
-        _ => false,
-    }
-}
-
-/// The transitive `Let { Var }` alias closure of `vars`: every binding
-/// renaming a member of the set joins it (fixpoint over the body streams —
-/// forward block order does not bound alias chains threaded through jumps).
 /// Close `vars` over `Let { Var }` aliases AND `Project` results — the
 /// BORROW-VIEW closure: a projection of a borrowed-rooted value views the
 /// same caller-owned allocation tree (TF-4), so the callee releases nothing
@@ -418,6 +297,9 @@ pub(super) fn close_over_borrow_views(
     }
 }
 
+/// The transitive `Let { Var }` alias closure of `vars`: every binding
+/// renaming a member of the set joins it (fixpoint over the body streams —
+/// forward block order does not bound alias chains threaded through jumps).
 pub(super) fn close_over_let_aliases(
     func: &ArcFunction,
     mut vars: rustc_hash::FxHashSet<ArcVarId>,
@@ -450,11 +332,6 @@ pub(super) fn close_over_let_aliases(
     }
 }
 
-/// Whether any INSTANCE-CREATING event of the class sits inside a CFG
-/// cycle (a block that can reach itself). Births, credits, and select
-/// acquisitions inside a cycle mean a per-iteration instance (forward-only
-/// liveness); reads and consumes never create instances — a class born
-/// outside the cycle and only read within it is loop-invariant.
 /// Whether any SEED inc sits inside a CFG cycle: a seeded extraction
 /// inside a loop mints a per-iteration reference (the planned-op analog of
 /// an in-cycle birth), so the class is per-iteration, never loop-invariant.
@@ -470,6 +347,11 @@ fn has_cycle_seeds(regions: &CycleRegions, seed_ops: &[PlannedOp]) -> bool {
     })
 }
 
+/// Whether any INSTANCE-CREATING event of the class sits inside a CFG
+/// cycle (a block that can reach itself). Births, credits, and select
+/// acquisitions inside a cycle mean a per-iteration instance (forward-only
+/// liveness); reads and consumes never create instances — a class born
+/// outside the cycle and only read within it is loop-invariant.
 fn has_cycle_events(regions: &CycleRegions, events: &ClassEvents) -> bool {
     events
         .per_block

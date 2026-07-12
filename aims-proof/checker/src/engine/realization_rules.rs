@@ -207,34 +207,36 @@ enum RcEvent {
     /// RL-1: `RcInc` emitted on duplication to an Owned parameter while the
     /// value is still live afterward (Cardinality = Many, or > Once usage).
     /// Creates one reference balanced by the callee's dec.
-    /// Shipped: emit_rc/forward_walk.rs + realize/mod.rs
-    /// inject_cow_borrowed_receiver_incs.
+    /// Shipped: aims/class_ledger/emit/incs.rs plan_incs (the class-ledger's
+    /// sole Inc emitter).
     IncLiveDup,
     /// RL-3 / DP-3: inc ELIDED on a single-use value (Once ∧ (Linear ∨ Affine)).
     /// The single use creates no new owned reference: a move (Linear) transfers
     /// the existing reference; a borrow (Affine) reads it non-consumingly and
     /// releases it via its own RL-2 scope-exit dec.
-    /// Shipped: realize/decide.rs is_rc_inc_elidable gate.
+    /// Shipped: aims/transfer/mod.rs is_rc_inc_elidable gate.
     ElideIncMove,
     /// RL-2: `RcDec` at last use or scope exit (terminal, non-transfer).
-    /// Releases one reference. Shipped: realize/walk_dec.rs.
+    /// Releases one reference. Shipped: aims/class_ledger/emit/releases.rs
+    /// (the class-ledger's per-class release planner).
     DecLastUse,
     /// RL-2: definitional cleanup dec for an UNUSED owned non-scalar value
     /// (Dead / Absent). Releases the alloc reference immediately at definition.
-    /// Shipped: emit_rc/dead_cleanup/mod.rs emit_dead_invoke_dsts.
+    /// Shipped: aims/class_ledger/emit/releases.rs plan_dead_class_releases.
     CleanupDecUnused,
     /// RL-2 exclusion: ownership-transferring use (Return / Construct arg /
     /// Set value / PartialApply capture / Apply-to-Owned-param / Jump arg).
     /// Releases the caller's reference by HANDOFF — no dec emitted, the
-    /// consumer inherits the obligation. Shipped: emit_rc/helpers.rs
-    /// is_ownership_transfer.
+    /// consumer inherits the obligation. Shipped: the twelve-kind terminal-use
+    /// table in aims/intraprocedural/ledger_events/ (classifying such uses as
+    /// Consume events the class's own release plan never re-decs).
     TransferOut,
     /// RL-4: edge-specific `RcDec` on a CFG edge where the value is live at
     /// block exit but dead at the successor entry. Releases one reference.
-    /// Shipped: emit_rc/edge_cleanup.rs emit_edge_cleanup.
+    /// Shipped: aims/class_ledger/emit/releases.rs plan_releases.
     EdgeDec,
     /// RL-3 / DP-2: dec ELIDED on an Absent / Dead value — there is no live
-    /// reference to release. Shipped: realize/decide.rs is_rc_dec_unnecessary.
+    /// reference to release. Shipped: aims/transfer/mod.rs is_rc_dec_unnecessary.
     ElideDecDead,
 }
 
@@ -383,9 +385,9 @@ enum Uniq {
 // (P2) RC-count preservation: a full lifecycle with the RL-1 inc + the
 // matching dec balances to RC = 0.
 //
-// Shipped: emit_rc/forward_walk.rs (terminator inc) + realize/mod.rs
-// inject_cow_borrowed_receiver_incs (COW borrowed-receiver inc) gated by
-// realize/decide.rs.
+// Shipped: aims/class_ledger/emit/incs.rs plan_incs (the class-ledger's sole
+// Inc emitter; gates the funding inc on demand-past-consume per
+// aims/class_ledger/mod.rs).
 
 fn verify_rl1_inc_on_live_duplication() -> EngineResult {
     // (P1) Decision grid: emit inc iff NOT (Once ∧ (Linear ∨ Affine)).
@@ -507,12 +509,14 @@ fn verify_rl1_inc_on_live_duplication() -> EngineResult {
 // (P2) RC-count preservation: every owned heap value is released exactly
 // once — by a dec, an edge dec, a cleanup dec, OR an ownership handoff.
 //
-// Shipped: realize/walk_dec.rs (last-use dec) + emit_rc/helpers.rs
-// is_ownership_transfer (the exclusion list) + emit_rc/dead_cleanup/mod.rs
-// (unused-owned cleanup).
+// Shipped: aims/class_ledger/emit/releases.rs (last-use dec + dead-at-entry /
+// unused-owned cleanup via plan_dead_class_releases) + the twelve-kind
+// terminal-use table in aims/intraprocedural/ledger_events/ (the exclusion
+// list, mirroring AimsProof.Realization::rl2_use_transfers_ownership).
 
 /// The terminal-use kinds, with whether each TRANSFERS ownership (so RL-2
-/// SUPPRESSES the dec). Mirrors emit_rc/helpers.rs is_ownership_transfer.
+/// SUPPRESSES the dec). Mirrors the terminal-use classification in
+/// aims/intraprocedural/ledger_events/ (AimsProof.Realization::rl2_use_transfers_ownership).
 fn rl2_use_transfers_ownership(use_kind: &str) -> bool {
     matches!(
         use_kind,
@@ -550,7 +554,7 @@ fn verify_rl2_dec_at_last_use() -> EngineResult {
         let emit_dec = !rl2_use_transfers_ownership(use_kind);
         if emit_dec != *expect_dec {
             return fail(format!(
-                "RL-2 (P1) terminal-use decision: '{}' expected emit_dec={} but ownership-transfer model yields emit_dec={}; the RL-2 exclusion list must match is_ownership_transfer",
+                "RL-2 (P1) terminal-use decision: '{}' expected emit_dec={} but ownership-transfer model yields emit_dec={}; the RL-2 exclusion list must match the ledger_events terminal-use table",
                 use_kind, expect_dec, emit_dec
             ));
         }
@@ -636,8 +640,9 @@ fn verify_rl2_dec_at_last_use() -> EngineResult {
 // identically to the lifecycle with them present (the elided ops were
 // no-ops on the net count).
 //
-// Shipped: realize/decide.rs (decide() routes RC decisions through the DP
-// predicates).
+// Shipped: aims/realize/burden_elim.rs (Phase-6 eliminate_burden_ops queries
+// DP-2 is_rc_dec_unnecessary / DP-3 is_rc_inc_elidable at aims/transfer/mod.rs
+// against the converged state map to remove a burden-op).
 
 fn verify_rl3_rc_op_elision() -> EngineResult {
     // (P1) Elision-eligibility grid. Each row models a value state + which DP
@@ -787,7 +792,7 @@ fn verify_rl3_rc_op_elision() -> EngineResult {
 // once (by the edge dec) UNLESS it is a Jump arg (the successor block
 // param inherits the obligation).
 //
-// Shipped: emit_rc/edge_cleanup.rs emit_edge_cleanup.
+// Shipped: aims/class_ledger/emit/releases.rs plan_releases.
 
 fn verify_rl4_edge_specific_decs() -> EngineResult {
     // (P1) Edge-dec decision grid.
@@ -933,7 +938,7 @@ fn verify_rl4_edge_specific_decs() -> EngineResult {
 // (P2) RC-count preservation: the predecessor's reference is released exactly
 // once by the entry dec.
 //
-// Shipped: emit_rc/dead_cleanup/mod.rs emit_dead_at_entry_decs.
+// Shipped: aims/class_ledger/emit/releases.rs plan_dead_class_releases.
 
 fn verify_rl5_dead_at_entry_cleanup() -> EngineResult {
     struct EntryRow {

@@ -8,9 +8,17 @@
 # BSD/macOS fallback, "absent" when the path is missing.
 # KEEP IN SYNC with artifact_identity_of() in
 # compiler/ori_llvm/tests/aot/util/binary.rs.
+aot_gate_command() {
+    if [ -n "${AOT_GATE_COMMAND_TIMEOUT_SECS:-}" ]; then
+        timeout --signal=TERM --kill-after=2 "${AOT_GATE_COMMAND_TIMEOUT_SECS}s" "$@"
+    else
+        "$@"
+    fi
+}
+
 aot_artifact_identity_of_path() {
-    stat -c '%d:%i:%Y:%s' "$1" 2>/dev/null \
-        || stat -f '%d:%i:%m:%z' "$1" 2>/dev/null \
+    aot_gate_command stat -c '%d:%i:%Y:%s' "$1" 2>/dev/null \
+        || aot_gate_command stat -f '%d:%i:%m:%z' "$1" 2>/dev/null \
         || echo "absent"
 }
 
@@ -19,7 +27,7 @@ aot_artifact_identity_of_path() {
 # a stage dir containing spaces survives.
 aot_manifest_stage_dir() {
     [ -f "$1" ] || return 0
-    awk '$1 == "stage-dir" { sub(/^stage-dir[ \t]+/, ""); print; exit }' "$1"
+    aot_gate_command awk '$1 == "stage-dir" { sub(/^stage-dir[ \t]+/, ""); print; exit }' "$1"
 }
 
 # Post-leg trust verdict for the AOT leg (SNAPSHOT-INTEGRITY). Echoes exactly
@@ -51,7 +59,7 @@ aot_snapshot_verdict() {
             echo "invalid:staged-file-drifted:$name"
             return 0
         fi
-    done < <(awk '$1 == "artifact" { print $2, $4 }' "$manifest")
+    done < <(aot_gate_command awk '$1 == "artifact" { print $2, $4 }' "$manifest")
     if [ "$seen" = "0" ]; then
         echo "fallback"
         return 0

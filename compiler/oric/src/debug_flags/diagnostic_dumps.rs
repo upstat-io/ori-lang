@@ -137,3 +137,44 @@ flags! {
     ORI_LLVM_LINT
 
 }
+
+// Compile-time sync check: verify that audit env var names in `oric::debug_flags`
+// match the canonical constants in `ori_llvm::verify`. If either side renames a
+// flag, this assertion fails at compile time.
+#[cfg(feature = "llvm")]
+const _: () = {
+    assert!(
+        const_str_eq(ORI_AUDIT_CODEGEN, ori_llvm::verify::ENV_AUDIT_CODEGEN),
+        "ORI_AUDIT_CODEGEN constant drifted between oric and ori_llvm"
+    );
+    assert!(
+        const_str_eq(ORI_AUDIT_STRICT, ori_llvm::verify::ENV_AUDIT_STRICT),
+        "ORI_AUDIT_STRICT constant drifted between oric and ori_llvm"
+    );
+    assert!(
+        const_str_eq(ORI_AUDIT_FUNCTION, ori_llvm::verify::ENV_AUDIT_FUNCTION),
+        "ORI_AUDIT_FUNCTION constant drifted between oric and ori_llvm"
+    );
+    assert!(
+        const_str_eq(ORI_NO_REPR_OPT, ori_repr::NarrowingPolicy::ENV_NO_REPR_OPT),
+        "ORI_NO_REPR_OPT constant drifted between oric and ori_repr"
+    );
+};
+
+/// Const-compatible string equality (stable Rust lacks `const PartialEq` for `&str`).
+#[cfg(feature = "llvm")]
+const fn const_str_eq(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}

@@ -4089,8 +4089,9 @@ fn project_block_param_multi_predecessor_merge_propagates_all_source_demand() {
     // The backward analysis propagates demand for BOTH v2 and v4 to Block 3's
     // entry (via project_alias_sources). This is correct: the demand
     // propagation keeps parent aggregates alive per-predecessor. The emission
-    // layer filters branch-local variables at merge blocks, routing them to
-    // per-predecessor trampolines via edge cleanup.
+    // layer filters branch-local variables at merge blocks, placing each
+    // predecessor's release via the class-ledger's per-edge placement instead
+    // of a shared merge-block release.
     let func = ArcFunction {
         var_types: vec![ty(0); 9],
         blocks: vec![

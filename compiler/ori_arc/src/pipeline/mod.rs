@@ -16,18 +16,22 @@ use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
 use crate::ownership::AnnotatedSig;
-use crate::uniqueness::UniquenessSummary;
 use crate::ArcClassification;
+
+mod aims_pipeline;
+pub(crate) mod rc_count;
+
+pub use aims_pipeline::CheckpointObserver;
+
+#[cfg(test)]
+mod tests;
 
 /// Run the full ARC optimization pipeline on a single function.
 ///
 /// Uses the AIMS unified lattice pipeline: backward dataflow analysis
 /// produces a per-variable state map, then RC/reuse emission reads the
-/// state map to place operations.
-///
-/// The `uniqueness_summaries` parameter is unused — it exists for API
-/// compatibility during the transition period. The AIMS pipeline derives
-/// all ownership information from `aims_contracts`.
+/// state map to place operations. The AIMS pipeline derives all ownership
+/// information from `aims_contracts`.
 ///
 /// `sigs` and `type_registry` are bundled into `AimsPipelineConfig` for
 /// downstream consumption by `infer_derived_ownership` and `emit_burden_ops`.
@@ -42,12 +46,10 @@ pub fn run_arc_pipeline(
     sigs: &FxHashMap<Name, AnnotatedSig>,
     pool: &Pool,
     interner: &ori_ir::StringInterner,
-    uniqueness_summaries: &FxHashMap<Name, UniquenessSummary>,
     aims_contracts: &FxHashMap<Name, MemoryContract>,
     type_registry: &TypeRegistry,
     verify_arc: bool,
 ) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
-    let _ = uniqueness_summaries;
     let builtins = BuiltinOwnershipSets::new(interner);
     // Single-function entry: codegen may compile functions OUTSIDE the
     // interprocedural batch (test-wrapper bodies, impl methods, derived
@@ -110,13 +112,11 @@ pub fn run_arc_pipeline_with_observer<'a>(
     sigs: &'a FxHashMap<Name, AnnotatedSig>,
     pool: &'a Pool,
     interner: &'a ori_ir::StringInterner,
-    uniqueness_summaries: &FxHashMap<Name, UniquenessSummary>,
     aims_contracts: &'a FxHashMap<Name, MemoryContract>,
     type_registry: &'a TypeRegistry,
     verify_arc: bool,
     observer: &'a aims_pipeline::CheckpointObserver<'a>,
 ) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
-    let _ = uniqueness_summaries;
     let builtins = BuiltinOwnershipSets::new(interner);
     // Seed `func`'s own conservative contract when absent — see
     // `run_arc_pipeline` for the out-of-batch-function rationale.
@@ -193,27 +193,6 @@ pub fn compute_aims_contracts(
     aims_pipeline::apply_aims_ownership(functions, &contracts);
     contracts
 }
-
-/// Run interprocedural uniqueness analysis on all functions.
-///
-/// Returns an empty map — the AIMS pipeline computes uniqueness internally
-/// via its 7-dimensional state lattice. This function exists for API
-/// compatibility during the transition period.
-pub fn run_uniqueness_analysis(
-    functions: &[ArcFunction],
-    classifier: &dyn ArcClassification,
-    interner: &ori_ir::StringInterner,
-) -> FxHashMap<Name, UniquenessSummary> {
-    let _ = (functions, classifier, interner);
-    FxHashMap::default()
-}
-
-mod aims_pipeline;
-pub use aims_pipeline::CheckpointObserver;
-pub(crate) mod rc_count;
-
-#[cfg(test)]
-mod tests;
 
 /// Run ARC IR verification if enabled.
 ///

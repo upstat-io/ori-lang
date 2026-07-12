@@ -358,9 +358,9 @@ pub(super) fn emit_burden_ops_for_blocks(
 
 /// Vars used at a BORROWED (non-owned) arg position of an `Invoke` /
 /// `InvokeIndirect` terminator. A borrowed Invoke arg is NOT consumed by the
-/// callee — it survives to the `normal`/`unwind` successors, where edge
-/// cleanup (`emit_rc::release_with_burden_edge`) releases it and co-emits
-/// the paired scope-exit `BurdenDec`.
+/// callee — it survives to the `normal`/`unwind` successors, where the
+/// class-ledger's per-edge placement releases it and co-emits the paired
+/// scope-exit `BurdenDec`.
 ///
 /// # Why
 ///

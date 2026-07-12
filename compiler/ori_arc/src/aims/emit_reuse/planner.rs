@@ -5,9 +5,9 @@
 //!
 //! Runs as part of step 7 in the pipeline, AFTER RC emission
 //! (step 6) and BEFORE COW annotations (step 11a). This ordering is
-//! critical: RC emission may insert trampoline blocks (edge cleanup),
-//! which changes the CFG. The `ReusePlanner` must see the post-edge-cleanup
-//! CFG.
+//! critical: reuse candidates are matched against death/alloc events over
+//! the CFG as RC emission (the class-ledger per-edge release placement)
+//! left it, before later passes (block merging, COW annotation) run.
 //!
 //! # v1 scope
 //!

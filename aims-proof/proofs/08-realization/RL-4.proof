@@ -11,10 +11,11 @@ Theorem RL-4: edge-specific decs on CFG edges; Jump-argument ownership-transfer 
     - Signature ArcFunction x AimsStateMap -> ArcFunction per
       the canonical proof notation:264; discharged against the sec-01
       Realization.proof sorry obligation.
-    - Shipped site: emit_rc/edge_cleanup.rs::emit_edge_cleanup, called at
-      the end of realize/mod.rs::realize_rc_reuse Phase 1. Edge decs are
-      emitted pre-merge (Step 5) because they are position-keyed against the
-      pre-merge CFG (Annex E §AIMS PL-3).
+    - Shipped site: aims/class_ledger/emit/releases.rs::plan_releases, applied
+      via aims::class_ledger::apply_class_ledger_replacement at Step 4b,
+      before realize/mod.rs::realize_rc_reuse Phase 1 (Step 5) burden-op
+      emission runs. Edge decs are emitted pre-merge because they are
+      position-keyed against the pre-merge CFG (Annex E §AIMS PL-3).
     - The Jump-arg exemption pairs with RL-2: a value passed as a Jump arg
       is an ownership-transferring use (per emit_rc/helpers.rs
       is_ownership_transfer), so neither RL-2 nor RL-4 emits a dec; the

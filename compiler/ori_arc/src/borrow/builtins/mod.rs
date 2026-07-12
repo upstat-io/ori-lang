@@ -28,6 +28,11 @@ use ori_ir::builtin_constants::protocol::{ProtocolArgOwnership, ProtocolBuiltin}
 use ori_ir::{Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+/// Intern a static method-name table into a [`Name`] set.
+fn intern_name_set(names: &[&str], interner: &StringInterner) -> FxHashSet<Name> {
+    names.iter().map(|name| interner.intern(name)).collect()
+}
+
 /// Method names with **consuming receiver** semantics for list types.
 ///
 /// These are COW (Copy-on-Write) list methods that handle the old buffer's
@@ -157,10 +162,7 @@ pub fn borrowing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
 ///
 /// See [`CONSUMING_RECEIVER_METHOD_NAMES`] for the full list and rationale.
 pub fn consuming_receiver_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    CONSUMING_RECEIVER_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
+    intern_name_set(CONSUMING_RECEIVER_METHOD_NAMES, interner)
 }
 
 /// Collect interned [`Name`]s for COW list methods that also consume their
@@ -172,10 +174,7 @@ pub fn consuming_receiver_builtin_names(interner: &StringInterner) -> FxHashSet<
 ///
 /// See [`CONSUMING_SECOND_ARG_METHOD_NAMES`] for the full list.
 pub fn consuming_second_arg_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    CONSUMING_SECOND_ARG_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
+    intern_name_set(CONSUMING_SECOND_ARG_METHOD_NAMES, interner)
 }
 
 /// Collect interned [`Name`]s for COW methods that also consume their
@@ -187,10 +186,7 @@ pub fn consuming_second_arg_builtin_names(interner: &StringInterner) -> FxHashSe
 ///
 /// See [`CONSUMING_THIRD_ARG_METHOD_NAMES`] for the full list.
 pub fn consuming_third_arg_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    CONSUMING_THIRD_ARG_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
+    intern_name_set(CONSUMING_THIRD_ARG_METHOD_NAMES, interner)
 }
 
 /// Collect interned [`Name`]s for COW methods that consume only the receiver.
@@ -201,10 +197,7 @@ pub fn consuming_third_arg_builtin_names(interner: &StringInterner) -> FxHashSet
 ///
 /// See [`CONSUMING_RECEIVER_ONLY_METHOD_NAMES`] for the full list.
 pub fn consuming_receiver_only_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    CONSUMING_RECEIVER_ONLY_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
+    intern_name_set(CONSUMING_RECEIVER_ONLY_METHOD_NAMES, interner)
 }
 
 /// Map/Set COW methods whose borrowed non-receiver args are runtime-COPIED
@@ -225,10 +218,7 @@ const COPY_IN_METHOD_NAMES: &[&str] = &[
 ///
 /// See [`COPY_IN_METHOD_NAMES`] for the semantic contract.
 pub fn copy_in_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    COPY_IN_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
+    intern_name_set(COPY_IN_METHOD_NAMES, interner)
 }
 
 /// Collect interned [`Name`]s for ALL COW methods (union of consuming-receiver
@@ -269,10 +259,7 @@ const SHARING_METHOD_NAMES: &[&str] = &[
 ///
 /// See [`SHARING_METHOD_NAMES`] for the full list.
 pub fn sharing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    SHARING_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
+    intern_name_set(SHARING_METHOD_NAMES, interner)
 }
 
 /// Accessor methods that EXTRACT an owned heap payload out of a wrapper /
@@ -317,10 +304,7 @@ const BORROW_VIEW_ACCESSOR_METHOD_NAMES: &[&str] = &[
 
 /// Collect interned [`Name`]s for retain-less borrow-view accessor methods.
 pub fn borrow_view_accessor_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    BORROW_VIEW_ACCESSOR_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
+    intern_name_set(BORROW_VIEW_ACCESSOR_METHOD_NAMES, interner)
 }
 
 /// Collect interned [`Name`]s for accessor methods that retain their extracted
@@ -328,10 +312,7 @@ pub fn borrow_view_accessor_builtin_names(interner: &StringInterner) -> FxHashSe
 ///
 /// See [`ACCESSOR_RETAIN_METHOD_NAMES`] for the full list and rationale.
 pub fn accessor_retain_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    ACCESSOR_RETAIN_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
+    intern_name_set(ACCESSOR_RETAIN_METHOD_NAMES, interner)
 }
 
 /// Pre-computed interned sets for ARC ownership annotation.
