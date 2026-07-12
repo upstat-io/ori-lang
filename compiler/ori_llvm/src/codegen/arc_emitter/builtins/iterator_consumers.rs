@@ -558,10 +558,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // every element adapter-produced. `get_or_generate_elem_dec_fn`
         // returns null for scalar element types, so the trampoline path
         // stays behavior-unchanged even on a map-terminal scalar chain.
-        let elem_dec_fn = if args
-            .first()
-            .is_some_and(|&iter_var| join_chain_yields_fresh(arc_func, iter_var, self.interner))
-        {
+        let elem_dec_fn = if args.first().is_some_and(|&iter_var| {
+            join_chain_yields_fresh(arc_func, iter_var, self.interner, self.pool)
+        }) {
             self.get_or_generate_elem_dec_fn(elem_ty)
         } else {
             self.builder.const_null_ptr()
@@ -711,25 +710,41 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 ///   a function parameter, or a block-param merge: return `false`, the
 ///   leak-safe verdict (never a double-free; byte-identical to the
 ///   pre-release behavior for those chains).
+///
+/// Every adapter-name match is gated on the adapted operand being
+/// iterator-typed, so the name key identifies the builtin iterator adapter,
+/// not a same-named user free function (`@map(xs: [str])`) or a `map` method
+/// on a non-iterator receiver — those take a non-iterator first argument and
+/// fall through to the leak-safe `false`.
 fn join_chain_yields_fresh(
     arc_func: &ArcFunction,
     iter_var: ArcVarId,
     interner: &ori_ir::StringInterner,
+    pool: &ori_types::Pool,
 ) -> bool {
+    let is_iter = |var: ArcVarId| -> bool {
+        pool.tag(pool.resolve_fully(arc_func.var_type(var)))
+            .is_iterator()
+    };
     // Adapter chains are expression-local and short; the bound only guards
     // against a pathological alias cycle in malformed IR.
     let mut current = iter_var;
     for _ in 0..64 {
         match find_var_definition(arc_func, current) {
             VarDef::Alias(src) => current = src,
-            VarDef::Call { func, first_arg } => match interner.lookup(func) {
-                "map" => return true,
-                "filter" | "take" | "skip" | "rev" => match first_arg {
-                    Some(src) => current = src,
-                    None => return false,
-                },
-                _ => return false,
-            },
+            VarDef::Call { func, first_arg } => {
+                // A genuine iterator adapter consumes an iterator; if the first
+                // argument is not iterator-typed the name is not the builtin
+                // adapter — leak-safe decline.
+                let Some(src) = first_arg.filter(|&fa| is_iter(fa)) else {
+                    return false;
+                };
+                match interner.lookup(func) {
+                    "map" => return true,
+                    "filter" | "take" | "skip" | "rev" => current = src,
+                    _ => return false,
+                }
+            }
             VarDef::Other => return false,
         }
     }

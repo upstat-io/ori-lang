@@ -550,24 +550,40 @@ pub extern "C" fn ori_iter_join(
     let mut elem_buf = ElemBuf::new();
     let mut first = true;
 
+    // SAFETY: `state` is a live `IterState` (constructed by codegen, freed
+    // below), `elem_buf` is 16-byte aligned (`ElemBuf` repr, covers OriStr's
+    // 8-byte alignment), and `elem_size` was asserted `<= MAX_ELEM_SIZE`; each
+    // `next` writes at most `elem_size` bytes into the buffer.
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         if !first {
             result.push_str(sep);
         }
 
         // Convert element to string via trampoline or direct string read.
-        // Use read_unaligned because elem_buf/str_buf are [u8] (align 1)
-        // but OriStr requires align 8 (contains i64 fields).
         if let Some(to_str) = to_str_fn {
-            let mut str_buf = [0u8; std::mem::size_of::<OriStr>()];
-            (to_str)(to_str_env, elem_buf.as_ptr(), str_buf.as_mut_ptr());
-            let s = unsafe { ptr::read_unaligned(str_buf.as_ptr().cast::<OriStr>()) };
+            // `MaybeUninit<OriStr>` gives OriStr's 8-byte alignment, so the
+            // trampoline's sret store lands aligned (a bare `[u8; N]` would be
+            // align-1 — a misaligned OriStr write is UB).
+            let mut str_buf = std::mem::MaybeUninit::<OriStr>::uninit();
+            (to_str)(
+                to_str_env,
+                elem_buf.as_ptr(),
+                str_buf.as_mut_ptr().cast::<u8>(),
+            );
+            // SAFETY: the trampoline wrote a complete OriStr to the aligned
+            // buffer; OriStr is Copy (no Drop), so reading it out is sound.
+            let s = unsafe { str_buf.assume_init() };
+            // SAFETY: `s` is a valid OriStr whose data pointer (heap) or inline
+            // bytes (SSO) are valid for the borrow's lifetime (until the next
+            // loop iteration overwrites `str_buf`, after `push_str` copies out).
             result.push_str(unsafe { s.as_str() });
             // Free the temporary OriStr created by the trampoline.
             // OriStr is Copy (no Drop), so heap-backed temporaries leak without
             // explicit cleanup. ori_str_rc_dec handles SSO (no-op) and slice
             // encoding. ori_str_drop_buffer reads the size from the RC header
             // and calls ori_rc_free to deallocate.
+            // SAFETY: `s.heap.data`/`cap` are the trampoline-produced buffer's
+            // fields; releasing exactly the value this branch produced.
             unsafe {
                 crate::rc::ori_str_rc_dec(
                     s.heap.data,
@@ -578,12 +594,19 @@ pub extern "C" fn ori_iter_join(
             // Release the consumed INPUT element — a SEPARATE obligation from
             // the produced-string dec above. Null for scalar element types by
             // construction, so the int/float/bool path is behavior-unchanged.
+            // `dec` is codegen's element-type-matched release thunk over the
+            // (aligned) `elem_buf`.
             if let Some(dec) = elem_dec_fn {
                 (dec)(elem_buf.as_mut_ptr());
             }
         } else {
-            // Element is already an OriStr (24 bytes)
+            // Element is already an OriStr (24 bytes).
+            // SAFETY: `elem_buf` holds a complete OriStr (str-element chain);
+            // read_unaligned tolerates the buffer's storage layout. OriStr is
+            // Copy, so the read-out is sound.
             let s = unsafe { ptr::read_unaligned(elem_buf.as_ptr().cast::<OriStr>()) };
+            // SAFETY: `s` is a valid OriStr; its bytes are copied out by
+            // push_str before the buffer is reused.
             result.push_str(unsafe { s.as_str() });
             // Release the consumed element after its bytes were copied into
             // the accumulator. Non-null only for chains codegen proved
