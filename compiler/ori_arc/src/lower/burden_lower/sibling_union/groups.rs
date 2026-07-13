@@ -18,7 +18,7 @@ pub(super) type CarrierWithDups = ChainRootWithDups;
 
 /// A sibling-alias group: the projection-carrier alias dsts that share one
 /// alias-chain root and are CO-REACHABLE (same block — the conservative v1
-/// per the fix-consensus single-releaser restriction).
+/// single-releaser restriction).
 pub(super) struct SiblingGroup {
     /// The alias-chain root (loop block-param OR fresh-Construct local). NEVER
     /// a suppression target.

@@ -523,7 +523,7 @@ fn setup_error_struct_pool() -> (crate::Pool, crate::Idx) {
 
 /// `Pool::is_error_struct_receiver` MUST chase a `Tag::Var` linked (via
 /// unification) to `error_struct_idx` and accept it — the var-link-chase leg
-/// of the dual-identity guard (fix-consensus refinement #2 + #8).
+/// of the dual-identity guard.
 ///
 /// Drives `Pool::is_error_struct_receiver` DIRECTLY (not thru
 /// `resolve_builtin_method`) — driving this thru `resolve_builtin_method`

@@ -97,7 +97,7 @@ fn lower_try_non_option_result_scrutinee_panics_not_returns_scrutinee() {
 /// Positive control: `expr?` on `Result<int, Error>` where `Error` is the
 /// registered error struct MUST inject `__ori_inject_trace` on the Err
 /// payload before re-wrapping — the dual-identity guard (`is_error_struct_receiver`)
-/// accepting the genuine Error identity, per fix-consensus refinement #8.
+/// accepting the genuine Error identity.
 #[test]
 fn lower_try_injects_trace_on_genuine_error_err_payload() {
     let interner = StringInterner::new();

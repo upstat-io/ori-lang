@@ -302,7 +302,7 @@ impl ArcLowerer<'_> {
                 // idx via is_error_struct_receiver — resolve_fully'ing err_ty
                 // FIRST (as emit_project + downstream codegen still need) would
                 // collapse a newtype-over-Error to the same concrete idx as a
-                // genuine Error, wrongly matching it (fix-consensus refinement #8).
+                // genuine Error, wrongly matching it.
                 let raw_err_ty = self.pool.result_err(resolved);
                 let err_ty = self.pool.resolve_fully(raw_err_ty);
                 let mut err_payload = self.builder.emit_project(err_ty, scrut, 1, Some(span));
