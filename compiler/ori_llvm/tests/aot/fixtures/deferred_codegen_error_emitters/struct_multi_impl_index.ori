@@ -1,0 +1,14 @@
+type JsonValue = { data: str }
+
+impl JsonValue: Index<int, str> {
+    @index (self, key: int) -> str = "int_" + self.data;
+}
+
+impl JsonValue: Index<str, str> {
+    @index (self, key: str) -> str = "str_" + self.data;
+}
+
+@main () -> int = {
+    let j = JsonValue { data: "x" };
+    if j[0] == "int_x" && j["k"] == "str_x" then 0 else 1
+}

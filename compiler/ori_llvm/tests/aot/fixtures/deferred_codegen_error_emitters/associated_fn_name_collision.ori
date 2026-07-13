@@ -1,0 +1,15 @@
+type Counter = { value: int }
+
+impl Counter {
+    @new (value: int) -> Counter = Counter { value: value };
+    @add (self, amount: int) -> int = self.value + amount;
+}
+
+@add (a: int, b: int) -> int = a + b;
+
+@main () -> int = {
+    let $c = Counter.new(value: 10);
+    let bumped = c.add(amount: 5);
+    let summed = add(a: 3, b: 4);
+    if bumped == 15 && summed == 7 then 0 else 1
+}

@@ -34,6 +34,7 @@ pub mod corpus_under_flag_gate;
 pub mod cow_map_set;
 pub mod cross;
 pub mod default_minmax_mono_in_generic;
+pub mod deferred_codegen_error_emitters;
 pub mod depth;
 pub mod derives;
 pub mod direct_list_flatten;

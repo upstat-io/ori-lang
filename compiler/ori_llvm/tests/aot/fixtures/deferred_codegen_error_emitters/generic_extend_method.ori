@@ -1,0 +1,8 @@
+extend [T] {
+    @count (self) -> int = self.len();
+}
+
+@main () -> int = {
+    let items: [int] = [1, 2, 3];
+    if items.count() == 3 then 0 else 1
+}
