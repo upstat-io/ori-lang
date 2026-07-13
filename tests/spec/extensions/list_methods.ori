@@ -31,16 +31,16 @@ extend str {
 // -----------------------------------------------------------------------------
 
 extend [T] {
-    @count (self) -> int = self.len();
+    @item_tally (self) -> int = self.len();
     @empty (self) -> bool = self.len() == 0;
 }
 
-@get_count (items: [int]) -> int = items.count();
+@get_item_tally (items: [int]) -> int = items.item_tally();
 
-@test_count tests @get_count () -> void = {
-    assert_eq(actual: get_count(items: []), expected: 0);
-    assert_eq(actual: get_count(items: [1]), expected: 1);
-    assert_eq(actual: get_count(items: [1, 2, 3]), expected: 3)
+@test_item_tally tests @get_item_tally () -> void = {
+    assert_eq(actual: get_item_tally(items: []), expected: 0);
+    assert_eq(actual: get_item_tally(items: [1]), expected: 1);
+    assert_eq(actual: get_item_tally(items: [1, 2, 3]), expected: 3)
 }
 
 @is_empty (items: [int]) -> bool = items.empty();
