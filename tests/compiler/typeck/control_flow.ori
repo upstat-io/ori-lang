@@ -187,10 +187,16 @@ use std.testing { assert, assert_eq, assert_ne }
 }
 
 // Valid: try with Option
+// Regression: a bare (non-`?`) let inside try{} was incorrectly auto-unwrapped by
+// the checker (typed as the payload) while codegen kept the original Option
+// representation, causing a checker/codegen type mismatch that crashed at
+// runtime. `x` must retain its real type (`Option<int>`), never the unwrapped
+// payload — the is_some check below only type-checks when that holds.
 @test_try_option tests _ () -> void = {
     let opt = Some(42);
     let result = try {
         let x = opt;
+        assert(cond: is_some(opt: x));
         Ok(x)
     };
     assert(cond: is_ok(r: result))
