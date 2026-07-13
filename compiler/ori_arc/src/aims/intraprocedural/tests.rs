@@ -1502,7 +1502,6 @@ fn callee_contract_locality_widens_arg() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                capture_variant_return_project: None,
                 iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
@@ -1607,7 +1606,6 @@ fn callee_contract_local_locality_does_not_escape_arg() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                capture_variant_return_project: None,
                 iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
@@ -1678,7 +1676,6 @@ fn callee_contract_function_local_preserves_arg() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                capture_variant_return_project: None,
                 iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
@@ -1888,7 +1885,6 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                capture_variant_return_project: None,
                 iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
@@ -1977,7 +1973,6 @@ fn pure_callee_preserves_borrowed_arg_uniqueness() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                capture_variant_return_project: None,
                 iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
@@ -2061,7 +2056,6 @@ fn sharing_callee_widens_borrowed_arg_uniqueness() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                capture_variant_return_project: None,
                 iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
@@ -2145,7 +2139,6 @@ fn owned_param_ignores_callee_may_share() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                capture_variant_return_project: None,
                 iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
@@ -2385,7 +2378,6 @@ fn effect_summary_apply_unions_callee_effects() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                capture_variant_return_project: None,
                 iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
@@ -2922,7 +2914,6 @@ fn conditional_fip_call_site_all_unique_no_widening() {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             borrowed_cow_mutated: false,
-            capture_variant_return_project: None,
             iter_consumes_projected_field: None,
         }],
         return_info: ReturnContract::CONSERVATIVE,
@@ -3004,7 +2995,6 @@ fn fip_test_contract(fip: FipContract) -> MemoryContract {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             borrowed_cow_mutated: false,
-            capture_variant_return_project: None,
             iter_consumes_projected_field: None,
         }],
         return_info: ReturnContract::CONSERVATIVE,
@@ -4233,7 +4223,6 @@ fn contract_with_return(return_info: ReturnContract) -> MemoryContract {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             borrowed_cow_mutated: false,
-            capture_variant_return_project: None,
             iter_consumes_projected_field: None,
         }],
         return_info,
@@ -5925,53 +5914,4 @@ fn alias_table_demand_matches_unified_on_projection_chains() {
             "projection-rooted chain entries identical across unified + demand tables"
         );
     }
-}
-
-/// Superset-parity: `compute_same_alloc_reps` is a thin projection of the
-/// table's genuine same-allocation builder — identical maps on a
-/// representative IR carrying Let aliases + a Jump-arg rename.
-#[test]
-fn same_alloc_reps_parity_with_genuine_table_builder() {
-    let func = ArcFunction {
-        var_types: vec![ty(0); 4],
-        blocks: vec![
-            ArcBlock {
-                id: block_id(0),
-                params: vec![],
-                body: vec![
-                    ArcInstr::Let {
-                        dst: var(1),
-                        ty: ty(0),
-                        value: ArcValue::Var(var(0)),
-                    },
-                    ArcInstr::Let {
-                        dst: var(2),
-                        ty: ty(0),
-                        value: ArcValue::Var(var(1)),
-                    },
-                ],
-                terminator: ArcTerminator::Jump {
-                    target: block_id(1),
-                    args: vec![var(2)],
-                },
-            },
-            ArcBlock {
-                id: block_id(1),
-                params: vec![(var(3), ty(0))],
-                body: vec![],
-                terminator: ArcTerminator::Return { value: var(3) },
-            },
-        ],
-        ..Default::default()
-    };
-    let from_projection =
-        crate::aims::emit_rc::compute_same_alloc_reps(&func, &FxHashMap::default());
-    let from_table =
-        super::project_aliases::compute_genuine_same_alloc_reps(&func, &FxHashMap::default());
-    assert_eq!(from_projection, from_table, "thin-projection parity");
-    // Jump-arg rename (edge type 2) stays EXCLUDED from genuine reps.
-    assert!(
-        !from_table.contains_key(&var(3)),
-        "block-param rename never joins the genuine same-allocation union-find"
-    );
 }

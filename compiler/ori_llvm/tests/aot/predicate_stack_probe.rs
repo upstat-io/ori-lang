@@ -184,7 +184,7 @@ fn probe_closure_capture_last_use_str() {
 
 /// Negative pin (the matrix-clamping counterpart of
 /// `probe_closure_capture_last_use_str`): `ORI_DISABLE_BURDEN_OPS=1` skips
-/// Phase-5 `emit_burden_ops` entirely, so the closure-env last-use release
+/// class-ledger Step-4b emission entirely, so the closure-env last-use release
 /// (`burden_dec` on the `PartialApply` result after the closure's single
 /// invocation) never lands. Under sole-emitter Phase-7 lowering there is then
 /// no release for the closure's captured string, leaking it. A heap-carrying
@@ -1104,8 +1104,8 @@ fn probe_owned_set_str_local_named_iter_count_freed_once() {
 /// (escapes after iteration). The receiver is `[own]` (transfers through Return),
 /// so AIMS keeps it live across the iter via a keep-alive inc (RC 2); the cure's
 /// gate fires the set-buffer dec, leaving RC 1 for the caller's surviving ref —
-/// no leak, no double-free. Covers the owned-Set-param iterator-consumption
-/// + escaping-return overlap, governed by `RL2_iter_consume_return_overlap_balanced`
+/// no leak, no double-free. Covers the owned-Set-param iterator-consumption and
+/// escaping-return overlap, governed by `RL2_iter_consume_return_overlap_balanced`
 /// (aims-proof/lean/AimsProof/Realization.lean:285). If the cure over-gated and
 /// skipped the dec on this owned-surviving path, the set buffer would LEAK (the
 /// `ORI_CHECK_LEAKS=1` harness clamps that). Green pre- AND post-fix (the owned

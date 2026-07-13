@@ -1,15 +1,19 @@
-//! Per-function replacement of the standard `emit_burden_ops_step` Step-4b
-//! emission by the class-ledger plan, behind the readiness gate.
+//! Per-function application of the class-ledger plan at Step-4b, behind the
+//! readiness gate — the sole production burden-op emitter.
 //!
 //! Replacement gate — ALL must hold; any failure declines replacement, which
 //! is fail-loud (an ICE — no fallback emitter exists) except when burden-op
 //! emission itself is disabled via `ORI_DISABLE_BURDEN_OPS=1`:
 //!
 //! - the analysis reports FULLY CLEAN readiness (no declined class, every
-//!   class verdict `Clean`) with at least ONE class — a zero-class function
-//!   declines (the class model proves nothing about variables it never
-//!   evented; a live non-excluded variable with no evented class is a
-//!   classifier coverage gap, not a genuine zero-RC function);
+//!   class verdict `Clean`) with at least ONE class, UNLESS every variable
+//!   is excluded (scalar or immortal) — that empty-surface case is ADMITTED
+//!   with the empty plan (zero RC-bearing values, so zero placement
+//!   obligations hold vacuously). A zero-class function with any
+//!   non-excluded variable still declines (the class model proves nothing
+//!   about variables it never evented; a live non-excluded variable with no
+//!   evented class is a classifier coverage gap, not a genuine zero-RC
+//!   function);
 //! - no variable's type carries a user `@drop` (the RL-DROP user-drop call
 //!   for scalar-repr values is a completeness case the class model does not
 //!   yet cover);
@@ -140,8 +144,8 @@ impl FallbackReason {
 }
 
 /// Analyze `func` and commit the class-ledger plan when every replacement
-/// gate holds; otherwise leave `func` byte-identical for the standard
-/// `emit_burden_ops_step` burden-op emission.
+/// gate holds; otherwise leave `func` byte-identical (no burden ops emitted
+/// for this function).
 ///
 /// `allow_replacement = false` runs the analysis only (readiness stays
 /// reportable) and never mutates `func`.

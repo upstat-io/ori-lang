@@ -26,7 +26,6 @@ use rustc_hash::FxHashMap;
 #[cfg(feature = "llvm")]
 pub(super) fn dump_arc_phases(
     arc_cache: &FxHashMap<ori_ir::Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
-    annotated_sigs: &FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>,
     classifier: &ori_arc::ArcClassifier,
     pool: &Pool,
     interner: &StringInterner,
@@ -35,7 +34,6 @@ pub(super) fn dump_arc_phases(
 ) {
     crate::dump_orchestrator::dump_arc(
         arc_cache,
-        annotated_sigs,
         classifier,
         pool,
         interner,
@@ -43,14 +41,7 @@ pub(super) fn dump_arc_phases(
         source_path,
     );
     crate::dbg_do!(crate::debug_flags::ORI_EMIT_ARC_DOT, {
-        crate::arc_dot::emit_arc_dot(
-            arc_cache,
-            annotated_sigs,
-            classifier,
-            pool,
-            interner,
-            type_registry,
-        );
+        crate::arc_dot::emit_arc_dot(arc_cache, classifier, pool, interner, type_registry);
     });
 }
 

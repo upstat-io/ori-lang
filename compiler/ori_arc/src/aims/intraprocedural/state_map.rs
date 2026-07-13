@@ -510,11 +510,6 @@ impl AimsStateMap {
         self.birth_site_partition = Some(partition);
     }
 
-    /// The birth-site partition side table; `None` until populated.
-    pub(crate) fn birth_site_partition(&self) -> Option<&BirthSitePartition> {
-        self.birth_site_partition.as_ref()
-    }
-
     // Block state accessors
 
     /// Get the state of a variable at a block's exit (after terminator).
@@ -851,18 +846,6 @@ impl AimsStateMap {
     }
 
     // Project-derived alias graph
-
-    /// Read-only borrow of the entire Project-derived alias source map.
-    ///
-    /// Consumed by `class_lifetime_extends_past_path_sensitive` (in the
-    /// post-convergence pass) to widen the A-live witness set with Project-
-    /// derived aliases of B-members; the predicate iterates this map's
-    /// entries and treats any var whose `ProjectSources` intersect any
-    /// B-member as an extended A-witness.
-    #[must_use]
-    pub(crate) fn project_alias_sources(&self) -> &FxHashMap<ArcVarId, ProjectSources> {
-        &self.project_alias_sources
-    }
 
     /// Bulk-install the pre-computed Project-derived alias source map.
     ///

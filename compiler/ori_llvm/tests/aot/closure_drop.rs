@@ -5,32 +5,11 @@
 //! via existing `emit_rc_dec_closure`) + `ori_rc_dec`
 //! invocation at refcount-zero (runtime side).
 //!
-//! The codegen path is shipped (the existing
-//! `DropKind::ClosureEnv(fields) | DropKind::Fields(fields)` shared arm at
-//! `compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs`
-//! materializes the closure drop body once burden composition populates
-//! `UserBurdenSpec.compiled_drop` for closure types). The burden walker at
-//! `ori_arc/src/lower/burden_lower.rs` consumes the registered closure
-//! burden — pinned by the 5 `burden_lower` closure-burden tests.
-//!
-//! The closure-burden algorithmic deliverables are pinned by:
-//! - `ori_types::registry::burden_compose::closure::tests` — 11-cell matrix
-//!   over capture-by-value, capture-by-reference, captures-of-captures,
-//!   capture-of-projection, `compiled_drop` `FnSym` uniqueness, and default-shape
-//!   invariants.
-//! - `ori_arc::lower::burden_lower::tests::{
-//!     closure_capture_by_value_of_owned_str_emits_burden_inc_at_partial_apply,
-//!     closure_capture_by_reference_emits_no_burden_inc,
-//!     nested_closure_emits_recursive_burden_inc_through_outer_env,
-//!     closure_capture_of_projection_emits_borrowed_field_with_parent_lifetime,
-//!     partial_apply_owned_capture_passed_to_owned_callee_emits_two_transfer_point_burden_inc,
-//!   }` — burden-walker emission pins.
-//!
-//! The lambda-side wiring at `ori_types::infer::expr::infer_lambda` auto-registers
-//! each closure's `UserBurdenSpec` via `compose_closure_burden_spec` at
-//! lambda-type-check time, so the two AOT tests below exercise the full
-//! end-to-end drop: env owns a copy of every captured value and decrements it
-//! exactly once via the env-header `drop_fn` at refcount zero.
+//! Lambda type checking registers each closure's `UserBurdenSpec`; class-ledger
+//! Step-4b emission places the verified closure-env release, and Phase 7 lowers
+//! it mechanically. `DropKind::ClosureEnv(fields)` materializes the closure drop
+//! body, while `emit_rc_dec_closure` loads and invokes the env-header `drop_fn`
+//! at refcount zero. These AOT cases pin the complete path.
 
 #![allow(
     clippy::needless_raw_string_hashes,

@@ -170,16 +170,10 @@ pub struct DropInfo {
 /// - Whether to iterate elements (for collections)
 /// - Whether to switch on enum tag
 ///
-/// Transitional thin-wrapper preserved during the burden-tracking
-/// migration. Synthesises a [`burden_bridge::SynthesizedBurden`] from the
-/// pool walk + classifier and forwards through
-/// [`burden_bridge::burden_to_drop_info`]. Consumers should migrate to
-/// direct `BurdenRegistry::lookup_burden` calls at their own pace.
-/// Full deprecation lands (Phase 7 mechanical lowering) for the
-/// `ori_arc::lower::burden_lower` emission boundary and (post-
-/// convergence partial retirement) for the
-/// `ori_llvm::codegen::arc_emitter::element_fn_gen` cross-crate caller —
-/// the only cross-crate production consumer (no `ori_eval` callers).
+/// Synthesizes a [`burden_bridge::SynthesizedBurden`] from the pool walk and
+/// classifier, then converts it through [`burden_bridge::burden_to_drop_info`].
+/// LLVM consumes the descriptor for field and element drop glue, including
+/// class-ledger field-grain releases mechanically re-spelled in Phase 7.
 pub fn compute_drop_info(
     ty: Idx,
     classifier: &dyn ArcClassification,

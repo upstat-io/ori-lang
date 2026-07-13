@@ -1,23 +1,10 @@
 //! Shared `#[cfg(test)]` fixtures for `lower/` submodules.
 //!
-//! Lifts `test_name` and `registered_struct_with_burden` out of
-//! `burden_lookup/tests.rs` so `burden_lower/tests.rs` can consume the same
-//! user-defined-type fixture for full-move-suppression pins.
-//!
-//! adds `entry_block` / `project_first` / `set_first` constructors
-//! that hide canonical zero defaults (`params: Vec::new`, `field: 0`) used
-//! by every `ArcBlock` / `ArcInstr::Project` / `ArcInstr::Set` fixture in
-//! `burden_lower/tests.rs`. Per `_SPRAWL cure 4 —
-//! side-table by existing key`: the literal defaults move out of construction
-//! sites into named helpers.
-//!
 //! Single source of truth; never duplicate.
 
 use ori_ir::{Name, Span};
 use ori_types::burden::{UserBurdenSpec, UserOwnedField, UserTransferRule, UserVariantBurden};
 use ori_types::{FieldDef, Idx, TypeRegistry, Visibility};
-
-use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcVarId};
 
 /// Construct a `Name` from a literal string via a deterministic byte-sum hash.
 ///
@@ -259,40 +246,4 @@ pub(crate) fn registered_struct_value_heap_mixed(
         None,
         Some(burden),
     );
-}
-
-/// Canonical `ArcBlock` constructor for single-entry-block fixtures: hides the
-/// `id: ArcBlockId::new(0)` and `params: Vec::new` literals every fixture
-/// repeats..
-pub(crate) fn entry_block(body: Vec<ArcInstr>, terminator: ArcTerminator) -> ArcBlock {
-    ArcBlock {
-        id: ArcBlockId::new(0),
-        params: Vec::new(),
-        body,
-        terminator,
-    }
-}
-
-/// Canonical `ArcInstr::Project` for the first-field projection used by every
-/// two-stage / TF-4 pin: hides the `field: 0` literal. Tests projecting a
-/// non-zero field MUST construct `ArcInstr::Project` inline (helper is scoped
-/// to the canonical first-field case).
-pub(crate) fn project_first(dst: ArcVarId, ty: Idx, value: ArcVarId) -> ArcInstr {
-    ArcInstr::Project {
-        dst,
-        ty,
-        value,
-        field: 0,
-    }
-}
-
-/// Canonical `ArcInstr::Set` for first-field in-place mutation: hides the
-/// `field: 0` literal. Tests mutating a non-zero field MUST construct
-/// `ArcInstr::Set` inline (helper is scoped to the canonical first-field case).
-pub(crate) fn set_first(base: ArcVarId, value: ArcVarId) -> ArcInstr {
-    ArcInstr::Set {
-        base,
-        field: 0,
-        value,
-    }
 }

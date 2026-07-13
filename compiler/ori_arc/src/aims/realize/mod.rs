@@ -20,8 +20,6 @@
 //! - Perceus (Reinking et al., PLDI 2021): unified RC + reuse
 //! - FP² (Marshall et al., ESOP 2022): FIP-guided reuse decisions
 
-mod burden_elim;
-mod cleanup_redundant;
 pub mod decide;
 #[cfg(test)]
 mod dimension_consumer;
@@ -33,11 +31,7 @@ pub mod rl31_disjoint;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use burden_elim::eliminate_burden_ops;
-pub(crate) use burden_elim::emit_survivor_remarks_all_kept;
-pub(crate) use cleanup_redundant::cleanup_redundant_project_alias_decs;
-pub(crate) use emit_unified::for_yield_result_finalizer_name;
-pub(crate) use emit_unified::fresh_rc_alloc_dst_terminator;
+pub(crate) use rc_remark::emit_survivor_remarks_all_kept;
 pub use rl31_disjoint::{prove_param_noalias, NoaliasProof};
 
 use ori_ir::Name;
@@ -117,18 +111,17 @@ pub fn realize_rc_reuse(
 ) -> RealizationResult {
     // emit_arg_ownership runs as a Step 4b-prelude in
     // `pipeline/aims_pipeline/mod.rs::run_aims_pipeline` BETWEEN Step 4
-    // (`analyze_function`) and Step 4b (`emit_burden_ops`) so burden_lower
-    // observes converged arg_ownership at emission time (AIMS Invariant 3 —
-    // no stale summaries). This function therefore does NOT invoke
+    // (`analyze_function`) and class-ledger Step-4b emission so the planner
+    // observes converged arg_ownership (AIMS Invariant 3 — no stale summaries).
+    // This function therefore does NOT invoke
     // emit_arg_ownership — the prelude has already populated arg_ownership
     // before it runs. `_builtins` is unused here (kept for signature
     // stability); contracts / interner / pool are consumed by the
     // RC-emission (Sub-step B) and reuse-emission (Sub-step C) sub-steps.
 
-    // Sub-step B: unified RC emission via the burden path. The burden path's
-    // own RL-1 duplication inc (emit_burden_ops dup-alias / FRESH-site inc)
-    // covers the borrowed-receiver COW retain via the Phase-7 BurdenInc → RcInc
-    // lowering; the burden path is the sole RC emitter.
+    // Sub-step B: mechanically lower the verified class-ledger plan. Its RL-1
+    // funding incs become RcInc instructions in Phase 7; the class-ledger path
+    // is the sole RC emitter.
     let (rc_ops_inserted, death_events, alloc_events, phase1_metrics) = {
         let _span = tracing::debug_span!("realize_rc_unified").entered();
         emit_unified::emit_rc_unified(func, state_map, pool, interner, contracts, type_registry)

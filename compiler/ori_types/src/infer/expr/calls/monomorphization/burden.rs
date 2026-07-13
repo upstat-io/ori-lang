@@ -201,11 +201,12 @@ pub fn compose_burden_for_idx(
 /// An imported function's body resolves its internal collection types into the
 /// importer's merged pool, but `register_imported_function` composes burdens for
 /// signature types only — so an imported body's internal collection (e.g. a dead
-/// `for…yield` `[bool]` local) reaches `emit_burden_ops` with no burden and gets
-/// no RC, leaking. Both codegen registries (AOT + JIT) rebuild from typed-module
-/// exports via `TypeRegistry::from_typed_exports`, which carry signature-reachable
-/// burdens only; this pass walks the merged pool and fills the gaps using the
-/// SSOT `compose_burden_for_idx`. Pool-walking (not arc-IR-walking) so it is
+/// `for…yield` `[bool]` local) can reach class-ledger Step-4b emission without the
+/// burden metadata needed to resolve its RC-bearing shape. Both codegen registries
+/// (AOT + JIT) rebuild from typed-module exports via
+/// `TypeRegistry::from_typed_exports`, which carry signature-reachable burdens
+/// only; this pass walks the merged pool and fills the gaps using the SSOT
+/// `compose_burden_for_idx`. Pool-walking (not arc-IR-walking) keeps registration
 /// independent of when each function's `ArcFunction` is lowered. Spec: Annex E
 /// §AIMS.
 pub fn register_resolved_collection_burdens(pool: &Pool, registry: &mut crate::TypeRegistry) {

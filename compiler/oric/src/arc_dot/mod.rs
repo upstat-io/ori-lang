@@ -15,7 +15,7 @@ mod node;
 
 use std::fmt::Write;
 
-use ori_arc::{AnnotatedSig, ArcClassification, ArcFunction, ArcTerminator};
+use ori_arc::{ArcClassification, ArcFunction, ArcTerminator};
 use ori_ir::{Name, StringInterner};
 use ori_types::{Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
@@ -33,7 +33,6 @@ use self::node::{render_block_node, render_param_header};
 )]
 pub fn emit_arc_dot(
     arc_cache: &FxHashMap<Name, (ArcFunction, Vec<ArcFunction>)>,
-    annotated_sigs: &FxHashMap<Name, AnnotatedSig>,
     classifier: &dyn ArcClassification,
     pool: &Pool,
     interner: &StringInterner,
@@ -54,7 +53,6 @@ pub fn emit_arc_dot(
         let problems = ori_arc::run_arc_pipeline_all(
             &mut funcs,
             classifier,
-            annotated_sigs,
             interner,
             pool,
             &builtins,

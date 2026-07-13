@@ -22,7 +22,6 @@
 mod builder;
 pub mod burden;
 pub mod burden_lookup;
-pub(crate) mod burden_lower;
 mod calls;
 pub(crate) mod collections;
 mod constructs;

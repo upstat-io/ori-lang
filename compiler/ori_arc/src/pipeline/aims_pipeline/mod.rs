@@ -35,7 +35,6 @@ use crate::aims::contract::{ContractMapExt, MemoryContract};
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::{ArcFunction, ArcInstr};
 use crate::lower::ArcProblem;
-use crate::ownership::AnnotatedSig;
 use crate::pipeline::rc_count;
 use crate::ArcClassification;
 
@@ -136,17 +135,13 @@ pub(crate) struct AimsPipelineConfig<'a> {
     /// When `Some`, called after each pipeline step with the current
     /// function state and phase name. When `None`, zero overhead.
     pub observer: Option<&'a CheckpointObserver<'a>>,
-    /// Annotated function signatures (borrow inference output).
-    ///
-    /// Consumed by per-variable derived-ownership inference
-    /// (`borrow::infer_derived_ownership`).
-    pub sigs: &'a FxHashMap<Name, AnnotatedSig>,
-    /// Type registry used by the burden-emission walker
-    /// (`lower::burden_lower::emit_burden_ops`). Carried per AIMS Invariant 5
-    /// ("unified model — new capabilities extend a lattice dimension OR a
-    /// contract field OR feed the lattice-driven analysis as a typed pre-pass
-    /// input"). Call sites pass either the live module `TypeRegistry` (`oric`
-    /// codegen path) or an empty placeholder (`TypeRegistry::default`).
+    /// Type registry used by class-ledger burden-op replacement
+    /// (`aims::class_ledger::apply_class_ledger_replacement`). Carried per
+    /// AIMS Invariant 5 ("unified model — new capabilities extend a lattice
+    /// dimension OR a contract field OR feed the lattice-driven analysis as a
+    /// typed pre-pass input"). Call sites pass either the live module
+    /// `TypeRegistry` (`oric` codegen path) or an empty placeholder
+    /// (`TypeRegistry::default`).
     pub type_registry: &'a TypeRegistry,
 }
 
@@ -186,9 +181,6 @@ pub(crate) fn run_aims_pipeline(
         config.observer,
     );
 
-    // Step 3b: compute DerivedOwnership for the burden walker (consumed at Step 4b).
-    let derived_ownership = crate::borrow::infer_derived_ownership(func, config.sigs);
-
     // Intraprocedural analysis → converged state map.
     let state_map = {
         let _span = tracing::info_span!("analyze_function").entered();
@@ -224,11 +216,11 @@ pub(crate) fn run_aims_pipeline(
 
     // Step 4b-prelude — populate arg_ownership AFTER analyze_function (so
     // post-convergence's payload-edge analysis sees empty arg_ownership,
-    // preserving its transitive-drop edge computation) but BEFORE emit_burden_ops (so
-    // burden_lower observes converged arg_ownership at emission time — closes
-    // the VF-1 imbalance per AIMS TF-3 / RL-2). emit_arg_ownership is
-    // idempotent; `realize_rc_reuse` does not re-invoke it because arg_ownership
-    // is already populated here.
+    // preserving its transitive-drop edge computation) but BEFORE class-ledger
+    // replacement (so the replacement plan observes converged arg_ownership at
+    // emission time — closes the VF-1 imbalance per AIMS TF-3 / RL-2).
+    // emit_arg_ownership is idempotent; `realize_rc_reuse` does not re-invoke
+    // it because arg_ownership is already populated here.
     {
         let _span = tracing::debug_span!("emit_arg_ownership_prelude").entered();
         crate::aims::emit_rc::arg_ownership::emit_arg_ownership(
@@ -246,13 +238,13 @@ pub(crate) fn run_aims_pipeline(
         config.observer,
     );
 
-    // Step 4b dispatch: class-ledger replacement (gated on the per-function
-    // readiness gate) or the standard `emit_burden_ops_step` burden-op
-    // emission. The analysis reads the pre-burden IR + converged state map
-    // (before any burden ops enter the class event streams); a replaced
-    // function carries the applied plan and skips burden-op emission
-    // entirely (never both emitters).
-    let class_ledger_replaced = crate::aims::class_ledger::apply_class_ledger_replacement(
+    // Step 4b: class-ledger replacement is the sole production Step-4b RC
+    // emitter. The analysis reads the pre-burden IR + converged state map
+    // (before any burden ops enter the class event streams); the applied plan
+    // lowers mechanically at Phase 7, so every planned inc is a surviving RC
+    // op — emit the observability remarks unconditionally at the disposition
+    // seam.
+    crate::aims::class_ledger::apply_class_ledger_replacement(
         func,
         &state_map,
         config.contracts,
@@ -260,20 +252,16 @@ pub(crate) fn run_aims_pipeline(
         config.interner,
         burden_emission::burden_ops_enabled(),
     );
-
-    // Step 4b: emit BurdenInc/BurdenDec ops based on converged state map.
-    if class_ledger_replaced {
-        // A replaced function skips Phase-6 elimination (its plan lowers
-        // mechanically), so every planned inc is a surviving RC op — emit the
-        // observability remarks here, at the disposition seam it bypasses.
-        crate::aims::realize::emit_survivor_remarks_all_kept(func, &state_map, config.interner);
-    } else {
-        burden_emission::emit_burden_ops_step(func, config, &derived_ownership, &state_map);
-    }
-    trace_pipeline_checkpoint(func, "emit_burden_ops", config.interner, config.observer);
+    crate::aims::realize::emit_survivor_remarks_all_kept(func, &state_map, config.interner);
+    trace_pipeline_checkpoint(
+        func,
+        "class_ledger_emission",
+        config.interner,
+        config.observer,
+    );
 
     burden_emission::dump_after_burden(func, config);
-    burden_emission::dump_after_burden_elim(func, &state_map, config);
+    burden_emission::dump_after_class_ledger_emission_compat(func, config);
 
     // Phase 1: RC + reuse + arg_ownership (pre-merge).
     let mut result = {
@@ -348,26 +336,6 @@ fn apply_phase_2_annotations(
     );
     func.cow_annotations = std::mem::take(&mut result.cow_annotations);
     func.drop_hints = std::mem::take(&mut result.drop_hints);
-
-    // The redundant-project-alias-dec cleanup repairs a legacy-emission
-    // over-emission; a class-ledger-replaced function's decs are the verified
-    // plan, so the cleanup is skipped for it (per
-    // `ArcFunction::class_ledger_emission`).
-    if !func.class_ledger_emission {
-        let _span = tracing::info_span!("cleanup_redundant_project_alias_decs").entered();
-        crate::aims::realize::cleanup_redundant_project_alias_decs(
-            func,
-            state_map,
-            config.pool,
-            config.interner,
-        );
-        trace_pipeline_checkpoint(
-            func,
-            "cleanup_redundant_project_alias_decs",
-            config.interner,
-            config.observer,
-        );
-    }
 }
 
 /// Step 5a: FIP enforcement pre-check.

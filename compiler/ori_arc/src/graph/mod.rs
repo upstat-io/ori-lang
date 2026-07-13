@@ -168,31 +168,6 @@ pub fn compute_postorder(func: &ArcFunction) -> Vec<usize> {
     postorder
 }
 
-/// The set of block indices forward-reachable from any block in `starts`
-/// (inclusive of the starts), via [`successor_block_ids`] CFG edges.
-///
-/// Canonical home for forward-reachability over `usize` block indices — the
-/// AIMS realize passes (`aims::realize::burden_elim`,
-/// `aims::realize::emit_unified`) each need this exact BFS to bound a
-/// terminal-net / release-selection / loop-carried-scope query to the blocks
-/// an allocation can actually reach.
-pub(crate) fn forward_reachable(func: &ArcFunction, starts: &[usize]) -> FxHashSet<usize> {
-    let mut visited: FxHashSet<usize> = FxHashSet::default();
-    let mut stack: Vec<usize> = starts.to_vec();
-    while let Some(b) = stack.pop() {
-        if !visited.insert(b) {
-            continue;
-        }
-        let Some(block) = func.blocks.get(b) else {
-            continue;
-        };
-        for s in successor_block_ids(&block.terminator) {
-            stack.push(s.index());
-        }
-    }
-    visited
-}
-
 /// CHK intersect: walk two fingers upward until they meet.
 ///
 /// Both `a` and `b` must be reachable from the entry — their idom chain

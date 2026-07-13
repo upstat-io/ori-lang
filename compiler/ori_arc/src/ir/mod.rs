@@ -502,18 +502,14 @@ pub struct ArcFunction {
     /// rewrite pass. Skipped during cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub tail_calls: Vec<crate::tail_call::TailCallSite>,
-    /// Variables for which `emit_burden_ops` (`lower/burden_lower.rs`) has
-    /// emitted at least one `BurdenInc` / `BurdenDec` / `BurdenDecPartial` /
-    /// `BurdenDecField` / `BurdenDecVariant` instruction.
+    /// Variables included in the per-variable burden-balance verifier.
     ///
-    /// Indexed by `ArcVarId::index()`. `true` = the burden walk owns this
-    /// var's RC traffic (CH-1 `burden_emitted` IS the lattice `burden_owned`,
-    /// `Spec: Annex E §AIMS`).
+    /// Indexed by `ArcVarId::index()`. Direct verifier inputs may mark variables
+    /// whose `BurdenInc` / `BurdenDec*` traffic must net to zero.
     ///
-    /// Default: empty. Populated by `emit_burden_ops` (plus the ownership-scan
-    /// per-edge release claims). Read by the VF-1 burden-balance verifier to
-    /// scope the per-var net-zero ledger. Skipped during cache serialization —
-    /// derived data.
+    /// Production class-ledger emission leaves this empty because it verifies
+    /// the plan at class grain before mechanical Phase-7 lowering. Read by the
+    /// VF-1 burden-balance verifier and skipped during cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub burden_emitted: Vec<bool>,
     /// Mutable-`Ident` reassignment death points: `(old_var, new_var)` pairs
@@ -557,15 +553,13 @@ pub struct ArcFunction {
     /// skipped during cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub catch_scoped_checked_ops: Vec<(ArcVarId, ArcBlockId)>,
-    /// Whether the class-ledger emitter's verified plan replaced the legacy
-    /// Step-4b burden emission for this function.
+    /// Whether the class-ledger emitter committed its verified Step-4b plan for
+    /// this function.
     ///
     /// `true` = the burden ops in the instruction stream ARE the class-ledger
-    /// plan: realization lowers them mechanically (Phase 7) and skips the
-    /// Phase-6 elimination, which optimizes over the raw emission baseline
-    /// (a per-var DP-3 verdict would strip a planned funding inc). Step-10's
-    /// redundant-project-alias dec cleanup is also skipped for replaced
-    /// functions (it repairs the raw baseline). Set only by
+    /// plan: realization lowers them mechanically in Phase 7. Step-10's
+    /// redundant-project-alias dec cleanup is also skipped because it is not
+    /// part of the class-ledger path. Set only by
     /// `aims::class_ledger::attempt_replacement`. Skipped during cache
     /// serialization: a cache-restored function deserializes to `false`,
     /// which is safe only because the flag is re-derived on every pipeline

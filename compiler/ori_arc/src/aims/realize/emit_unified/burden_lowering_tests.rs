@@ -10,19 +10,12 @@
 //!
 //! RC counts use the SSOT `crate::pipeline::rc_count::count_rc_ops`.
 
-use super::{
-    collection_set_algebra_names, compute_cow_mutated_lineage_reps,
-    iterator_consumer_collection_names, lower_burden_ops_to_rc,
-};
-use crate::aims::contract::{MemoryContract, ParamContract};
-use crate::aims::lattice::AccessClass;
+use super::lower_burden_ops_to_rc;
 use crate::ir::{
-    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership, CtorKind,
-    ValueRepr,
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind, ValueRepr,
 };
 use crate::pipeline::rc_count::count_rc_ops;
 use ori_types::{Idx, Pool, TypeRegistry};
-use rustc_hash::FxHashMap;
 
 fn v(n: u32) -> ArcVarId {
     ArcVarId::new(n)
@@ -45,6 +38,15 @@ fn rc_pointer_func(num_vars: u32, body: Vec<ArcInstr>) -> ArcFunction {
             terminator: ArcTerminator::Return { value: v(0) },
         }],
         ..Default::default()
+    }
+}
+
+fn list_construct(dst: ArcVarId, args: Vec<ArcVarId>) -> ArcInstr {
+    ArcInstr::Construct {
+        dst,
+        ty: Idx::from_raw(0),
+        ctor: CtorKind::ListLiteral,
+        args,
     }
 }
 
@@ -249,9 +251,9 @@ fn lower_leaves_scalar_repr_field_grain_dec_in_place() {
 #[test]
 fn lower_leaves_scalar_repr_burden_in_place() {
     let pool = Pool::default();
-    // Scalars never carry RcStrategy. emit_burden_ops filters them, but the
-    // RE-2 backstop must leave a (contract-violating) scalar burden op in place
-    // rather than synthesize unsound RC.
+    // Class-ledger admission excludes scalar reprs. The RE-2 backstop must leave
+    // a contract-violating scalar burden op in place rather than synthesize
+    // unsound RC.
     let mut func = rc_pointer_func(1, vec![ArcInstr::BurdenInc { var: v(0) }]);
     func.var_reprs[0] = ValueRepr::Scalar;
 
@@ -422,152 +424,6 @@ fn verify_flags_surviving_variant_dec_with_attribution() {
         ),
         (0, 0, 0, 1)
     );
-}
-
-// M3 + Phase-7 elision pins (broad-shape collection-source freeing)
-
-/// Single-block reps map where each var is its own rep (no same-alloc aliasing).
-fn identity_reps(n: u32) -> FxHashMap<ArcVarId, ArcVarId> {
-    (0..n).map(|i| (v(i), v(i))).collect()
-}
-
-fn list_construct(dst: ArcVarId, args: Vec<ArcVarId>) -> ArcInstr {
-    ArcInstr::Construct {
-        dst,
-        ty: Idx::from_raw(0),
-        ctor: CtorKind::ListLiteral,
-        args,
-    }
-}
-
-/// One-block func: `%0 = Construct List(); %1 = Apply callee(%0 [borrow])` —
-/// an `RcPtr` collection at a borrowed user-call arg position, the
-/// interprocedural may-COW shape `compute_cow_mutated_lineage_reps` vets.
-fn borrowed_user_call_arg_func(callee: ori_ir::Name) -> ArcFunction {
-    rc_pointer_func(
-        2,
-        vec![
-            list_construct(v(0), Vec::new()),
-            ArcInstr::Apply {
-                dst: v(1),
-                ty: Idx::from_raw(0),
-                func: callee,
-                args: vec![v(0)],
-                arg_ownership: vec![ArgOwnership::Borrowed],
-                mono_instance_id: None,
-            },
-        ],
-    )
-}
-
-/// Contract for a 1-param callee whose param is `Borrowed` with the given
-/// `borrowed_read_only` fact.
-fn borrowed_param_contract(read_only: bool) -> MemoryContract {
-    let mut param = ParamContract::CONSERVATIVE;
-    param.access = AccessClass::Borrowed;
-    param.borrowed_read_only = read_only;
-    MemoryContract {
-        params: vec![param],
-        ..MemoryContract::conservative(1)
-    }
-}
-
-/// Narrowing pin: a user callee whose contract proves the param a pure
-/// borrow-read (`access == Borrowed && borrowed_read_only`) cannot COW the
-/// arg — the lineage is NOT counted COW-mutated, so the fresh inc stays
-/// elidable downstream.
-#[test]
-fn cow_lineage_excludes_contract_proven_borrowed_read_only_callee_arg() {
-    let interner = ori_ir::StringInterner::new();
-    let callee = interner.intern("pure_reader");
-    let func = borrowed_user_call_arg_func(callee);
-    let contracts: FxHashMap<ori_ir::Name, MemoryContract> =
-        [(callee, borrowed_param_contract(true))]
-            .into_iter()
-            .collect();
-    let reps = compute_cow_mutated_lineage_reps(&func, &identity_reps(2), &interner, &contracts);
-    assert!(
-        !reps.contains(&v(0)),
-        "a contract-proven pure borrow-read position is NOT may-COW; reps = {reps:?}"
-    );
-}
-
-/// Funding-direction pin: an UNKNOWN user callee (no contract) stays
-/// conservatively may-COW — the fresh inc is kept (when in doubt, fund).
-#[test]
-fn cow_lineage_keeps_unknown_contract_user_callee_arg() {
-    let interner = ori_ir::StringInterner::new();
-    let callee = interner.intern("unknown_user_fn");
-    let func = borrowed_user_call_arg_func(callee);
-    let reps = compute_cow_mutated_lineage_reps(
-        &func,
-        &identity_reps(2),
-        &interner,
-        &FxHashMap::default(),
-    );
-    assert!(
-        reps.contains(&v(0)),
-        "an unknown-contract user callee stays conservatively may-COW"
-    );
-}
-
-/// Funding-direction pin: a contract whose Borrowed param lacks the
-/// `borrowed_read_only` fact (the COW-through-borrowed-param risk —
-/// `@check` doing `list.push(..)` on a borrowed param) stays may-COW.
-#[test]
-fn cow_lineage_keeps_borrowed_non_read_only_callee_arg() {
-    let interner = ori_ir::StringInterner::new();
-    let callee = interner.intern("cow_pusher");
-    let func = borrowed_user_call_arg_func(callee);
-    let contracts: FxHashMap<ori_ir::Name, MemoryContract> =
-        [(callee, borrowed_param_contract(false))]
-            .into_iter()
-            .collect();
-    let reps = compute_cow_mutated_lineage_reps(&func, &identity_reps(2), &interner, &contracts);
-    assert!(
-        reps.contains(&v(0)),
-        "a Borrowed param WITHOUT the read-only fact stays may-COW (funding direction)"
-    );
-}
-
-#[test]
-fn set_algebra_names_covers_union_difference_intersection() {
-    // The set-algebra name set is the SSOT for the three fresh-Set producers.
-    let interner = ori_ir::StringInterner::new();
-    let names = collection_set_algebra_names(&interner);
-    for n in ["union", "difference", "intersection"] {
-        assert!(
-            names.contains(&interner.intern(n)),
-            "set-algebra name set must contain {n}",
-        );
-    }
-    // A non-producer (`to_list` is a conversion, not set-algebra) is NOT in this set.
-    assert!(
-        !names.contains(&interner.intern("to_list")),
-        "to_list is a conversion, not a set-algebra producer",
-    );
-}
-
-#[test]
-fn iterator_consumer_collection_names_covers_collect_not_adapters() {
-    // The iterator-consumer set covers `collect` / `collect_set` (fresh owned
-    // collection results) and EXCLUDES the iterator adapters / sources (`iter` /
-    // `map` / `filter` produce iterator HANDLES freed by `ori_iter_drop`, not
-    // collections) and the conversion builtins (handled by their own set).
-    let interner = ori_ir::StringInterner::new();
-    let set = iterator_consumer_collection_names(&interner);
-    for name in ["collect", "collect_set"] {
-        assert!(
-            set.contains(&interner.intern(name)),
-            "{name} must be in the iterator-consumer collection set",
-        );
-    }
-    for name in ["iter", "map", "filter", "keys", "values"] {
-        assert!(
-            !set.contains(&interner.intern(name)),
-            "{name} must NOT be in the iterator-consumer collection set",
-        );
-    }
 }
 
 /// Semantic pin: [`super::order_return_block_scope_exit_decs`] sorts a

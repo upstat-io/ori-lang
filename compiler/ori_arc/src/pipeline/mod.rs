@@ -15,7 +15,6 @@ use crate::aims::contract::MemoryContract;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
-use crate::ownership::AnnotatedSig;
 use crate::ArcClassification;
 
 mod aims_pipeline;
@@ -33,17 +32,12 @@ mod tests;
 /// state map to place operations. The AIMS pipeline derives all ownership
 /// information from `aims_contracts`.
 ///
-/// `sigs` and `type_registry` are bundled into `AimsPipelineConfig` for
-/// downstream consumption by `infer_derived_ownership` and `emit_burden_ops`.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "pipeline entry point bundles all context"
-)]
+/// `type_registry` is bundled into `AimsPipelineConfig` for downstream
+/// consumption by class-ledger burden-op replacement.
 #[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn run_arc_pipeline(
     func: &mut ArcFunction,
     classifier: &dyn ArcClassification,
-    sigs: &FxHashMap<Name, AnnotatedSig>,
     pool: &Pool,
     interner: &ori_ir::StringInterner,
     aims_contracts: &FxHashMap<Name, MemoryContract>,
@@ -70,7 +64,6 @@ pub fn run_arc_pipeline(
         builtins: &builtins,
         verify_arc,
         observer: None,
-        sigs,
         type_registry,
     };
     Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
@@ -109,7 +102,6 @@ fn ensure_own_contract(
 pub fn run_arc_pipeline_with_observer<'a>(
     func: &mut ArcFunction,
     classifier: &'a dyn ArcClassification,
-    sigs: &'a FxHashMap<Name, AnnotatedSig>,
     pool: &'a Pool,
     interner: &'a ori_ir::StringInterner,
     aims_contracts: &'a FxHashMap<Name, MemoryContract>,
@@ -131,7 +123,6 @@ pub fn run_arc_pipeline_with_observer<'a>(
         builtins: &builtins,
         verify_arc,
         observer: Some(observer),
-        sigs,
         type_registry,
     };
     Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
@@ -144,17 +135,11 @@ pub fn run_arc_pipeline_with_observer<'a>(
 /// 2. Apply ownership annotations to function parameters
 /// 3. Run the per-function AIMS pipeline for each function
 ///
-/// `sigs` and `type_registry` are bundled into `AimsPipelineConfig` for
-/// downstream consumption (see `run_arc_pipeline` docs).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "pipeline entry point bundles all context"
-)]
-#[expect(clippy::implicit_hasher, reason = "callee functions require FxHashMap")]
+/// `type_registry` is bundled into `AimsPipelineConfig` for downstream
+/// consumption (see `run_arc_pipeline` docs).
 pub fn run_arc_pipeline_all(
     functions: &mut [ArcFunction],
     classifier: &dyn ArcClassification,
-    sigs: &FxHashMap<Name, AnnotatedSig>,
     interner: &ori_ir::StringInterner,
     pool: &Pool,
     builtins: &BuiltinOwnershipSets,
@@ -164,7 +149,6 @@ pub fn run_arc_pipeline_all(
     aims_pipeline::run_aims_pipeline_all(
         functions,
         classifier,
-        sigs,
         interner,
         pool,
         builtins,

@@ -290,19 +290,20 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
 
         let aims_contracts = Self::run_interprocedural_analyses(arc_cache, &classifier, interner);
 
-        // Reconstruct the TypeRegistry from the type-checker exports so the
-        // Phase-5 burden walker resolves collection / closure UserBurdenSpec.
-        // Mirrors the AOT codegen_pipeline reconstruction (eval/LLVM parity).
-        // Spec: Annex E §AIMS.
+        // Reconstruct the TypeRegistry from the type-checker exports so
+        // class-ledger Step-4b emission resolves collection / closure
+        // UserBurdenSpec. Mirrors the AOT codegen_pipeline reconstruction
+        // (eval/LLVM parity). Spec: Annex E §AIMS.
         let mut type_registry = ori_types::TypeRegistry::from_typed_exports(
             user_types.to_vec(),
             collection_burdens.to_vec(),
         );
         // An imported function's body resolves its internal collection types into
         // the merged pool, but register_imported_function composes burdens for
-        // signature types only — so emit_burden_ops finds no burden for an
-        // imported body's internal collection (e.g. a dead for-yield local) and
-        // emits no RC. Fill the gaps from the merged pool. Spec: Annex E §AIMS.
+        // signature types only, leaving class-ledger Step-4b emission without
+        // the burden metadata for an imported body's internal collection (e.g.
+        // a dead for-yield local). Fill the gaps from the merged pool.
+        // Spec: Annex E §AIMS.
         ori_types::register_resolved_collection_burdens(self.pool, &mut type_registry);
 
         // Two-pass function compilation

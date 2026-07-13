@@ -9,9 +9,9 @@
 //! every merge block; a release is never hoisted past a merge point.
 //!
 //! The pipeline runs the analysis (classification + insertion plan +
-//! per-class readiness verdict) and, per function, REPLACES the standard
-//! `emit_burden_ops_step` Step-4b emission with the applied plan when the
-//! replacement gate holds (`replace` module: FULLY CLEAN readiness with one
+//! per-class readiness verdict) and, per function, EMITS the applied plan's
+//! burden ops at Step-4b when the replacement gate holds (`replace` module:
+//! FULLY CLEAN readiness with one
 //! class or more, no user-`@drop` type in the function, dominance-checked
 //! op placement, and a VF-1 structural check on a clone — commit-or-discard).
 //! The class-ledger plan is the SOLE RC emitter for a replaced function; a

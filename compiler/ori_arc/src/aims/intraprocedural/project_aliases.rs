@@ -56,13 +56,6 @@ pub(crate) struct ProjectAliasTable {
     /// R5 Select-origin dsts. Consumed by `propagate_project_source_demand` to
     /// exclude Select aliases from BACKWARD demand over `demand_sources`.
     pub(crate) select_alias_dsts: FxHashSet<ArcVarId>,
-    /// GENUINE same-allocation union-find reps (member -> rep): Let{Var} whole-var
-    /// aliases + apply-result Direct/Conditional edges ONLY — NO Jump-arg/merge
-    /// (R3/R4), NO Select (R5). The unconditional same-allocation subset of the
-    /// alias closure; `compute_same_alloc_reps` is a thin projection of THIS
-    /// construction (one table, one builder — no parallel tracker). Spec: Annex
-    /// E §AIMS.
-    pub(crate) genuine_same_alloc_reps: FxHashMap<ArcVarId, ArcVarId>,
 }
 
 /// Compute a function-wide map from (Project destination + transitive Let
@@ -202,13 +195,10 @@ pub(crate) fn compute_project_alias_table(
     let demand_sources = run_alias_fixpoint(func, alias_sources.clone(), false).0;
     let (sources, select_alias_dsts) = run_alias_fixpoint(func, alias_sources, true);
 
-    let genuine_same_alloc_reps = compute_genuine_same_alloc_reps(func, apply_result_aliases);
-
     ProjectAliasTable {
         sources,
         demand_sources,
         select_alias_dsts,
-        genuine_same_alloc_reps,
     }
 }
 
@@ -220,9 +210,8 @@ pub(crate) fn compute_project_alias_table(
 /// DIFFERENT runtime allocations into one name when predecessors / operands
 /// pass distinct values, so neither is an unconditional same-allocation
 /// relation; per-edge attribution ([`compute_param_edge_args`]) resolves a
-/// block-param to ONE predecessor's arg instead. The ONE builder behind
-/// `compute_same_alloc_reps` (thin projection) and the unified table's
-/// over-approximation classification. Spec: Annex E §AIMS.
+/// block-param to ONE predecessor's arg instead. Spec: Annex E §AIMS.
+#[cfg(test)]
 pub(crate) fn compute_genuine_same_alloc_reps(
     func: &ArcFunction,
     apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,

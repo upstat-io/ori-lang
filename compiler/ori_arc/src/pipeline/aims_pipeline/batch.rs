@@ -14,7 +14,7 @@ use crate::aims::lattice::AccessClass;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
-use crate::ownership::{AnnotatedSig, Ownership};
+use crate::ownership::Ownership;
 use crate::ArcClassification;
 
 /// Run the AIMS pipeline on all functions (batch entry point).
@@ -24,14 +24,9 @@ use crate::ArcClassification;
 /// 1. Compute interprocedural contracts via `aims::analyze_program()`
 /// 2. Apply ownership to function parameters
 /// 3. Run per-function pipeline for each function
-#[expect(
-    clippy::too_many_arguments,
-    reason = "batch entry point bundles all context"
-)]
 pub(crate) fn run_aims_pipeline_all(
     functions: &mut [ArcFunction],
     classifier: &dyn ArcClassification,
-    sigs: &FxHashMap<Name, AnnotatedSig>,
     interner: &ori_ir::StringInterner,
     pool: &Pool,
     builtins: &BuiltinOwnershipSets,
@@ -65,7 +60,6 @@ pub(crate) fn run_aims_pipeline_all(
         builtins,
         verify_arc,
         observer: None,
-        sigs,
         type_registry,
     };
 

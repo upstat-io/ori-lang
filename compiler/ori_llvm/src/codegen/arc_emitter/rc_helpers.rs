@@ -207,6 +207,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     vec![]
                 }
             }
+            // Range: fixed 4-field scalar-only value (start, end, step,
+            // inclusive — `codegen-rules.md TR-1`); no field is ever
+            // RC-managed regardless of element type. Matches the
+            // `Tag::Range` no-op arms in `rc_value_traversal.rs`.
+            Tag::Range => vec![],
             _ => vec![val],
         }
     }

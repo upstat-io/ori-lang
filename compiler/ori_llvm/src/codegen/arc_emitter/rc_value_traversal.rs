@@ -81,7 +81,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars: no RC action
+            // Scalars: no RC action. Range (fixed 4-field scalar-only value
+            // — start, end, step, inclusive per `codegen-rules.md TR-1`)
+            // joins this arm: every field is `int`/`bool`-shaped, so no
+            // field can ever carry an RC pointer regardless of element type.
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -92,7 +95,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Error
             | Tag::Duration
             | Tag::Size
-            | Tag::Ordering => {}
+            | Tag::Ordering
+            | Tag::Range => {}
 
             // Iterators (Box-allocated, no RC header): Inc is a no-op.
             // Iterators are unique-owned — they are moved through
@@ -189,7 +193,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars: no RC action
+            // Scalars: no RC action. Range (fixed 4-field scalar-only value
+            // — start, end, step, inclusive per `codegen-rules.md TR-1`)
+            // joins this arm: every field is `int`/`bool`-shaped, so no
+            // field can ever carry an RC pointer regardless of element type.
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -200,7 +207,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Error
             | Tag::Duration
             | Tag::Size
-            | Tag::Ordering => {}
+            | Tag::Ordering
+            | Tag::Range => {}
 
             // Iterators: call `ori_iter_drop(ptr)` to free the
             // Box-allocated state. There is no RC header to decrement,

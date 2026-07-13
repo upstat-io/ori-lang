@@ -79,13 +79,11 @@ macro_rules! flags {
     )*};
 }
 
-mod aims_ablation_late_pipeline;
 mod aims_ablation_phase5_core;
 mod aims_ablation_phase5_lineage;
 mod diagnostic_dumps;
 mod test_harness_and_runtime;
 
-pub use aims_ablation_late_pipeline::*;
 pub use aims_ablation_phase5_core::*;
 pub use aims_ablation_phase5_lineage::*;
 pub use diagnostic_dumps::*;

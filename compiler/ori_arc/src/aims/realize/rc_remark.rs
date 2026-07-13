@@ -13,6 +13,13 @@
 //! path (serde vs hand-rolled) are later sibling sections; this module hand-
 //! rolls one JSON object per remark.
 
+mod json;
+mod survivor_walk;
+#[cfg(test)]
+mod tests;
+
+pub(crate) use survivor_walk::emit_survivor_remarks_all_kept;
+
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::LazyLock;
@@ -86,18 +93,6 @@ impl RcRemarkStreamEnvelope {
             source_file,
             burden_path: on_burden_sole_path(),
         }
-    }
-
-    /// Render the header as a single JSON object line (no trailing newline).
-    pub fn to_jsonl(&self) -> String {
-        format!(
-            "{{\"record\":\"header\",\"schema_version\":{},\"compiler_sha\":\"{}\",\
-             \"source_file\":\"{}\",\"burden_path\":{}}}",
-            self.schema_version,
-            json_escape(&self.compiler_sha),
-            json_escape(&self.source_file),
-            self.burden_path,
-        )
     }
 }
 
@@ -319,86 +314,6 @@ pub(crate) struct AimsRcRemark {
     pub args: Vec<String>,
     /// COW mode at the site, or `None`.
     pub cow_mode: Option<String>,
-}
-
-impl AimsRcRemark {
-    /// Render the remark as a single JSON object line (no trailing newline).
-    fn to_jsonl(&self) -> String {
-        let function = opt_str_field(self.function.as_deref());
-        let debug_loc = match &self.debug_loc {
-            Some(loc) => format!(
-                "{{\"file\":\"{}\",\"line\":{},\"column\":{}}}",
-                json_escape(&loc.file),
-                loc.line,
-                loc.column
-            ),
-            None => "null".to_string(),
-        };
-        let exit_block = opt_num_field(self.exit_block.map(i64::from));
-        let burden_net = opt_num_field(self.burden_net);
-        let cow_mode = opt_str_field(self.cow_mode.as_deref());
-        let args = {
-            let inner: Vec<String> = self
-                .args
-                .iter()
-                .map(|a| format!("\"{}\"", json_escape(a)))
-                .collect();
-            format!("[{}]", inner.join(","))
-        };
-        format!(
-            "{{\"kind\":\"{}\",\"pass\":\"{}\",\"name\":\"{}\",\"rc_op\":\"{}\",\
-             \"function\":{},\"debug_loc\":{},\"ssa_value\":{},\"exit_block\":{},\
-             \"cause\":{{\"proof_failure\":\"{}\",\"lattice_dim\":\"{}\",\"detail\":\"{}\"}},\
-             \"burden_net\":{},\"args\":{},\"cow_mode\":{}}}",
-            self.kind.as_str(),
-            json_escape(self.pass),
-            json_escape(self.name),
-            self.rc_op.as_str(),
-            function,
-            debug_loc,
-            self.ssa_value,
-            exit_block,
-            json_escape(&self.cause.proof_failure),
-            self.cause.lattice_dim.as_str(),
-            json_escape(&self.cause.detail),
-            burden_net,
-            args,
-            cow_mode,
-        )
-    }
-}
-
-/// Minimal JSON string escaping for the hand-rolled serializer (the serde path
-/// is a later sibling section). Escapes `"`, `\`, and control whitespace.
-fn json_escape(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            _ => out.push(ch),
-        }
-    }
-    out
-}
-
-/// Render an optional string field as a quoted JSON string or `null`.
-fn opt_str_field(value: Option<&str>) -> String {
-    match value {
-        Some(s) => format!("\"{}\"", json_escape(s)),
-        None => "null".to_string(),
-    }
-}
-
-/// Render an optional numeric field as a JSON number or `null`.
-fn opt_num_field(value: Option<i64>) -> String {
-    match value {
-        Some(n) => n.to_string(),
-        None => "null".to_string(),
-    }
 }
 
 /// Derive the lattice dimension whose proof failure blocked DP-3 inc elision at

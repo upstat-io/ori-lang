@@ -83,7 +83,6 @@ pub(crate) fn dump_arc(
         ori_ir::Name,
         (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>),
     >,
-    annotated_sigs: &rustc_hash::FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>,
     classifier: &dyn ori_arc::ArcClassification,
     pool: &Pool,
     interner: &StringInterner,
@@ -93,15 +92,7 @@ pub(crate) fn dump_arc(
     if requested(DumpPhase::Arc).is_none() {
         return;
     }
-    crate::arc_dump::dump_arc_ir(
-        arc_cache,
-        annotated_sigs,
-        classifier,
-        pool,
-        interner,
-        type_registry,
-        path,
-    );
+    crate::arc_dump::dump_arc_ir(arc_cache, classifier, pool, interner, type_registry, path);
 }
 
 /// Dump the annotated LLVM IR (LLVM phase) to stderr when requested. `ir_text`

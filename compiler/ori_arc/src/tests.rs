@@ -40,7 +40,6 @@ fn run_full_pipeline(
     let _problems = crate::run_arc_pipeline(
         func,
         classifier,
-        &sigs,
         pool,
         &interner,
         &aims_contracts,

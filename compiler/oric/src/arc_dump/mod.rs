@@ -12,7 +12,7 @@ pub(crate) mod instr;
 
 use std::fmt::Write;
 
-use ori_arc::{AnnotatedSig, ArcClassification, ArcFunction};
+use ori_arc::{ArcClassification, ArcFunction};
 use ori_ir::{Name, StringInterner};
 use ori_types::{Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
@@ -25,7 +25,6 @@ use rustc_hash::FxHashMap;
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
 pub(crate) fn dump_arc_ir(
     arc_cache: &FxHashMap<Name, (ArcFunction, Vec<ArcFunction>)>,
-    annotated_sigs: &FxHashMap<Name, AnnotatedSig>,
     classifier: &dyn ArcClassification,
     pool: &Pool,
     interner: &StringInterner,
@@ -56,7 +55,6 @@ pub(crate) fn dump_arc_ir(
         let problems = ori_arc::run_arc_pipeline_all(
             &mut funcs,
             classifier,
-            annotated_sigs,
             interner,
             pool,
             &builtins,

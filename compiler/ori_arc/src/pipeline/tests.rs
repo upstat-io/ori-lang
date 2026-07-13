@@ -86,7 +86,6 @@ fn absent_param() -> ParamContract {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
-        capture_variant_return_project: None,
         iter_consumes_projected_field: None,
     }
 }
@@ -397,7 +396,6 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
     let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
@@ -409,7 +407,6 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
         builtins: &builtins,
         verify_arc: false,
         observer: Some(&observer),
-        sigs: &sigs,
         type_registry: &type_registry,
     };
 
@@ -427,19 +424,20 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
         "normalize_function",
         "normalize_with_trmc_complete",
         "analyze_function",
+        "class_ledger_emission",
         "realize_rc_reuse",
     ];
     let mut last_idx = 0;
     for expected in &core_phases {
-        if let Some(pos) = phases.iter().position(|p| p == *expected) {
-            assert!(
-                pos >= last_idx,
-                "phase '{expected}' at {pos} should be after previous core phase at {last_idx}"
-            );
-            last_idx = pos;
-        }
-        // Phase may not appear if the pipeline short-circuits on error,
-        // but if it does appear it must be in order.
+        let pos = phases
+            .iter()
+            .position(|p| p == *expected)
+            .unwrap_or_else(|| panic!("phase '{expected}' missing from {phases:?}"));
+        assert!(
+            pos >= last_idx,
+            "phase '{expected}' at {pos} should be after previous core phase at {last_idx}"
+        );
+        last_idx = pos;
     }
 }
 
@@ -471,7 +469,6 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
     let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
@@ -483,7 +480,6 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
         builtins: &builtins,
         verify_arc: false,
         observer: None,
-        sigs: &sigs,
         type_registry: &type_registry,
     };
 
@@ -531,7 +527,6 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
     let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
@@ -543,7 +538,6 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
         builtins: &builtins,
         verify_arc: false,
         observer: Some(&observer),
-        sigs: &sigs,
         type_registry: &type_registry,
     };
 
@@ -701,14 +695,12 @@ fn aims_pipeline_ic1_invariant_holds_end_to_end() {
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let type_registry = ori_types::TypeRegistry::default();
 
     let mut funcs = vec![func];
     let result = crate::run_arc_pipeline_all(
         &mut funcs,
         &classifier,
-        &sigs,
         &interner,
         &pool,
         &builtins,
@@ -750,7 +742,6 @@ fn aims_pipeline_panics_on_synthetic_invariant_break() {
     let func_names = rustc_hash::FxHashSet::default();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
@@ -762,7 +753,6 @@ fn aims_pipeline_panics_on_synthetic_invariant_break() {
         builtins: &builtins,
         verify_arc: false,
         observer: None,
-        sigs: &sigs,
         type_registry: &type_registry,
     };
 
@@ -781,7 +771,6 @@ fn run_pipeline(func: &mut ArcFunction) {
     let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
@@ -793,7 +782,6 @@ fn run_pipeline(func: &mut ArcFunction) {
         builtins: &builtins,
         verify_arc: false,
         observer: None,
-        sigs: &sigs,
         type_registry: &type_registry,
     };
     let result = super::aims_pipeline::run_aims_pipeline(func, &config);
@@ -1063,7 +1051,6 @@ fn class_ledger_replaces_contract_certified_payload_view_caller() {
     contracts.insert(callee_name, callee_contract);
     let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let mut type_registry = ori_types::TypeRegistry::default();
     registered_struct_with_burden(
         &mut type_registry,
@@ -1088,7 +1075,6 @@ fn class_ledger_replaces_contract_certified_payload_view_caller() {
         builtins: &builtins,
         verify_arc: false,
         observer: None,
-        sigs: &sigs,
         type_registry: &type_registry,
     };
     let result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);

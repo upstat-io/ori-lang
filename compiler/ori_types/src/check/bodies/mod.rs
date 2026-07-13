@@ -143,9 +143,9 @@ pub(super) fn finalize_body_and_export(
 
     // Validate conditional-partial-move rejection — emits E2043 for
     // asymmetric field projections of non-Drop owned aggregates across
-    // branches of `if`/`match`. Producer-side guard so Phase 5 ARC lowering
-    // (`ori_arc::lower::burden_lower`) never sees patterns that would
-    // require fixpoint dataflow over `moved_out_fields[v]`.
+    // branches of `if`/`match`. Producer-side guard so class-ledger Step-4b
+    // emission never receives a CFG shape requiring path-sensitive partial-
+    // release reconciliation.
     run_partial_move_validator(checker, &expr_types, body_root);
 
     // Validate Drop-partial-move rejection — emits E2048 for `let $f =

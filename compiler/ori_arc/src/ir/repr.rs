@@ -71,8 +71,14 @@ impl ValueRepr {
             // Fat values: two-word layout (ptr + metadata).
             Tag::Str | Tag::Function => Self::FatValue,
 
-            // Aggregates: multi-field compound types.
-            Tag::Tuple | Tag::Struct | Tag::Enum | Tag::Result | Tag::Option => Self::Aggregate,
+            // Aggregates: multi-field compound types. Range is a fixed
+            // 4-field scalar-only value (start, end, step, inclusive —
+            // `codegen-rules.md TR-1`), never a single heap pointer; its
+            // field traversal is handled by the `AggregateFields` strategy
+            // via `rc_value_traversal.rs`'s explicit `Tag::Range` no-op arm.
+            Tag::Tuple | Tag::Struct | Tag::Enum | Tag::Result | Tag::Option | Tag::Range => {
+                Self::Aggregate
+            }
 
             // Primitives: shouldn't reach here (ArcClass would be Scalar),
             // but handle gracefully.
@@ -96,7 +102,6 @@ impl ValueRepr {
             | Tag::Channel
             | Tag::Iterator
             | Tag::DoubleEndedIterator
-            | Tag::Range
             | Tag::Named
             | Tag::Applied
             | Tag::Alias

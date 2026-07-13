@@ -27,10 +27,23 @@ use std.testing { assert_eq }
     }
 }
 
-#skip("BUG-04-277: JIT test-worker SIGSEGV — a complex-match aggregate-returning function consumed via a chained accessor inline (no let-binding) crashes the LLVM test-worker; same signature as the [T]-returning trigger shape, unrelated to Traceable dispatch")
-@test_with_trace_via_match tests @with_trace_via_match () -> void = {
+// Keep `with_trace_via_match` above as the Error-aggregate compile pin. Execute
+// `with_trace` through a scalar-returning match without calling that helper,
+// avoiding BUG-04-277 while retaining real interpreter/LLVM method coverage.
+@with_trace_count_via_match () -> int = {
+    match one_hop() {
+        Ok(_) -> 0,
+        Err(e) -> {
+            let entry = e.trace_entries()[0];
+            let traced = e.with_trace(entry: entry);
+            traced.trace_entries().len()
+        },
+    }
+}
+
+@test_with_trace_via_match tests @with_trace_count_via_match () -> void = {
     assert_eq(
-        actual: with_trace_via_match().trace_entries().len(),
+        actual: with_trace_count_via_match(),
         expected: 2,
     )
 }

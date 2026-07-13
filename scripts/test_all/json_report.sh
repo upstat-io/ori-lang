@@ -26,13 +26,6 @@ ori_failures_json() {
         || echo '[]'
 }
 
-per_node_verdict_json() {
-    local failures_array="$1"
-    printf '%s' "$failures_array" \
-        | python3 "$PER_NODE_VERDICT" 2>/dev/null \
-        || echo '{}'
-}
-
 json_array_inner() {
     local arr="$1"
     arr="${arr#\[}"
@@ -81,9 +74,6 @@ emit_json() {
             "$id" "$display" "${passed:-0}" "${failed:-0}" "${skipped:-0}" "${lcfail:-0}" "$status" "${failed:-0}"
     }
 
-    local per_node_block
-    per_node_block=$(per_node_verdict_json "[$all_failures]")
-
     local wasm_failed=0 wasm_passed=0
     if [ "$WASM_STATUS" = "passed" ]; then wasm_passed=1; else wasm_failed=1; fi
 
@@ -124,7 +114,6 @@ emit_json() {
         printf '    "ori_llvm": { "display_name": "Ori spec (LLVM backend)", "passed": %d, "failed": %d, "skipped": %d, "lcfail": %d, "status": "%s", "failed_attributed": 0, "failed_unattributed": %d }' "$llvm_passed" "$llvm_failed" "$llvm_skipped" "$llvm_lcfail" "$llvm_status" "$llvm_failed"
         echo ""
         echo "  },"
-        echo "  \"per_node\": $per_node_block,"
         echo "  \"totals\": { \"passed\": $TOTAL_PASSED, \"failed\": $TOTAL_FAILED, \"skipped\": $TOTAL_SKIPPED, \"lcfail\": $TOTAL_LCFAIL, \"aot_leaks\": $AOT_LEAKS }"
         echo "}"
     } > "$path"

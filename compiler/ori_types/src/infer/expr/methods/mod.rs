@@ -52,7 +52,9 @@ pub(in crate::infer::expr) fn range_method_requires_iteration(method_name: &str)
 /// `None` if the method is not recognized for this type tag.
 ///
 /// Uses the `ori_registry` for method lookup and return type resolution.
-/// Named/Applied types (user-defined) bypass the registry.
+/// Named/Applied types (user-defined) bypass the registry, except the
+/// registered error struct's backend-required methods, which route through
+/// the registry's allow-list first.
 pub(crate) fn resolve_builtin_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,

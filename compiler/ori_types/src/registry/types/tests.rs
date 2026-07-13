@@ -956,10 +956,9 @@ fn from_typed_exports_round_trips_collection_burden_side_table() {
 /// (e.g. a dead `for…yield` `[bool]` local) into the merged pool, but
 /// `register_imported_function` composes burdens for signature types only — so the
 /// codegen registry (rebuilt via `from_typed_exports` with signature-reachable
-/// burdens only) has no burden for the imported body's `[bool]`, and
-/// `emit_burden_ops` emits no RC, leaking the allocation (BUG-04-238 test-runner
-/// surface). `register_resolved_collection_burdens` walks the pool and fills the
-/// gap.
+/// burdens only) has no burden for the imported body's `[bool]`. Class-ledger
+/// Step-4b emission needs that metadata to resolve the collection's RC-bearing
+/// shape. `register_resolved_collection_burdens` walks the pool and fills the gap.
 #[test]
 fn register_resolved_collection_burdens_fills_pool_collection_gap() {
     let mut pool = Pool::new();
@@ -981,7 +980,7 @@ fn register_resolved_collection_burdens_fills_pool_collection_gap() {
         .expect("the pool-walk must compose + register the [bool] collection burden");
     assert!(
         filled.self_heap_alloc,
-        "[bool] is heap-allocated — burden_carries_rc must be true so emit_burden_ops emits RC",
+        "[bool] is heap-allocated, so class-ledger emission must see an RC-bearing burden",
     );
 
     // Negative clamp: a scalar primitive (int) is never registered — the walk

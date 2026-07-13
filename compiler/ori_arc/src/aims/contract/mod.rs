@@ -408,39 +408,6 @@ pub struct ParamContract {
     /// Default: `false` (conservative — no mutator claim).
     pub borrowed_cow_mutated: bool,
 
-    /// Capture-variant-deadness Project record (RL-2 closure-extract borrow-view,
-    /// the per-variant refinement of `return_alias`).
-    ///
-    /// `Some((variant_tag, field))` when the param is a SUM whose discriminant is
-    /// `Switch`ed and the arm matching `variant_tag` returns `Project param.field`
-    /// (a borrow-view of that variant's payload), while EVERY OTHER reachable arm
-    /// returns a fresh / non-aliasing value (which makes the joined `return_alias`
-    /// poison to `None`). The whole-param `return_alias` cannot carry this because
-    /// the Project holds only on the matching arm; the fresh-return arms are dead
-    /// ONLY when the CALLER proves the captured value is `variant_tag`.
-    ///
-    /// Consumed on the CALLER side by
-    /// `lower::burden_lower::ownership_scans::closure_extract_borrow_view`: at an
-    /// `ApplyIndirect` whose capture arg is a single-variant `Construct
-    /// Variant(T.variant_tag)(payload)`, the non-matching arms are provably DEAD
-    /// (the Switch scrutinee is the static tag), so the LIVE return resolves to
-    /// `Project { field }` and the result is admitted as a same-allocation
-    /// borrow-view of the captured payload. The scan's joint-release suppression
-    /// (`RL2_release_exactly_once`, the closure env as canonical owner) then
-    /// applies unchanged. Soundness of the variant-deadness narrowing:
-    /// the live return-leaf set under a statically-known capture variant is the
-    /// matching arm's leaf alone (the unreachable fresh-return arm never executes,
-    /// so admitting Project over the reachable arm set over-releases no program
-    /// where the capture is that variant).
-    ///
-    /// IC-3 join: equal `Some` survives; disagreement (different tag/field, or
-    /// `Some` vs the whole-param shape having promoted) poisons to `None`. A
-    /// single callee computes this once intraprocedurally, so the join is
-    /// idempotent for its own return shape.
-    ///
-    /// Default: `None` (conservative — no per-variant Project claim).
-    pub capture_variant_return_project: Option<(u64, u32)>,
-
     /// Field-grained iter-consume record (RL-2 iter-consume inward-transfer,
     /// the per-field refinement of `iter_consumes`).
     ///
@@ -452,14 +419,11 @@ pub struct ParamContract {
     /// case). Exactly one consumed field; multiple distinct consumed fields, or a
     /// field also read past the consume, poison to `None`.
     ///
-    /// Consumed on the CALLER side by
-    /// `lower::burden_lower::ownership_scans::aggregate_iter_consume_field`: when
-    /// a fresh/dead OWNED aggregate is passed at this borrowed `Invoke` arg
-    /// position, the callee transfers ownership of `field` inward (RL-2), so the
-    /// caller's whole-aggregate scope-exit `BurdenDec` is rewritten to a
-    /// `BurdenDecPartial skip_fields=[field]` — releasing the aggregate shell and
-    /// its other owned fields but NOT the iter-consumed field the callee already
-    /// freed (a double-free otherwise).
+    /// At a call where a fresh/dead OWNED aggregate is passed at this borrowed
+    /// argument position, the callee transfers ownership of `field` inward
+    /// (RL-2). Any caller-side aggregate release must therefore skip that field,
+    /// releasing the shell and its other owned fields without double-freeing the
+    /// iter-consumed field.
     ///
     /// IC-3 join: equal `Some` survives; disagreement (different field index)
     /// poisons to `None`. A single callee computes this once intraprocedurally.
@@ -506,9 +470,6 @@ impl ParamContract {
         // Conservative default: no mutator claim — the lineage gate (c3) never
         // declines on an unknown callee.
         borrowed_cow_mutated: false,
-        // Conservative default: no per-variant Project claim — an unknown
-        // callee never feeds the caller-side capture-variant-deadness scan.
-        capture_variant_return_project: None,
         // Conservative default: no field-grained iter-consume claim — an unknown
         // callee never feeds the caller-side aggregate-field iter-consume scan.
         iter_consumes_projected_field: None,
@@ -550,9 +511,6 @@ impl ParamContract {
         borrowed_cow_consumed: false,
         // IC-2 OR-join bottom; promotes when a path's MUTATOR consume fires.
         borrowed_cow_mutated: false,
-        // IC-2 seed: no claim. `extract_contract` overrides per-param from the
-        // body's Switch-arm scan; a single callee computes it once.
-        capture_variant_return_project: None,
         // IC-2 seed: no claim. `extract_contract` overrides per-param from the
         // body's projected-field iter-consume scan; a single callee computes it once.
         iter_consumes_projected_field: None,
@@ -604,17 +562,6 @@ impl ParamContract {
             // OR (conservative direction): a mutating path obligates the
             // caller's funding (the lineage gate declines).
             borrowed_cow_mutated: self.borrowed_cow_mutated || other.borrowed_cow_mutated,
-            // Equal `Some` survives; disagreement poisons to `None`. A single
-            // callee computes its own return shape once, so the join over its
-            // own call sites is idempotent.
-            capture_variant_return_project: match (
-                self.capture_variant_return_project,
-                other.capture_variant_return_project,
-            ) {
-                (None, x) | (x, None) => x,
-                (Some(a), Some(b)) if a == b => Some(a),
-                (Some(_), Some(_)) => None,
-            },
             // Equal `Some` survives; disagreement (different consumed field)
             // poisons to `None`. A single callee computes its own field-grained
             // iter-consume shape once.
@@ -648,9 +595,8 @@ pub struct ReturnContract {
     /// finalizer that moves a fresh scratch buffer out), distinct from any
     /// caller-visible value. Stronger than `preserves_freshness ∧ uniqueness`:
     /// it certifies the returned allocation is a fresh self-alloc the caller
-    /// receives at rc=1 (no upstream alias), which licenses the caller-side
-    /// burden walk to admit the Invoke/Apply result as a fresh collection root
-    /// (per `ownership_scans/iter_consume_dead_thread.rs`). Orthogonal to
+    /// receives at rc=1 (no upstream alias), which licenses caller-side analyses
+    /// to admit the Invoke/Apply result as a fresh collection root. Orthogonal to
     /// `uniqueness`/`preserves_freshness` — set independently, consumed only by
     /// the fresh-collection-root admission, so it never perturbs the
     /// uniqueness/freshness-driven store-dup accounting.

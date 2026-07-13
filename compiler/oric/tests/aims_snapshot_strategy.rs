@@ -17,7 +17,6 @@ use ori_test_harness::bless;
 use ori_test_harness::directive::{Directive, DirectiveLine};
 use ori_test_harness::revision::RevisionConfig;
 use ori_test_harness::runner::{TestOutput, TestStrategy};
-use rustc_hash::FxHashMap;
 
 /// Strategy for AIMS pass-level snapshot tests.
 #[derive(Default)]
@@ -139,12 +138,10 @@ impl TestStrategy for AimsSnapshotStrategy {
                     });
 
                 // Run AIMS pipeline with observer and real contracts.
-                let sigs = FxHashMap::default();
                 let type_registry = ori_types::TypeRegistry::default();
                 let pipeline_result = ori_arc::run_arc_pipeline_with_observer(
                     func,
                     &classifier,
-                    &sigs,
                     pool,
                     interner,
                     &aims_contracts,

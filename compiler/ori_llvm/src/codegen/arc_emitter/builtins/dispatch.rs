@@ -95,6 +95,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         arc_func,
                     };
                     if let Some(iter_val) = iterator::dispatch(self, &iter_ctx) {
+                        // `collect` is itself a terminal consumer that already
+                        // produces the eager collection value directly
+                        // (`emit_iter_collect`/`emit_iter_collect_set` return
+                        // the final `{len,cap,data}` value, not an opaque
+                        // iterator handle). Its own `dst_ty` legitimately
+                        // resolves to `List`/`Set`, which would otherwise
+                        // false-trigger `collect_auto_iter_result`'s
+                        // tag-based collect-back and re-collect the already
+                        // collected value as though it were a raw iterator
+                        // pointer. Every other auto-iter-promoted method
+                        // (adapters, and non-collection consumers like
+                        // `count`/`any`/`fold`) still needs the collect-back.
+                        if method_name == "collect" {
+                            return Some(iter_val);
+                        }
                         return Some(self.collect_auto_iter_result(iter_val, dst_ty));
                     }
                 }

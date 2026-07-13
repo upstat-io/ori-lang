@@ -31,6 +31,8 @@ export NEXTEST_COLOR=never
 TEST_ALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/aot_gate_lib.sh
 source "$TEST_ALL_DIR/scripts/aot_gate_lib.sh"
+# shellcheck source=scripts/test_all/logging.sh
+source "$TEST_ALL_DIR/scripts/test_all/logging.sh"
 
 # Check for flags
 VERBOSE=0
@@ -97,7 +99,7 @@ TARGET_DIR="$CARGO_TARGET_DIR"
 
 # Always log full output to a fixed file (cleared on each run)
 LOG_FILE="test-all.log"
-: > "$LOG_FILE"
+initialize_test_all_log "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 echo "LOGGING ALL OUTPUT TO $(pwd)/$LOG_FILE"
 echo ""
@@ -129,7 +131,6 @@ LEG_TIMING_DIR=$(mktemp -d)
 ORI_INTERP_JSON="$(dirname "$0")/build/ori-interp-results.json"
 ORI_LLVM_JSON="$(dirname "$0")/build/ori-llvm-results.json"
 PARSE_TEST_JSON="$(dirname "$0")/diagnostics/parse_test_json.py"
-PER_NODE_VERDICT="$(dirname "$0")/diagnostics/per_node_verdict.py"
 
 # Stale runner-JSON from a prior run would mask a current build-failure (the
 # -f guard at parse time would parse last run's results). Remove up front so a

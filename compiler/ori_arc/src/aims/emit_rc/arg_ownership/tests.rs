@@ -26,7 +26,6 @@ fn make_param_contract(access: AccessClass) -> ParamContract {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
-        capture_variant_return_project: None,
         iter_consumes_projected_field: None,
     }
 }
