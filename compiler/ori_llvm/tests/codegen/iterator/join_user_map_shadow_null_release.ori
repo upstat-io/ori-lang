@@ -1,0 +1,18 @@
+// FileCheck test: join over a user free function literally named `map`
+// (sharing the builtin adapter's surface name, taking/returning an
+// iterator) passes a null consumed-element release fn — the provenance
+// walk's name match is gated on `resolve_callee` finding no user symbol
+// under that name, so a same-named user function declines to the
+// leak-safe null verdict instead of being mistaken for the builtin
+// `Iterator.map` trampoline.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: i64 24, ptr null, ptr %join.out
+
+@map (it: Iterator<str>) -> Iterator<str> = it;
+
+@main () -> void = {
+    let $joined = map(["echo-echo-echo-echo-echo", "foxtrot-foxtrot-foxtrot-foxtrot"].iter())
+        .join(separator: ", ");
+    print(msg: joined)
+}
