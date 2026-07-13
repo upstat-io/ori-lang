@@ -158,7 +158,7 @@ use std.testing { assert, assert_eq }
 
 @test_set_equals_same tests @set_eq_same () -> void = {
     let a: Set<int> = [1, 2, 3].iter().collect();
-    let b: Set<int> = [1, 2, 3].iter().collect();
+    let b: Set<int> = [3, 1, 2].iter().collect();
     assert(cond: a == b)
 }
 
@@ -188,4 +188,35 @@ use std.testing { assert, assert_eq }
 @set_eq_empty () -> bool = {
     let a: Set<int> = [].iter().collect();
     a == a
+}
+
+@test_set_equals_order_independent tests @set_eq_order_indep () -> void = {
+    let a: Set<int> = [5, 1, 4, 2, 3].iter().collect();
+    let b: Set<int> = [1, 2, 3, 4, 5].iter().collect();
+    let c: Set<int> = [3, 5, 2, 1, 4].iter().collect();
+    assert(cond: a == b);
+    assert(cond: b == c);
+    assert(cond: a == c)
+}
+
+@set_eq_order_indep () -> bool = {
+    let a: Set<int> = [5, 1, 4, 2, 3].iter().collect();
+    let b: Set<int> = [1, 2, 3, 4, 5].iter().collect();
+    a == b
+}
+
+// =============================================================================
+// Set hash (order-independence — Hashable must agree with Eq)
+// =============================================================================
+
+@test_set_hash_order_independent tests @set_hash_order_indep () -> void = {
+    let a: Set<int> = [5, 1, 4, 2, 3].iter().collect();
+    let b: Set<int> = [1, 2, 3, 4, 5].iter().collect();
+    assert(cond: a == b);
+    assert_eq(actual: a.hash(), expected: b.hash())
+}
+
+@set_hash_order_indep () -> int = {
+    let a: Set<int> = [5, 1, 4, 2, 3].iter().collect();
+    a.hash()
 }
