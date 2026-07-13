@@ -1314,16 +1314,35 @@ fn global_string_ptr_unnamed_addr() {
 /// routes a same-frame checked-op panic to the catch landing pad. A future edit
 /// that reintroduces an inline `ori_panic_cstr` call would bypass that
 /// threading and silently make that op's panic un-catchable again. Assert
-/// exactly one `ori_panic_cstr` reference in the source — the one inside
-/// `emit_panic_block`.
+/// exactly one `ori_panic_cstr` reference across the `checked_ops` module
+/// family — the one inside `checked_ops::panic::emit_panic_block` — and zero
+/// in every sibling file.
 #[test]
 fn checked_ops_has_single_ori_panic_cstr_carrier() {
-    let src = include_str!("checked_ops.rs");
-    let count = src.matches("\"ori_panic_cstr\"").count();
+    let carrier = include_str!("checked_ops/panic.rs");
+    let siblings = [
+        ("checked_ops/mod.rs", include_str!("checked_ops/mod.rs")),
+        (
+            "checked_ops/div_rem.rs",
+            include_str!("checked_ops/div_rem.rs"),
+        ),
+        ("checked_ops/shift.rs", include_str!("checked_ops/shift.rs")),
+    ];
+
+    let carrier_count = carrier.matches("\"ori_panic_cstr\"").count();
     assert_eq!(
-        count, 1,
-        "checked_ops.rs must reference \"ori_panic_cstr\" exactly once (inside \
-         emit_panic_block, the single carrier). Found {count} — a reintroduced \
-         inline panic site bypasses the invoke-when-caught threading."
+        carrier_count, 1,
+        "checked_ops/panic.rs must reference \"ori_panic_cstr\" exactly once \
+         (inside emit_panic_block, the single carrier). Found {carrier_count}."
     );
+
+    for (path, src) in siblings {
+        let count = src.matches("\"ori_panic_cstr\"").count();
+        assert_eq!(
+            count, 0,
+            "{path} must not reference \"ori_panic_cstr\" — a reintroduced \
+             inline panic site bypasses emit_panic_block's invoke-when-caught \
+             threading. Found {count}."
+        );
+    }
 }
