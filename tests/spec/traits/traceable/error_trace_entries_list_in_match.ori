@@ -22,9 +22,17 @@ use std.testing { assert_eq }
     }
 }
 
-// Keep `entries_via_match` above as the aggregate-PHI compile pin. Execute the
-// same Error method through a scalar-returning match so the LLVM worker does
-// not consume an aggregate-returning helper through BUG-04-277's trigger.
+#skip("BUG-04-277: JIT test-worker SIGSEGV — any [T]-returning match consumed via .len() chained inline crashes the LLVM test-worker; unrelated to Traceable dispatch, reproduces with a plain [int]")
+@test_entries_list tests @entries_via_match () -> void = {
+    assert_eq(
+        actual: entries_via_match().len(),
+        expected: 1,
+    )
+}
+
+// Additional scalar-returning coverage for the same Error method, exercised
+// through both interpreter and LLVM backends without hitting BUG-04-277's
+// aggregate-returning-match-consumed-inline trigger shape.
 @entries_count_via_match () -> int = {
     match one_hop() {
         Ok(_) -> 0,
@@ -32,7 +40,7 @@ use std.testing { assert_eq }
     }
 }
 
-@test_entries_list tests @entries_count_via_match () -> void = {
+@test_entries_count_via_match tests @entries_count_via_match () -> void = {
     assert_eq(
         actual: entries_count_via_match(),
         expected: 1,

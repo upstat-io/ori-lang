@@ -1,0 +1,15 @@
+// IR pin: a same-frame `catch(expr: ...)` around a checked Size addition
+// makes @main may-unwind. Size routes through the same
+// checked-integer-arithmetic LLVM path as int/byte/Duration (Spec: Clause
+// 14.3), so the checked-add panic must be emitted as `invoke
+// @ori_panic_cstr` to a catch landing pad — `_ori_main` MUST NOT be marked
+// `nounwind` and MUST carry a `landingpad`. Pins Size's
+// catch-scoped-checked-op tracking without depending on Size's
+// signed-vs-unsigned representation (a separately-tracked question) —
+// i64::MAX + 1 overflows under the currently-shipped signed i64
+// representation regardless of that question's resolution.
+@main () -> int = {
+    let max_bytes = Size.from_bytes(b: 9223372036854775807);
+    let result = catch(expr: max_bytes + 1b);
+    if result.is_err() then 0 else 1
+}

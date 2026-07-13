@@ -131,7 +131,7 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
-                // Same discriminator as the Phase-6.68b element-escape keep-alive:
+                // Same discriminator as the element-escape keep-alive:
                 // a RETURNED receiver's result buffer carries the elem header (its
                 // elem_dec_fn is the keep-alive's balancing release in the caller).
                 let receiver_returned = ori_arc::push_receiver_lineage_returned(

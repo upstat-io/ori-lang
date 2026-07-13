@@ -1,4 +1,5 @@
-//! Phase-7 mechanical burden-lowering tests (probe path).
+//! Tests for [`super`]: Phase-7 mechanical burden-lowering and return-block
+//! scope-exit dec ordering.
 //!
 //! Pins [`super::lower_burden_ops_to_rc`]: under the probe
 //! (`predicate_stack_rc_disabled`), surviving whole-var `BurdenInc` /
@@ -6,7 +7,8 @@
 //! `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` variants
 //! lower by RE-SPELLING to `RcDecPartial` / `RcDecField` / `RcDecVariant`
 //! (identical per-field / per-variant drop glue at codegen; out of the
-//! Step-11 burden census per RL-comp net-preservation).
+//! Step-11 burden census per RL-comp net-preservation). Also pins
+//! [`super::order_return_block_scope_exit_decs`].
 //!
 //! RC counts use the SSOT `crate::pipeline::rc_count::count_rc_ops`.
 

@@ -1535,8 +1535,8 @@ fn callee_contract_locality_widens_arg() {
     // (BlockLocal) for a single-block Return function, so it cannot observe the
     // contract-driven widening (the event still fires off the exit state). The
     // widening is recorded as backward demand at v0's DEFINITION (the same
-    // `var_state_at_definition` surface the Phase-6 burden eliminator consumes)
-    // — per TF-11 Apply, an Owned arg to a callee whose
+    // `var_state_at_definition` surface class-ledger Step-4b emission
+    // consumes) — per TF-11 Apply, an Owned arg to a callee whose
     // `ParamContract.locality_bound = HeapEscaping` widens
     // `arg.locality := max(arg.locality, HeapEscaping)`.
     let _ = local_alloc_v0;

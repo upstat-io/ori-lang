@@ -191,6 +191,76 @@ fn test_checked_op_catch_fn_not_nounwind() {
     );
 }
 
+/// Regression: same as [`test_checked_op_catch_fn_not_nounwind`], for `byte`.
+/// Pins the `Tag::is_checked_int_arithmetic()` widening (`Int | Byte |
+/// Duration | Size`) — byte checked ops inside a same-frame `catch(expr:)`
+/// were previously never registered in `catch_scoped_checked_ops`, so their
+/// panics took the uncaught path (escaping the catch, aborting) instead of
+/// routing to the landing pad.
+#[test]
+fn test_checked_op_catch_fn_not_nounwind_byte() {
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/checked_op_catch_not_nounwind_byte.ori"
+    ));
+
+    assert_fn_lacks_attr(&ir, "_ori_main", "nounwind");
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+
+    assert!(
+        main_ir.contains("landingpad"),
+        "expected a `landingpad` in _ori_main with a same-frame checked-op catch.\nIR:\n{main_ir}"
+    );
+
+    assert!(
+        main_ir.contains("invoke void @ori_panic_cstr"),
+        "expected `invoke @ori_panic_cstr` routing the checked-op panic to the \
+         catch landing pad.\nIR:\n{main_ir}"
+    );
+}
+
+/// Regression: same as [`test_checked_op_catch_fn_not_nounwind`], for `Size`.
+/// Pins the `Tag::is_checked_int_arithmetic()` widening for Size the same
+/// way as byte.
+#[test]
+fn test_checked_op_catch_fn_not_nounwind_size() {
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/checked_op_catch_not_nounwind_size.ori"
+    ));
+
+    assert_fn_lacks_attr(&ir, "_ori_main", "nounwind");
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+
+    assert!(
+        main_ir.contains("landingpad"),
+        "expected a `landingpad` in _ori_main with a same-frame checked-op catch.\nIR:\n{main_ir}"
+    );
+
+    assert!(
+        main_ir.contains("invoke void @ori_panic_cstr"),
+        "expected `invoke @ori_panic_cstr` routing the checked-op panic to the \
+         catch landing pad.\nIR:\n{main_ir}"
+    );
+}
+
+/// Regression: an uncaught checked-arithmetic overflow with no other calls
+/// and no same-frame catch must not mark the enclosing function `nounwind`.
+/// The overflow panic (`call @ori_panic_cstr`) is an LLVM-emission-time-only
+/// artifact of the checked-add intrinsic lowering — invisible to the ARC IR
+/// nounwind scan, which only inspects `Apply`/`Invoke`/`RcDec` instructions.
+/// A leaf function whose sole instruction is checked arithmetic must be
+/// conservatively treated as may-unwind, exactly like an indirect call.
+#[test]
+fn test_uncaught_checked_arith_overflow_not_nounwind() {
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/uncaught_checked_arith_overflow_not_nounwind.ori"
+    ));
+
+    assert_fn_lacks_attr(&ir, "_ori_main", "nounwind");
+    assert_fn_lacks_attr(&ir, "main", "nounwind");
+}
+
 // nounwind propagation through builtin methods and protocols
 
 /// Function calling builtin method (str.length) via Invoke terminator gets nounwind.
@@ -198,7 +268,9 @@ fn test_checked_op_catch_fn_not_nounwind() {
 /// The ARC IR lowers `.length()` to `Invoke @length(...)`, and the nounwind
 /// analysis must recognize `@length` as an intercepted builtin that always
 /// emits `call` (never `invoke`). Without this, the function and its callers
-/// would incorrectly lose the nounwind attribute.
+/// would incorrectly lose the nounwind attribute. The fixture bodies contain
+/// no arithmetic — isolating this concern from the (separately pinned)
+/// checked-arithmetic-taints-nounwind behavior.
 #[test]
 fn test_function_calling_builtin_method_gets_nounwind() {
     let ir = compile_and_capture_ir(include_str!(

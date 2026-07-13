@@ -535,11 +535,18 @@ impl ArcLowerer<'_> {
             },
             Some(span),
         );
-        // Integer Div / Mod / FloorDiv / Shl / Shr panic on div-by-zero,
-        // overflow, or out-of-range shift count; Add / Sub / Mul panic on
-        // overflow (Spec: Clause 14.3). On the integer LLVM path these lower
-        // to a checked op that may unwind. Float ops never panic.
-        if is_checked_binop(op) && self.pool.tag(self.pool.resolve_fully(ty)) == Tag::Int {
+        // Div / Mod / FloorDiv / Shl / Shr panic on div-by-zero, overflow, or
+        // out-of-range shift count; Add / Sub / Mul panic on overflow (Spec:
+        // Clause 14.3). On the checked-integer-arithmetic LLVM path (int,
+        // byte, Duration, Size — see codegen-rules.md OpStrategy::IntInstr)
+        // these lower to a checked op that may unwind. Float/bool/char ops
+        // never panic.
+        if op.may_panic_on_int()
+            && self
+                .pool
+                .tag(self.pool.resolve_fully(ty))
+                .is_checked_int_arithmetic()
+        {
             self.builder.note_checked_op(dst);
         }
         dst
@@ -571,31 +578,20 @@ impl ArcLowerer<'_> {
             },
             Some(span),
         );
-        // Integer negation panics on `-i64::MIN` overflow (Spec: Clause 14.3);
-        // on the integer LLVM path it lowers to `checked_neg` which may unwind.
-        if op == ori_ir::UnaryOp::Neg && self.pool.tag(self.pool.resolve_fully(ty)) == Tag::Int {
+        // Negation panics on overflow (`-i64::MIN`, Spec: Clause 14.3); on the
+        // checked-integer-arithmetic LLVM path (int, byte, Duration, Size —
+        // see codegen-rules.md OpStrategy::IntInstr) it lowers to
+        // `checked_neg` which may unwind.
+        if op.may_panic_on_int()
+            && self
+                .pool
+                .tag(self.pool.resolve_fully(ty))
+                .is_checked_int_arithmetic()
+        {
             self.builder.note_checked_op(dst);
         }
         dst
     }
-}
-
-/// Whether a binary op lowers to a may-panic checked integer op
-/// (Spec: Clause 14.3). Comparison / bitwise / logical ops never panic;
-/// `Coalesce` / `And` / `Or` are lowered to control flow before reaching here.
-fn is_checked_binop(op: ori_ir::BinaryOp) -> bool {
-    use ori_ir::BinaryOp;
-    matches!(
-        op,
-        BinaryOp::Add
-            | BinaryOp::Sub
-            | BinaryOp::Mul
-            | BinaryOp::Div
-            | BinaryOp::Mod
-            | BinaryOp::FloorDiv
-            | BinaryOp::Shl
-            | BinaryOp::Shr
-    )
 }
 
 // Tests

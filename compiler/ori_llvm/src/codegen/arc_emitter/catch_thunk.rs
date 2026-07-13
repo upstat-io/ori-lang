@@ -36,10 +36,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// 2. A call to `ori_try_call(thunk_ptr, ctx_ptr)` → i64 (1=ok, 0=caught).
     /// 3. A conditional branch: success → normal block, caught → unwind block.
     #[expect(
-        clippy::too_many_lines,
-        reason = "SEH catch/invoke emits thunk + try_call + branch"
-    )]
-    #[expect(
         clippy::too_many_arguments,
         reason = "SEH catch invoke threads dst/callee/args/edges/mono_id"
     )]
@@ -60,14 +56,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Collect arg values before we start generating the thunk
         let arg_vals: Vec<ValueId> = arc_args.iter().map(|a| self.var(*a)).collect();
 
-        // Resolve the callee function and its ABI
-        let resolved = self
-            .lookup_method_by_receiver(callee, arc_args, arc_func)
-            .or_else(|| self.lookup_method_by_return_type(callee, dst, arc_func))
-            .or_else(|| self.ctx.functions.get(&callee))
-            .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func, mono_instance_id))
-            .or_else(|| self.lookup_method_fallback(callee))
-            .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi));
+        // Resolve the callee function and its ABI — delegates to the shared
+        // 5-step dispatch chain (`resolve_callee`) instead of duplicating it
+        // inline; also inherits `resolve_callee`'s receiver-type-aware
+        // fallback gating with zero additional wiring.
+        let resolved = self.resolve_callee(callee, arc_args, dst, arc_func, mono_instance_id);
 
         let Some((callee_func_id, params, ret_abi)) = resolved else {
             // Fallback: try runtime function

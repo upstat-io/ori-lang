@@ -72,8 +72,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ],
         )?;
         // Store elem_dec_fn and elem_count in the result buffer's RC header —
-        // ONLY for a RETURNED receiver lineage (the Phase-6.68b element-escape
-        // keep-alive's balancing release is this collection's `elem_dec_fn` run
+        // ONLY for a RETURNED receiver lineage (the element-escape keep-alive's
+        // balancing release is this collection's `elem_dec_fn` run
         // by the CALLER's drop; the runtime slow path cannot propagate a header
         // when the source list is empty/null). An in-scope receiver holds
         // UNFUNDED element views (the base accounting balances the source

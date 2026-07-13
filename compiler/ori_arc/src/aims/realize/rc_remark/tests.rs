@@ -1,7 +1,6 @@
 //! Relocation-regression pin: `emit_survivor_remarks_all_kept` is callable
-//! from its new home (`aims::realize::rc_remark::survivor_walk`, relocated
-//! out of the deleted `aims::realize::burden_elim`) and its walk + JSONL
-//! formatting behave identically to the pre-relocation shape.
+//! from `aims::realize::rc_remark::survivor_walk`, and its walk + JSONL
+//! formatting behave identically to the pinned baseline below.
 //!
 //! `ORI_RC_REMARKS` gates emission behind a process-wide `LazyLock` shared
 //! with every other test in this binary (including the pipeline tests that
@@ -38,9 +37,10 @@ fn burden_inc_func() -> ArcFunction {
     }
 }
 
-/// Relocation pin: `emit_survivor_remarks_all_kept` is reachable from its new
-/// module path and does not panic walking a function carrying a `BurdenInc`,
-/// regardless of the `ORI_RC_REMARKS` gate's process-wide state.
+/// Relocation pin: `emit_survivor_remarks_all_kept` is reachable from
+/// `aims::realize::rc_remark::survivor_walk` and does not panic walking a
+/// function carrying a `BurdenInc`, regardless of the `ORI_RC_REMARKS`
+/// gate's process-wide state.
 #[test]
 fn emit_survivor_remarks_all_kept_walks_burden_inc_without_panic() {
     let func = burden_inc_func();

@@ -296,6 +296,29 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     &has_user_drop,
                     &mut self.codegen_ctx.drop_unwind_memo.borrow_mut(),
                 ),
+                // A checked-arithmetic PrimOp (overflow / div-by-zero / bad
+                // shift count on int/byte/Duration/Size) is emitted PURELY
+                // at LLVM-emission time — there is no `Apply`/`Invoke` node
+                // for the `ori_panic_cstr` call it may make, so it is
+                // invisible to the arms above. Treat it as may-unwind,
+                // exactly like `ApplyIndirect`, so a leaf function whose
+                // sole body is checked arithmetic is not misclassified
+                // `nounwind` (Spec: Clause 14.3; codegen-rules.md RT-1).
+                ori_arc::ir::ArcInstr::Let {
+                    ty,
+                    value: ori_arc::ir::ArcValue::PrimOp { op, .. },
+                    ..
+                } => {
+                    let may_panic = match op {
+                        ori_arc::ir::PrimOp::Binary(op) => op.may_panic_on_int(),
+                        ori_arc::ir::PrimOp::Unary(op) => op.may_panic_on_int(),
+                    };
+                    !(may_panic
+                        && self
+                            .pool
+                            .tag(self.pool.resolve_fully(*ty))
+                            .is_checked_int_arithmetic())
+                }
                 _ => true,
             });
             term_ok && instrs_ok

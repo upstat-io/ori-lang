@@ -1,7 +1,8 @@
 //! RC-survivor remark record + emission (observability-only).
 //!
-//! Every RC op surviving the Phase-6 burden-elimination lattice is a specific
-//! proof failure. This defines the structured `AimsRcRemark` record (modeled on
+//! Every RC op surviving the class-ledger (Step 4b) burden-elimination
+//! lattice is a specific proof failure. This defines the structured
+//! `AimsRcRemark` record (modeled on
 //! LLVM `-fsave-optimization-record`) and emits one per survivor to the path
 //! named by `ORI_RC_REMARKS`. Reads the converged verdict only; mutates no
 //! instruction (Spec: Annex E §AIMS — observability changes no RC-emission
@@ -158,7 +159,7 @@ impl RemarkKind {
 }
 
 /// The surviving RC op, pinned to the `ArcInstr` burden-op variant grain (the
-/// thing that actually survives at the Phase-6 seam). `RcOpKind`
+/// thing that actually survives at the class-ledger Step-4b seam). `RcOpKind`
 /// (`Alloc/Inc/Dec/Free/Cow`) is the lowered projection, handled downstream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RcRemarkOp {

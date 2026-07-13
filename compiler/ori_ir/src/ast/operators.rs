@@ -185,6 +185,28 @@ impl BinaryOp {
             _ => None,
         }
     }
+
+    /// Whether this operator lowers to a may-panic checked-arithmetic op on
+    /// an integer-representation type (Spec: Clause 14.3).
+    ///
+    /// Comparison, logical, bitwise-non-shift, and range/coalesce operators
+    /// never panic; `Coalesce`/`And`/`Or` lower to control flow before
+    /// reaching the checked-arithmetic codegen path. This is the **single
+    /// source of truth** — `ori_arc` (ARC lowering) and `ori_llvm` (nounwind
+    /// analysis) both call this instead of maintaining parallel op sets.
+    pub const fn may_panic_on_int(self) -> bool {
+        matches!(
+            self,
+            Self::Add
+                | Self::Sub
+                | Self::Mul
+                | Self::Div
+                | Self::Mod
+                | Self::FloorDiv
+                | Self::Shl
+                | Self::Shr
+        )
+    }
 }
 
 /// Unary operators.
@@ -241,5 +263,15 @@ impl UnaryOp {
             Self::BitNot => Some("BitNot"),
             Self::Try => None,
         }
+    }
+
+    /// Whether this operator lowers to a may-panic checked-arithmetic op on
+    /// an integer-representation type (Spec: Clause 14.3).
+    ///
+    /// Only `Neg` overflows (`-i64::MIN`); `Not`/`BitNot`/`Try` never panic
+    /// on the checked-arithmetic codegen path. Single source of truth —
+    /// see `BinaryOp::may_panic_on_int`.
+    pub const fn may_panic_on_int(self) -> bool {
+        matches!(self, Self::Neg)
     }
 }

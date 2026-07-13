@@ -3287,3 +3287,422 @@ fn augment_drop_body_emits_zero_self_dec() {
 
     drop(em);
 }
+
+// Method-fallback receiver-type gating (`lookup_method_fallback` /
+// `resolve_callee`).
+//
+// The diagnostic-only fallback step of `resolve_callee` fired a warning
+// whenever ANY registered type shared a method name with the callee,
+// regardless of the actual receiver — a builtin receiver (str, bool, ...)
+// legitimately falls through every typed dispatch step to
+// `try_emit_builtin_method`, but spuriously warned whenever some OTHER type
+// happened to register the same method name. The fix gates the warning on
+// the receiver's own resolved tag (`Tag::Applied | Tag::Struct | Tag::Enum`
+// — the domain `type_idx_to_name` is meant to cover).
+
+/// In-memory tracing sink capturing every formatted event emitted while
+/// installed as the default subscriber — lets a test assert on whether (and
+/// what) `tracing::warn!` fired without a live `ORI_LOG` filter.
+#[expect(
+    clippy::disallowed_types,
+    reason = "test-only tracing sink; tracing_subscriber::fmt::MakeWriter requires a cheaply \
+              Clone + 'static shared buffer across its callback boundary, the exact shared-ownership \
+              shape Arc exists for — not a production hot-path allocation"
+)]
+#[derive(Clone, Default)]
+struct CapturingWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for CapturingWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturingWriter {
+    type Writer = Self;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+impl CapturingWriter {
+    fn contents(&self) -> String {
+        String::from_utf8_lossy(
+            &self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+        .to_string()
+    }
+}
+
+/// Run `body` under a tracing subscriber capturing WARN-and-above events;
+/// return the formatted output.
+fn capture_warnings(body: impl FnOnce()) -> String {
+    let writer = CapturingWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(writer.clone())
+        .with_max_level(tracing::Level::WARN)
+        .without_time()
+        .with_target(false)
+        .finish();
+    tracing::subscriber::with_default(subscriber, body);
+    writer.contents()
+}
+
+/// Minimal `FunctionAbi` for a zero-arg, void-returning dummy method — only
+/// its presence in `method_functions` matters for these tests, not its shape.
+fn dummy_method_abi() -> crate::codegen::abi::FunctionAbi {
+    crate::codegen::abi::FunctionAbi {
+        params: vec![],
+        return_abi: crate::codegen::abi::ReturnAbi {
+            ty: Idx::UNIT,
+            passing: crate::codegen::abi::ReturnPassing::Void,
+        },
+        call_conv: crate::codegen::abi::CallConv::Fast,
+    }
+}
+
+/// Registers `method_name` in `method_functions` under an UNRELATED type
+/// name — models "some OTHER type has this method", the precondition
+/// `lookup_method_fallback`'s `exists` check requires before it even
+/// considers warning.
+fn register_unrelated_method(
+    codegen_ctx: &mut super::CodegenContext,
+    method_name: ori_ir::Name,
+    func_id: crate::codegen::value_id::FunctionId,
+) {
+    let other_type_name = ori_ir::Name::from_raw(9001);
+    codegen_ctx.method_functions.insert(
+        (other_type_name, method_name),
+        (func_id, dummy_method_abi()),
+    );
+}
+
+#[test]
+fn lookup_method_fallback_registered_struct_receiver_warns() {
+    let mut pool = Pool::new();
+    let struct_ty = pool.struct_type(ori_ir::Name::from_raw(300), &[]);
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_fallback_struct"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+
+    let cl = TestClassifier;
+    let mut codegen_ctx = super::CodegenContext::default();
+    let method_name = interner.intern("debug");
+    register_unrelated_method(&mut codegen_ctx, method_name, host);
+
+    let em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+        None,
+    );
+
+    let output = capture_warnings(|| {
+        let result = em.lookup_method_fallback(method_name, Some(struct_ty));
+        assert!(result.is_none(), "fallback always returns None");
+    });
+    assert!(
+        output.contains("receiver type not registered"),
+        "expected the fallback warning for a Struct-tagged receiver:\n{output}"
+    );
+
+    drop(em);
+}
+
+#[test]
+fn lookup_method_fallback_registered_enum_receiver_warns() {
+    let mut pool = Pool::new();
+    let enum_ty = pool.enum_type(
+        ori_ir::Name::from_raw(301),
+        &[
+            ori_types::EnumVariant {
+                name: ori_ir::Name::from_raw(302),
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: ori_ir::Name::from_raw(303),
+                field_types: vec![Idx::STR],
+            },
+        ],
+    );
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_fallback_enum"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+
+    let cl = TestClassifier;
+    let mut codegen_ctx = super::CodegenContext::default();
+    let method_name = interner.intern("debug");
+    register_unrelated_method(&mut codegen_ctx, method_name, host);
+
+    let em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+        None,
+    );
+
+    // NEGATIVE PIN (proves the fix narrows, never disables, the diagnostic):
+    // an enum receiver genuinely unregistered in `type_idx_to_name` (e.g.
+    // enum derives not yet compiled) still fires the warning.
+    let output = capture_warnings(|| {
+        let result = em.lookup_method_fallback(method_name, Some(enum_ty));
+        assert!(result.is_none(), "fallback always returns None");
+    });
+    assert!(
+        output.contains("receiver type not registered"),
+        "expected the fallback warning for an Enum-tagged receiver:\n{output}"
+    );
+
+    drop(em);
+}
+
+#[test]
+fn lookup_method_fallback_builtin_str_receiver_no_warning() {
+    let pool = Pool::new();
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_fallback_str"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+
+    let cl = TestClassifier;
+    let mut codegen_ctx = super::CodegenContext::default();
+    let method_name = interner.intern("debug");
+    register_unrelated_method(&mut codegen_ctx, method_name, host);
+
+    let em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+        None,
+    );
+
+    // REGRESSION PIN: a builtin receiver (`str`) sharing a method name with
+    // some other registered type MUST NOT spuriously warn — this is the
+    // exact shape of the original bug (`assert_eq<str>`'s `.debug()` call
+    // sharing a compilation unit with a `#[derive(Debug)]` struct).
+    let output = capture_warnings(|| {
+        let result = em.lookup_method_fallback(method_name, Some(Idx::STR));
+        assert!(result.is_none(), "fallback always returns None");
+    });
+    assert!(
+        !output.contains("receiver type not registered"),
+        "builtin str receiver MUST NOT trip the registration-gap warning:\n{output}"
+    );
+
+    drop(em);
+}
+
+#[test]
+fn lookup_method_fallback_none_receiver_no_warning() {
+    let pool = Pool::new();
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_fallback_none"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+
+    let cl = TestClassifier;
+    let mut codegen_ctx = super::CodegenContext::default();
+    let method_name = interner.intern("default");
+    register_unrelated_method(&mut codegen_ctx, method_name, host);
+
+    let em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+        None,
+    );
+
+    // A no-receiver call (e.g. an associated function whose call site has no
+    // args) carries `receiver_ty: None` — MUST NOT warn regardless of what
+    // other types register the same method name.
+    let output = capture_warnings(|| {
+        let result = em.lookup_method_fallback(method_name, None);
+        assert!(result.is_none(), "fallback always returns None");
+    });
+    assert!(
+        !output.contains("receiver type not registered"),
+        "a receiver-less call MUST NOT trip the registration-gap warning:\n{output}"
+    );
+
+    drop(em);
+}
+
+#[test]
+fn resolve_callee_threads_receiver_type_into_fallback_gate() {
+    use ori_arc::ir::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcParam, ArcTerminator, ArcVarId, ValueRepr,
+    };
+    use ori_arc::Ownership;
+
+    let mut pool = Pool::new();
+    let struct_ty = pool.struct_type(ori_ir::Name::from_raw(310), &[]);
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_resolve_callee_gate"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+
+    let cl = TestClassifier;
+    let mut codegen_ctx = super::CodegenContext::default();
+    let method_name = interner.intern("debug");
+    register_unrelated_method(&mut codegen_ctx, method_name, host);
+
+    let em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+        None,
+    );
+
+    // Every typed dispatch step misses (`type_idx_to_name`, `functions`,
+    // `mono_dispatch` are all empty) so `resolve_callee` reaches its
+    // diagnostic-only fallback for both receivers below.
+
+    // Struct receiver (registered domain) — resolve_callee's own
+    // `args.first()` + `func.var_type()` + `resolve_fully()` derivation
+    // MUST reach the fallback and fire the warning.
+    let struct_func = ArcFunction {
+        name: interner.intern("test_struct_receiver_fn"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: struct_ty,
+            ownership: Ownership::Owned,
+        }],
+        return_type: Idx::UNIT,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(1),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![struct_ty, Idx::UNIT],
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
+        spans: vec![vec![None]],
+        ..Default::default()
+    };
+    let struct_output = capture_warnings(|| {
+        let resolved = em.resolve_callee(
+            method_name,
+            &[ArcVarId::new(0)],
+            ArcVarId::new(1),
+            &struct_func,
+            None,
+        );
+        assert!(resolved.is_none());
+    });
+    assert!(
+        struct_output.contains("receiver type not registered"),
+        "resolve_callee MUST warn on a Struct-tagged unregistered receiver:\n{struct_output}"
+    );
+
+    // str receiver (builtin domain) — same missing-registration shape, but
+    // MUST NOT warn: this is the resolve_callee-level regression pin for
+    // the original bug.
+    let str_func = ArcFunction {
+        name: interner.intern("test_str_receiver_fn"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        return_type: Idx::UNIT,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(1),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::STR, Idx::UNIT],
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
+        spans: vec![vec![None]],
+        ..Default::default()
+    };
+    let str_output = capture_warnings(|| {
+        let resolved = em.resolve_callee(
+            method_name,
+            &[ArcVarId::new(0)],
+            ArcVarId::new(1),
+            &str_func,
+            None,
+        );
+        assert!(resolved.is_none());
+    });
+    assert!(
+        !str_output.contains("receiver type not registered"),
+        "resolve_callee MUST NOT warn on a builtin str receiver:\n{str_output}"
+    );
+
+    drop(em);
+}

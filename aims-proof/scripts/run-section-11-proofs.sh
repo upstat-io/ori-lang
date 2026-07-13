@@ -7,9 +7,9 @@
 # coexistence corpus ONLY (proofs/11-coexistence/ CH-1..CH-5 + CH-comp +
 # Handshake.proof SSOT spec file), emits per-CH pass/fail keyed to the
 # Per-CH Proof-Status Tracking table, and runs the compiler-conformance cross-
-# walk (CH-4 -> shipped pub(crate) fn eliminate_burden_ops + Tier 2 behavioral
-# fixture; CH-1/CH-2/CH-3/CH-5/CH-comp -> conformance: target-only). Exits
-# non-zero on any CH-N proof-check failure.
+# walk (CH-4 -> shipped `ArcFunction.burden_emitted: Vec<bool>` BR disjoint
+# side-table + Tier 2 behavioral fixture; CH-1/CH-2/CH-3/CH-5/CH-comp ->
+# conformance: target-only). Exits non-zero on any CH-N proof-check failure.
 #
 # Lean cross-validation of CH-1..CH-comp is owned by the dual-discharge gate
 # (scripts/dual-discharge.sh) against the hand-authored
@@ -31,8 +31,8 @@
 # Fail or UnimplementedEngineShape -> a fail-branch exit_reason
 # (exit 2).
 # (c) compiler-conformance cross-walk: CH-4 Tier 1 anchored-grep on
-# pub(crate) fn eliminate_burden_ops + Tier 2 behavioral fixture
-# under compiler/ori_arc/tests/aims/coexistence/. A
+# `pub burden_emitted: Vec<bool>` (ArcFunction, ir/mod.rs) + Tier 2
+# behavioral fixture under compiler/ori_arc/tests/aims/coexistence/. A
 # failing tier -> coexistence_handshake_compiler_spec_divergence
 # (exit 2).
 #
@@ -127,19 +127,23 @@ fi
 
 # Phase (c) — compiler-conformance cross-walk.
 #
-# CH-4 maps to compiler/ori_arc/src/aims/realize/burden_elim.rs:87
-# pub(crate) fn eliminate_burden_ops (Tier 1 anchored-grep on visibility-
-# qualifier + Tier 2 behavioral fixture asserting AimsStateMap immutability +
-# RC inc-dec balance + elimination terminates in eliminate_burden_ops).
+# CH-4 maps to compiler/ori_arc/src/ir/mod.rs's `pub burden_emitted:
+# Vec<bool>` field on ArcFunction (Tier 1 anchored-grep on the field
+# declaration + Tier 2 behavioral fixture asserting AimsStateMap immutability
+# under burden-registry mutation). The former Tier 1 anchor (`pub(crate) fn
+# eliminate_burden_ops` in `aims/realize/burden_elim.rs`) was deleted as dead
+# code (class-ledger-sole consolidation); CH-4's disjoint-storage argument
+# governs BR's storage shape (the field, not a specific consumer), so the
+# deletion does not affect conformance — only the anchored-grep target moved.
 # CH-1/CH-2/CH-3/CH-5/CH-comp -> conformance: target-only (no single shipped
 # function per the §11 coexistence section coexistence_dispatch surface that has not yet
-# landed; production composition surface above eliminate_burden_ops pending).
+# landed).
 conformance_pass=0
 conformance_target_only=5 # CH-1, CH-2, CH-3, CH-5, CH-comp
 
-# Tier 1: anchored-grep for pub(crate) fn eliminate_burden_ops.
-BURDEN_ELIM_PATH="../compiler/ori_arc/src/aims/realize/burden_elim.rs"
-if [[ -f "$BURDEN_ELIM_PATH" ]] && grep -qE 'pub\(crate\) fn eliminate_burden_ops\(' "$BURDEN_ELIM_PATH"; then
+# Tier 1: anchored-grep for the BR disjoint side-table field declaration.
+BURDEN_ELIM_PATH="../compiler/ori_arc/src/ir/mod.rs"
+if [[ -f "$BURDEN_ELIM_PATH" ]] && grep -qE 'pub burden_emitted: Vec<bool>' "$BURDEN_ELIM_PATH"; then
     tier1_passed=1
 else
     tier1_passed=0
@@ -162,7 +166,7 @@ if [[ "$tier1_passed" -eq 1 ]]; then
     conformance_pass=1
 else
     cat > test-results/section-11-result.json <<EOF
-{"status": "fail", "exit_reason": "coexistence_handshake_compiler_spec_divergence", "phase": "conformance_tier1", "proofs_passed": ${proofs_passed}, "reason": "CH-4 Tier 1 anchored-grep failed: 'pub(crate) fn eliminate_burden_ops' not found at ${BURDEN_ELIM_PATH}"}
+{"status": "fail", "exit_reason": "coexistence_handshake_compiler_spec_divergence", "phase": "conformance_tier1", "proofs_passed": ${proofs_passed}, "reason": "CH-4 Tier 1 anchored-grep failed: 'pub burden_emitted: Vec<bool>' not found at ${BURDEN_ELIM_PATH}"}
 EOF
     exit 2
 fi

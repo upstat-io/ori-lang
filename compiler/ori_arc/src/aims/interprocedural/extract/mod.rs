@@ -29,7 +29,7 @@ use alias_flow::{
 };
 use param_facts::{
     find_aggregate_iter_consume_fields, find_borrowed_cow_consumed_params,
-    find_borrowed_read_only_params, find_iter_consume_params,
+    find_borrowed_read_only_params, find_iter_consume_params, CowConsumeScope,
 };
 use return_contract::extract_return_info;
 
@@ -380,10 +380,20 @@ fn detect_param_facts(
     let containment = find_payload_containment_params(func, &alias_to_param);
     let iter_consume = find_iter_consume_params(func, sigs, &alias_to_param, interner);
     let borrowed_read_only = find_borrowed_read_only_params(func, sigs, &alias_to_param, interner);
-    let borrowed_cow_consumed =
-        find_borrowed_cow_consumed_params(func, sigs, &alias_to_param, interner, false);
-    let borrowed_cow_mutated =
-        find_borrowed_cow_consumed_params(func, sigs, &alias_to_param, interner, true);
+    let borrowed_cow_consumed = find_borrowed_cow_consumed_params(
+        func,
+        sigs,
+        &alias_to_param,
+        interner,
+        CowConsumeScope::AnyConsume,
+    );
+    let borrowed_cow_mutated = find_borrowed_cow_consumed_params(
+        func,
+        sigs,
+        &alias_to_param,
+        interner,
+        CowConsumeScope::MutatorOnly,
+    );
     // Field-grained iter-consume of a borrowed aggregate param's projected field
     // (RL-2 inward transfer of the consumed field) — exclude any param already
     // covered by the whole-param `iter_consume` fact (that case is whole-value).

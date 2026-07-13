@@ -6,8 +6,8 @@
 //! # Architecture
 //!
 //! - **Phase 1** ([`realize_rc_reuse`]): pre-merge. The burden path emits RC
-//!   via Phase 2.5 elimination + Phase 7 lowering, then reuse from collected
-//!   events. Calls edge cleanup at the end.
+//!   via class-ledger Step 4b emission + Phase 7 lowering, then reuse from
+//!   collected events. Calls edge cleanup at the end.
 //! - **Phase 2** ([`realize_annotations`]): post-merge. Walks post-merge IR
 //!   using ArcVarId-keyed state lookups for COW and drop hint decisions.
 //!

@@ -51,6 +51,16 @@ pub(super) fn is_boxed_enum_field(pool: &Pool, owner_type: Idx, field_type: Idx)
 /// `ori_list_get`, which panics on out-of-bounds access. Matching is by
 /// unqualified method name, so map `updated` / map `__index` (never
 /// panic) are conservatively included too.
+///
+/// The `Duration.from_*` / `Size.from_*` unit-factory associated functions
+/// are included because `try_emit_builtin_associated`
+/// (`codegen/arc_emitter/builtins/associated.rs`) emits an inline
+/// `checked_mul_msg` for every scale factor other than 1 (Spec: Clause
+/// 14.3), and a `Size cannot be negative` check via `emit_unwrap_branch` for
+/// every `Size.from_*` regardless of factor — both may panic. `from_bytes`
+/// (Size, factor 1) is included for the negative check alone;
+/// `from_nanoseconds`/`from_nanos` (Duration, factor 1, no negative check)
+/// are the only unit factories that never panic and are correctly excluded.
 pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] = &[
     "unwrap",
     "unwrap_err",
@@ -58,6 +68,22 @@ pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] = &[
     "expect_err",
     "updated",
     "__index",
+    "from_microseconds",
+    "from_micros",
+    "from_milliseconds",
+    "from_millis",
+    "from_seconds",
+    "from_minutes",
+    "from_hours",
+    "from_bytes",
+    "from_kilobytes",
+    "from_kb",
+    "from_megabytes",
+    "from_mb",
+    "from_gigabytes",
+    "from_gb",
+    "from_terabytes",
+    "from_tb",
 ];
 
 /// Check if a callee will be intercepted by builtin handlers during emission.

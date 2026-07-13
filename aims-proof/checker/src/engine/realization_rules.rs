@@ -640,9 +640,10 @@ fn verify_rl2_dec_at_last_use() -> EngineResult {
 // identically to the lifecycle with them present (the elided ops were
 // no-ops on the net count).
 //
-// Shipped: aims/realize/burden_elim.rs (Phase-6 eliminate_burden_ops queries
-// DP-2 is_rc_dec_unnecessary / DP-3 is_rc_inc_elidable at aims/transfer/mod.rs
-// against the converged state map to remove a burden-op).
+// Shipped: aims/class_ledger/replace.rs (apply_class_ledger_replacement
+// fuses the DP-2 is_rc_dec_unnecessary / DP-3 is_rc_inc_elidable verdict at
+// aims/transfer/mod.rs into the class-ledger plan at Step 4b, so an elided
+// op is never emitted rather than emitted-then-removed by a separate pass).
 
 fn verify_rl3_rc_op_elision() -> EngineResult {
     // (P1) Elision-eligibility grid. Each row models a value state + which DP

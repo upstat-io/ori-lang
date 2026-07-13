@@ -16,7 +16,7 @@
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::canon::MonoInstanceId;
 use ori_ir::{Name, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
-use ori_types::Idx;
+use ori_types::{Idx, Tag};
 
 use super::{ArcIrEmitter, EmittedValue};
 use crate::codegen::abi::{FunctionAbi, ReturnPassing};
@@ -114,13 +114,30 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `type_idx_to_name` (e.g., enum types whose derives aren't compiled yet).
     /// Returning `None` ensures the caller falls through to the "unresolved
     /// function" error path instead of silently calling the wrong method.
-    pub(super) fn lookup_method_fallback(&self, name: Name) -> Option<&(FunctionId, FunctionAbi)> {
+    ///
+    /// The warning fires only when `receiver_ty` resolves to a type
+    /// `type_idx_to_name` is meant to cover (`Tag::Applied` generic
+    /// composites, `Tag::Struct`, `Tag::Enum` — mirrors the registration
+    /// idiom at `derive_codegen/instantiation.rs`). A builtin receiver
+    /// (str, bool, ...) legitimately falls through every typed dispatch
+    /// step to `try_emit_builtin_method`; gating on the receiver's tag
+    /// stops the warning firing whenever ANY unrelated type happens to
+    /// share the method name.
+    pub(super) fn lookup_method_fallback(
+        &self,
+        name: Name,
+        receiver_ty: Option<Idx>,
+    ) -> Option<&(FunctionId, FunctionAbi)> {
         let exists = self
             .ctx
             .method_functions
             .iter()
             .any(|((_, method_name), _)| *method_name == name);
-        if exists {
+        if exists
+            && receiver_ty.is_some_and(|ty| {
+                matches!(self.pool.tag(ty), Tag::Applied | Tag::Struct | Tag::Enum)
+            })
+        {
             tracing::warn!(
                 method = %self.interner.lookup(name),
                 "method exists for another type but receiver type not registered — \
@@ -253,11 +270,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Vec<crate::codegen::abi::ParamAbi>,
         crate::codegen::abi::ReturnAbi,
     )> {
+        // Receiver's resolved type, computed once for the diagnostic-only
+        // fallback step — mirrors `lookup_method_by_receiver`'s own
+        // `args.first()` + `func.var_type()` + `resolve_fully()` derivation.
+        let resolved_receiver_ty = args
+            .first()
+            .map(|&a| self.pool.resolve_fully(func.var_type(a)));
         self.lookup_method_by_receiver(callee, args, func)
             .or_else(|| self.lookup_method_by_return_type(callee, dst, func))
             .or_else(|| self.ctx.functions.get(&callee))
             .or_else(|| self.lookup_mono_dispatch(callee, args, func, mono_instance_id))
-            .or_else(|| self.lookup_method_fallback(callee))
+            .or_else(|| self.lookup_method_fallback(callee, resolved_receiver_ty))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi))
     }
 

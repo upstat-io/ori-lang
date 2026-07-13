@@ -165,12 +165,13 @@ fn effect_call_function_is_not_memory_none_eligible() {
 
 /// Effect burden-baseline pin: a residual burden op is NOT in the
 /// pure-instruction allow-list, so a function still carrying a `BurdenInc`
-/// (i.e. one that Phase 6 did not eliminate and Phase 7 has not yet lowered)
-/// is NOT classified `memory(none)`-eligible. This confirms the burden-emitted
-/// baseline cannot silently produce a spurious no-effect attribute — the RL-30
-/// consumer treats unlowered burden ops conservatively. By codegen, burden ops
-/// are fully lowered to `RcInc`/`RcDec` (Phase 7), which also block purity, so
-/// the classification is stable across the emission→elimination→lowering shift.
+/// (i.e. one class-ledger Step-4b emission produced but Phase 7 has not yet
+/// lowered) is NOT classified `memory(none)`-eligible. This confirms the
+/// burden-emitted baseline cannot silently produce a spurious no-effect
+/// attribute — the RL-30 consumer treats unlowered burden ops conservatively.
+/// By codegen, burden ops are fully lowered to `RcInc`/`RcDec` (Phase 7),
+/// which also block purity, so the classification is stable across the
+/// emission→lowering shift.
 #[test]
 fn effect_residual_burden_op_is_not_memory_none_eligible() {
     let func = make_func(vec![ArcInstr::BurdenInc {

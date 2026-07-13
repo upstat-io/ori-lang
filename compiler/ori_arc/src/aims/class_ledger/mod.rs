@@ -1,6 +1,6 @@
 //! Class-ledger owed-invariant emitter over the birth-site partition.
 //!
-//! Alternate Phase-5 emission path: consumes the class-ledger classifier's
+//! The sole Step-4b emission path: consumes the class-ledger classifier's
 //! per-block event streams (`ledger_events`), plans per-class `BurdenInc` /
 //! `BurdenDec` insertions under the owed-count invariant (the references a
 //! class holds that must be released), and verifies every class per path
@@ -354,7 +354,7 @@ pub(crate) fn apply_class_ledger_replacement(
     // (the legacy repair passes are deleted; no fallback emitter exists).
     assert!(
         !burden_ops_enabled || outcome.mode == EmissionMode::Replaced,
-        "class-ledger replacement declined for `{}`: {} — every production shape must replace (the legacy Step-4b walk was deleted; no fallback emitter exists)",
+        "class-ledger replacement declined for `{}`: {} — every production shape must replace (the legacy Phase-5/6 walk was deleted; no fallback emitter exists)",
         interner.lookup(func.name),
         outcome
             .fallback_reason

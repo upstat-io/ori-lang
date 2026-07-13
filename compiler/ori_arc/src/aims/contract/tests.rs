@@ -1,6 +1,7 @@
 //! Tests for memory contract types.
 
 use super::*;
+use crate::aims::lattice::Cardinality;
 use crate::ir::{ArcParam, ArcVarId};
 use crate::ownership::Ownership;
 use ori_ir::Name;

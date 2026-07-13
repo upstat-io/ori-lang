@@ -186,6 +186,15 @@ impl Tag {
         matches!(self, Self::Var | Self::BoundVar | Self::RigidVar)
     }
 
+    /// Check if this tag routes arithmetic through the checked-integer
+    /// codegen path (`OpStrategy::IntInstr`; see `codegen-rules.md`
+    /// `emit_int_binary_op`). `int`, `byte`, `Duration`, and `Size` all
+    /// share this path; `float`/`bool`/`char` do not.
+    #[inline]
+    pub const fn is_checked_int_arithmetic(self) -> bool {
+        matches!(self, Self::Int | Self::Byte | Self::Duration | Self::Size)
+    }
+
     // Merkle Hash Classification
     //
     // Every tag falls into exactly one of three categories for Merkle hashing:

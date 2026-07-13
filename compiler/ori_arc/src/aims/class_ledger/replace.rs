@@ -410,10 +410,6 @@ fn dec_partial_skips_valid(
     })
 }
 
-/// Whether every variable of the function is excluded from RC accounting
-/// (scalar or immortal) — the empty-surface admission predicate for the
-/// zero-classes gate. Params are variables too (`ArcParam.var` indexes the
-/// same space), so the sweep covers them.
 /// Whether any instruction is a `Reset` / `Reuse` / `CollectionReuse`
 /// (FBIP allocation-reuse pairing).
 fn has_reuse_shape(func: &ArcFunction) -> bool {
