@@ -151,3 +151,41 @@ use std.testing { assert, assert_eq }
 }
 
 @tup_eq_diff () -> bool = !(1, 2).equals(other: (2, 1));
+
+// =============================================================================
+// Set equality (== operator)
+// =============================================================================
+
+@test_set_equals_same tests @set_eq_same () -> void = {
+    let a: Set<int> = [1, 2, 3].iter().collect();
+    let b: Set<int> = [1, 2, 3].iter().collect();
+    assert(cond: a == b)
+}
+
+@set_eq_same () -> bool = {
+    let a: Set<int> = [1, 2].iter().collect();
+    a == a
+}
+
+@test_set_equals_different tests @set_eq_diff () -> void = {
+    let a: Set<int> = [1, 2].iter().collect();
+    let b: Set<int> = [1, 3].iter().collect();
+    assert(cond: a != b)
+}
+
+@set_eq_diff () -> bool = {
+    let a: Set<int> = [1].iter().collect();
+    let b: Set<int> = [2].iter().collect();
+    a != b
+}
+
+@test_set_equals_empty tests @set_eq_empty () -> void = {
+    let a: Set<int> = [].iter().collect();
+    let b: Set<int> = [].iter().collect();
+    assert(cond: a == b)
+}
+
+@set_eq_empty () -> bool = {
+    let a: Set<int> = [].iter().collect();
+    a == a
+}
