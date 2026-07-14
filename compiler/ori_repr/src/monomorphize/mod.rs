@@ -1,7 +1,7 @@
-//! Monomorphization collection pass.
+//! Backend-neutral monomorphization metadata and call-target realization.
 //!
 //! Transforms [`MonoInstance`] records (from the type checker) into
-//! [`MonoFunction`] values ready for the LLVM pipeline. Each `MonoFunction`
+//! [`MonoFunction`] values ready for any executable backend. Each `MonoFunction`
 //! carries a mangled name and a fully-concrete [`FunctionSig`] — existing
 //! `declare_function()` / `define_function_body()` work unchanged.
 
@@ -12,7 +12,9 @@ use ori_ir::{Name, StringInterner};
 use ori_types::{FunctionSig, Idx, ImplSig, MonoInstance, Pool, Tag};
 
 mod mangle;
+mod targets;
 pub use mangle::mangle_mono_name;
+pub use targets::{callee_shadows_builtin_method, rewrite_apply_targets_for_monos, MonoTargetMaps};
 
 // ImportSig
 

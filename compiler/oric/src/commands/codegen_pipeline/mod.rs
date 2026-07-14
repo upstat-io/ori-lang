@@ -62,7 +62,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     source_path: &str,
     module_name: &str,
     symbol_prefix: &str,
-    import_sigs: &[ori_llvm::monomorphize::ImportSig],
+    import_sigs: &[ori_repr::monomorphize::ImportSig],
     imported: ImportedSurfaces<'_>,
     target_triple: Option<&str>,
     narrowing_policy: ori_repr::NarrowingPolicy,
@@ -127,7 +127,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         // analyze_program's mono-keyed contract map and transitive
         // transfers_through_return propagation silently fails.
         if !mono_functions.is_empty() {
-            ori_llvm::codegen::function_compiler::rewrite_apply_targets_for_monos(
+            ori_repr::monomorphize::rewrite_apply_targets_for_monos(
                 &mut arc_cache,
                 &mono_functions,
                 pool,
@@ -164,16 +164,24 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         // analysis sees their call sites; they are lowered once (with
         // type-qualified analysis names) and reused for both the repr plan
         // and the as-compiled impl-method contract pre-pass.
-        let (impl_analysis_funcs, impl_qualified_by_recv) =
-            super::repr_setup::lower_impl_methods_for_analysis(
-                parse_result,
-                type_result,
-                interner,
-                canon,
-                pool,
-            );
+        let crate::realization::ImplMethodAnalysis {
+            functions: impl_analysis_funcs,
+            targets: impl_qualified_by_recv,
+        } = crate::realization::lower_impl_methods_for_analysis(
+            parse_result,
+            type_result,
+            interner,
+            canon,
+            pool,
+        )
+        .map_err(|problems| {
+            format!(
+                "impl-method ARC lowering failed with {} problem(s): {problems:?}",
+                problems.len()
+            )
+        })?;
         let all_arc_funcs = {
-            let mut funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
+            let mut funcs = crate::realization::collect_all_arc_functions(&arc_cache);
             funcs.extend(impl_analysis_funcs.iter().cloned());
             funcs
         };
@@ -184,7 +192,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             .impl_sigs
             .iter()
             .any(|entry| !entry.sig.is_generic());
-        let repr_plan = super::repr_setup::compute_module_repr_plan(
+        let repr_plan = crate::realization::compute_module_repr_plan(
             pool,
             &all_arc_funcs,
             narrowing_policy,
@@ -202,7 +210,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
 
         let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
         let aims_contracts = {
-            let mut all_funcs = super::repr_setup::collect_all_arc_functions(&arc_cache);
+            let mut all_funcs = crate::realization::collect_all_arc_functions(&arc_cache);
             ori_arc::compute_aims_contracts(&mut all_funcs, &classifier, interner, &builtins)
         };
 

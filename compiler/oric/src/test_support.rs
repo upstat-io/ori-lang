@@ -4,12 +4,12 @@
 //! in `compiler/oric/tests/` can use these functions. Integration tests
 //! compile the normal library build — `#[cfg(test)]` items are invisible.
 //!
-//! Provides the compilation pipeline up to ARC IR without AIMS processing,
-//! suitable for snapshot tests that capture per-pass ARC IR via the
-//! checkpoint observer.
+//! Provides the pre-AIMS ARC pipeline used by snapshot tests and a thin
+//! frontend harness for the backend-neutral executable-program seam.
 
 use ori_arc::ArcFunction;
 use ori_ir::{Name, StringInterner};
+use ori_repr::executable::ExecutableProgram;
 use ori_types::Pool;
 use rustc_hash::FxHashMap;
 
@@ -39,6 +39,36 @@ impl ArcCompileResult {
     pub fn all_arc_functions(&self) -> Vec<ArcFunction> {
         ori_arc::collect_all_arc_functions(&self.arc_cache)
     }
+}
+
+/// A typed failure in the source-to-executable test harness.
+#[derive(Debug, thiserror::Error)]
+pub enum ExecutableCompileError {
+    /// Parsing failed before realization.
+    #[error("parse errors in {path}: {count} error(s)")]
+    Parse {
+        /// Source path used for diagnostics.
+        path: String,
+        /// Number of parse errors.
+        count: usize,
+    },
+    /// Type checking failed before realization.
+    #[error("type errors in {path}: {count} error(s)")]
+    Type {
+        /// Source path used for diagnostics.
+        path: String,
+        /// Number of type errors.
+        count: usize,
+    },
+    /// Type checking did not publish the pool required by realization.
+    #[error("type checking produced no type pool for {path}")]
+    MissingTypePool {
+        /// Source path used for diagnostics.
+        path: String,
+    },
+    /// Backend-neutral realization rejected the checked module.
+    #[error(transparent)]
+    Realization(#[from] crate::realization::ProgramRealizationError),
 }
 
 /// Compile a source file to ARC IR (pre-AIMS pipeline).
@@ -125,4 +155,49 @@ pub fn compile_to_arc(source_path: &str, source_text: &str) -> Result<ArcCompile
         pool,
         db,
     })
+}
+
+/// Compile a checked local module into the backend-neutral executable artifact.
+///
+/// This harness owns only source/database orchestration. Realization, AIMS, and
+/// validation are delegated to the same explicit seam executable backends use.
+pub fn compile_to_executable(
+    source_path: &str,
+    source_text: &str,
+    narrowing_policy: ori_repr::NarrowingPolicy,
+) -> Result<ExecutableProgram, ExecutableCompileError> {
+    let db = CompilerDb::new();
+    let file = SourceFile::new(&db, source_path.into(), source_text.into());
+    let parse_result = crate::query::parsed(&db, file);
+    if parse_result.has_errors() {
+        return Err(ExecutableCompileError::Parse {
+            path: source_path.to_owned(),
+            count: parse_result.errors.len(),
+        });
+    }
+
+    let type_result = crate::query::typed(&db, file);
+    if type_result.has_errors() {
+        return Err(ExecutableCompileError::Type {
+            path: source_path.to_owned(),
+            count: type_result.errors().len(),
+        });
+    }
+
+    let pool = crate::query::typed_pool(&db, file)
+        .map(|pool| (*pool).clone())
+        .ok_or_else(|| ExecutableCompileError::MissingTypePool {
+            path: source_path.to_owned(),
+        })?;
+    let shared_canon =
+        crate::query::canonicalize_cached(&db, file, &parse_result, &type_result, &pool);
+    crate::realization::realize_local_program(crate::realization::ProgramRealizationInput {
+        parse: &parse_result,
+        types: &type_result,
+        canon: &shared_canon,
+        pool,
+        symbols: db.shared_interner(),
+        narrowing_policy,
+    })
+    .map_err(ExecutableCompileError::from)
 }

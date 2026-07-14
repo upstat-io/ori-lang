@@ -1,104 +1,14 @@
-//! `OpStrategy` dispatch helpers for binary and unary operator emission.
-//!
-//! Maps `(TypeTag, BinaryOp/UnaryOp)` to LLVM instruction families via the
-//! registry's [`OpStrategy`]. Each strategy variant delegates to a focused
-//! helper that contains the `match op` for that instruction family.
+//! LLVM instruction-family emitters for shared primitive strategies.
 
-use ori_ir::{BinaryOp, UnaryOp};
-use ori_registry::{find_type, OpStrategy, TypeTag};
+use ori_ir::BinaryOp;
+use ori_registry::TypeTag;
 use ori_types::Idx;
 
 use super::super::builtins;
 use super::super::ArcIrEmitter;
-use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Look up the [`OpStrategy`] for a binary operation on a builtin type.
-    ///
-    /// Maps `(TypeTag, BinaryOp)` to the corresponding strategy field in the
-    /// registry's [`OpDefs`](ori_registry::OpDefs). `And`/`Or` bypass the
-    /// registry (they use integer instructions regardless of type).
-    /// `Coalesce` is always lowered to control flow by `ori_arc`.
-    pub(in crate::codegen::arc_emitter) fn op_strategy_for_binary(
-        type_tag: TypeTag,
-        op: BinaryOp,
-    ) -> OpStrategy {
-        match op {
-            // And/Or bypass registry — they use integer AND/OR regardless of type.
-            // User-written &&/|| are intercepted by ARC lowering for short-circuit
-            // semantics, but compiler-generated And/Or (e.g., range step conditions)
-            // reach here as eager PrimOps.
-            BinaryOp::And | BinaryOp::Or => return OpStrategy::IntInstr,
-            // Coalesce is always lowered to control flow by ori_arc.
-            BinaryOp::Coalesce => {
-                unreachable!(
-                    "Coalesce is lowered to control flow by ori_arc and should never reach op_strategy_for_binary"
-                )
-            }
-            BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::MatMul => {
-                return OpStrategy::Unsupported;
-            }
-            _ => {}
-        }
-
-        let Some(type_def) = find_type(type_tag) else {
-            return OpStrategy::Unsupported;
-        };
-        match op {
-            BinaryOp::Add => type_def.operators.add,
-            BinaryOp::Sub => type_def.operators.sub,
-            BinaryOp::Mul => type_def.operators.mul,
-            BinaryOp::Div => type_def.operators.div,
-            BinaryOp::Mod => type_def.operators.rem,
-            BinaryOp::FloorDiv => type_def.operators.floor_div,
-            BinaryOp::Eq => type_def.operators.eq,
-            BinaryOp::NotEq => type_def.operators.neq,
-            BinaryOp::Lt => type_def.operators.lt,
-            BinaryOp::Gt => type_def.operators.gt,
-            BinaryOp::LtEq => type_def.operators.lt_eq,
-            BinaryOp::GtEq => type_def.operators.gt_eq,
-            BinaryOp::BitAnd => type_def.operators.bit_and,
-            BinaryOp::BitOr => type_def.operators.bit_or,
-            BinaryOp::BitXor => type_def.operators.bit_xor,
-            BinaryOp::Shl => type_def.operators.shl,
-            BinaryOp::Shr => type_def.operators.shr,
-            // Already handled above
-            BinaryOp::And
-            | BinaryOp::Or
-            | BinaryOp::Coalesce
-            | BinaryOp::Range
-            | BinaryOp::RangeInclusive
-            | BinaryOp::MatMul => unreachable!(),
-        }
-    }
-
-    /// Look up the [`OpStrategy`] for a unary operation on a builtin type.
-    ///
-    /// Maps `(TypeTag, UnaryOp)` to the corresponding strategy field in the
-    /// registry's [`OpDefs`](ori_registry::OpDefs). `Try` is always
-    /// `Unsupported` because it is desugared before reaching ARC IR.
-    pub(in crate::codegen::arc_emitter) fn op_strategy_for_unary(
-        type_tag: TypeTag,
-        op: UnaryOp,
-    ) -> OpStrategy {
-        // Try is desugared before reaching ARC IR.
-        if matches!(op, UnaryOp::Try) {
-            return OpStrategy::Unsupported;
-        }
-
-        let Some(type_def) = find_type(type_tag) else {
-            return OpStrategy::Unsupported;
-        };
-        match op {
-            UnaryOp::Neg => type_def.operators.neg,
-            UnaryOp::Not => type_def.operators.not,
-            UnaryOp::BitNot => type_def.operators.bit_not,
-            // Already handled above
-            UnaryOp::Try => unreachable!(),
-        }
-    }
-
     /// Emit a binary op using signed integer LLVM instructions.
     ///
     /// Handles arithmetic (`checked_add`, `checked_sub`, etc.), signed comparison
@@ -305,64 +215,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     // Registry bridge
 
-    /// Map a type pool [`Idx`] to a registry [`TypeTag`] for `OpStrategy` lookup.
-    ///
-    /// This is the bridge between the type checker's pool-based type system
-    /// and the registry's static type tag system. For primitive types (Idx 0-11),
-    /// the mapping is a direct match on the well-known index constants.
-    /// For dynamic types, we consult the [`TypeInfo`] store.
-    ///
-    /// Returns `None` for user-defined structs/enums — these are handled by
-    /// trait dispatch before reaching `OpStrategy`, so `None` here indicates a
-    /// compiler bug if the caller expected a builtin type.
+    /// Map a pool type to its shared builtin registry identity.
     pub(in crate::codegen::arc_emitter) fn idx_to_type_tag(&self, idx: Idx) -> Option<TypeTag> {
-        // Fast path: well-known primitive indices (0-11).
-        // Idx::ERROR (index 8) intentionally excluded — error types should
-        // never reach codegen; if they do, returning None triggers an ICE
-        // at the call site.
-        let tag = match idx {
-            Idx::INT => TypeTag::Int,
-            Idx::FLOAT => TypeTag::Float,
-            Idx::BOOL => TypeTag::Bool,
-            Idx::STR => TypeTag::Str,
-            Idx::CHAR => TypeTag::Char,
-            Idx::BYTE => TypeTag::Byte,
-            Idx::UNIT => TypeTag::Unit,
-            Idx::NEVER => TypeTag::Never,
-            Idx::DURATION => TypeTag::Duration,
-            Idx::SIZE => TypeTag::Size,
-            Idx::ORDERING => TypeTag::Ordering,
-            _ => {
-                // Dynamic types: consult TypeInfoStore.
-                return match self.type_info.get(idx) {
-                    TypeInfo::Int => Some(TypeTag::Int),
-                    TypeInfo::Float => Some(TypeTag::Float),
-                    TypeInfo::Bool => Some(TypeTag::Bool),
-                    TypeInfo::Char => Some(TypeTag::Char),
-                    TypeInfo::Byte => Some(TypeTag::Byte),
-                    TypeInfo::Str => Some(TypeTag::Str),
-                    TypeInfo::Unit => Some(TypeTag::Unit),
-                    TypeInfo::Never => Some(TypeTag::Never),
-                    TypeInfo::Duration => Some(TypeTag::Duration),
-                    TypeInfo::Size => Some(TypeTag::Size),
-                    TypeInfo::Ordering => Some(TypeTag::Ordering),
-                    TypeInfo::Error => Some(TypeTag::Error),
-                    TypeInfo::List { .. } => Some(TypeTag::List),
-                    TypeInfo::Map { .. } => Some(TypeTag::Map),
-                    TypeInfo::Set { .. } => Some(TypeTag::Set),
-                    TypeInfo::Tuple { .. } => Some(TypeTag::Tuple),
-                    TypeInfo::Option { .. } => Some(TypeTag::Option),
-                    TypeInfo::Result { .. } => Some(TypeTag::Result),
-                    TypeInfo::Range => Some(TypeTag::Range),
-                    TypeInfo::Iterator { .. } => Some(TypeTag::Iterator),
-                    TypeInfo::Channel { .. } => Some(TypeTag::Channel),
-                    TypeInfo::Function { .. } => Some(TypeTag::Function),
-                    // Struct/Enum are handled by trait dispatch (non-primitives).
-                    // Returning None signals the caller to ICE.
-                    TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => None,
-                };
-            }
-        };
-        Some(tag)
+        self.pool.builtin_type_tag(idx)
     }
 }

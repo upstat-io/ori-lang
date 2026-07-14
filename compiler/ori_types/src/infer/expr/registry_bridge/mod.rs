@@ -208,36 +208,7 @@ pub(crate) fn tag_to_type_tag(tag: Tag) -> Option<TypeTag> {
 #[must_use]
 pub(crate) fn binary_op_strategy(tag: Tag, op: BinaryOp) -> Option<OpStrategy> {
     let type_tag = tag_to_type_tag(tag)?;
-    let type_def = ori_registry::find_type(type_tag)?;
-    let ops = &type_def.operators;
-    let strategy = match op {
-        BinaryOp::Add => ops.add,
-        BinaryOp::Sub => ops.sub,
-        BinaryOp::Mul => ops.mul,
-        BinaryOp::Div => ops.div,
-        BinaryOp::Mod => ops.rem,
-        BinaryOp::FloorDiv => ops.floor_div,
-        BinaryOp::Eq => ops.eq,
-        BinaryOp::NotEq => ops.neq,
-        BinaryOp::Lt => ops.lt,
-        BinaryOp::LtEq => ops.lt_eq,
-        BinaryOp::Gt => ops.gt,
-        BinaryOp::GtEq => ops.gt_eq,
-        BinaryOp::BitAnd => ops.bit_and,
-        BinaryOp::BitOr => ops.bit_or,
-        BinaryOp::BitXor => ops.bit_xor,
-        BinaryOp::Shl => ops.shl,
-        BinaryOp::Shr => ops.shr,
-        // These operators don't map to OpDefs fields — they use dedicated
-        // dispatch paths (logical, range, coalesce) or trait dispatch (MatMul).
-        BinaryOp::And
-        | BinaryOp::Or
-        | BinaryOp::Range
-        | BinaryOp::RangeInclusive
-        | BinaryOp::Coalesce
-        | BinaryOp::MatMul => return None,
-    };
-    Some(strategy)
+    crate::registry_binary_strategy(type_tag, op)
 }
 
 /// Check if a binary operator is supported for a builtin type via the registry.
@@ -257,16 +228,7 @@ pub(crate) fn is_binary_op_supported(tag: Tag, op: BinaryOp) -> Option<bool> {
 #[must_use]
 pub(crate) fn unary_op_strategy(tag: Tag, op: UnaryOp) -> Option<OpStrategy> {
     let type_tag = tag_to_type_tag(tag)?;
-    let type_def = ori_registry::find_type(type_tag)?;
-    let ops = &type_def.operators;
-    let strategy = match op {
-        UnaryOp::Neg => ops.neg,
-        UnaryOp::Not => ops.not,
-        UnaryOp::BitNot => ops.bit_not,
-        // Try (?) has dedicated dispatch — not an OpDefs field.
-        UnaryOp::Try => return None,
-    };
-    Some(strategy)
+    crate::registry_unary_strategy(type_tag, op)
 }
 
 /// Check if a unary operator is supported for a builtin type via the registry.

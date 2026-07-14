@@ -49,7 +49,7 @@ fn carrier_is_reachable_via_crate_commands_export() {
     let interner = StringInterner::new();
     let imp_name = interner.intern("imported");
     let src_name = interner.intern("imported");
-    let mono_fn = ori_llvm::monomorphize::MonoFunction {
+    let mono_fn = ori_repr::monomorphize::MonoFunction {
         mangled_name: imp_name,
         original_name: imp_name,
         sig: make_generic_sig(&interner),

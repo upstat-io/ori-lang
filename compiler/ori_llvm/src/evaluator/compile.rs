@@ -15,11 +15,11 @@ use ori_ir::{Name, StringInterner};
 use ori_types::{FunctionSig, ImplSig, TypeEntry};
 
 use crate::codegen::function_compiler::FunctionCompiler;
-use crate::codegen::function_compiler::MonoTargetMaps;
 use crate::codegen::ir_builder::IrBuilder;
 use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
 use crate::codegen::type_registration;
 use crate::context::SimpleCx;
+use ori_repr::monomorphize::MonoTargetMaps;
 
 use super::runtime_mappings;
 use super::{llvm_dump_requested, CompiledTestModule, ImportedFunctionForCodegen, LLVMEvalError};
@@ -78,7 +78,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
         imported_collection_surfaces: &[u64],
         trait_impl_fn_names: &[(ori_types::Idx, Name)],
-        imported_mono_functions: Vec<crate::monomorphize::MonoFunction>,
+        imported_mono_functions: Vec<ori_repr::monomorphize::MonoFunction>,
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         // V2 pipeline
 
@@ -162,7 +162,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         imported_type_metadata: &[ori_types::ExportedTypeMetadata],
         imported_collection_surfaces: &[u64],
         trait_impl_fn_names: &[(ori_types::Idx, Name)],
-        imported_mono_functions: Vec<crate::monomorphize::MonoFunction>,
+        imported_mono_functions: Vec<ori_repr::monomorphize::MonoFunction>,
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
         // Type infrastructure
         let classifier = ori_arc::ArcClassifier::new(self.pool);
@@ -194,7 +194,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         // trait_impl_fn_names, not all impl_sigs — only trait impl methods
         // (callable via dynamic dispatch) are unconstrained; inherent methods
         // have statically-known callers.
-        let unconstrained_fn_names = crate::collect_unconstrained_fn_names(
+        let unconstrained_fn_names = ori_repr::collect_unconstrained_fn_names(
             function_sigs,
             trait_impl_fn_names,
             Some(interner),
@@ -217,7 +217,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         let mut builder = IrBuilder::new_jit(scx_ref);
         type_registration::register_user_types(&resolver, user_types);
 
-        let mut mono_functions = crate::monomorphize::collect_mono_functions(
+        let mut mono_functions = ori_repr::monomorphize::collect_mono_functions(
             mono_instances,
             function_sigs,
             impl_sigs,
@@ -280,7 +280,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             // forwarder bodies (e.g., wrap calling @id) reference generic names
             // that miss `analyze_program`'s mono-keyed contract map, breaking
             // transitive transfers_through_return propagation across hops.
-            crate::codegen::function_compiler::rewrite_apply_targets_for_monos(
+            ori_repr::monomorphize::rewrite_apply_targets_for_monos(
                 arc_cache,
                 &mono_functions,
                 self.pool,

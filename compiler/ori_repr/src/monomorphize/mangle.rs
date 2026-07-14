@@ -1,4 +1,4 @@
-//! Name mangling for monomorphized functions.
+//! Backend-neutral name mangling for monomorphized functions.
 //!
 //! Encodes a monomorphized function's (name, type args, receiver) into a unique
 //! mangled symbol. Each generic argument is length-prefixed (`<bytes>_<payload>`)

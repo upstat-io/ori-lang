@@ -290,6 +290,12 @@ fn apply_instr_forward_transfer(
     {
         if !state_map.is_excluded(*v) {
             if let Some(dst_state) = dst_demand {
+                let source_remains_live = current
+                    .get(v)
+                    .is_some_and(|state| state.cardinality != Cardinality::Absent);
+                if source_remains_live && dst_state.cardinality != Cardinality::Absent {
+                    block_effects.may_share = true;
+                }
                 let entry = current.entry(*v).or_insert(AimsState::BOTTOM);
                 entry.cardinality = entry.cardinality.seq_add(dst_state.cardinality);
                 entry.consumption = entry.consumption.seq_add(dst_state.consumption);

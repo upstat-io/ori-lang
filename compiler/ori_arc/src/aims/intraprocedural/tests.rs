@@ -2201,6 +2201,80 @@ fn effect_summary_construct_sets_may_allocate() {
     assert!(!effects.may_throw, "Construct should not set may_throw");
 }
 
+#[test]
+fn effect_summary_live_source_and_alias_sets_may_share() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(1)),
+                    args: vec![],
+                },
+                ArcInstr::Let {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(0)),
+                },
+                ArcInstr::Project {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert!(
+        state_map.effect_summary().may_share,
+        "a live RC source and its live alias require a sharing effect"
+    );
+}
+
+#[test]
+fn effect_summary_moved_alias_does_not_set_may_share() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(1)),
+                    args: vec![],
+                },
+                ArcInstr::Let {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(0)),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert!(
+        !state_map.effect_summary().may_share,
+        "a moved alias with no surviving source use must not claim sharing"
+    );
+}
+
 /// `Construct` storing an argument with non-`BlockLocal` locality sets
 /// `may_share = true` — `HeapEscaping` → `may_share` rule.
 #[test]

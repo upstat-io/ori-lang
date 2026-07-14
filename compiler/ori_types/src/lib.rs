@@ -19,6 +19,7 @@ mod idx;
 mod infer;
 mod item;
 mod lifetime;
+mod operator;
 mod output;
 mod pool;
 pub mod provenance;
@@ -42,6 +43,7 @@ pub use infer::{check_expr, infer_expr, resolve_parsed_type, ExprIndex, InferEng
 pub use infer::{compose_burden_for_idx, register_resolved_collection_burdens};
 pub use item::Item;
 pub use lifetime::LifetimeId;
+pub use operator::{registry_binary_strategy, registry_unary_strategy};
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
     AssignDesugar, ConstParamInfo, ConstValue, DeferredMonoCall, DeferredVarBinding, EffectClass,

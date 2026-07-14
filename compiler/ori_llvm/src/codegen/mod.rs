@@ -67,7 +67,6 @@ pub mod type_registration;
 pub mod arc_emitter;
 
 // Shared mono-dispatch discriminators (consumed by prepare + apply)
-pub(crate) mod mono_dispatch;
 
 // Public re-exports
 pub use ir_builder::IrBuilder;

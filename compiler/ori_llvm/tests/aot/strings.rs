@@ -307,6 +307,22 @@ fn test_str_to_lowercase() {
 }
 
 #[test]
+fn test_str_case_transform_independence() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_case_transform_independence.ori"),
+        "str_case_transform_independence",
+    );
+}
+
+#[test]
+fn test_str_case_transform_rebind_loop() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_case_transform_rebind_loop.ori"),
+        "str_case_transform_rebind_loop",
+    );
+}
+
+#[test]
 fn test_str_replace() {
     assert_aot_success(
         include_str!("fixtures/strings/str_replace.ori"),

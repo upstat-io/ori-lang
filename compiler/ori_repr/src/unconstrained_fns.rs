@@ -1,4 +1,4 @@
-//! Unconstrained-function identity collection for interprocedural range analysis.
+//! Backend-neutral unconstrained-function identities for range analysis.
 //!
 //! Pub top-level functions and trait impl methods may be called from external
 //! code or via dynamic dispatch, so range analysis must assign Top to their

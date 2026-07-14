@@ -10,6 +10,7 @@ mod strategy;
 
 use ori_ir::{BinaryOp, UnaryOp};
 use ori_registry::OpStrategy;
+use ori_repr::{binary_primitive_strategy, unary_primitive_strategy};
 use ori_types::Idx;
 
 use super::ArcIrEmitter;
@@ -88,7 +89,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.record_codegen_error();
             return self.builder.const_bool(false);
         };
-        let strategy = Self::op_strategy_for_binary(type_tag, op);
+        let strategy = binary_primitive_strategy(type_tag, op);
 
         match strategy {
             OpStrategy::IntInstr => self.emit_int_binary_op(op, lhs, rhs),
@@ -142,7 +143,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                  should have used trait dispatch"
             );
         };
-        let strategy = Self::op_strategy_for_unary(type_tag, op);
+        let strategy = unary_primitive_strategy(type_tag, op);
 
         match strategy {
             OpStrategy::IntInstr | OpStrategy::BoolLogic | OpStrategy::UnsignedCmp => match op {

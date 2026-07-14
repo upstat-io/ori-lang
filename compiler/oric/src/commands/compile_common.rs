@@ -191,7 +191,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     // IR callee Name resolve_callee probes); the LLVM extern symbol stays the
     // exporting module's exact mangled name. A function the host never
     // imports by name keeps its mangled-name key (unreachable from ARC IR).
-    let import_sigs: Vec<ori_llvm::monomorphize::ImportSig> = imported_functions
+    let import_sigs: Vec<ori_repr::monomorphize::ImportSig> = imported_functions
         .iter()
         .map(|info| {
             let key = info.local_name.as_deref().unwrap_or(&info.mangled_name);
@@ -207,7 +207,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
                 info.param_types.clone(),
                 info.return_type,
             );
-            ori_llvm::monomorphize::ImportSig {
+            ori_repr::monomorphize::ImportSig {
                 name,
                 symbol: info.mangled_name.clone(),
                 sig,

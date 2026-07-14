@@ -2067,7 +2067,7 @@ fn concat_utf8_multibyte() {
     assert_eq!(result.len(), 13);
 }
 
-// COW string transforms
+// Borrowed string transforms
 
 // to_uppercase: SSO ASCII → mutate SSO bytes in place
 #[test]
@@ -2079,9 +2079,9 @@ fn uppercase_sso_ascii() {
     assert_eq!(unsafe { result.as_str() }, "HELLO");
 }
 
-// to_uppercase: heap unique ASCII → in-place mutation
+// to_uppercase: heap ASCII → independent allocation
 #[test]
-fn uppercase_heap_unique_inplace() {
+fn uppercase_heap_result_is_independent() {
     let _g = lock_rc();
     let before = ori_rc_live_count();
     let s = OriStr::from_heap(b"hello from the heap side!!");
@@ -2091,8 +2091,10 @@ fn uppercase_heap_unique_inplace() {
     let result = ori_str_to_uppercase(&s);
     assert!(!result.is_sso());
     assert_eq!(unsafe { result.as_str() }, "HELLO FROM THE HEAP SIDE!!");
-    // In-place: no new allocation
-    assert_eq!(ori_rc_live_count(), before + 1);
+    assert_eq!(unsafe { s.as_str() }, "hello from the heap side!!");
+    assert_ne!(result.heap_data_ptr(), s.heap_data_ptr());
+    assert_eq!(ori_rc_live_count(), before + 2);
+    free_heap_str(&s);
     free_heap_str(&result);
 }
 
@@ -2136,15 +2138,18 @@ fn lowercase_sso_ascii() {
     assert_eq!(unsafe { result.as_str() }, "hello");
 }
 
-// to_lowercase: heap unique ASCII → in-place
+// to_lowercase: heap ASCII → independent allocation
 #[test]
-fn lowercase_heap_unique_inplace() {
+fn lowercase_heap_result_is_independent() {
     let _g = lock_rc();
     let before = ori_rc_live_count();
     let s = OriStr::from_heap(b"HELLO FROM THE HEAP SIDE!!");
     let result = ori_str_to_lowercase(&s);
     assert_eq!(unsafe { result.as_str() }, "hello from the heap side!!");
-    assert_eq!(ori_rc_live_count(), before + 1);
+    assert_eq!(unsafe { s.as_str() }, "HELLO FROM THE HEAP SIDE!!");
+    assert_ne!(result.heap_data_ptr(), s.heap_data_ptr());
+    assert_eq!(ori_rc_live_count(), before + 2);
+    free_heap_str(&s);
     free_heap_str(&result);
 }
 

@@ -543,7 +543,7 @@ impl TestRunner {
             };
 
             // Strip module indices — codegen only needs the MonoFunctions
-            let imported_mono_for_codegen: Vec<ori_llvm::monomorphize::MonoFunction> =
+            let imported_mono_for_codegen: Vec<ori_repr::monomorphize::MonoFunction> =
                 imported_mono_fns.into_iter().map(|(mf, _, _)| mf).collect();
 
             llvm_eval.compile_module_with_tests(

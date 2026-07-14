@@ -312,7 +312,11 @@ impl Pool {
     #[inline]
     #[must_use]
     pub fn builtin_type_tag(&self, idx: Idx) -> Option<ori_registry::TypeTag> {
-        crate::infer::tag_to_type_tag(self.tag(idx))
+        match self.tag(idx) {
+            Tag::Unit => Some(ori_registry::TypeTag::Unit),
+            Tag::Never => Some(ori_registry::TypeTag::Never),
+            tag => crate::infer::tag_to_type_tag(tag),
+        }
     }
 
     /// Get the item for a type index.

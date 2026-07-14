@@ -32,7 +32,7 @@ pub(super) struct BorrowInferenceResult {
     /// Pre-lowered ARC functions: parent → (`ArcFunction`, lambdas).
     pub(super) arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
     /// Monomorphized generic functions (reused by codegen to avoid recomputation).
-    pub(super) mono_functions: Vec<ori_llvm::monomorphize::MonoFunction>,
+    pub(super) mono_functions: Vec<ori_repr::monomorphize::MonoFunction>,
 }
 
 /// Run ARC borrow inference on all non-generic module functions.
@@ -58,7 +58,7 @@ pub(super) fn run_borrow_inference(
     parse_result: &ParseOutput,
     function_sigs: &[FunctionSig],
     impl_sigs: &[ori_types::ImplSig],
-    import_sigs: &[ori_llvm::monomorphize::ImportSig],
+    import_sigs: &[ori_repr::monomorphize::ImportSig],
     imported: ImportedSurfaces<'_>,
     canon: &CanonResult,
     interner: &StringInterner,
@@ -115,7 +115,7 @@ pub(super) fn run_borrow_inference(
 
     // Lower monomorphized generic functions.
     // Why: without mono entries in annotated_sigs, borrow lookup falls back to all-Owned.
-    let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
+    let mono_functions = ori_repr::monomorphize::collect_mono_functions(
         mono_instances,
         function_sigs,
         impl_sigs,

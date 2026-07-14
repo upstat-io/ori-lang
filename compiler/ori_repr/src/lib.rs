@@ -34,13 +34,17 @@ mod backend;
 mod canonical;
 mod enum_repr;
 pub mod escape;
+pub mod executable;
 mod layout;
+pub mod monomorphize;
 pub mod narrowing;
 mod pipeline;
 mod plan;
+mod primitive;
 pub mod range;
 mod repr;
 mod struct_repr;
+mod unconstrained_fns;
 
 #[cfg(test)]
 mod tests;
@@ -58,8 +62,12 @@ pub use plan::{
     DecisionReason, DecisionSource, NarrowingPolicy, RcStrategy, ReprAttribute, ReprDecision,
     ReprPlan,
 };
+pub use primitive::{
+    binary_primitive_strategy, unary_primitive_strategy, BuiltinType, PrimitiveStrategy,
+};
 pub use range::{
     FieldSummaryTable, KnownBuiltins, RangeAnalysisConfig, RangeFixpointResult, ValueRange,
 };
 pub use repr::{FloatWidth, IntWidth, MachineRepr};
 pub use struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, TupleRepr};
+pub use unconstrained_fns::collect_unconstrained_fn_names;

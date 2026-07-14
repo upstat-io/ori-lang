@@ -36,7 +36,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         &mut self,
         tests: &[&TestDef],
         canon: &CanonResult,
-        mono_target_maps: Option<&crate::codegen::function_compiler::MonoTargetMaps>,
+        mono_target_maps: Option<&ori_repr::monomorphize::MonoTargetMaps>,
     ) -> FxHashMap<Name, String> {
         let mut test_wrappers = FxHashMap::default();
 
@@ -103,7 +103,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         body: ori_ir::canon::CanId,
         canon: &CanonResult,
         abi: &FunctionAbi,
-        mono_target_maps: Option<&crate::codegen::function_compiler::MonoTargetMaps>,
+        mono_target_maps: Option<&ori_repr::monomorphize::MonoTargetMaps>,
     ) -> bool {
         let test_name_str = self.interner.lookup(test.name);
         let body_name = format!("{wrapper_name}_body");
@@ -205,7 +205,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         body: ori_ir::canon::CanId,
         canon: &CanonResult,
         abi: &FunctionAbi,
-        mono_target_maps: Option<&crate::codegen::function_compiler::MonoTargetMaps>,
+        mono_target_maps: Option<&ori_repr::monomorphize::MonoTargetMaps>,
     ) -> bool {
         let test_name_str = self.interner.lookup(test.name);
         let func_id = self.builder.declare_void_function(wrapper_name, &[]);

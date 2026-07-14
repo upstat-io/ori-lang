@@ -9,7 +9,7 @@ use super::{
     warn, FunctionAbi, FunctionCompiler, FunctionId, FxHashMap, Idx, IrBuilder, LLVMTypeId, Name,
     ParamPassing, Pool, ReturnPassing, Span, TypeInfoStore, ValueId,
 };
-use crate::monomorphize::ImportSig;
+use ori_repr::monomorphize::ImportSig;
 
 impl<'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'_, 'scx, 'ctx, 'tcx> {
     /// Enter debug scope for the function being compiled.

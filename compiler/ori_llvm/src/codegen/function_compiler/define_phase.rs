@@ -45,7 +45,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ///
     /// Each `MonoFunction` has a concrete (non-generic) `FunctionSig`, so the
     /// existing `declare_function` infrastructure works unchanged.
-    pub fn declare_mono_functions(&mut self, mono_functions: &[crate::monomorphize::MonoFunction]) {
+    pub fn declare_mono_functions(
+        &mut self,
+        mono_functions: &[ori_repr::monomorphize::MonoFunction],
+    ) {
         for mono_fn in mono_functions {
             self.declare_function(mono_fn.mangled_name, &mono_fn.sig, Span::DUMMY);
 

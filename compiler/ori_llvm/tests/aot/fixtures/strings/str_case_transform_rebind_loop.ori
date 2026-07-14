@@ -1,0 +1,14 @@
+@repeat_transform (s: str, n: int) -> str = {
+    let result = s;
+    for _ in 0..n do {
+        result = result.to_uppercase();
+        result = result.to_lowercase();
+    };
+    result
+}
+
+@main () -> int = {
+    let source = "Hello World Test String For Benchmark";
+    let transformed = repeat_transform(s: source, n: 100);
+    if transformed == "hello world test string for benchmark" then 0 else 1
+}

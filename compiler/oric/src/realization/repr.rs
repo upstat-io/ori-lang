@@ -1,4 +1,4 @@
-//! Representation plan setup helpers for the codegen pipeline.
+//! Backend-neutral function inventory and representation-plan realization.
 //!
 //! Contains:
 //! - `collect_all_arc_functions`: flatten the (parent, lambdas) cache
@@ -13,6 +13,12 @@ use oric::ir::{Name, StringInterner};
 use oric::parser::ParseOutput;
 use rustc_hash::{FxHashMap, FxHashSet};
 
+/// Impl-method bodies and the receiver-qualified targets derived with them.
+pub(crate) struct ImplMethodAnalysis {
+    pub(crate) functions: Vec<ori_arc::ArcFunction>,
+    pub(crate) targets: FxHashMap<(Idx, Name), Name>,
+}
+
 /// Collect all ARC functions from the inference cache (parents + lambdas).
 ///
 /// The arc cache maps each top-level function name to `(parent, lambdas)`.
@@ -21,7 +27,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 ///
 /// Delegates to [`ori_arc::collect_all_arc_functions`] — the single
 /// canonical implementation of this flattening algorithm.
-pub(super) fn collect_all_arc_functions(
+pub(crate) fn collect_all_arc_functions(
     arc_cache: &FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
 ) -> Vec<ori_arc::ArcFunction> {
     ori_arc::collect_all_arc_functions(arc_cache)
@@ -43,13 +49,13 @@ pub(super) fn collect_all_arc_functions(
 ///
 /// These ARC functions are for analysis only — `compile_impls()` in the
 /// codegen pipeline does its own ARC lowering for LLVM emission.
-pub(super) fn lower_impl_methods_for_analysis(
+pub(crate) fn lower_impl_methods_for_analysis(
     parse_result: &ParseOutput,
     type_result: &TypeCheckResult,
     interner: &StringInterner,
     canon: &CanonResult,
     pool: &Pool,
-) -> (Vec<ori_arc::ArcFunction>, FxHashMap<(Idx, Name), Name>) {
+) -> Result<ImplMethodAnalysis, Vec<ori_arc::ArcProblem>> {
     let mut funcs = Vec::new();
     // (self_type_idx, method_name) -> qualified analysis name, ordinal-0 entries
     // only (the receiver-type-disambiguated common case; same-name multi-impl
@@ -140,7 +146,14 @@ pub(super) fn lower_impl_methods_for_analysis(
             &mut qualified_by_recv,
         );
     }
-    (funcs, qualified_by_recv)
+    if impl_arc_problems.is_empty() {
+        Ok(ImplMethodAnalysis {
+            functions: funcs,
+            targets: qualified_by_recv,
+        })
+    } else {
+        Err(impl_arc_problems)
+    }
 }
 
 /// Compute the ordinal-qualified name for an impl method.
@@ -301,7 +314,7 @@ fn lower_default_trait_methods<'a>(
     clippy::too_many_arguments,
     reason = "each parameter carries distinct metadata from different compiler phases"
 )]
-pub(super) fn compute_module_repr_plan(
+pub(crate) fn compute_module_repr_plan(
     pool: &Pool,
     all_arc_funcs: &[ori_arc::ArcFunction],
     narrowing_policy: ori_repr::NarrowingPolicy,
@@ -344,7 +357,7 @@ pub(super) fn compute_module_repr_plan(
     // interprocedural range analysis. The qualified-name algorithm is a
     // cross-phase contract feeding compute_repr_plan_with_interner — the
     // canonical implementation lives in ori_llvm.
-    let unconstrained_fn_names = ori_llvm::collect_unconstrained_fn_names(
+    let unconstrained_fn_names = ori_repr::collect_unconstrained_fn_names(
         &type_result.typed.functions,
         &type_result.typed.trait_impl_fn_names,
         interner,

@@ -54,7 +54,6 @@ pub mod codegen;
 pub mod context;
 
 // Monomorphization
-pub mod monomorphize;
 
 // Evaluator (JIT)
 pub mod evaluator;
@@ -69,7 +68,6 @@ pub mod aot;
 pub mod verify;
 
 // Range-analysis inputs
-mod unconstrained_fns;
 
 // Initialization
 mod init;
@@ -78,7 +76,6 @@ mod init;
 pub use context::SimpleCx;
 pub use init::install_fatal_error_handler;
 pub use inkwell;
-pub use unconstrained_fns::collect_unconstrained_fn_names;
 
 #[cfg(test)]
 mod tests;

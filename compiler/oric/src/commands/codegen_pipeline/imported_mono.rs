@@ -21,7 +21,7 @@ use ori_types::{FunctionSig, GenericArg, Idx, MonoInstance, Pool, TypeCheckResul
 /// - `source_body_name` is the function's name in the SOURCE module
 ///   (for `canon.root_for()` lookup in the imported canon).
 #[cfg(feature = "llvm")]
-pub(crate) type ImportedMonoFn = (ori_llvm::monomorphize::MonoFunction, usize, ori_ir::Name);
+pub(crate) type ImportedMonoFn = (ori_repr::monomorphize::MonoFunction, usize, ori_ir::Name);
 
 /// Borrowed view over the imported-generic codegen surfaces produced by the
 /// host's merged-pool re-interning (`ImportedMonoState`).
@@ -87,7 +87,7 @@ pub(crate) fn build_imported_mono_functions(
             continue;
         };
 
-        let mangled = ori_llvm::monomorphize::mangle_mono_name(
+        let mangled = ori_repr::monomorphize::mangle_mono_name(
             instance.fn_name,
             &instance.generic_args,
             &instance.impl_args,
@@ -101,7 +101,7 @@ pub(crate) fn build_imported_mono_functions(
             continue;
         }
 
-        let concrete_sig = ori_llvm::monomorphize::concrete_sig_for_instance(
+        let concrete_sig = ori_repr::monomorphize::concrete_sig_for_instance(
             instance,
             generic_sig,
             merged_pool,
@@ -111,7 +111,7 @@ pub(crate) fn build_imported_mono_functions(
 
         name_to_index.insert(mangled, imported_mono_fns.len());
         imported_mono_fns.push((
-            ori_llvm::monomorphize::MonoFunction {
+            ori_repr::monomorphize::MonoFunction {
                 mangled_name: mangled,
                 // Use LOCAL name for call-site dispatch (the host ARC IR
                 // calls e.g. `ae`, not `assert_eq`, when using aliased imports).

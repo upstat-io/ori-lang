@@ -143,7 +143,8 @@ fn collect_unconstrained_fn_names_registers_ordinal_variants() {
         (self_type, index_name), // Second impl: ordinal 1
     ];
 
-    let result = crate::collect_unconstrained_fn_names(&[], &trait_impl_fn_names, Some(&interner));
+    let result =
+        ori_repr::collect_unconstrained_fn_names(&[], &trait_impl_fn_names, Some(&interner));
 
     // Expected registrations:
     // 1. (Some(42), "index") — first trait impl method

@@ -41,8 +41,6 @@ mod explain;
 mod explain_idx;
 mod fmt;
 mod provenance;
-#[cfg(feature = "llvm")]
-mod repr_setup;
 mod run;
 mod target;
 mod targets;

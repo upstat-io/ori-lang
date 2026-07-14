@@ -9,7 +9,7 @@
 #[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
 #[cfg(feature = "llvm")]
-use ori_llvm::monomorphize::ImportSig;
+use ori_repr::monomorphize::ImportSig;
 #[cfg(feature = "llvm")]
 use ori_repr::{BackendError, CodegenBackend, RealizedProgram};
 #[cfg(feature = "llvm")]

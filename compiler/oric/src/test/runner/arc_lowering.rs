@@ -102,11 +102,11 @@ pub(crate) fn lower_and_infer_borrows(
     interner: &ori_ir::StringInterner,
     pool: &ori_types::Pool,
     impl_sigs: &[ori_types::ImplSig],
-    import_sigs: &[ori_llvm::monomorphize::ImportSig],
+    import_sigs: &[ori_repr::monomorphize::ImportSig],
     imported_functions: &[ori_llvm::evaluator::ImportedFunctionForCodegen<'_>],
     mono_instances: &[ori_types::MonoInstance],
     user_types: &[ori_types::TypeEntry],
-    imported_mono_fns: &[(ori_llvm::monomorphize::MonoFunction, usize, Name)],
+    imported_mono_fns: &[(ori_repr::monomorphize::MonoFunction, usize, Name)],
     re_interned_canons: &[ori_ir::canon::CanonResult],
 ) -> Option<ArcLoweringResult> {
     let classifier = ori_arc::ArcClassifier::new(pool);
@@ -258,7 +258,7 @@ pub(crate) fn lower_and_infer_borrows(
     }
 
     // Lower monomorphized generic functions (local — uses main pool)
-    let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
+    let mono_functions = ori_repr::monomorphize::collect_mono_functions(
         mono_instances,
         function_sigs,
         impl_sigs,

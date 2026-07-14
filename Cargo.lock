@@ -961,10 +961,12 @@ version = "2026.7.13-alpha.1"
 dependencies = [
  "ori_arc",
  "ori_ir",
+ "ori_registry",
  "ori_types",
  "pretty_assertions",
  "proptest",
  "rustc-hash",
+ "thiserror 1.0.69",
  "tracing",
 ]
 
@@ -1014,6 +1016,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ori_vm"
+version = "2026.7.13-alpha.1"
+dependencies = [
+ "ori_arc",
+ "ori_ir",
+ "ori_repr",
+ "pretty_assertions",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "oric"
 version = "2026.7.13-alpha.1"
 dependencies = [
@@ -1037,6 +1050,7 @@ dependencies = [
  "ori_rt",
  "ori_test_harness",
  "ori_types",
+ "ori_vm",
  "parking_lot",
  "pretty_assertions",
  "protobuf",
@@ -1047,6 +1061,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 1.0.69",
  "tracing",
  "tracing-subscriber",
  "tracing-tree",

@@ -81,6 +81,8 @@ pub mod ir_dump;
 pub mod llvm_dump;
 pub mod parser;
 pub mod query;
+#[cfg(feature = "llvm")]
+pub mod realization;
 
 // Re-export lex function from the ori_lexer crate (single source of truth)
 pub use ori_lexer::lex;
