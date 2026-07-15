@@ -13,6 +13,7 @@
 
 - One import surface for every foreign ecosystem: `use <lang> "<source>" { ... }`. The compiler reads the ecosystem's OWN authoritative machine-readable declarations; a sidecar supplies what the declarations lack; the compiler generates the boundary; types, capabilities, and AIMS ownership are checked at the seam.
 - This proposal is the UMBRELLA: the shared grammar generalization, the shared core (sidecar family, translation cache, binding generation, capability tiers), the per-language backend contract, and the enforcement-strength taxonomy.
+- The architecture is EXTENSION-BASED (§3): a language is a registered backend against a FIXED compiler surface — translators are pure Ori executed under const-eval (resource-bounded, no IO), binding specs are data the generic consumer already understands. Adding a LABELED ABI language with an existing corpus reader requires ZERO compiler changes.
 - `use js` (per `js-interop-typescript-bindings-proposal.md`) is the first registered instance. This proposal adds the second: **`use c`** — C headers parsed via libclang, sidecar-supplied ownership/error/capability metadata, output materialized as generated Deep-FFI bindings.
 - `extern` FFI is NOT replaced: it is demoted from user-facing surface to compilation target and escape hatch. `use c` generates what developers hand-write today.
 - Doctrine: other languages have an FFI; Ori imports ecosystems.
@@ -54,7 +55,8 @@ use c "sqlite3.h" { sqlite3_open, sqlite3_close, sqlite3_errmsg };
 **Goals:**
 
 - The `use <lang> "<source>"` grammar generalization with a registered-language-tag table.
-- The shared core: sidecar schema family, translation-cache keying, binding/trampoline generation, capability metadata tiers, per-language backend contract.
+- The EXTENSION architecture: a fixed compiler surface + the `LanguageBackend` contract (§3.2), such that a new LABELED language with an existing corpus reader adds zero compiler code, and every backend class has a named, bounded compiler footprint (§3.3).
+- The shared core every backend inherits: sidecar schema family, translation-cache keying, binding/trampoline generation, capability metadata tiers (§3.4).
 - The enforcement-strength taxonomy (capability MEDIATION vs capability LABELING), stated per instance.
 - `use c` as the second registered instance: libclang-parsed headers, sidecar ownership/error/capability metadata, generated Deep-FFI bindings.
 
@@ -93,8 +95,9 @@ The `js_import` production from the js-interop draft generalizes without changin
 source_file    = [ file_attribute ] { import | foreign_import | reexport | extension_import } { declaration } .
 
 foreign_import = "use" foreign_lang_tag string_literal foreign_import_list ";" .
-foreign_lang_tag = identifier .   (* MUST be a registered tag; v1 registry: "js", "c".
-                                   * Unregistered tag after `use` followed by string_literal = E1520. *)
+foreign_lang_tag = identifier .   (* MUST be a tag claimed by an installed backend (§3.2); v1 in-tree
+                                   * backends: "js", "c". Unregistered tag after `use` followed by
+                                   * string_literal = E1520 (message lists installed tags). *)
 foreign_import_list = "{" foreign_import_item { "," foreign_import_item } "}" .
 foreign_import_item = "default" "as" identifier
                     | "*" "as" identifier
@@ -107,17 +110,59 @@ foreign_named_identifier = identifier .
 - Language tags are context-sensitive identifiers (only after `use`, before a string literal); `js` and `c` remain ordinary identifiers everywhere else.
 - Per-tag item-form support varies (`default as` is JS-only; `type` applies to both); the parser accepts the superset, the per-language translator rejects unsupported forms with a tag-specific diagnostic.
 
-### §3. Shared Core
+### §3. Extension Architecture — a Language Is a Backend, Not a Compiler Patch
 
-One implementation, N language backends:
+The system is EXTENSION-BASED. Adding a language means registering a backend against a fixed compiler surface; the compiler is NEVER modified per language except for the two rare, shared components named below. The split follows the js-interop draft's own precedent (its `.d.ts` parser is pure Ori executed under const-eval — that mechanism IS the extension point, generalized here).
+
+#### §3.1. The three layers, by mutability
+
+| Layer | Owner | Changes per new language? |
+|---|---|---|
+| **Compiler surface** (fixed) | `foreign_import` grammar + tag registry, const-eval translation bridge, `TypeRegistry` injection + deserializer, capability plumbing, generic Deep-FFI binding consumer, trampoline machinery | NO — generic over every backend |
+| **Corpus readers** (small shared set) | `oric` (impure driver): raw-text reader (`.d.ts`, `.pyi`), libclang reader (C headers → serialized language-neutral C-declaration form) | RARELY — only when a new language needs a corpus format no existing reader produces (e.g. a future `.class`-metadata reader). Readers are shared infrastructure, never per-language logic |
+| **Backend** (the extension) | Translator + sidecar schema + (mediated class only) runtime binding library | YES — this is ALL a new language adds |
+
+#### §3.2. The backend contract
+
+A backend registers:
+
+```ori
+trait LanguageBackend {
+    @tag () -> str;                        // "js", "c" — claims the `use <tag>` surface
+    @corpus_reader () -> CorpusReaderId;   // which shared reader feeds @translate
+    @enforcement () -> EnforcementClass;   // Mediated | Labeled (§5)
+    // Pure, const-evaluable: serialized corpus + sidecar + build config in,
+    // serialized declarations + capability metadata + binding specs out
+    // (the dts_serial.ori format family; deserialized + validated by the fixed compiler surface)
+    @translate (corpus: str, sidecar: Option<str>, config: str) -> str;
+}
+```
+
+- **Translators are pure Ori, executed at build time under const-eval** — resource-limited (the existing const-function limits), NO IO, NO capabilities. The compiler hands them strings and validates what comes back. A translator cannot read the filesystem, reach the network, or exceed its step budget — the build-time supply-chain surface of a backend is bounded by construction.
+- **Binding specs are data.** For LABELED backends the emitted specs are Deep-FFI extern declarations the fixed surface already knows how to consume; for MEDIATED backends, boundary-trampoline specs. Either way the compiler's consumer is generic.
+- **Runtime binding (MEDIATED class only)**: an engine embedding written as library Ori over Deep FFI (plus any vendored native shim, catalogued like `ori_rt`). Library-space, not compiler-space.
+- **AIMS lattice extension (rare)**: required ONLY when a mediated backend embeds a collector-owning runtime (the `JsRef` case, per §6). The only per-language compiler change that can exist, and most backends never need it.
+
+#### §3.3. Cost of adding a language, by class
+
+| New language | Compiler changes | Extension work |
+|---|---|---|
+| LABELED, existing corpus reader (another header-driven ABI language) | ZERO | translator (pure Ori) + sidecar schema |
+| LABELED, new corpus format | one shared corpus reader | translator + sidecar schema |
+| MEDIATED (embedded runtime) | usually zero; lattice dimension only if the runtime owns a collector | translator + sidecar schema + engine binding library (+ vendored shim) |
+
+#### §3.4. Shared services every backend inherits
 
 | Component | Contract |
 |---|---|
-| Sidecar family | Per-source metadata file resolved beside the declaration corpus: `<pkg>.ori-caps.json` (JS), `<lib>.ori-ffi.json` (C). One resolution rule, one precedence model (author sidecar > package metadata > heuristic list > conservative default), per-language field vocabularies |
-| Translation cache | `target/<lang>-bindings/<sha256>.ori-types` keyed on: corpus content hash + sidecar hash + relevant build configuration + translator version + compiler version (the js-interop §2.5 key composition, generalized) |
-| Binding generation | The translator emits compiler-internal bindings equivalent to hand-authored `extern` declarations (C) or boundary trampolines (JS); user code never sees them; `--emit-bindings` materializes them as readable `.ori` for inspection |
-| Capability tiers | The js-interop §3.1 precedence table, per-language: tier-0 ground truth where the runtime is owned (JS `node:` graph), sidecar/metadata/heuristic/conservative tiers otherwise |
-| Backend contract | A per-language translator registers: tag, corpus reader, type-translation table, sidecar schema, binding emitter, enforcement-strength class (§5). Registration is a compiler-internal registry mirroring `ori_registry`'s pure-data discipline |
+| Sidecar family | Per-source metadata resolved beside the corpus: `<pkg>.ori-caps.json` (JS), `<lib>.ori-ffi.json` (C). One resolution rule, one precedence model (author sidecar > package metadata > heuristic list > conservative default); field vocabulary declared by the backend's sidecar schema |
+| Translation cache | `target/<lang>-bindings/<sha256>.ori-types` keyed on: corpus hash + sidecar hash + relevant build configuration + backend version + compiler version (the js-interop §2.5 key composition, generalized). Backend version in the key makes backend upgrades self-invalidating |
+| Binding materialization | Bindings are compiler-internal; `--emit-bindings` renders them as readable `.ori` for inspection |
+| Capability tiers | The js-interop §3.1 precedence table, per-language: tier-0 ground truth where the runtime is owned, sidecar/metadata/heuristic/conservative tiers otherwise |
+| Diagnostics | The E1520-range foreign-import diagnostics, parameterized by tag; E1520 (unregistered tag) lists the installed backend tags |
+
+- v1 ships two in-tree backends (`js`, `c`) registered through this contract — the contract is proven by having two conforming instances from day one, not by speculation.
+- Third-party backend distribution (out-of-tree tags) is deliberately deferred (§Unresolved Questions): the interface makes it possible; trust, tag namespacing, and packaging decide WHEN.
 
 ### §4. The `use c` Instance
 
@@ -202,7 +247,8 @@ Every registered instance declares its class; documentation and diagnostics stat
 - libclang becomes a compiler-build dependency for the `use c` path. Mitigated: the LLVM toolchain is already vendored; still, it widens the build surface and version-couples header parsing to the shipped LLVM.
 - Headers underspecify by design; the sidecar carries real authoring burden for rich libraries. Mitigated by conservative defaults (everything works untyped-ish and opaque without a sidecar) — but "works well" requires sidecar investment, and a wrong sidecar is a soundness lie at the boundary (same trust class as a wrong hand-written extern annotation today).
 - The preprocessor subset (Non-Goal 4) will disappoint on macro-heavy libraries; the escape hatch is explicit but is still a cliff.
-- Doctrine gravity: once `use js` and `use c` exist, every ecosystem invites an instance. The per-instance-proposal gate (Non-Goal 2) is the containment.
+- Doctrine gravity: once `use js` and `use c` exist, every ecosystem invites an instance. The per-instance-proposal gate (Non-Goal 2) is the containment; the §3 extension architecture is what keeps each granted instance from being a compiler rewrite.
+- Extension-interface rigidity: the `LanguageBackend` contract (§3.2) becomes API the moment a second backend conforms; evolving it after N backends exist costs N migrations. Mitigated: backend version participates in the cache key (§3.4), and the serialized-declaration format family is versioned with the translator (js-interop const-eval bridge precedent).
 
 ---
 
@@ -275,6 +321,7 @@ The js-interop draft amends on this proposal's acceptance: its `js_import` gramm
 
 1. Build-manifest shape for include paths / defines / sysroot per target (interacts with the toolchain/config proposal surface; resolves at review).
 2. Sidecar distribution: vendored-in-repo only, or a shared community registry for popular C libraries (v2 question; vendored-only for v1).
+2a. Third-party backend distribution: the §3.2 contract makes out-of-tree backends structurally possible (pure-Ori translators are const-eval-sandboxed — no IO, resource-bounded — so the trust surface is narrow); tag namespacing (two packages claiming `py`), packaging, and the trust policy for MEDIATED backends' native shims decide WHEN (v2; in-tree-only for v1).
 3. `--emit-bindings` output stability: inspectable `.ori` renders — stable API or debug aid (leaning debug aid; resolves during implementation).
 4. Trigger condition for the `use cpp` subset-feasibility study (out of scope; recorded so Non-Goal 1 has a revisit anchor).
 5. Whether `use c` items support `* as NS` namespace form over a header's full export set (parser accepts; translator support resolves during implementation).
