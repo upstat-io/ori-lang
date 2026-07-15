@@ -80,21 +80,40 @@ impl Compiler<'_> {
             ArcTerminator::Invoke {
                 dst,
                 args,
+                arg_ownership,
                 normal,
                 unwind,
                 ..
-            } => Ok(Op::Call {
+            } => {
+                let callee = super::validate_vm_call_target(
+                    function.name,
+                    self.terminator_target(function, block_index)?,
+                )?;
+                Ok(Op::Call {
+                    dst: Register::from_arc(*dst),
+                    callee,
+                    args: self.add_call_arguments(function.name, args, arg_ownership)?,
+                    normal: Continuation::At(block_pc(function.name, starts, *normal)?),
+                    unwind: Some(block_pc(function.name, starts, *unwind)?),
+                })
+            }
+            ArcTerminator::InvokeIndirect {
+                dst,
+                closure,
+                args,
+                arg_ownership,
+                normal,
+                unwind,
+                ..
+            } => Ok(Op::CallClosure {
                 dst: Register::from_arc(*dst),
-                callee: self.terminator_target(function, block_index)?,
-                args: self.add_operands(args)?,
+                closure: Register::from_arc(*closure),
+                args: self.add_call_arguments(function.name, args, arg_ownership)?,
                 normal: Continuation::At(block_pc(function.name, starts, *normal)?),
                 unwind: Some(block_pc(function.name, starts, *unwind)?),
             }),
             ArcTerminator::Resume => Ok(Op::Resume),
             ArcTerminator::Unreachable => Ok(Op::Unreachable),
-            ArcTerminator::InvokeIndirect { .. } => Err(CompileError::UnsupportedIndirectInvoke {
-                function: function.name,
-            }),
         }
     }
 

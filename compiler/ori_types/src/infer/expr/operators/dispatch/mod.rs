@@ -127,7 +127,7 @@ fn type_implements_named_trait(
     let candidates = collect_named_trait_impls(engine, trait_name, base, Some(method_name));
     let mut visited: FxHashSet<(Idx, Name)> = FxHashSet::default();
     for cand in &candidates {
-        if let Some(subst) = extract_impl_subst(pool, cand.self_type, ty, &cand.type_params) {
+        if let Some(subst) = match_self_type(pool, cand.self_type, ty, &cand.type_params) {
             if impl_bounds_satisfied(
                 engine,
                 &cand.type_params,
@@ -179,44 +179,6 @@ fn collect_named_trait_impls(
             where_clause: e.where_clause.clone(),
         })
         .collect()
-}
-
-/// Resolve the impl-binder -> concrete-arg substitution for `target`. Manual
-/// impls carry `self_type = Applied(base, [binders])` so the structural matcher
-/// binds the params; derive-generated impls register `self_type = Named(base)`
-/// (bare), so the params zip positionally against `target`'s applied args.
-fn extract_impl_subst(
-    pool: &Pool,
-    self_type: Idx,
-    target: Idx,
-    type_params: &[Name],
-) -> Option<FxHashMap<Name, Idx>> {
-    if let Some(subst) = match_self_type(pool, self_type, target, type_params) {
-        return Some(subst);
-    }
-    if pool.tag(self_type) == Tag::Named && pool.tag(target) == Tag::Applied {
-        let targs = pool.applied_args(target);
-        if targs.len() == type_params.len() {
-            return Some(
-                type_params
-                    .iter()
-                    .copied()
-                    .zip(targs.iter().copied())
-                    .collect(),
-            );
-        }
-        // Length mismatch means const generics interleave type + const args
-        // (`type_params` excludes const params, `applied_args` includes them),
-        // so a positional zip would misalign. Treat the impl as applicable with
-        // no bound substitution rather than over-reject a valid instantiation —
-        // an empty subst leaves every inline bound unchecked, matching the
-        // pre-validation base-name behavior for this narrow case.
-        return Some(FxHashMap::default());
-    }
-    if type_params.is_empty() {
-        return Some(FxHashMap::default());
-    }
-    None
 }
 
 /// Every inline + trailing-`where` bound on the impl is satisfied by the
@@ -325,7 +287,7 @@ fn concrete_satisfies_trait(
             let mut satisfied = false;
             for cand in &candidates {
                 if let Some(subst) =
-                    extract_impl_subst(pool, cand.self_type, concrete, &cand.type_params)
+                    match_self_type(pool, cand.self_type, concrete, &cand.type_params)
                 {
                     if impl_bounds_satisfied(
                         engine,

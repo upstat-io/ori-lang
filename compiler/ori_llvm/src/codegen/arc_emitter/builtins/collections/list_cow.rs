@@ -255,6 +255,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         )
     }
 
+    /// Emit `list.prepend(value)` through the canonical index-zero insert path.
+    pub(crate) fn emit_list_prepend_cow(
+        &mut self,
+        receiver: ValueId,
+        elem: ValueId,
+        elem_ty: Idx,
+        cow_mode: ValueId,
+        list_ty: Idx,
+    ) -> Option<ValueId> {
+        let index = self.builder.const_i64(0);
+        self.emit_list_insert_cow(receiver, index, elem, elem_ty, cow_mode, list_ty)
+    }
+
     /// Emit `list.remove(index)` — COW remove returning modified list.
     ///
     /// Fast path (unique): memmove shift left in place.

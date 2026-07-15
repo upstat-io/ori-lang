@@ -225,7 +225,8 @@ impl TypeRegistry {
     /// `finish_with_pool` CONSUMES the live registry (`into_entries` drains the
     /// nominal `TypeEntry` set; `drain_collection_burdens` drains the
     /// monomorphized-collection side-table), so no `TypeRegistry` survives to
-    /// the codegen burden walker. Rebuilds the burden-resolution surface from
+    /// shared AIMS Phase-5 realization. This reconstructs the backend-neutral
+    /// burden-resolution surface from
     /// the two exports: `entries` (nominal struct/enum/newtype/alias `TypeEntry`,
     /// each carrying its own `.burden`) repopulate `types_by_idx` + `types_by_name`
     /// (and `variants_by_name` from enum-variant entries); `collection_burdens`
@@ -234,7 +235,8 @@ impl TypeRegistry {
     /// then resolves every nominal + collection-instance spec for Phase 5 burden
     /// emission. The `burden_by_signature` reverse-index + `value_marker_types`
     /// are NOT rebuilt — they gate registration-time dedup + E2049, neither of
-    /// which the codegen burden walker consults. Spec: Annex E §AIMS.
+    /// which the AIMS burden walker consults. Physical backends consume its
+    /// realized result; they do not own this walk. Spec: Annex E §AIMS.
     #[must_use]
     pub fn from_typed_exports(
         entries: Vec<TypeEntry>,
@@ -542,14 +544,14 @@ impl TypeRegistry {
     /// `register_user_burden` storage-dispatch so the structural-match and
     /// fresh-insert paths cannot diverge.
     fn write_spec_to_idx(&mut self, typeid: Idx, mut spec: UserBurdenSpec) {
-        // The Drop-impl overlay (`user_drop`/`compiled_drop`) is populated
+        // The Drop-impl overlay (`user_drop`/`drop_operation`) is populated
         // once at impl registration; a field-derived recomposition (the mono
         // sweep's flush) carries `None` for both and must never clear them.
-        if spec.user_drop.is_none() || spec.compiled_drop.is_none() {
+        if spec.user_drop.is_none() || spec.drop_operation.is_none() {
             if let Some(existing) = self.burden(typeid) {
-                let (user_drop, compiled_drop) = (existing.user_drop, existing.compiled_drop);
+                let (user_drop, drop_operation) = (existing.user_drop, existing.drop_operation);
                 spec.user_drop = spec.user_drop.or(user_drop);
-                spec.compiled_drop = spec.compiled_drop.or(compiled_drop);
+                spec.drop_operation = spec.drop_operation.or(drop_operation);
             }
         }
         if let Some(entry) = self.types_by_idx.get_mut(&typeid) {

@@ -2,35 +2,40 @@ Theorem RL-DROP: scope-exit user @drop for a drop-glue value, gated on drop-glue
 
   Preconditions:
     - RL-DROP governs the scope-exit user-`@drop` op for a value whose TYPE
-      carries a user `@drop` (drop-glue), per Annex E §AIMS RC Emission:
+      carries a user `@drop` (drop-glue), per Annex E §AIMS logical
+      ownership-event realization:
       "A value whose type carries a user `@drop` SHALL receive EXACTLY ONE
       scope-exit user-drop CALL at its death point, gated on drop-glue
       existence INDEPENDENT of its RC repr. The user-drop op carries
       ref-count delta 0 (it is a `@drop` call, not an RC ref-count op)."
     - The RC dec rules (RL-2 / RL-4 / RL-5) all gate dec emission on
       `!isScalar`: a value whose monomorphized repr is `Scalar` carries no
-      RC header and provably receives NO `RcDec` (that gating is the
-      soundness basis VF-1's `RcOnScalar` invariant enforces). But a value's
+      logical owner-credit obligation and provably receives NO `RcDec`
+      (that gating is the soundness basis VF-1's `RcOnScalar` invariant
+      enforces). But a value's
       TYPE may carry drop-glue INDEPENDENT of its RC repr — a `Scalar`-repr
       struct (`type Guard = { id: int }` with `impl Guard: Drop`) has
-      drop-glue yet no RC field.
+      drop-glue yet no logical ownership-credit event.
     - The RC ops cannot express a scalar value's drop (an `RcDec` on a
       `Scalar` is rejected by VF-1), so the realization op set carries a
       SEPARATE `userDrop` op: a drop-glue CALL with ref-count delta 0.
       Because `userDrop` is RC-balance-neutral, the `!isScalar` RcDec
       invariant (RL-2/4/5) is preserved untouched — a scalar value still
       receives no `RcDec`, only the balance-neutral `@drop` call.
-    - Shipped sites: the scope-exit op is realized as
-      `RcStrategy::UserDrop` (ir/repr.rs), lowered from a whole-var
-      `BurdenDec` for a scalar+drop-glue var by
-      realize/emit_unified.rs::lower_burden_ops_to_rc; a never-used
+    - Current compiled-projection conformance evidence, not a theorem
+      precondition: the transitional ARC carrier represents the logical
+      death-point drop event as `RcStrategy::UserDrop` (ir/repr.rs), lowered
+      from a whole-var `BurdenDec` for a scalar+drop-glue var by
+      realize/emit_unified.rs::lower_burden_ops_to_rc. A never-used
       scalar+drop-glue local is admitted by
       lower/burden_lower/scan_orchestration.rs::emit_unused_scalar_user_drop_decs
-      (RL-2 unused-owned dec). VF-1's check_rc_instr_scalar EXEMPTS
-      `RcDec { strategy: UserDrop }` from `RcOnScalar`. The LLVM emitter
-      (arc_emitter/rc_ops.rs::emit_rc_dec_user_drop) emits ONLY the user
-      `@drop` call (invoke + re-raise-only cleanup pad), no field walk, no
-      `ori_rc_dec`.
+      (RL-2 unused-owned dec). VF-1's check_rc_instr_scalar exempts
+      `RcDec { strategy: UserDrop }` from `RcOnScalar`. The current LLVM
+      projection (arc_emitter/rc_ops.rs::emit_rc_dec_user_drop) emits only
+      the user `@drop` call (invoke + re-raise-only cleanup pad), no field
+      walk and no `ori_rc_dec`. VM, native, direct-WebAssembly, and JIT
+      planners must satisfy the same logical event without inheriting this
+      carrier or mechanism.
 
   Soundness property:
     Forall value v at its death point with drop inputs

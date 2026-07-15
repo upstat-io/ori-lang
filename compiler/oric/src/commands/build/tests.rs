@@ -18,6 +18,7 @@ use super::{wasm_opt_runner, BuildOptions, OptLevel};
 fn module_info(path: &str, metadata: Vec<ExportedTypeMetadata>) -> CompiledModuleInfo {
     CompiledModuleInfo {
         path: PathBuf::from(path),
+        has_cli_entry: false,
         public_functions: Vec::new(),
         exported_type_metadata: metadata,
         exported_collection_surfaces: Vec::new(),
@@ -32,6 +33,7 @@ fn module_info_with_surfaces(
 ) -> CompiledModuleInfo {
     CompiledModuleInfo {
         path: PathBuf::from(path),
+        has_cli_entry: false,
         public_functions: Vec::new(),
         exported_type_metadata: metadata,
         exported_collection_surfaces: surfaces,

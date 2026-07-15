@@ -1,11 +1,8 @@
-//! Nounwind analysis: fixed-point iteration + purity/readonly detection.
+//! Nounwind fixed-point analysis.
 
 use tracing::debug;
 
 use super::types::PreparedFunction;
-use crate::codegen::function_compiler::purity_analysis::{
-    has_only_pure_arc_instructions, is_abi_memory_free,
-};
 use crate::codegen::function_compiler::FunctionCompiler;
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
@@ -80,66 +77,46 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             }
         }
 
-        // Purity analysis: functions with no memory effects get `memory(none)`.
-        // Requires: (1) all ARC instructions are `Let` only, (2) all params
-        // are Direct-passing (no pointer loads), (3) return is Direct or Void
-        // (no sret store). Single-pass — pure functions have no calls.
-        let mut pure_count = 0u32;
-        for func in prepared {
-            for lambda in &func.lambdas {
-                if has_only_pure_arc_instructions(&lambda.arc_func)
-                    && is_abi_memory_free(&lambda.abi)
-                {
-                    self.codegen_ctx.pure_functions.insert(lambda.name);
-                    pure_count = pure_count.saturating_add(1);
-                }
-            }
-            if has_only_pure_arc_instructions(&func.arc_func) && is_abi_memory_free(&func.abi) {
-                self.codegen_ctx.pure_functions.insert(func.name);
-                pure_count = pure_count.saturating_add(1);
-            }
-        }
-
-        // Read-only analysis: functions that read memory but don't write.
-        // These have `Let`/`Select`/`Project` instructions (Project reads via
-        // pointer) but no calls, RC ops, or mutations. Strictly weaker than
-        // pure — pure functions get `memory(none)`, readonly gets `memory(read)`.
-        // CONSTRAINT: Sret returns WRITE to the sret pointer, so functions with
-        // Sret return passing cannot be marked memory(read).
-        let mut readonly_count = 0u32;
-        for func in prepared {
-            for lambda in &func.lambdas {
-                if !self.codegen_ctx.pure_functions.contains(&lambda.name)
-                    && has_only_pure_arc_instructions(&lambda.arc_func)
-                    && !matches!(
-                        lambda.abi.return_abi.passing,
-                        crate::codegen::abi::ReturnPassing::Sret { .. }
-                    )
-                {
-                    self.codegen_ctx.readonly_functions.insert(lambda.name);
-                    readonly_count = readonly_count.saturating_add(1);
-                }
-            }
-            if !self.codegen_ctx.pure_functions.contains(&func.name)
-                && has_only_pure_arc_instructions(&func.arc_func)
-                && !matches!(
-                    func.abi.return_abi.passing,
-                    crate::codegen::abi::ReturnPassing::Sret { .. }
-                )
-            {
-                self.codegen_ctx.readonly_functions.insert(func.name);
-                readonly_count = readonly_count.saturating_add(1);
-            }
-        }
-
         debug!(
             passes = pass,
             nounwind_count = self.codegen_ctx.nounwind_functions.len(),
             mono_propagated,
-            pure_count,
-            readonly_count,
-            "nounwind + memory analysis complete"
+            "nounwind analysis complete"
         );
+    }
+
+    /// Classify one statically named call using the same dispatch order as emission.
+    fn is_direct_call_nounwind(
+        &self,
+        callee: ori_ir::Name,
+        args: &[ori_arc::ir::ArcVarId],
+        func: &ori_arc::ArcFunction,
+    ) -> bool {
+        use crate::codegen::arc_emitter::context::{
+            intercepted_is_nounwind, is_callee_intercepted,
+        };
+        use crate::codegen::runtime_decl::runtime_functions::is_rt_fn_nounwind;
+
+        let callee_name = self.interner.lookup(callee);
+        match is_rt_fn_nounwind(callee_name) {
+            Some(nounwind) => nounwind,
+            None => {
+                // Interception wins over the bare-name user-function set: an
+                // intercepted call never reaches a same-named declaration.
+                if is_callee_intercepted(
+                    callee_name,
+                    callee,
+                    args,
+                    func,
+                    &self.codegen_ctx,
+                    self.type_info,
+                ) {
+                    intercepted_is_nounwind(callee_name)
+                } else {
+                    self.codegen_ctx.nounwind_functions.contains(&callee)
+                }
+            }
+        }
     }
 
     /// Check if an ARC function is nounwind (cannot unwind/panic).
@@ -164,11 +141,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         &self,
         func: &ori_arc::ArcFunction,
     ) -> bool {
-        use crate::codegen::arc_emitter::context::{
-            intercepted_is_nounwind, is_callee_intercepted,
-        };
-        use crate::codegen::runtime_decl::runtime_functions::is_rt_fn_nounwind;
-
         // A same-frame catch of an inline checked-op makes the
         // function may-unwind — the checked-op panic is emitted as `invoke` to
         // a catch landing pad, so marking the function `nounwind` would strip
@@ -178,14 +150,19 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             return false;
         }
 
-        // Local "does this exact type carry a user `@drop`" check — the
-        // codegen SSOT (`CodegenContext.method_functions`, mirror of
-        // `ArcIrEmitter::user_drop_method`). Supplied to
-        // `ori_arc::type_drop_may_unwind`, which recurses the drop tree.
+        // Local "does this exact type carry a user `@drop`" check. Bound
+        // production compilation consumes the executable's exact physical
+        // projection; only isolated unbound fixtures consult the method map.
         let drop_name = self.interner.intern("drop");
         let ctx = &self.codegen_ctx;
         let pool = self.pool;
         let has_user_drop = |ty: ori_types::Idx| -> bool {
+            if ctx.executable_facts_bound {
+                return ctx.user_drop_functions.contains_key(&ty)
+                    || ctx
+                        .user_drop_functions
+                        .contains_key(&pool.resolve_fully(ty));
+            }
             let type_name = ctx
                 .type_idx_to_name
                 .get(&ty)
@@ -201,35 +178,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let term_ok = match &block.terminator {
                 ori_arc::ir::ArcTerminator::Invoke {
                     func: callee, args, ..
-                } => {
-                    // Same checks as Apply: runtime fns, then intercepted
-                    // builtins (protocols, prelude, methods), then the
-                    // user-function nounwind set.
-                    let s = self.interner.lookup(*callee);
-                    match is_rt_fn_nounwind(s) {
-                        Some(true) => true,
-                        Some(false) => false,
-                        None => {
-                            // Interception verdict FIRST: an intercepted call
-                            // never dispatches to a user function, so the
-                            // bare-Name `nounwind_functions` entry (e.g. a
-                            // nounwind impl method sharing the unqualified
-                            // method name) must not classify it.
-                            if is_callee_intercepted(
-                                s,
-                                *callee,
-                                args,
-                                func,
-                                &self.codegen_ctx,
-                                self.type_info,
-                            ) {
-                                intercepted_is_nounwind(s)
-                            } else {
-                                self.codegen_ctx.nounwind_functions.contains(callee)
-                            }
-                        }
-                    }
-                }
+                } => self.is_direct_call_nounwind(*callee, args, func),
                 // Indirect calls through closures cannot be statically
                 // resolved — conservatively assume they may unwind.
                 ori_arc::ir::ArcTerminator::InvokeIndirect { .. } => false,
@@ -238,40 +187,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let instrs_ok = block.body.iter().all(|instr| match instr {
                 ori_arc::ir::ArcInstr::Apply {
                     func: callee, args, ..
-                } => {
-                    let s = self.interner.lookup(*callee);
-                    match is_rt_fn_nounwind(s) {
-                        // Known runtime function with Nounwind attribute
-                        Some(true) => true,
-                        // Known runtime function WITHOUT Nounwind — may unwind
-                        Some(false) => false,
-                        // Not a runtime function — check user function set,
-                        // then check if the callee will be intercepted by
-                        // builtin handlers (which always emit `call`).
-                        // Intercepted builtins are nounwind by default, with
-                        // a small exception set for builtin methods that
-                        // emit inline panics (Option.expect etc.) — those
-                        // are filtered out here via intercepted_is_nounwind.
-                        None => {
-                            // Interception verdict FIRST (see Invoke arm): an
-                            // intercepted call never dispatches to a user
-                            // function, so the bare-Name set must not
-                            // classify it.
-                            if is_callee_intercepted(
-                                s,
-                                *callee,
-                                args,
-                                func,
-                                &self.codegen_ctx,
-                                self.type_info,
-                            ) {
-                                intercepted_is_nounwind(s)
-                            } else {
-                                self.codegen_ctx.nounwind_functions.contains(callee)
-                            }
-                        }
-                    }
-                }
+                } => self.is_direct_call_nounwind(*callee, args, func),
                 // Indirect calls through closures/function pointers are
                 // conservatively treated as may-unwind — we cannot know
                 // the callee's unwind behavior at compile time.

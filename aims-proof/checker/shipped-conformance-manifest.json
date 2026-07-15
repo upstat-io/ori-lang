@@ -1,6 +1,6 @@
 {
   "$schema": "./shipped-conformance-manifest.schema.json",
-  "description": "Locality-blocked proven-rule set per the locality shipped-conformance cross-walk. Each rule is proven sound against the 5-variant target Locality calculus (proof_status: complete) but cannot be confirmed shipped-conformant until the unified-locality dimension lands (absorb-candidate into the LLVM backend roadmap). The cross-walk emits divergent-pending(blocked-by: unified-locality-dimension) for every rule below while shipped Locality is 4-variant OR ParamContract.may_escape is a stored field.",
+  "description": "Locality-blocked proven-rule set per the locality shipped-conformance cross-walk. Each rule is proven sound against the 5-variant target Locality calculus (proof_status: complete) but cannot be confirmed shipped-conformant until the unified-locality dimension lands in the shared AIMS calculus. The cross-walk emits divergent-pending(blocked-by: unified-locality-dimension) for every rule below while shipped Locality is 4-variant OR ParamContract.may_escape is a stored field.",
   "blocked_by": "unified-locality-dimension",
   "rules": [
     {
@@ -15,7 +15,7 @@
     },
     {
       "id": "RL-18a",
-      "proof_artifact": "aims-proof/proofs/08-realization/RL-18.proof",
+      "proof_artifact": "aims-proof/proofs/08-realization/RL-18a.proof",
       "unblock_condition": "shipped Locality has 5 variants incl. ArgEscaping AND ParamContract.may_escape is a derived method (not a stored field)",
       "blocked_by": "unified-locality-dimension",
       "annotation_targets": [

@@ -6,13 +6,13 @@
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_arc::ownership::Ownership;
-use ori_arc::DropKind;
+use ori_arc::{ClosureAdapterPlan, DropKind};
 use ori_ir::Name;
 use ori_types::Idx;
 
 use super::context::EmittedValue;
 use super::ArcIrEmitter;
-use crate::codegen::abi::ParamAbi;
+use crate::codegen::abi::{FunctionAbi, ParamAbi};
 use crate::codegen::type_info::TypeLayoutResolver;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
@@ -47,24 +47,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "ArcIrEmitter: PartialApply — closure creation"
         );
 
-        // Look up the callee (lambda function), already compiled and registered
-        let Some(&(callee_func_id, ref callee_abi)) = self.ctx.functions.get(&callee) else {
-            tracing::warn!(
-                name = callee_name_str,
-                "emit_partial_apply: callee not found"
-            );
-            let closure_ty = self.builder.closure_type();
-            let null_ptr = self.builder.const_null_ptr();
-            let closure =
-                self.builder
-                    .build_struct(closure_ty, &[null_ptr, null_ptr], "partial_apply");
-            self.def_var(dst, EmittedValue::Aggregate(closure));
+        let Some((callee_func_id, callee_abi, frozen_adapter)) =
+            self.resolve_partial_apply_target(dst, callee, args.len())
+        else {
             return;
         };
 
         // Non-capturing fast path: lambda already has closure-compatible ABI,
-        // so use its function pointer directly — no wrapper needed.
-        if is_non_capturing && args.is_empty() {
+        // so use its function pointer directly only when the frozen adapter
+        // has no ownership work for residual arguments.
+        if is_non_capturing
+            && args.is_empty()
+            && frozen_adapter
+                .as_ref()
+                .is_none_or(|adapter| !adapter.requires_retain())
+        {
             let fn_ptr = self.builder.get_function_ptr(callee_func_id);
             let null_env = self.builder.const_null_ptr();
             let closure_ty = self.builder.closure_type();
@@ -75,7 +72,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        let callee_abi = callee_abi.clone();
         let num_captures = args.len();
 
         // Capture types (from ARC IR variable types)
@@ -85,19 +81,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let remaining_params: Vec<ParamAbi> = callee_abi.params[num_captures..].to_vec();
 
         // Capture ownership: which captures are borrowed (skip RcInc in wrapper — body borrows from env).
-        let capture_ownership: Vec<Ownership> = self
-            .ctx
-            .lambda_capture_ownership
-            .get(&callee)
-            .cloned()
-            .unwrap_or_else(|| {
-                tracing::warn!(
-                    name = callee_name_str,
-                    captures = num_captures,
-                    "lambda_capture_ownership missing — defaulting to all-Owned (conservative)"
-                );
-                vec![Ownership::Owned; num_captures]
-            });
+        let capture_ownership: Vec<Ownership> = if frozen_adapter.is_some() {
+            Vec::new()
+        } else {
+            self.ctx
+                .lambda_capture_ownership
+                .get(&callee)
+                .cloned()
+                .unwrap_or_else(|| {
+                    tracing::warn!(
+                        name = callee_name_str,
+                        captures = num_captures,
+                        "unbound LLVM entry is missing transitional capture ownership"
+                    );
+                    vec![Ownership::Owned; num_captures]
+                })
+        };
 
         // Allocate and pack the environment
         let env_ptr = if capture_types.is_empty() {
@@ -112,8 +111,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             callee_func_id,
             &callee_abi,
             &capture_types,
+            frozen_adapter.as_ref(),
             &capture_ownership,
             &remaining_params,
+            is_non_capturing,
             target_is_nounwind,
         );
 
@@ -122,6 +123,53 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let closure =
             self.builder
                 .build_struct(closure_ty, &[wrapper_fn_ptr, env_ptr], "partial_apply");
+        self.def_var(dst, EmittedValue::Aggregate(closure));
+    }
+
+    /// Resolve and validate the closed target facts required for closure emission.
+    fn resolve_partial_apply_target(
+        &mut self,
+        dst: ArcVarId,
+        callee: Name,
+        capture_count: usize,
+    ) -> Option<(FunctionId, FunctionAbi, Option<ClosureAdapterPlan>)> {
+        let callee_name = self.interner.lookup(callee);
+        let Some(&(callee_func_id, ref callee_abi)) = self.ctx.functions.get(&callee) else {
+            tracing::warn!(name = callee_name, "emit_partial_apply: callee not found");
+            self.emit_invalid_partial_apply(dst, "partial_apply");
+            return None;
+        };
+
+        let frozen_adapter = self.ctx.closure_adapters.get(&callee).cloned();
+        if self.ctx.executable_facts_bound && frozen_adapter.is_none() {
+            self.builder.record_codegen_error_with_msg(format!(
+                "validated executable has no closure adapter for target {callee_name}"
+            ));
+            self.emit_invalid_partial_apply(dst, "partial_apply.invalid");
+            return None;
+        }
+
+        if frozen_adapter.as_ref().is_some_and(|adapter| {
+            adapter.capture_count() != capture_count
+                || adapter.slots().len() != callee_abi.params.len()
+        }) {
+            self.builder.record_codegen_error_with_msg(format!(
+                "closure adapter for {callee_name} disagrees with its emitted target signature"
+            ));
+            self.emit_invalid_partial_apply(dst, "partial_apply.invalid");
+            return None;
+        }
+
+        Some((callee_func_id, callee_abi.clone(), frozen_adapter))
+    }
+
+    /// Bind a null closure after a target-validation failure.
+    fn emit_invalid_partial_apply(&mut self, dst: ArcVarId, label: &str) {
+        let closure_ty = self.builder.closure_type();
+        let null_ptr = self.builder.const_null_ptr();
+        let closure = self
+            .builder
+            .build_struct(closure_ty, &[null_ptr, null_ptr], label);
         self.def_var(dst, EmittedValue::Aggregate(closure));
     }
 

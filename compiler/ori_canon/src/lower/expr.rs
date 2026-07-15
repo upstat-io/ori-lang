@@ -54,7 +54,7 @@ impl Lowerer<'_> {
             ExprKind::Unit => self.push(CanExpr::Unit, span, ty),
             ExprKind::None => self.push(CanExpr::None, span, ty),
             ExprKind::Ident(name) => {
-                if self.is_type_reference(name) {
+                if self.is_type_reference(name, ori_types::Idx::from_raw(ty.raw())) {
                     self.push(CanExpr::TypeRef(name), span, ty)
                 } else {
                     self.push(CanExpr::Ident(name), span, ty)

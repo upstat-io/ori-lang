@@ -17,7 +17,7 @@ via 6 individually-discharged CH theorems (CH-1..CH-5 + CH-comp).
 | Handshake.proof | Formal specification SSOT (Predicates 1-2 + Functions 1-3 + Partition) | — | definition_only | YES |
 | CH-1.proof | Burden-registry-lattice composition soundness | Composition.proof:1 | valid (attempted) | YES |
 | CH-2.proof | DP-2/DP-3 elimination consumer composition with predicate-stack-derived ops | Composition.proof:38 | pending | NO (subsequent §11.1 dispatch) |
-| CH-3.proof | Per-class coexistence three sub-classes (Owned×Linear×Once×Unique RL-2+RL-14, Borrowed×Linear×Once×Unique RL-14 headerless, MaybeShared×Many RL-7 dynamic COW) | Composition.proof:69 | pending | NO (subsequent §11.1 dispatch) |
+| CH-3.proof | Per-class coexistence three sub-classes (Owned×Linear×Once×Unique RL-2 logical release, Borrowed×Linear×Once×Unique caller-owned, MaybeShared×Many RL-7 dynamic COW); allocation facts are orthogonal | Composition.proof:69 | pending | NO (subsequent §11.1 dispatch) |
 | CH-4.proof | AimsStateMap immutability under burden-registry mutation | Composition.proof:103 | pending | NO (subsequent §11.1 dispatch) |
 | CH-5.proof | Phase-ordering composition (PL-1 interprocedural-first + burden-registry as Step 1 typed pre-pass) | Composition.proof:136 | pending | NO (subsequent §11.1 dispatch) |
 | CH-comp.proof | CH-1..CH-5 union-soundness composition (mirror §09 VF-comp pattern) | (to be authored at §11.1 execution) | pending | NO (subsequent §11.1 dispatch) |

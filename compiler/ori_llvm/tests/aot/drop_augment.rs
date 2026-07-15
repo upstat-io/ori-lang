@@ -1119,6 +1119,116 @@ impl Guard: Drop { @drop (self) -> void = print(msg: `dropped-{self.id}`); }
     );
 }
 
+#[test]
+fn drop_target_ignores_preceding_inherent_same_named_method() {
+    let source = r#"
+type Guard = { id: int }
+
+impl Guard {
+    @drop (self) -> void = print(msg: `wrong-inherent-{self.id}`);
+}
+
+impl Guard: Drop {
+    @drop (self) -> void = print(msg: `right-drop-{self.id}`);
+}
+
+@main () -> void = {
+    let guard = Guard { id: 7 };
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert_eq!(stdout.trim(), "right-drop-7", "stdout:\n{stdout}");
+}
+
+#[test]
+fn drop_target_ignores_following_inherent_same_named_method() {
+    let source = r#"
+type Guard = { id: int }
+
+impl Guard: Drop {
+    @drop (self) -> void = print(msg: `right-drop-{self.id}`);
+}
+
+impl Guard {
+    @drop (self) -> void = print(msg: `wrong-inherent-{self.id}`);
+}
+
+@main () -> void = {
+    let guard = Guard { id: 7 };
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert_eq!(stdout.trim(), "right-drop-7", "stdout:\n{stdout}");
+}
+
+#[test]
+fn drop_target_ignores_same_named_other_trait_method() {
+    let source = r#"
+trait DecoyDrop {
+    @drop (self) -> void
+}
+
+type Guard = { id: int }
+
+impl Guard: DecoyDrop {
+    @drop (self) -> void = print(msg: `wrong-decoy-{self.id}`);
+}
+
+impl Guard: Drop {
+    @drop (self) -> void = print(msg: `right-drop-{self.id}`);
+}
+
+@main () -> void = {
+    let guard = Guard { id: 7 };
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert_eq!(stdout.trim(), "right-drop-7", "stdout:\n{stdout}");
+}
+
+#[test]
+fn same_named_other_trait_method_does_not_create_drop_obligation() {
+    let source = r#"
+trait DecoyDrop {
+    @drop (self) -> void
+}
+
+type Guard = { id: int }
+
+impl Guard: DecoyDrop {
+    @drop (self) -> void = print(msg: "must-not-run");
+}
+
+@main () -> void = {
+    let guard = Guard { id: 7 };
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert!(stdout.trim().is_empty(), "stdout:\n{stdout}");
+}
+
+#[test]
+fn same_named_inherent_method_does_not_create_drop_obligation() {
+    let source = r#"
+type Guard = { id: int }
+
+impl Guard {
+    @drop (self) -> void = print(msg: "must-not-run");
+}
+
+@main () -> void = {
+    let guard = Guard { id: 7 };
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert!(stdout.trim().is_empty(), "stdout:\n{stdout}");
+}
+
 /// Type-dimension clamp: a multi-field scalar-repr struct (still all-scalar, no
 /// heap field) drops exactly once. Guards against the repr-`Scalar` gate keying
 /// on field count rather than repr.

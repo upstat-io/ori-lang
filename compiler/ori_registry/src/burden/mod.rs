@@ -1,12 +1,13 @@
 //! Pure-const burden specifications for builtin types.
 //!
 //! Builtin types use `BuiltinBurdenSpec` (pure-const, `&'static` slices) while
-//! user-defined types use `UserBurdenSpec` (heap-backed, in `ori_types`).
+//! user-defined types use `UserBurdenSpec` (owned-vector storage in
+//! `ori_types`).
 //! Both implement the `Burden` trait (defined in `ori_arc::lower::burden`).
 //!
 //! # Purity Contract
 //!
-//! Zero heap allocation. All fields are `&'static` slices or scalar/copy types.
+//! Zero host allocation. All fields are `&'static` slices or scalar/copy types.
 //! Enforced by `tests::purity_no_heap_allocation_types`.
 //!
 //! # Cross-Crate ID Note
@@ -119,23 +120,29 @@ pub struct VariantBurden {
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct BuiltinBurdenSpec {
-    pub self_heap_alloc: bool,
+    /// The value introduces a distinct logical ownership identity of its own,
+    /// separate from any identities reachable through fields or elements.
+    /// This does not select heap, stack, arena, header, or counter storage.
+    pub self_owned_identity: bool,
     pub owned_fields: &'static [OwnedField],
     pub borrowed_fields: &'static [BorrowedField],
     pub variant_burdens: &'static [VariantBurden],
     pub element_burden: Option<TypeId>,
-    pub compiled_drop: Option<FnSym>,
+    /// Stable logical cleanup-operation identity for recursive or user-drop
+    /// composition. Physical projections choose any helper symbol or inline
+    /// implementation after consuming this identity.
+    pub drop_operation: Option<FnSym>,
     pub user_drop: Option<FnSym>,
 }
 
 impl BuiltinBurdenSpec {
     pub const EMPTY: BuiltinBurdenSpec = BuiltinBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: &[],
         borrowed_fields: &[],
         variant_burdens: &[],
         element_burden: None,
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     };
 }

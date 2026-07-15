@@ -71,18 +71,23 @@ pub use burden::{
 };
 pub use defs::BUILTIN_TYPES;
 pub use method::{
-    MethodDef, ParamDef, ONE_SELF_BORROW, ONE_SELF_COPY, ONE_SELF_OWNED, TWO_SELF_COPY,
+    MethodDef, MethodRuntime, OptionRuntime, ParamDef, RegisteredMethodId, ResultRuntime,
+    StrRuntime, ONE_SELF_BORROW, ONE_SELF_COPY, ONE_SELF_OWNED, TWO_SELF_COPY,
 };
 pub use operator::OpDefs;
-pub use prelude::{find_prelude_function, PreludeFunctionDef, PRELUDE_FUNCTIONS};
+pub use prelude::{
+    find_prelude_function, find_prelude_function_id, PreludeFunctionDef,
+    RegisteredPreludeFunctionId, PRELUDE_FUNCTIONS,
+};
 pub use query::{
-    borrowing_method_names, borrowing_methods, dei_only_methods, find_method, find_type,
-    find_type_by_name, has_method, is_dei_only, iterator_method_names, lowercase_type_name,
-    method_names_for, methods_for,
+    borrowing_method_names, borrowing_methods, dei_only_methods, find_method, find_method_id,
+    find_type, find_type_by_name, has_method, is_dei_only, iterator_method_names,
+    lowercase_type_name, method_names_for, methods_for,
 };
 pub use tags::{
-    DeiPropagation, MemoryStrategy, MethodKind, OpStrategy, Ownership, ReturnTag, TypeParamArity,
-    TypeProjection, TypeTag,
+    DeiPropagation, MemoryStrategy, MethodKind, OpStrategy, Ownership, PrimitiveAllocationEffect,
+    PrimitiveDescriptor, PrimitiveOperandSet, PrimitiveOperandUse, PrimitiveResultOwnership,
+    ReturnTag, RuntimeOperator, TypeParamArity, TypeProjection, TypeTag,
 };
 pub use type_def::{TypeDef, VariantSpec};
 

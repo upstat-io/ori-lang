@@ -442,7 +442,7 @@ fn no_contracts() -> FxHashMap<Name, MemoryContract> {
 // Locality × Uniqueness: block_local_unique
 //
 // A freshly constructed value returned from a function is Unique because
-// the Construct creates a fresh allocation with RC=1. This is the
+// the Construct creates exactly one fresh logical owner. This is the
 // locality×uniqueness interaction: the value is function-local (never
 // shared) and Construct produces a unique reference.
 //
@@ -478,7 +478,7 @@ fn synergy_block_local_construct_is_unique() {
         crate::aims::interprocedural::analyze_program(&[func], &classifier, &builtins, &interner);
     let contract = &contracts[&syn_name(1)];
 
-    // Freshly constructed return → Unique (RC=1 at return point).
+    // Freshly constructed return → exactly one logical owner at the return.
     assert_eq!(
         contract.return_info.uniqueness,
         Uniqueness::Unique,

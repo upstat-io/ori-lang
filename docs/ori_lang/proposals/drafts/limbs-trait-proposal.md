@@ -441,7 +441,7 @@ use std.math.fixed_int { U256 }
 }
 ```
 
-The entire function operates on stack-allocated `Value` types. No heap allocation, no ARC, no GC. AIMS certifies this as FIP — zero net allocations. The compiler selects SIMD-accelerated multiplication based on the `U256.$WIDTH` of 4.
+The entire function operates on `Value` types with no logical ownership or drop obligations. AIMS may certify the transformation as FIP with zero net logical allocations; the selected physical planner decides stack/register placement and the compiler may select SIMD-accelerated multiplication from `U256.$WIDTH == 4`.
 
 ### Blockchain: Hash Computation
 
@@ -616,7 +616,7 @@ type CryptoU256: Value, Limbs, ConstantTime = { digits: [int, max 4] }
 
 | Feature | Mechanism | Compiler action |
 |---|---|---|
-| No ARC | `Value` supertrait | AIMS skips all RC analysis |
+| No logical ownership/drop burden | `Value` supertrait | AIMS freezes no ownership or cleanup events; physical placement remains planner-owned |
 | Inline storage | `[T, max N]` limbs | Register allocation, no heap |
 | Algorithm selection | `$if T.$WIDTH` | Dead-code elimination per size |
 | Loop unrolling | `$for i in 0..T.$WIDTH` | Compile-time expansion |

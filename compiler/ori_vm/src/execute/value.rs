@@ -3,6 +3,7 @@
 use crate::{ExecutionError, ValueKind};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
 enum ValueTag {
     Unit,
     Int,
@@ -14,12 +15,60 @@ enum ValueTag {
     Heap,
     Aggregate,
     Iterator,
+    IteratorStepDone,
+    IteratorStepUnit,
+    IteratorStepInt,
+    IteratorStepBool,
+    IteratorStepFloat,
+    IteratorStepChar,
+    IteratorStepNull,
+    IteratorStepConstantString,
+    IteratorStepHeap,
+    IteratorStepAggregate,
+    IteratorStepIterator,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct VmValue {
     tag: ValueTag,
     payload: u64,
+}
+
+const _: () = assert!(core::mem::size_of::<ValueTag>() == 1);
+const _: () = assert!(core::mem::size_of::<VmValue>() == 16);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ArenaHandle {
+    index: u32,
+    generation: u32,
+}
+
+impl ArenaHandle {
+    pub(super) fn new(index: usize, generation: u32) -> Result<Self, ExecutionError> {
+        let index = u32::try_from(index)
+            .map_err(|_| ExecutionError::ValueArenaHandleOverflow { length: index })?;
+        Ok(Self { index, generation })
+    }
+
+    pub(super) const fn index(self) -> usize {
+        self.index as usize
+    }
+
+    pub(super) const fn generation(self) -> u32 {
+        self.generation
+    }
+
+    const fn encode(self) -> u64 {
+        (self.generation as u64) << 32 | self.index as u64
+    }
+
+    const fn decode(payload: u64) -> Self {
+        let bytes = payload.to_le_bytes();
+        Self {
+            index: u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+            generation: u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+        }
+    }
 }
 
 impl Default for VmValue {
@@ -88,21 +137,57 @@ impl VmValue {
         }
     }
 
-    pub(super) fn aggregate(frame: usize, slot: u32) -> Result<Self, ExecutionError> {
-        let frame = u32::try_from(frame)
-            .map_err(|_| ExecutionError::FrameHandleOverflow { depth: frame })?;
-        Ok(Self {
+    pub(super) const fn aggregate(handle: ArenaHandle) -> Self {
+        Self {
             tag: ValueTag::Aggregate,
-            payload: (u64::from(frame) << 32) | u64::from(slot),
-        })
+            payload: handle.encode(),
+        }
     }
 
-    pub(super) fn iterator(frame: usize, slot: u32) -> Result<Self, ExecutionError> {
-        let frame = u32::try_from(frame)
-            .map_err(|_| ExecutionError::FrameHandleOverflow { depth: frame })?;
-        Ok(Self {
+    pub(super) const fn iterator(handle: ArenaHandle) -> Self {
+        Self {
             tag: ValueTag::Iterator,
-            payload: (u64::from(frame) << 32) | u64::from(slot),
+            payload: handle.encode(),
+        }
+    }
+
+    pub(super) fn iterator_step(value: Option<Self>) -> Result<Self, ExecutionError> {
+        let Some(value) = value else {
+            return Ok(Self {
+                tag: ValueTag::IteratorStepDone,
+                payload: 0,
+            });
+        };
+        let tag = match value.tag {
+            ValueTag::Unit => ValueTag::IteratorStepUnit,
+            ValueTag::Int => ValueTag::IteratorStepInt,
+            ValueTag::Bool => ValueTag::IteratorStepBool,
+            ValueTag::Float => ValueTag::IteratorStepFloat,
+            ValueTag::Char => ValueTag::IteratorStepChar,
+            ValueTag::Null => ValueTag::IteratorStepNull,
+            ValueTag::ConstantString => ValueTag::IteratorStepConstantString,
+            ValueTag::Heap => ValueTag::IteratorStepHeap,
+            ValueTag::Aggregate => ValueTag::IteratorStepAggregate,
+            ValueTag::Iterator => ValueTag::IteratorStepIterator,
+            ValueTag::IteratorStepDone
+            | ValueTag::IteratorStepUnit
+            | ValueTag::IteratorStepInt
+            | ValueTag::IteratorStepBool
+            | ValueTag::IteratorStepFloat
+            | ValueTag::IteratorStepChar
+            | ValueTag::IteratorStepNull
+            | ValueTag::IteratorStepConstantString
+            | ValueTag::IteratorStepHeap
+            | ValueTag::IteratorStepAggregate
+            | ValueTag::IteratorStepIterator => {
+                return Err(ExecutionError::UnsupportedPrimitive {
+                    operation: "nested iterator-step construction",
+                });
+            }
+        };
+        Ok(Self {
+            tag,
+            payload: value.payload,
         })
     }
 
@@ -118,6 +203,17 @@ impl VmValue {
             ValueTag::Heap => ValueKind::Heap,
             ValueTag::Aggregate => ValueKind::Aggregate,
             ValueTag::Iterator => ValueKind::Iterator,
+            ValueTag::IteratorStepDone
+            | ValueTag::IteratorStepUnit
+            | ValueTag::IteratorStepInt
+            | ValueTag::IteratorStepBool
+            | ValueTag::IteratorStepFloat
+            | ValueTag::IteratorStepChar
+            | ValueTag::IteratorStepNull
+            | ValueTag::IteratorStepConstantString
+            | ValueTag::IteratorStepHeap
+            | ValueTag::IteratorStepAggregate
+            | ValueTag::IteratorStepIterator => ValueKind::IteratorStep,
         }
     }
 
@@ -166,37 +262,56 @@ impl VmValue {
         })
     }
 
-    pub(super) fn aggregate_parts(self) -> Result<(usize, usize), ExecutionError> {
-        self.local_parts(ValueTag::Aggregate, ValueKind::Aggregate)
+    pub(super) fn aggregate_handle(self) -> Result<ArenaHandle, ExecutionError> {
+        self.arena_handle(ValueTag::Aggregate, ValueKind::Aggregate)
     }
 
-    pub(super) fn iterator_parts(self) -> Result<(usize, usize), ExecutionError> {
-        self.local_parts(ValueTag::Iterator, ValueKind::Iterator)
+    pub(super) fn iterator_handle(self) -> Result<ArenaHandle, ExecutionError> {
+        self.arena_handle(ValueTag::Iterator, ValueKind::Iterator)
     }
 
-    fn local_parts(
+    pub(super) fn as_iterator_step(self) -> Result<Option<Self>, ExecutionError> {
+        let tag = match self.tag {
+            ValueTag::IteratorStepDone => return Ok(None),
+            ValueTag::IteratorStepUnit => ValueTag::Unit,
+            ValueTag::IteratorStepInt => ValueTag::Int,
+            ValueTag::IteratorStepBool => ValueTag::Bool,
+            ValueTag::IteratorStepFloat => ValueTag::Float,
+            ValueTag::IteratorStepChar => ValueTag::Char,
+            ValueTag::IteratorStepNull => ValueTag::Null,
+            ValueTag::IteratorStepConstantString => ValueTag::ConstantString,
+            ValueTag::IteratorStepHeap => ValueTag::Heap,
+            ValueTag::IteratorStepAggregate => ValueTag::Aggregate,
+            ValueTag::IteratorStepIterator => ValueTag::Iterator,
+            ValueTag::Unit
+            | ValueTag::Int
+            | ValueTag::Bool
+            | ValueTag::Float
+            | ValueTag::Char
+            | ValueTag::Null
+            | ValueTag::ConstantString
+            | ValueTag::Heap
+            | ValueTag::Aggregate
+            | ValueTag::Iterator => {
+                return Err(ExecutionError::TypeMismatch {
+                    expected: ValueKind::IteratorStep,
+                    found: self.kind(),
+                });
+            }
+        };
+        Ok(Some(Self {
+            tag,
+            payload: self.payload,
+        }))
+    }
+
+    fn arena_handle(
         self,
         tag: ValueTag,
         expected: ValueKind,
-    ) -> Result<(usize, usize), ExecutionError> {
+    ) -> Result<ArenaHandle, ExecutionError> {
         self.require(tag, expected)?;
-        let frame = u32::try_from(self.payload >> 32)
-            .map_err(|_| ExecutionError::FrameHandleOverflow { depth: usize::MAX })?;
-        let slot = u32::try_from(self.payload & u64::from(u32::MAX)).map_err(|_| {
-            ExecutionError::LocalHandleOutOfBounds {
-                kind: expected,
-                frame: usize::MAX,
-                slot: usize::MAX,
-            }
-        })?;
-        let frame = usize::try_from(frame)
-            .map_err(|_| ExecutionError::FrameHandleOverflow { depth: usize::MAX })?;
-        let slot = usize::try_from(slot).map_err(|_| ExecutionError::LocalHandleOutOfBounds {
-            kind: expected,
-            frame,
-            slot: usize::MAX,
-        })?;
-        Ok((frame, slot))
+        Ok(ArenaHandle::decode(self.payload))
     }
 
     fn require(self, tag: ValueTag, expected: ValueKind) -> Result<(), ExecutionError> {

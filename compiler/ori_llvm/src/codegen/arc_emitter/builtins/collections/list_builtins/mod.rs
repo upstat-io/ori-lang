@@ -255,9 +255,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // ori_list_get does a raw memcpy — the extracted element shares
         // the collection's RC children (e.g., str data pointers) without
-        // incrementing their RC. Emit RcInc on the extracted element so
-        // the caller owns its own reference. The AIMS pipeline will emit
-        // RcDec when the element goes out of scope, which balances this inc.
+        // incrementing their RC. This compiled adapter emits RcInc so the
+        // caller receives the owner credit frozen by the shared plan. The
+        // adapter's later RcDec realizes the matching release. Neither physical
+        // counter operation defines AIMS policy.
         if !self.classifier.is_scalar(elem_ty) {
             self.inc_value_rc(elem_val, elem_ty, 1);
         }

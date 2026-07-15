@@ -33,11 +33,12 @@ fn intern_name_set(names: &[&str], interner: &StringInterner) -> FxHashSet<Name>
     names.iter().map(|name| interner.intern(name)).collect()
 }
 
-/// Method names with **consuming receiver** semantics for list types.
+/// Legacy method names with **consuming receiver** semantics for collections.
 ///
-/// These are COW (Copy-on-Write) list methods that handle the old buffer's
-/// RC lifecycle internally: the fast path reuses the buffer (unique owner),
-/// the slow path allocates a new buffer and `ori_rc_dec`s the old one.
+/// Runtime-backed persistent List mutations are derived from their registry
+/// [`ori_registry::MethodRuntime`] identity by
+/// [`consuming_receiver_builtin_names`]. This table only owns COW methods that
+/// do not yet carry such an identity, plus cross-type names such as `updated`.
 ///
 /// The ARC pipeline must NOT emit an additional `RcDec` for the receiver
 /// argument when calling these methods — doing so causes double-free.
@@ -50,45 +51,40 @@ fn intern_name_set(names: &[&str], interner: &StringInterner) -> FxHashSet<Name>
 const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
     "add",         // list + list (COW concat)
     "concat",      // list.concat (COW concat)
-    "insert",      // list.insert (COW insert)
     "iter",        // list.iter (iterator takes ownership of data buffer)
     "merge",       // map.merge ({...a, ...b} COW merge — receiver consumed)
     "pop",         // list.pop (COW pop)
-    "push",        // list.push (COW push)
-    "remove",      // list.remove (COW remove)
     "reverse",     // list.reverse (COW reverse)
-    "set",         // list.set (COW set at index)
     "sort",        // list.sort (COW sort, unstable)
     "sort_stable", // list.sort_stable (COW sort, stable/TimSort)
     "updated",     // list/map.updated (IndexSet COW replace / insert-or-replace)
 ];
 
-/// COW list methods that consume both receiver AND second argument.
+/// Legacy COW methods that consume both receiver AND second argument.
 ///
 /// For these methods, the runtime takes ownership of the second argument's data:
 /// - `add`/`concat`: list2's buffer is consumed (uniqueness-checked at runtime)
-/// - `push`: the element's bytes are copied into the list buffer, creating a
-///   new reference to any RC-managed data (e.g., str data pointers)
+///
+/// Runtime-backed List mutation argument ownership is derived from the
+/// registry parameter definitions by [`consuming_second_arg_builtin_names`].
 ///
 /// The ARC pipeline must mark arg[1] as `Owned` (no extra `RcDec`) in addition
-/// to the receiver. For `push`, this ensures AIMS emits `RcInc` on fat pointer
-/// elements borrowed from iterators.
+/// to the receiver. For `push`, this records the element owner-credit transfer
+/// into the collection. A physical plan may realize that obligation as a retain
+/// for an RC-backed fat pointer; that mechanism is not part of the contract.
 ///
 /// Sorted alphabetically.
 const CONSUMING_SECOND_ARG_METHOD_NAMES: &[&str] = &[
     "add",    // list + list (COW concat)
     "concat", // list.concat(other)
     "merge",  // map.merge(other) — other map's buffer is consumed
-    "push",   // list.push(value) — element stored in list buffer
 ];
 
-/// COW methods that consume receiver AND third argument (the inserted value).
+/// Legacy COW methods that consume receiver AND third argument.
 ///
-/// `updated(key, value)` (IndexSet): the runtime takes ownership of `value` —
-/// the element is moved into the collection (`ori_list_updated_cow` writes it
-/// without an inc; `ori_map_updated_cow` releases the caller's reference after
-/// the buffer inc). The key (arg[1]) stays borrowed: an index for lists, a
-/// comparison/copied key for maps.
+/// This retains the cross-type `updated(key, value)` rule needed by Map.
+/// Runtime-backed List mutation positions are derived from registry parameters
+/// by [`consuming_third_arg_builtin_names`].
 ///
 /// The ARC pipeline must mark arg[2] as `Owned` (no extra `RcDec`) in addition
 /// to the receiver — a caller-side dec on the moved value double-frees on the
@@ -160,9 +156,12 @@ pub fn borrowing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
 /// a `List` type, the ARC pipeline must mark the receiver argument as `Owned`
 /// (no extra `RcDec`) instead of the default `Borrowed` from the borrowing set.
 ///
-/// See [`CONSUMING_RECEIVER_METHOD_NAMES`] for the full list and rationale.
+/// The result is the union of the legacy table and registry-identified
+/// persistent List mutations.
 pub fn consuming_receiver_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    intern_name_set(CONSUMING_RECEIVER_METHOD_NAMES, interner)
+    let mut names = intern_name_set(CONSUMING_RECEIVER_METHOD_NAMES, interner);
+    names.extend(persistent_list_runtime_methods().map(|method| interner.intern(method.name)));
+    names
 }
 
 /// Collect interned [`Name`]s for COW list methods that also consume their
@@ -172,9 +171,21 @@ pub fn consuming_receiver_builtin_names(interner: &StringInterner) -> FxHashSet<
 /// marks `arg_ownership[1]` as `Owned` to prevent a duplicate `RcDec` — the
 /// runtime takes ownership of list2 and handles its lifecycle internally.
 ///
-/// See [`CONSUMING_SECOND_ARG_METHOD_NAMES`] for the full list.
+/// The result is the union of the legacy table and registry-owned first
+/// parameters of persistent List mutations.
 pub fn consuming_second_arg_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    intern_name_set(CONSUMING_SECOND_ARG_METHOD_NAMES, interner)
+    let mut names = intern_name_set(CONSUMING_SECOND_ARG_METHOD_NAMES, interner);
+    names.extend(
+        persistent_list_runtime_methods()
+            .filter(|method| {
+                method
+                    .params
+                    .first()
+                    .is_some_and(|param| param.ownership == ori_registry::Ownership::Owned)
+            })
+            .map(|method| interner.intern(method.name)),
+    );
+    names
 }
 
 /// Collect interned [`Name`]s for COW methods that also consume their
@@ -184,9 +195,39 @@ pub fn consuming_second_arg_builtin_names(interner: &StringInterner) -> FxHashSe
 /// pipeline marks `arg_ownership[2]` as `Owned` — the runtime takes ownership
 /// of the inserted value (move semantics).
 ///
-/// See [`CONSUMING_THIRD_ARG_METHOD_NAMES`] for the full list.
+/// The result is the union of the legacy table and registry-owned second
+/// parameters of persistent List mutations.
 pub fn consuming_third_arg_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    intern_name_set(CONSUMING_THIRD_ARG_METHOD_NAMES, interner)
+    let mut names = intern_name_set(CONSUMING_THIRD_ARG_METHOD_NAMES, interner);
+    names.extend(
+        persistent_list_runtime_methods()
+            .filter(|method| {
+                method
+                    .params
+                    .get(1)
+                    .is_some_and(|param| param.ownership == ori_registry::Ownership::Owned)
+            })
+            .map(|method| interner.intern(method.name)),
+    );
+    names
+}
+
+pub(crate) fn persistent_list_runtime_methods(
+) -> impl Iterator<Item = &'static ori_registry::MethodDef> {
+    ori_registry::methods_for(ori_registry::TypeTag::List)
+        .iter()
+        .filter(|method| {
+            matches!(
+                method.runtime,
+                Some(
+                    ori_registry::MethodRuntime::ListPush
+                        | ori_registry::MethodRuntime::ListSet
+                        | ori_registry::MethodRuntime::ListInsert
+                        | ori_registry::MethodRuntime::ListRemove
+                        | ori_registry::MethodRuntime::ListPrepend
+                )
+            )
+        })
 }
 
 /// Collect interned [`Name`]s for COW methods that consume only the receiver.
@@ -227,7 +268,8 @@ pub fn copy_in_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
 /// This is the single integration point for uniqueness analysis: both
 /// [`consuming_receiver_builtin_names`] (list COW: `push`, `sort`, …) and
 /// [`consuming_receiver_only_builtin_names`] (map/set COW: `remove`, `union`, …)
-/// are COW operations whose results are always `Unique` (RC == 1).
+/// are COW operations whose results have one fresh logical ownership
+/// obligation and are therefore `Unique`.
 ///
 /// Pass the result to [`crate::uniqueness::inter::build_cow_summaries`] as the
 /// `cow_method_names` argument.
@@ -241,7 +283,7 @@ pub fn all_cow_method_names(interner: &StringInterner) -> FxHashSet<Name> {
 ///
 /// Unlike COW methods (which always return `Unique` results), these methods
 /// create views into the receiver's data. The returned value shares the
-/// receiver's refcounted backing buffer, so its uniqueness is `MaybeShared`.
+/// receiver's logical storage identity, so its uniqueness is `MaybeShared`.
 ///
 /// Used by [`crate::uniqueness::inter::build_cow_summaries`] as the
 /// `shared_method_names` argument.
@@ -254,8 +296,8 @@ const SHARING_METHOD_NAMES: &[&str] = &[
 
 /// Collect interned [`Name`]s for methods that share backing with their receiver.
 ///
-/// These methods return values that reference the receiver's heap data,
-/// so their return uniqueness is `MaybeShared` (not `Unique` like COW methods).
+/// These methods return values that share the receiver's logical storage
+/// identity, so their return uniqueness is `MaybeShared`.
 ///
 /// See [`SHARING_METHOD_NAMES`] for the full list.
 pub fn sharing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
@@ -287,13 +329,13 @@ const ACCESSOR_RETAIN_METHOD_NAMES: &[&str] = &[
     "unwrap_err", // Result.unwrap_err — retains Err payload
 ];
 
-/// Accessor methods that return a BORROW VIEW of an interior field with NO
-/// retain and NO buffer-sharing mint: the runtime hands back the interior
-/// pointer without touching any refcount, so the receiver's own release is
-/// the view's release. Contrast [`ACCESSOR_RETAIN_METHOD_NAMES`] (codegen
-/// incs the extracted payload) and [`SHARING_METHOD_NAMES`] (the runtime
-/// incs the shared backing). A call-result credit booked for one of these
-/// would double-release the receiver's allocation.
+/// Accessor methods that return a BORROW VIEW of an interior field without
+/// minting a result credit or a shared-storage credit. The receiver's logical
+/// lifetime and cleanup obligation govern the view. Contrast
+/// [`ACCESSOR_RETAIN_METHOD_NAMES`] (the result receives its own credit) and
+/// [`SHARING_METHOD_NAMES`] (the result receives a credit on shared storage).
+/// Booking a call-result credit for one of these would double-discharge the
+/// receiver's obligation.
 ///
 /// Sorted alphabetically.
 /// `trace` is NOT here: `_ori_format_error_trace` renders a FRESH owned str

@@ -477,7 +477,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     if catch_pad.is_some() {
                         self.builder.set_catch_unwind_target(catch_pad);
                     }
-                    let v = self.emit_value(value, *ty, func);
+                    let v = self.emit_value(*dst, value, *ty, func);
                     if catch_pad.is_some() {
                         self.builder.set_catch_unwind_target(None);
                     }
@@ -875,18 +875,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let base_ty = func.var_type(*base);
                     let llvm_ty = self.resolve_type(base_ty);
 
-                    // Tagged-pointer enums have no struct layout —
-                    // there are no individual fields to GEP into. The entire
-                    // enum is a single i64 slot. AIMS reuse should never
-                    // generate a `Set` for a tagged-pointer enum because the
-                    // encoding is monolithic. If this ever fires, the AIMS
-                    // pipeline needs to be taught about tagged-pointer
-                    // encoding before in-place mutation can be supported.
+                    // Tagged-pointer enums have no physical field slots to
+                    // update. AIMS decides only whether a logical update may
+                    // reuse ownership; the shared compiled-layout projection
+                    // must select field stores or whole-value reconstruction.
+                    // Reaching this legacy LLVM path means that projection
+                    // failed to resolve the logical update before emission.
                     debug_assert!(
                         self.get_tagged_ptr_encoding(base_ty).is_none(),
-                        "Set on tagged-pointer enum — AIMS reuse must produce \
-                         a full Construct, not a per-field Set, for tagged-ptr \
-                         encoded enums (no individual field layout exists)"
+                        "unresolved logical Set reached a tagged-pointer LLVM \
+                         projection; compiled layout must select whole-value \
+                         reconstruction before emission"
                     );
 
                     // Remap declaration-order field to memory-order.

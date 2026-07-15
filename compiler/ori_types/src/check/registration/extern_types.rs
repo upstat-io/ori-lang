@@ -93,12 +93,12 @@ pub fn compute_extern_type_burden(free_fn: Option<ori_ir::Name>) -> Option<UserB
     let raw = free_fn.raw();
     let nz = NonZeroU32::new(raw).unwrap_or(NonZeroU32::MIN);
     Some(UserBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: vec![],
         borrowed_fields: vec![],
         variant_burdens: vec![],
         element_burden: None,
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: Some(FnSym::new(nz)),
     })
 }
@@ -127,12 +127,12 @@ mod tests {
         let raw = 42u32;
         let name = Name::from_raw(raw);
         let burden = unwrap_burden(compute_extern_type_burden(Some(name)));
-        assert!(!burden.self_heap_alloc);
+        assert!(!burden.self_owned_identity);
         assert!(burden.owned_fields.is_empty());
         assert!(burden.borrowed_fields.is_empty());
         assert!(burden.variant_burdens.is_empty());
         assert!(burden.element_burden.is_none());
-        assert!(burden.compiled_drop.is_none());
+        assert!(burden.drop_operation.is_none());
         let fn_sym = unwrap_fn_sym(burden.user_drop);
         assert_eq!(fn_sym.get().get(), raw);
     }

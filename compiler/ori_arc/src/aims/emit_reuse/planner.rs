@@ -1,19 +1,19 @@
 //! Cross-block reuse planner.
 //!
-//! Consumes semantic facts (death/alloc events) from AIMS analysis and
-//! validates them against CFG geometry (dominator/post-dominator trees).
+//! Consumes logical donor/recipient facts from AIMS analysis and validates
+//! them against CFG geometry (dominator/post-dominator trees).
 //!
-//! Runs as part of step 7 in the pipeline, AFTER RC emission
-//! (step 6) and BEFORE COW annotations (step 11a). This ordering is
-//! critical: reuse candidates are matched against death/alloc events over
-//! the CFG as RC emission (the class-ledger per-edge release placement)
-//! left it, before later passes (block merging, COW annotation) run.
+//! The current transitional pipeline runs this after logical release placement
+//! and before COW annotations. Production freezes only the eligible pair and
+//! owner-credit transfer here; a VM or compiled layout plan selects and
+//! validates any storage-recycling mechanism.
 //!
 //! # v1 scope
 //!
-//! Static-unique cross-block reuse only. Dynamic cross-block reuse
-//! (`MaybeShared`) requires two-point CFG expansion — optimization
-//! opportunity; runtime `IsShared` fallback handles this case correctly.
+//! Static-unique cross-block eligibility only. `MaybeShared` requires a
+//! sharing-observation obligation; the physical planner chooses how to
+//! discharge it. The current carrier's `IsShared` CFG expansion is one
+//! projection, not an AIMS rule.
 //!
 //! # Reference
 //!
@@ -29,7 +29,7 @@ use crate::ir::{ArcBlockId, ArcFunction};
 
 use super::{AllocEvent, DeathEvent, ReuseOpportunity};
 
-/// Cross-block reuse planner.
+/// Cross-block logical reuse-eligibility planner.
 ///
 /// Consumes semantic facts (death/alloc events) from AIMS analysis
 /// and validates them against CFG geometry. Built lazily — dominator
@@ -52,7 +52,8 @@ impl<'a> ReusePlanner<'a> {
         }
     }
 
-    /// Find cross-block reuse opportunities from unmatched death/alloc events.
+    /// Find cross-block reuse opportunities from unmatched donor/recipient
+    /// events.
     ///
     /// # Matching rule
     ///
@@ -75,8 +76,9 @@ impl<'a> ReusePlanner<'a> {
         remaining_allocs: &[&AllocEvent],
     ) -> Vec<ReuseOpportunity> {
         // v1: only Unique deaths for cross-block reuse.
-        // MaybeShared cross-block: optimization opportunity — runtime IsShared
-        // fallback handles correctness; CFG expansion would eliminate the check.
+        // MaybeShared cross-block: the logical facts require a sharing
+        // observation. This transitional planner handles only statically
+        // unique pairs and leaves mechanism selection downstream.
         let unique_deaths: Vec<_> = remaining_deaths
             .iter()
             .filter(|d| d.uniqueness == Uniqueness::Unique)

@@ -1,343 +1,149 @@
 //! Contract coherence oracle.
 //!
-//! Walks realized ARC IR and re-derives a contract from the actual RC
-//! operations emitted. Compares against the inferred [`MemoryContract`]
-//! to verify coherence — catching bugs where analysis infers a correct
-//! contract but realization emits inconsistent RC instructions, or where
-//! the analysis infers an incorrect contract that happens to produce
-//! working code by accident.
-//!
-//! Layer 3 of the AIMS verification stack. Checks access, consumption, `may_share`, and
-//! effect dimensions — directionally tolerant (conservative inference OK,
-//! unsafe optimistic inference is a blocking error).
+//! Re-derives parameter and effect facts from realized ARC IR, then compares
+//! them with the inferred contract. The subject contract is unavailable to the
+//! evidence adapter, so recursive summaries cannot manufacture their own proof.
 
+mod demand;
+mod evidence;
+
+use ori_ir::{Name, StringInterner};
 use rustc_hash::FxHashMap;
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::lattice::{AccessClass, Consumption};
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ValueRepr};
 
-// Alias tracking
-
-/// Maps every `ArcVarId` that is an alias of a function parameter to its
-/// parameter index. Handles transitive aliasing through `Let { value: Var(_) }`
-/// chains AND block-parameter propagation through `Jump` terminators.
-fn build_param_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, usize> {
-    let mut alias_map: FxHashMap<ArcVarId, usize> = FxHashMap::default();
-
-    // Seed: direct parameter variables.
-    for (i, param) in func.params.iter().enumerate() {
-        alias_map.insert(param.var, i);
-    }
-
-    // Fixpoint loop: propagate aliases through BOTH Let { value: Var(_) }
-    // bindings AND Jump → block-param edges. Both must be inside the loop
-    // because a Jump may introduce a block-param alias that a subsequent
-    // Let re-aliases — the Let pass must see those block-param aliases.
-    // Matches the canonical alias-fixpoint pattern in interprocedural/extract.rs.
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for block in &func.blocks {
-            changed |= propagate_let_aliases(block, &mut alias_map);
-            changed |= propagate_jump_aliases(block, func, &mut alias_map);
-        }
-    }
-
-    alias_map
-}
-
-/// Propagate aliases through `Let { value: Var(_) }` bindings in a block.
-fn propagate_let_aliases(
-    block: &crate::ir::ArcBlock,
-    alias_map: &mut FxHashMap<ArcVarId, usize>,
-) -> bool {
-    let mut changed = false;
-    for instr in &block.body {
-        let ArcInstr::Let {
-            dst,
-            value: ArcValue::Var(src),
-            ..
-        } = instr
-        else {
-            continue;
-        };
-        let Some(&param_idx) = alias_map.get(src) else {
-            continue;
-        };
-        if !alias_map.contains_key(dst) {
-            alias_map.insert(*dst, param_idx);
-            changed = true;
-        }
-    }
-    changed
-}
-
-/// Propagate aliases through Jump → block-param edges.
-fn propagate_jump_aliases(
-    block: &crate::ir::ArcBlock,
-    func: &ArcFunction,
-    alias_map: &mut FxHashMap<ArcVarId, usize>,
-) -> bool {
-    let ArcTerminator::Jump { target, args } = &block.terminator else {
-        return false;
-    };
-    let Some(target_block) = func.blocks.iter().find(|b| b.id == *target) else {
-        return false;
-    };
-    let mut changed = false;
-    for (bp, arg) in target_block.params.iter().zip(args.iter()) {
-        let Some(&param_idx) = alias_map.get(arg) else {
-            continue;
-        };
-        if alias_map.insert(bp.0, param_idx).is_none() {
-            changed = true;
-        }
-    }
-    changed
-}
-
-// Per-parameter observation
-
-/// Per-parameter observations from walking realized IR.
-#[derive(Clone, Debug, Default)]
-struct ParamObservation {
-    /// Total RC increments (accounting for `RcInc.count` batching).
-    rc_incs: u32,
-    /// Total RC decrements.
-    rc_decs: u32,
-    /// Number of non-RC uses (appearances at non-owned positions).
-    non_rc_uses: u32,
-    /// Whether the param was passed to an owned position in any instruction.
-    has_owned_transfer: bool,
-}
-
-/// Derive per-parameter observations from the realized (post-pipeline) ARC IR
-/// using the alias map. Handles batched `RcInc.count`, ownership transfers via
-/// `is_owned_position()`, and explicit `Return` handling.
-fn derive_param_observations(
-    func: &ArcFunction,
-    alias_map: &FxHashMap<ArcVarId, usize>,
-) -> Vec<ParamObservation> {
-    let num_params = func.params.len();
-    let mut obs = vec![ParamObservation::default(); num_params];
-
-    for block in &func.blocks {
-        observe_block_body(block, alias_map, &mut obs);
-        observe_block_terminator(block, alias_map, &mut obs);
-    }
-
-    obs
-}
-
-/// Record observations from instructions in a block body.
-fn observe_block_body(
-    block: &crate::ir::ArcBlock,
-    alias_map: &FxHashMap<ArcVarId, usize>,
-    obs: &mut [ParamObservation],
-) {
-    for instr in &block.body {
-        match instr {
-            ArcInstr::RcInc { var, count, .. } => {
-                if let Some(&idx) = alias_map.get(var) {
-                    obs[idx].rc_incs += count;
-                }
-            }
-            ArcInstr::RcDec { var, .. } => {
-                if let Some(&idx) = alias_map.get(var) {
-                    obs[idx].rc_decs += 1;
-                }
-            }
-            _ => {
-                // All other instructions: classify each use via is_owned_position().
-                for (pos, used_var) in instr.used_vars().iter().enumerate() {
-                    let Some(&idx) = alias_map.get(used_var) else {
-                        continue;
-                    };
-                    if instr.is_owned_position(pos) {
-                        obs[idx].has_owned_transfer = true;
-                    } else {
-                        obs[idx].non_rc_uses += 1;
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Record observations from a block's terminator.
-fn observe_block_terminator(
-    block: &crate::ir::ArcBlock,
-    alias_map: &FxHashMap<ArcVarId, usize>,
-    obs: &mut [ParamObservation],
-) {
-    let term_used = block.terminator.used_vars();
-    match &block.terminator {
-        // Return transfers ownership of the returned value.
-        ArcTerminator::Return { value } => {
-            if let Some(&idx) = alias_map.get(value) {
-                obs[idx].has_owned_transfer = true;
-            }
-        }
-        // Invoke/InvokeIndirect have arg_ownership — use is_owned_position().
-        ArcTerminator::Invoke { .. } | ArcTerminator::InvokeIndirect { .. } => {
-            for (pos, used_var) in term_used.iter().enumerate() {
-                let Some(&idx) = alias_map.get(used_var) else {
-                    continue;
-                };
-                if block.terminator.is_owned_position(pos) {
-                    obs[idx].has_owned_transfer = true;
-                } else {
-                    obs[idx].non_rc_uses += 1;
-                }
-            }
-        }
-        // Jump args propagate aliases (handled in alias map, not here).
-        // Count as non-RC uses for the parameter observation.
-        _ => {
-            for used_var in &term_used {
-                let Some(&idx) = alias_map.get(used_var) else {
-                    continue;
-                };
-                obs[idx].non_rc_uses += 1;
-            }
-        }
-    }
-}
-
-// Realized contract derivation
-
-/// A contract re-derived from walking realized ARC IR.
-///
-/// Each field is derived from OBSERVING what the pipeline actually emitted,
-/// not from the analysis's inferred state.
+/// A parameter contract re-derived from realized events.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RealizedParamContract {
-    /// Derived access: `Owned` if the param has any `RcInc`/`RcDec` or owned transfers.
+    /// `Owned` when any reachable path contains an unfunded discharge.
     pub access: AccessClass,
-    /// Derived consumption based on RC operation pattern (aliasing-aware).
+    /// TF-11 sequential demand joined across IC-3 alternatives.
     pub consumption: Consumption,
-    /// Whether the callee may have incremented the parameter's RC.
-    /// Derived from `rc_incs > 0` (per `aims-rules` IC-3).
+    /// Explicit positive credit or a Borrowed call to a sharing callee.
     pub may_share: bool,
+    /// Independently observed iter-consuming terminal transfer.
+    pub iter_transfers: bool,
 }
 
-/// Derive `RealizedParamContract` from observed RC and use counts.
-fn derive_single_param(obs: &ParamObservation) -> RealizedParamContract {
-    // Access: Owned if any RC operations or ownership transfers exist.
-    let access = if obs.rc_incs > 0 || obs.rc_decs > 0 || obs.has_owned_transfer {
-        AccessClass::Owned
-    } else {
-        AccessClass::Borrowed
-    };
-
-    // Consumption: derived from aggregate counts (no intra-block ordering needed).
-    let consumption = if obs.rc_incs > 0 {
-        // Any RcInc → value was duplicated/shared (Unrestricted).
-        Consumption::Unrestricted
-    } else if obs.rc_decs > 0 && obs.non_rc_uses > 0 {
-        // Used AND then dropped → Linear (consumed then cleaned up).
-        Consumption::Linear
-    } else if obs.non_rc_uses > 0 || obs.has_owned_transfer {
-        // Used or ownership-transferred without RC ops → Linear.
-        Consumption::Linear
-    } else if obs.rc_decs > 0 {
-        // Only dropped, no non-RC uses, no ownership transfers → Affine.
-        Consumption::Affine
-    } else {
-        // Nothing at all → Dead.
-        Consumption::Dead
-    };
-
-    // may_share: true if any RC increments exist.
-    let may_share = obs.rc_incs > 0;
-
-    RealizedParamContract {
-        access,
-        consumption,
-        may_share,
-    }
-}
-
-/// Public entry point: derive per-parameter contracts from post-pipeline ARC IR.
+/// Derive parameter evidence without interprocedural context.
+///
+/// Production verification uses [`derive_param_contracts_with_context`]. This
+/// entry point remains useful for isolated IR tests that contain no direct
+/// iterator or summary-mediated calls.
 pub fn derive_param_contracts(func: &ArcFunction) -> Vec<RealizedParamContract> {
-    let alias_map = build_param_alias_map(func);
-    let observations = derive_param_observations(func, &alias_map);
-    observations.iter().map(derive_single_param).collect()
+    let contracts = FxHashMap::default();
+    let interner = StringInterner::default();
+    evidence::derive_param_contracts(func, &contracts, &interner)
 }
 
-// Effect derivation
+fn derive_param_contracts_with_context(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &StringInterner,
+) -> Vec<RealizedParamContract> {
+    evidence::derive_param_contracts(func, contracts, interner)
+}
 
-/// Effects re-derived from walking realized ARC IR.
+/// Effects re-derived from realized IR and other callees' summaries.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RealizedEffects {
-    /// Whether the function body contains `Construct` instructions.
-    /// Conservative: any Construct → true (oracle cannot classify types).
     pub may_allocate: bool,
-    /// Whether missed reuses were detected (from second-pass data).
-    /// NOT derived from the IR walk — comes from the pipeline's tracking.
     pub may_deallocate: bool,
-    /// Whether the function body contains ANY `RcInc` instructions
-    /// (on parameters OR local variables). Per aims-rules IC-5.
     pub may_share: bool,
 }
 
-/// Derive function-level effects from realized ARC IR.
-///
-/// `missed_reuses` comes from the batch pipeline's second pass.
+/// Derive effects without interprocedural context.
 pub fn derive_effects(func: &ArcFunction, missed_reuses: u32) -> RealizedEffects {
-    // may_allocate: Construct (heap allocation) OR PartialApply (closure env).
-    // Matches the canonical effect sources in intraprocedural/effects.rs.
-    let may_allocate = func.blocks.iter().any(|b| {
-        b.body.iter().any(|i| {
-            matches!(
-                i,
-                ArcInstr::Construct { .. } | ArcInstr::PartialApply { .. }
-            )
-        })
-    });
-
-    let may_deallocate = missed_reuses > 0;
-
-    let may_share = func
-        .blocks
-        .iter()
-        .any(|b| b.body.iter().any(|i| matches!(i, ArcInstr::RcInc { .. })));
-
-    RealizedEffects {
-        may_allocate,
-        may_deallocate,
-        may_share,
-    }
+    derive_effects_with_context(func, &FxHashMap::default(), missed_reuses)
 }
 
-// Coherence comparison
+fn derive_effects_with_context(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    missed_reuses: u32,
+) -> RealizedEffects {
+    let mut effects = RealizedEffects {
+        may_allocate: false,
+        may_deallocate: missed_reuses > 0,
+        may_share: false,
+    };
 
-/// A coherence mismatch between inferred and realized contracts.
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Construct { dst, .. } => {
+                    let scalar = func
+                        .var_reprs
+                        .get(dst.index())
+                        .is_some_and(|repr| *repr == ValueRepr::Scalar);
+                    effects.may_allocate |= !scalar;
+                }
+                ArcInstr::PartialApply { .. } => effects.may_allocate = true,
+                ArcInstr::RcInc { count, .. } => effects.may_share |= *count > 0,
+                ArcInstr::BurdenInc { .. } => effects.may_share = true,
+                ArcInstr::Apply { func: callee, .. } => {
+                    absorb_callee_effects(func.name, *callee, contracts, &mut effects);
+                }
+                _ => {}
+            }
+        }
+        if let ArcTerminator::Invoke { func: callee, .. } = &block.terminator {
+            absorb_callee_effects(func.name, *callee, contracts, &mut effects);
+        }
+    }
+    effects
+}
+
+fn absorb_callee_effects(
+    subject: Name,
+    callee: Name,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    realized: &mut RealizedEffects,
+) {
+    if callee == subject {
+        return;
+    }
+    let Some(contract) = contracts.get(&callee) else {
+        return;
+    };
+    realized.may_allocate |= contract.effects.may_allocate;
+    realized.may_deallocate |= contract.effects.may_deallocate;
+    realized.may_share |= contract.effects.may_share;
+}
+
+/// An unsafe disagreement between inferred and independently realized facts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CoherenceMismatch {
-    /// Parameter access class differs (unsafe direction).
+    ParamArity {
+        function_params: usize,
+        inferred_params: usize,
+    },
     ParamAccess {
         param_index: usize,
         param_var: ArcVarId,
         inferred: AccessClass,
         realized: AccessClass,
     },
-    /// Parameter consumption mode differs (unsafe direction).
     ParamConsumption {
         param_index: usize,
         param_var: ArcVarId,
         inferred: Consumption,
         realized: Consumption,
     },
-    /// Parameter `may_share` disagrees (unsafe direction).
     ParamMayShare {
         param_index: usize,
         param_var: ArcVarId,
         inferred: bool,
         realized: bool,
     },
-    /// Effect summary disagrees (unsafe direction).
+    ParamIterTransfer {
+        param_index: usize,
+        param_var: ArcVarId,
+        inferred: bool,
+        realized: bool,
+    },
     EffectMismatch {
         field: &'static str,
         inferred: bool,
@@ -346,9 +152,6 @@ pub enum CoherenceMismatch {
 }
 
 impl CoherenceMismatch {
-    /// Whether this mismatch is in the unsafe direction (analysis too optimistic).
-    /// All mismatches reported by `verify_coherence` are already filtered to the
-    /// unsafe direction, so this always returns `true`.
     pub fn is_unsafe(&self) -> bool {
         true
     }
@@ -357,6 +160,13 @@ impl CoherenceMismatch {
 impl std::fmt::Display for CoherenceMismatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ParamArity {
+                function_params,
+                inferred_params,
+            } => write!(
+                f,
+                "parameter arity: function={function_params}, inferred={inferred_params}"
+            ),
             Self::ParamAccess {
                 param_index,
                 param_var,
@@ -384,6 +194,15 @@ impl std::fmt::Display for CoherenceMismatch {
                 f,
                 "param {param_index} (var {param_var:?}): may_share inferred={inferred}, realized={realized}"
             ),
+            Self::ParamIterTransfer {
+                param_index,
+                param_var,
+                inferred,
+                realized,
+            } => write!(
+                f,
+                "param {param_index} (var {param_var:?}): iter transfer inferred={inferred}, realized={realized}"
+            ),
             Self::EffectMismatch {
                 field,
                 inferred,
@@ -396,137 +215,152 @@ impl std::fmt::Display for CoherenceMismatch {
     }
 }
 
-/// Compare the oracle's re-derived contract against the inferred contract.
-///
-/// Only reports **unsafe mismatches** — where the analysis was more optimistic
-/// than what the realization actually needed. Conservative mismatches (analysis
-/// was more pessimistic than necessary) are logged at `tracing::info!` level
-/// per `aims-rules` RL-3/VF-6 for optimization diagnostics — they indicate
-/// the analysis is leaving performance on the table but is not unsound.
-///
-/// `missed_reuses` comes from the second pass in `batch.rs`.
-pub fn verify_coherence(
+/// Compare subject-independent realized evidence with the inferred contract.
+pub(crate) fn verify_coherence(
     func: &ArcFunction,
     inferred: &MemoryContract,
+    all_contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &StringInterner,
     missed_reuses: u32,
 ) -> Vec<CoherenceMismatch> {
-    let realized_params = derive_param_contracts(func);
+    let realized_params = derive_param_contracts_with_context(func, all_contracts, interner);
     let mut mismatches = Vec::new();
 
-    for (i, (inferred_p, realized_p)) in inferred
-        .params
-        .iter()
-        .zip(realized_params.iter())
-        .enumerate()
-    {
-        let param_var = func.params[i].var;
-
-        // Access: unsafe if inferred Borrowed but realized needs Owned.
-        if inferred_p.access == AccessClass::Borrowed && realized_p.access == AccessClass::Owned {
-            mismatches.push(CoherenceMismatch::ParamAccess {
-                param_index: i,
-                param_var,
-                inferred: inferred_p.access,
-                realized: realized_p.access,
-            });
-        } else if inferred_p.access != realized_p.access {
-            // Conservative: inferred Owned but realized only needs Borrowed.
-            tracing::info!(
-                param_index = i,
-                ?param_var,
-                ?inferred_p.access,
-                ?realized_p.access,
-                "conservative access inference — analysis is leaving performance on the table"
-            );
-        }
-
-        // Consumption: unsafe if inferred is more optimistic than realized.
-        // Lattice order: Dead < Linear < Affine < Unrestricted.
-        if inferred_p.consumption < realized_p.consumption {
-            mismatches.push(CoherenceMismatch::ParamConsumption {
-                param_index: i,
-                param_var,
-                inferred: inferred_p.consumption,
-                realized: realized_p.consumption,
-            });
-        } else if inferred_p.consumption > realized_p.consumption {
-            // Conservative: analysis inferred heavier consumption than needed.
-            tracing::info!(
-                param_index = i,
-                ?param_var,
-                ?inferred_p.consumption,
-                ?realized_p.consumption,
-                "conservative consumption inference — analysis is leaving performance on the table"
-            );
-        }
-
-        // may_share: unsafe if inferred false but realized true.
-        if !inferred_p.may_share && realized_p.may_share {
-            mismatches.push(CoherenceMismatch::ParamMayShare {
-                param_index: i,
-                param_var,
-                inferred: false,
-                realized: true,
-            });
-        } else if inferred_p.may_share && !realized_p.may_share {
-            // Conservative: analysis claims sharing but realized has no RcInc.
-            tracing::info!(
-                param_index = i,
-                ?param_var,
-                "conservative may_share inference — parameter was not shared"
-            );
-        }
+    if func.params.len() != inferred.params.len() {
+        mismatches.push(CoherenceMismatch::ParamArity {
+            function_params: func.params.len(),
+            inferred_params: inferred.params.len(),
+        });
     }
 
-    // Effects: check unsafe mismatches, log conservative ones.
-    check_effect_coherence(func, inferred, missed_reuses, &mut mismatches);
+    let shared_params = func
+        .params
+        .len()
+        .min(inferred.params.len())
+        .min(realized_params.len());
+    for (index, realized_param) in realized_params.iter().enumerate().take(shared_params) {
+        compare_param(
+            index,
+            func.params[index].var,
+            &inferred.params[index],
+            realized_param,
+            &mut mismatches,
+        );
+    }
 
+    compare_effects(
+        inferred,
+        &derive_effects_with_context(func, all_contracts, missed_reuses),
+        &mut mismatches,
+    );
     mismatches
 }
 
-/// Check effect dimensions for unsafe mismatches.
-///
-/// `may_deallocate` and `may_share` are checked directionally (unsafe = error).
-/// `may_allocate` is treated as info-only because the oracle overestimates
-/// (cannot distinguish scalar from heap Construct).
-fn check_effect_coherence(
-    func: &ArcFunction,
-    inferred: &MemoryContract,
-    missed_reuses: u32,
+fn compare_param(
+    index: usize,
+    param_var: ArcVarId,
+    inferred: &crate::aims::contract::ParamContract,
+    realized: &RealizedParamContract,
     mismatches: &mut Vec<CoherenceMismatch>,
 ) {
-    let effects = derive_effects(func, missed_reuses);
-
-    // may_deallocate: unsafe if analysis said no deallocation but missed reuses detected.
-    if !inferred.effects.may_deallocate && effects.may_deallocate {
-        mismatches.push(CoherenceMismatch::EffectMismatch {
-            field: "may_deallocate",
-            inferred: false,
-            realized: true,
+    if inferred.access < realized.access {
+        mismatches.push(CoherenceMismatch::ParamAccess {
+            param_index: index,
+            param_var,
+            inferred: inferred.access,
+            realized: realized.access,
         });
-    } else if inferred.effects.may_deallocate && !effects.may_deallocate {
-        tracing::info!("conservative may_deallocate inference — no missed reuses detected");
-    }
-
-    // may_allocate: oracle overestimates (can't classify types), so treat as info.
-    if !inferred.effects.may_allocate && effects.may_allocate {
+    } else if inferred.access > realized.access {
         tracing::info!(
-            "oracle may_allocate overestimate — Construct/PartialApply seen \
-             but analysis says no allocation (likely scalar constructor)"
+            param_index = index,
+            ?param_var,
+            ?inferred.access,
+            ?realized.access,
+            "conservative access inference"
         );
-    } else if inferred.effects.may_allocate && !effects.may_allocate {
-        tracing::info!("conservative may_allocate inference — no Construct/PartialApply found");
     }
 
-    // may_share: unsafe if analysis said no sharing but RcInc instructions exist.
-    if !inferred.effects.may_share && effects.may_share {
-        mismatches.push(CoherenceMismatch::EffectMismatch {
-            field: "may_share",
+    if inferred.consumption < realized.consumption {
+        mismatches.push(CoherenceMismatch::ParamConsumption {
+            param_index: index,
+            param_var,
+            inferred: inferred.consumption,
+            realized: realized.consumption,
+        });
+    } else if inferred.consumption > realized.consumption {
+        tracing::info!(
+            param_index = index,
+            ?param_var,
+            ?inferred.consumption,
+            ?realized.consumption,
+            "conservative consumption inference"
+        );
+    }
+
+    if !inferred.may_share && realized.may_share {
+        mismatches.push(CoherenceMismatch::ParamMayShare {
+            param_index: index,
+            param_var,
             inferred: false,
             realized: true,
         });
-    } else if inferred.effects.may_share && !effects.may_share {
-        tracing::info!("conservative may_share inference — no RcInc instructions found");
+    } else if inferred.may_share && !realized.may_share {
+        tracing::info!(
+            param_index = index,
+            ?param_var,
+            "conservative may_share inference"
+        );
+    }
+
+    if inferred.iter_consumes != realized.iter_transfers {
+        mismatches.push(CoherenceMismatch::ParamIterTransfer {
+            param_index: index,
+            param_var,
+            inferred: inferred.iter_consumes,
+            realized: realized.iter_transfers,
+        });
+    }
+}
+
+fn compare_effects(
+    inferred: &MemoryContract,
+    realized: &RealizedEffects,
+    mismatches: &mut Vec<CoherenceMismatch>,
+) {
+    compare_effect(
+        "may_allocate",
+        inferred.effects.may_allocate,
+        realized.may_allocate,
+        mismatches,
+    );
+    compare_effect(
+        "may_deallocate",
+        inferred.effects.may_deallocate,
+        realized.may_deallocate,
+        mismatches,
+    );
+    compare_effect(
+        "may_share",
+        inferred.effects.may_share,
+        realized.may_share,
+        mismatches,
+    );
+}
+
+fn compare_effect(
+    field: &'static str,
+    inferred: bool,
+    realized: bool,
+    mismatches: &mut Vec<CoherenceMismatch>,
+) {
+    if !inferred && realized {
+        mismatches.push(CoherenceMismatch::EffectMismatch {
+            field,
+            inferred,
+            realized,
+        });
+    } else if inferred && !realized {
+        tracing::info!(field, "conservative effect inference");
     }
 }
 

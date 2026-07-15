@@ -6,8 +6,9 @@
 //! replacement + LLVM lowering + execution under `ORI_CHECK_LEAKS=1`
 //! (`assert_aot_success`), and a control that re-builds with
 //! `ORI_DISABLE_BURDEN_OPS=1` and asserts compilation FAILS LOUD — burden
-//! emission is the sole RC-emission input (no fallback emitter exists), so
-//! disabling it must abort compilation, never emit silent wrong code.
+//! emission is the sole ownership-event input to the current compiled-counter
+//! adapter (no fallback adapter input exists), so disabling it must abort
+//! compilation, never emit silent wrong code.
 //!
 //! The sibling spec tests at `tests/spec/aims/apply_alias_coverage/*.ori`
 //! exercise the SAME shapes on the interpreter (`cargo st`) for dual-backend
@@ -16,8 +17,9 @@
 use crate::util::{assert_aot_success, compile_and_run_with_build_env};
 
 /// Assert the `ORI_DISABLE_BURDEN_OPS=1` control build FAILS LOUD: with
-/// Step-4b burden emission skipped there is no RC-emission input, no fallback
-/// emitter exists, and realize must abort with the migration-gate message —
+/// Step-4b burden emission skipped there is no RC-emission input to the current
+/// compiled-counter adapter, no fallback adapter input exists, and realization
+/// must abort with the migration-gate message —
 /// never produce a silently-unmanaged binary.
 fn assert_burden_ops_disabled_fails_loud(source: &str, test_name: &str) {
     let (exit_code, _stdout, stderr) =
@@ -25,7 +27,8 @@ fn assert_burden_ops_disabled_fails_loud(source: &str, test_name: &str) {
     assert_ne!(
         exit_code, 0,
         "{test_name} under ORI_DISABLE_BURDEN_OPS=1 MUST fail compilation (burden \
-         emission is the sole RC-emission input; no fallback emitter exists). stderr:\n{stderr}",
+         emission is the current compiled-counter adapter's sole RC-emission input; \
+         no fallback adapter input exists). stderr:\n{stderr}",
     );
     assert!(
         stderr.contains("non-class-ledger function"),

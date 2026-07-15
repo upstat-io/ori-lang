@@ -2,11 +2,11 @@ Theorem DP-10-REMOVED: DP-10 removal soundness via constructive counterexample +
 
   Preconditions:
     - Annex E §AIMS DP-10 REMOVED note: prior DP-10 claimed
-        Owned AND Linear AND Once => RC == 1
+        Owned AND Linear AND Once => exactly one logical owner credit
       and was REMOVED as unsound. The removal soundness is the proof
       obligation discharged here.
     - Backward analysis proves "no future duplication" (Linear + Once) but
-      NOT "no existing aliases". Uniqueness is the SSOT for RC == 1 claims
+      NOT "no existing aliases". Uniqueness is the SSOT for one-owner claims
       per Annex E §AIMS; DP-10 attempted to derive uniqueness from
       Consumption + Cardinality, bypassing the Uniqueness dimension.
     - The three alternative paths (per §1.4 + TF-3 + IC-3) subsume DP-10's
@@ -22,13 +22,13 @@ Theorem DP-10-REMOVED: DP-10 removal soundness via constructive counterexample +
       removal.
 
   Soundness property:
-    REMOVAL claim: DP-10 (Owned AND Linear AND Once => RC == 1) is unsound
+    REMOVAL claim: DP-10 (Owned AND Linear AND Once => one logical owner) is unsound
       AND every prior use case is subsumed by one of the three alternative
       paths (Uniqueness, TF-3, IC-3).
 
     Formally:
       (a) Exists s in AimsState canonical, satisfying (Owned AND Linear AND
-          Once), with RC > 1 (counterexample to former DP-10).
+          Once), with multiple logical owner credits (counterexample to former DP-10).
       (b) Forall use-case-of-former-DP-10 c, exists path p in
           {Uniqueness-direct, TF-3-fresh, IC-3-contract} such that p
           discharges c soundly.
@@ -36,7 +36,7 @@ Theorem DP-10-REMOVED: DP-10 removal soundness via constructive counterexample +
   Proof obligation:
     Two-part discharge:
       (a) Constructive counterexample: exhibit s satisfying former DP-10
-          antecedent (Owned, Linear, Once) with RC > 1 establishing
+          antecedent (Owned, Linear, Once) with multiple logical owner credits, establishing
           unsoundness.
       (b) Alternative-paths exhibition: enumerate the 3 paths and
           demonstrate per-path subsumption of former DP-10's use cases.
@@ -51,28 +51,29 @@ Theorem DP-10-REMOVED: DP-10 removal soundness via constructive counterexample +
       Backward dataflow at this point proves:
         Linear + Once => v used exactly once forward, then dies.
         Owned => v owns its allocation reference.
-        Former DP-10 conclusion: RC(v) == 1.
+        Former DP-10 conclusion: v has exactly one logical owner credit.
 
       Counterexample to DP-10 — backward analysis CANNOT prove uniqueness:
 
         Suppose an EARLIER `store_into_data_structure` site at point p1
-        upstream of v's current use created an alias of v via RcInc — e.g.,
-        v was inserted into a list at p1, which emitted RcInc(v) to keep
-        the list's reference alive. The list still holds the reference
-        (RC contribution from list = 1). At v's current single Linear+Once
+        upstream of v's current use created an alias of v via a logical
+        duplication event — e.g., v was inserted into a list at p1, which
+        acquired one owner credit for its stored child. The list still holds
+        that credit. At v's current single Linear+Once
         use (point p2), backward analysis sees:
           - exactly one Linear use of v in the forward direction (true)
           - no future use beyond p2 (true)
-          - therefore no future RcInc on v (true)
-        But the EXISTING alias from p1 (the list's RcInc) is invisible to
+          - therefore no future duplication credit on v (true)
+        But the EXISTING alias from p1 is invisible to
         backward analysis. Per Annex E §AIMS: Uniqueness encodes the
         PAST guarantee "v not duplicated"; Linearity encodes the FUTURE
         guarantee "v consumed once." Former DP-10 conflated the two.
 
       The variable's Uniqueness = MaybeShared (NOT Unique) precisely
-      captures this: the upstream RcInc at p1 prevents the FRESH+Linear
-      pipeline from achieving Unique status. Per §1.4 Uniqueness = SSOT
-      for RC == 1 claims; former DP-10's bypass was unsound.
+      captures this: the upstream owner acquisition at p1 prevents the
+      FRESH+Linear pipeline from achieving Unique status. Per §1.4
+      Uniqueness = SSOT
+      for one-owner claims; former DP-10's bypass was unsound.
 
       Concrete IR sketch (BUG-XX construction; consult Annex E §AIMS Return Provenance + TF-3 for AimsState assignment rules):
 
@@ -83,30 +84,32 @@ Theorem DP-10-REMOVED: DP-10 removal soundness via constructive counterexample +
         %1 = Construct(Box<int>, [42]) # TF-3 FRESH: (Owned, Linear,
                                               # Once, Unique, BlockLocal,
                                               # ReusableStruct, may_alloc)
-        RcInc(%1) # alias created — list now
-                                              # holds ref; %1.Uniqueness
+        RcInc(%1) # logical duplication — list now
+                                              # holds an owner credit;
+                                              # %1.Uniqueness
                                               # demotes to MaybeShared
         Set(%0[0], %1) # %1 stored into list at p1
         # ... %1 still live and Linear+Once on its remaining path ...
 
         # Current point p2 — DP-10 antecedent satisfied; conclusion unsound
         Apply(some_owned_consuming_callee, [%1]) # %1's Linear+Once use
-                                                    # Former DP-10: RC==1
-                                                    # ACTUAL: RC==2 (list +
-                                                    # callee both hold)
+                                                    # Former DP-10: one owner
+                                                    # ACTUAL: two owner credits
+                                                    # (list + callee)
 
-      Former DP-10 conclusion "RC == 1" would license the callee to omit
-      its dec on %1, but actual RC > 1 means the omitted dec causes a
-      leak (the list's reference now refcount-skewed; the list's eventual
-      drop would underflow to zero while the value is genuinely shared).
+      Former DP-10 conclusion "one logical owner" would license the callee to
+      omit its release on %1, but the extra owner credit means that omission
+      leaks one obligation. A counter-based projection is one concrete witness;
+      the unsoundness is in the logical credit ledger itself.
 
     Part (b) — 3 alternative paths (subsumption enumeration):
 
       Path 1: Uniqueness = Unique direct (per §1.4 -> DP-7)
-        When the analysis CAN prove Uniqueness = Unique (no upstream RcInc;
-        no aliasing through projections; no escape to heap), DP-7 is the
-        sound RC-skip-eligibility predicate. Per Annex E §AIMS DP-7:
-          is_rc_skip_eligible(s) iff is_local AND Owned AND Linear AND
+        When the analysis CAN prove Uniqueness = Unique (no upstream logical
+        duplication, no aliasing through projections, and no ownership
+        escape), DP-7 is the sound ownership-event-skip predicate. Per Annex
+        E §AIMS DP-7:
+          is_event_pair_elision_eligible(s) iff is_local AND Owned AND Linear AND
           Once AND Unique AND non-scalar.
         DP-7 includes Uniqueness = Unique as load-bearing conjunct
         (see DP-7 proof, Row 5 + Shared+Linear+Once counterexample).

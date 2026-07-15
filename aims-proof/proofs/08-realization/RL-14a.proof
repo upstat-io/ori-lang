@@ -1,57 +1,39 @@
-Theorem RL-14a: non-escaping fixed-size non-unique stack allocation with immortal RC header
+Theorem RL-14a: cleanup obligations preserve exact logical identities
 
   Preconditions:
-    - RL-14a governs immortal-header stack promotion per Annex E §AIMS
-      Stack Promotion: a non-escaping fixed-size value with Uniqueness !=
-      Unique (Locality <= FunctionLocal) SHALL be alloca'd WITH an RC header
-      initialized to MAX_REFCOUNT (immortal — prevents a free on the stack
-      pointer). Heap children receive field-level RcDec per RL-14.
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - DP-8 (is_local) gates locality; DP-4 (needs_cow_check) explains why the
-      header is required: a MaybeShared value may face an IsShared check, and
-      a headerless stack value would crash reading a nonexistent header.
-    - Shipped: realize/decide.rs Locality consumption; repr.md sec-RH-3.
-    - depends-on sec-05: DP-8 (is_local) + DP-4 (needs_cow_check).
+    - RL-14a consumes realized logical release and user-drop events.
+    - CleanupObligation records event ids, drop-plan id, field order, normal
+      exits, unwind exits, and logical lifetime-end events.
+    - Physical cleanup encoding is a planner and adapter concern.
 
   Soundness property:
-    Forall fixed-size local value v with Uniqueness(v) != Unique:
+    Forall exact cleanup obligation C:
 
-      (P1) Strategy decision: RL-14a alloca's v on the stack WITH an immortal
-           RC header (MAX_REFCOUNT), for both MaybeShared and Shared.
+      (P1) Every release event in C is covered on each applicable normal exit.
 
-      (P2) RC soundness: the immortal MAX_REFCOUNT header means (a) an
-           IsShared check (DP-4) reads a valid header and never crashes, and
-           (b) any RcDec on v is a no-op (the count never reaches 0), so the
-           stack pointer is never freed by an RC operation — the stack frame
-           deallocates it at scope exit. Heap children are released by
-           field-level RcDec per RL-14.
+      (P2) Every release event in C is covered on each applicable unwind exit.
 
-    RL-14a refines plain ARC by keeping the value on the stack (no heap
-    allocation) even when its uniqueness is unknown, using the immortal
-    header to make RC operations safe no-ops.
+      (P3) Event ids, drop-plan id, and ordered traversal are unchanged.
+
+      (P4) Logical lifetime-end event ids are unchanged.
 
   Proof obligation:
-    Constructive discharge by the case_analysis engine.
+    Constructive discharge by checking exact membership and order. The
+    negative direction rejects a missing unwind release or changed identity.
 
-    Part (P1/P2) — non-unique local strategy:
-      The verifier asserts that a FunctionLocal fixed-size value with
-      Uniqueness in {MaybeShared, Shared} selects ImmortalHeaderStack, and
-      that a headerless alternative is rejected (it would crash on IsShared).
-      Coverage gate: 2 non-unique cases (MaybeShared + Shared). Negative
-      witness: a non-unique local must NOT be headerless.
+    Part (P1/P2/P3/P4) - cleanup grid:
+      normal_exit_complete -> true
+      unwind_exit_complete -> true
+      logical_identity_preserved -> true
+      lifetime_end_identity_preserved -> true
+      Coverage gate: 4 cleanup cases.
 
     Engines dispatched:
-      case_analysis (PRIMARY —
-        section_08::verify_rl14a_immortal_header_stack; non-unique-local
-        strategy enumeration; emits Fail on a wrong strategy or a headerless
-        non-unique selection)
-      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      case_analysis (PRIMARY - section_08::verify_rl14a_cleanup_obligation;
+        cleanupCoversNormalAndUnwind plus identity checks)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
 
   Expected:
     status: valid
-    reason: section_08 case_analysis engine discharges RL-14a via the non-unique-local strategy decision (MaybeShared + Shared fixed-size locals -> immortal-header stack with MAX_REFCOUNT so IsShared reads a valid header and RcDec is a no-op) with a negative-direction witness rejecting a headerless non-unique local, grounded in repr.md RH-3 + realize/decide.rs Locality consumption
+    reason: section_08 case_analysis engine discharges RL-14a by preserving exact CleanupObligation releases, drop plan, traversal order, normal/unwind coverage, and logical lifetime-end identity

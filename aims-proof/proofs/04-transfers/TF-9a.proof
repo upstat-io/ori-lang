@@ -38,8 +38,8 @@ Theorem TF-9a: CollectionReuse transfer produces FRESH(CollectionBuffer)
       access = Owned — reused buffer owned by the result.
       consumption = Linear — fresh buffer slot, exactly-once consumed.
       cardinality = Once — fresh allocation; downstream uses via TF-11.
-      uniqueness = Unique — RC = 1 invariant inherited from old_var's
-        unique state (RL-11 + DP-6 require source Unique).
+      uniqueness = Unique — exactly-one-logical-owner invariant inherited
+        from old_var's unique state (RL-11 + DP-6 require source Unique).
       locality = BlockLocal — CollectionReuse fires within same-block
         scope or dominator-validated cross-block region.
       shape = CollectionBuffer — fixed by the CollectionReuse instruction

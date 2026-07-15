@@ -17,11 +17,11 @@ Theorem RL-23: KnownSafe flag propagation at joins (AND across predecessors)
       (P1) Join value: KnownSafe(J) = AND(p_1, ..., p_n) — true iff EVERY
            predecessor is KnownSafe.
 
-      (P2) Soundness: if ANY predecessor path can reach J with physical RC ==
-           1, then on that path the inner RcDec could free; the conservative
-           AND-join marks J NOT KnownSafe, so RL-22 does not eliminate the
-           pair on a path where it would be unsound. An OR-join would
-           UNSOUNDLY mark J KnownSafe when a single unsafe predecessor exists.
+      (P2) Soundness: if ANY predecessor lacks the outstanding logical owner-
+           credit evidence, pair removal is not proven to preserve the later
+           owner-credit floor. The conservative AND-join therefore marks J NOT
+           KnownSafe. An OR-join would UNSOUNDLY import evidence from one
+           predecessor onto a path where it was never established.
 
     RL-23 is the meet operation that keeps the RL-22 elimination sound across
     control-flow merges.

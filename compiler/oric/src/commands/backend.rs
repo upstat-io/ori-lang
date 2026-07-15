@@ -18,7 +18,7 @@ use oric::parser::ParseOutput;
 use oric::CompilerDb;
 
 #[cfg(feature = "llvm")]
-use super::codegen_pipeline::run_codegen_pipeline;
+use super::codegen_pipeline::{run_codegen_pipeline, LlvmCodegenOutput};
 #[cfg(feature = "llvm")]
 use super::ImportedSurfaces;
 
@@ -36,7 +36,7 @@ pub struct LlvmBackend<'ctx, 'a> {
 
 #[cfg(feature = "llvm")]
 impl<'ctx> CodegenBackend<'ctx> for LlvmBackend<'ctx, '_> {
-    type Artifact = ori_llvm::inkwell::module::Module<'ctx>;
+    type Artifact = LlvmCodegenOutput<'ctx>;
 
     fn compile<'p>(
         &self,
@@ -76,7 +76,7 @@ impl<'ctx> BackendChoice<'ctx, '_> {
     pub fn compile<'p>(
         &self,
         program: &RealizedProgram<'ctx, 'p>,
-    ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, BackendError> {
+    ) -> Result<LlvmCodegenOutput<'ctx>, BackendError> {
         match self {
             BackendChoice::Llvm(backend) => backend.compile(program),
         }

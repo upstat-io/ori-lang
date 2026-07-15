@@ -4,7 +4,7 @@
 //! - LLVM codegen orchestration (`run_codegen_pipeline`)
 //!
 //! Helpers extracted into sibling modules:
-//! - `borrow_inference`: ARC lowering + per-SCC Salsa borrow inference (`run_borrow_inference`)
+//! - `borrow_inference`: complete pre-AIMS ARC batch lowering
 //! - `repr_setup`: repr plan computation and impl-method ARC lowering for analysis
 //! - `pc2_hooks`: PC-2 invariant check helper for AOT pre-mono / mono sites
 //! - `finalize`: ARC phase dumps + post-codegen diagnostics-and-verify
@@ -33,6 +33,23 @@ use ori_types::{Pool, TypeCheckResult};
 use oric::parser::ParseOutput;
 #[cfg(feature = "llvm")]
 use oric::{CompilerDb, Db};
+
+/// One producer export projected from the same closed artifact LLVM consumes.
+#[cfg(feature = "llvm")]
+pub(crate) struct RealizedCallableExport {
+    pub(crate) mangled_name: String,
+    pub(crate) source_name: String,
+    pub(crate) param_types: Vec<ori_types::Idx>,
+    pub(crate) return_type: ori_types::Idx,
+    pub(crate) metadata: ori_repr::executable::ExternalCallableMetadata,
+}
+
+/// LLVM module plus producer-authored callable facts from one realization.
+#[cfg(feature = "llvm")]
+pub struct LlvmCodegenOutput<'ctx> {
+    pub(crate) module: ori_llvm::inkwell::module::Module<'ctx>,
+    pub(crate) exports: Vec<RealizedCallableExport>,
+}
 
 /// Run the codegen pipeline on a pre-checked module.
 ///
@@ -68,7 +85,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     narrowing_policy: ori_repr::NarrowingPolicy,
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
     imported_collection_surfaces: &[u64],
-) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
+) -> Result<LlvmCodegenOutput<'ctx>, String> {
     use ori_llvm::codegen::eh_model::EhModel;
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
     use ori_llvm::codegen::ir_builder::IrBuilder;
@@ -79,13 +96,19 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     use std::mem::ManuallyDrop;
 
     let interner = db.interner();
+    // Pre-AIMS specialization structurally materializes compound type
+    // identities. Own that append-only pool evolution inside realization; the
+    // frontend pool remains immutable and every physical projection consumes
+    // the pool retained by the closed artifact.
+    let mut realization_pool = pool.clone();
+    let pool = &mut realization_pool;
 
     // SAFETY: FunctionCompiler's lifetimes tie the block's borrow of `scx` to
     // the return lifetime; ManuallyDrop + raw-pointer reborrow detaches it.
     // Sound: `scx` lives for the whole function and the borrows end at the block.
     let scx = ManuallyDrop::new(SimpleCx::new(context, module_name));
 
-    let (codegen_errors, codegen_descriptions) = {
+    let (codegen_errors, codegen_descriptions, exports) = {
         // SAFETY: `scx_ref` is a detached reborrow of `scx`, which `ManuallyDrop`
         // holds alive for this whole function; the reborrow's lifetime ends
         // inside this block, so the detachment is sound.
@@ -96,13 +119,10 @@ pub(super) fn run_codegen_pipeline<'ctx>(
 
         // Runtime functions are declared lazily on first `builder.runtime_fn(name)` use.
         let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
-        let classifier = ori_arc::ArcClassifier::new(pool);
-        let Some(borrow_inference::BorrowInferenceResult {
-            sigs: annotated_sigs,
-            mut arc_cache,
+        let borrow_inference::ArcBatchLoweringResult {
+            groups,
             mono_functions,
-        }) = borrow_inference::run_borrow_inference(
-            db,
+        } = match borrow_inference::lower_arc_batch(
             parse_result,
             &function_sigs,
             &type_result.typed.impl_sigs,
@@ -111,62 +131,33 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             canon,
             interner,
             pool,
-            source_path,
             &type_result.typed.mono_instances,
-        )
-        else {
-            // Why: diagnostics are already emitted; continuing with an empty
-            // arc cache would recurse in codegen resolving missing callees.
-            return Err("ARC lowering reported errors; codegen aborted".to_string());
+            &type_result.typed.accepted_derives,
+        ) {
+            Ok(result) => result,
+            Err(borrow_inference::ArcBatchLoweringFailure::ArcLowering) => {
+                // Why: diagnostics are already emitted; continuing with an
+                // empty cache would recurse while resolving missing callees.
+                return Err(
+                    "ARC lowering rejected this module; fix the source diagnostics emitted above, then rebuild"
+                        .to_string(),
+                );
+            }
+            Err(borrow_inference::ArcBatchLoweringFailure::MonoInventory(error)) => {
+                return Err(error.to_string());
+            }
         };
-
-        // INVARIANT: Apply / Invoke targets in cached ArcFunctions resolve
-        // to mangled mono names before AIMS contract lookup (PL-5: no-stale-
-        // summary). run_borrow_inference pre-lowers monos with generic call-
-        // site names — without this rewrite, forwarder bodies miss
-        // analyze_program's mono-keyed contract map and transitive
-        // transfers_through_return propagation silently fails.
-        if !mono_functions.is_empty() {
-            ori_repr::monomorphize::rewrite_apply_targets_for_monos(
-                &mut arc_cache,
-                &mono_functions,
-                pool,
-                interner,
-            );
-        }
-
-        // Why: finish_with_pool consumes the live registry, so codegen rebuilds
-        // it from TypedModule exports to surface UserBurdenSpec to class-ledger
-        // Step-4b emission. Spec: Annex E §AIMS.
-        let mut type_registry = ori_types::TypeRegistry::from_typed_exports(
-            type_result.typed.types.clone(),
-            type_result.typed.collection_burdens.clone(),
-        );
-        // An imported function's body resolves its internal collection types into
-        // the importer's pool, but register_imported_function composes burdens for
-        // signature types only, leaving class-ledger Step-4b emission without
-        // the burden metadata for an imported body's internal collection (e.g.
-        // a dead for-yield local). Fill the gaps from the merged pool.
-        // Spec: Annex E §AIMS.
-        ori_types::register_resolved_collection_burdens(pool, &mut type_registry);
-
-        // ARC-IR phase dumps (ORI_DUMP_AFTER_ARC + ORI_EMIT_ARC_DOT gates)
-        finalize::dump_arc_phases(
-            &arc_cache,
-            &classifier,
-            pool,
-            interner,
-            &type_registry,
-            source_path,
-        );
 
         // Why: impl methods join the analysis set so interprocedural range
         // analysis sees their call sites; they are lowered once (with
         // type-qualified analysis names) and reused for both the repr plan
         // and the as-compiled impl-method contract pre-pass.
         let crate::realization::ImplMethodAnalysis {
-            functions: impl_analysis_funcs,
-            targets: impl_qualified_by_recv,
+            groups: impl_groups,
+            targets: mut impl_qualified_by_recv,
+            user_drop_bindings: typed_user_drop_bindings,
+            emission_names: impl_emission_names,
+            ..
         } = crate::realization::lower_impl_methods_for_analysis(
             parse_result,
             type_result,
@@ -180,11 +171,49 @@ pub(super) fn run_codegen_pipeline<'ctx>(
                 problems.len()
             )
         })?;
-        let all_arc_funcs = {
-            let mut funcs = crate::realization::collect_all_arc_functions(&arc_cache);
-            funcs.extend(impl_analysis_funcs.iter().cloned());
-            funcs
-        };
+
+        let derived_analysis = crate::realization::lower_non_generic_derived_methods_for_analysis(
+            &type_result.typed.accepted_derives,
+            interner,
+            pool,
+        )
+        .map_err(|problems| {
+            format!(
+                "derived-method ARC lowering failed with {} problem(s): {problems:?}",
+                problems.len()
+            )
+        })?;
+        for (key, target) in derived_analysis.targets {
+            impl_qualified_by_recv.entry(key).or_insert(target);
+        }
+
+        let mut lowered_batch =
+            crate::realization::LoweredArcBatch::try_from_groups(groups, interner)
+                .map_err(|error| error.to_string())?;
+        for group in impl_groups {
+            lowered_batch
+                .insert(group, interner)
+                .map_err(|error| error.to_string())?;
+        }
+        for group in derived_analysis.groups {
+            lowered_batch
+                .insert(group, interner)
+                .map_err(|error| error.to_string())?;
+        }
+        let prepared_batch = lowered_batch
+            .prepare(&mono_functions, &impl_qualified_by_recv, pool, interner)
+            .map_err(|error| error.to_string())?;
+
+        // Preparation materializes exact compound identities for specialized
+        // lambdas. Rebuild the registry only after that append-only pool
+        // evolution so AIMS sees burdens for the exact prepared batch.
+        let mut type_registry = ori_types::TypeRegistry::from_typed_exports(
+            type_result.typed.types.clone(),
+            type_result.typed.collection_burdens.clone(),
+        );
+        // Imported bodies can materialize collection types absent from their
+        // signatures. Fill those exact burdens from the closed realization pool.
+        ori_types::register_resolved_collection_burdens(pool, &mut type_registry);
         // Why: only non-generic impl methods enter the analysis set — generics
         // are skipped by the ARC lowering loop.
         let has_impl_methods = type_result
@@ -194,7 +223,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             .any(|entry| !entry.sig.is_generic());
         let repr_plan = crate::realization::compute_module_repr_plan(
             pool,
-            &all_arc_funcs,
+            prepared_batch.functions(),
             narrowing_policy,
             type_result,
             Some(interner),
@@ -203,58 +232,62 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             has_impl_methods,
         );
 
-        let store = TypeInfoStore::new_with_plan(pool, &repr_plan);
-        let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
+        let externals = ori_repr::monomorphize::realize_imported_callables(import_sigs, pool)
+            .map_err(|error| format!("imported callable realization failed: {error}"))?;
+        let user_drop_bindings = crate::realization::collect_user_drop_bindings(
+            &type_registry,
+            &typed_user_drop_bindings,
+            pool,
+        )
+        .map_err(|error| format!("user-drop callable realization failed: {error}"))?;
+        let roots = prepared_batch.parent_roots();
+        let cli_entry = parse_result
+            .module
+            .functions
+            .iter()
+            .zip(&function_sigs)
+            .find_map(|(function, signature)| signature.is_main.then_some(function.name));
+        let executable = crate::realization::realize_arc_program(
+            crate::realization::ArcProgramRealizationInput {
+                prepared: prepared_batch,
+                pool: pool.clone(),
+                symbols: db.shared_interner(),
+                roots,
+                cli_entry,
+                externals,
+                user_drop_bindings,
+                repr_plan,
+                type_registry,
+                verify_arc: std::env::var(crate::debug_flags::ORI_VERIFY_ARC)
+                    .is_ok_and(|value| value != "0"),
+            },
+        )
+        .map_err(|error| format!("closed executable realization failed: {error}"))?;
+
+        let artifact_pool = executable.pool();
+        let artifact_repr_plan = executable.repr_plan();
+        let artifact_classifier = ori_arc::ArcClassifier::new(artifact_pool);
+        finalize::dump_arc_phases(&executable, interner, source_path);
+        let annotated_sigs = artifact_annotated_signatures(&executable, import_sigs)?;
+        let store = TypeInfoStore::new_with_plan(artifact_pool, artifact_repr_plan);
+        let resolver =
+            TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(artifact_repr_plan));
 
         type_registration::register_user_types(&resolver, &type_result.typed.types);
-
-        let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
-        let aims_contracts = {
-            let mut all_funcs = crate::realization::collect_all_arc_functions(&arc_cache);
-            ori_arc::compute_aims_contracts(&mut all_funcs, &classifier, interner, &builtins)
-        };
-
-        // Why: impl methods compile on the `compile_impls()` immediate-emit
-        // path and never enter `compute_aims_contracts`, so callers see
-        // no contract for them (IC-1 gap) and every impl-method call site gets
-        // the conservative no-contract treatment. The as-compiled pre-pass
-        // computes each non-generic impl method's sanitized contract
-        // (conservative except the structural `transfers_through_return`
-        // Direct pair); `FunctionCompiler` binds them per caller function at
-        // Phase-5 via `augment_contracts_with_impl_callees`.
-        // `ORI_DISABLE_IMPL_METHOD_CONTRACTS=1` bisects.
-        let impl_method_contracts = if std::env::var("ORI_DISABLE_IMPL_METHOD_CONTRACTS")
-            .is_ok_and(|v| v != "0")
-        {
-            rustc_hash::FxHashMap::default()
-        } else {
-            let by_name = ori_arc::compute_impl_method_contracts(
-                &impl_analysis_funcs,
-                &classifier,
-                &builtins,
-                interner,
-            );
-            impl_qualified_by_recv
-                .iter()
-                .filter_map(|(&key, qualified)| by_name.get(qualified).map(|c| (key, c.clone())))
-                .collect()
-        };
 
         let mut fc = FunctionCompiler::new(
             &mut builder,
             &store,
             &resolver,
             interner,
-            pool,
-            &type_registry,
+            artifact_pool,
             symbol_prefix,
             &annotated_sigs,
-            &classifier,
+            &artifact_classifier,
             None, // Debug info wiring deferred to AOT pipeline integration
-            aims_contracts,
             std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok_and(|v| v != "0"),
         );
-        fc.set_impl_method_contracts(impl_method_contracts);
+        fc.bind_executable_program(&executable);
 
         if !import_sigs.is_empty() {
             fc.declare_imports(import_sigs);
@@ -262,16 +295,25 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         fc.declare_all(&parse_result.module.functions, &function_sigs);
         fc.declare_mono_functions(&mono_functions);
 
-        // Why: impl methods use type-qualified canon lookup paths and are not
-        // pre-lowered for borrow inference, so they compile inline here.
+        // Impl methods keep their qualified physical symbols. Every other
+        // family not claimed by source/mono/import declarations is projected
+        // generically from the closed executable artifact.
+        let deferred_artifact_parents: Vec<_> =
+            impl_emission_names.iter().flatten().copied().collect();
+        let artifact_remainder = fc.declare_artifact_remainder(&deferred_artifact_parents);
+
+        // Impl emission keeps its source-level ABI/symbol path, but every body
+        // and callable fact is loaded by its qualified artifact identity.
         if !parse_result.module.impls.is_empty() {
-            fc.compile_impls(
+            fc.compile_impls_from_artifact(
                 &parse_result.module.impls,
                 &type_result.typed.impl_sigs,
                 canon,
                 &parse_result.module.traits,
+                &impl_emission_names,
             );
         }
+        fc.bind_user_drop_targets();
 
         if parse_result
             .module
@@ -284,14 +326,11 @@ pub(super) fn run_codegen_pipeline<'ctx>(
 
         // Why: two-pass (prepare everything, then emit) so the nounwind set is
         // complete before any LLVM IR is emitted.
-        let mut prepared = fc.prepare_all_cached(
-            &parse_result.module.functions,
-            &function_sigs,
-            canon,
-            &mut arc_cache,
-        );
+        let mut prepared =
+            fc.prepare_all_from_artifact(&parse_result.module.functions, &function_sigs);
 
-        prepared.extend(fc.prepare_mono_cached(&mono_functions, canon, &mut arc_cache));
+        prepared.extend(fc.prepare_mono_from_artifact(&mono_functions));
+        prepared.extend(fc.prepare_artifact_remainder_from_artifact(&artifact_remainder));
 
         fc.compute_nounwind_set(&prepared);
         fc.emit_prepared_functions(prepared);
@@ -316,23 +355,129 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             fc.generate_main_wrapper(func.name, sig, panic_name);
         }
 
+        let exports = project_callable_exports(
+            &executable,
+            parse_result,
+            &function_sigs,
+            interner,
+            symbol_prefix,
+        )?;
+
         // Why: AOT must check soft codegen errors (as the JIT path does) to
         // avoid emitting crashing binaries.
         (
             builder.codegen_error_count() + store.type_error_count(),
             builder.codegen_error_descriptions(),
+            exports,
         )
     };
 
     // SAFETY: the compilation block's borrows have ended; ManuallyDrop only
     // suppressed the borrow checker. `into_inner()` would move SimpleCx's other
     // fields while the ManuallyDrop exists, so `finalize_module` clones the module.
-    finalize::finalize_module(
+    let module = finalize::finalize_module(
         &scx,
         codegen_errors,
         &codegen_descriptions,
         source_path,
         pool,
         interner,
-    )
+    )?;
+    Ok(LlvmCodegenOutput { module, exports })
+}
+
+#[cfg(feature = "llvm")]
+fn artifact_annotated_signatures(
+    program: &ori_repr::executable::ExecutableProgram,
+    imports: &[ori_repr::monomorphize::ImportSig],
+) -> Result<rustc_hash::FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>, String> {
+    use ori_arc::aims::lattice::{AccessClass, Consumption};
+    use ori_arc::{AnnotatedParam, Ownership};
+
+    let mut signatures = rustc_hash::FxHashMap::default();
+    for function in program.functions() {
+        let function_id = program.function_id(function.name).ok_or_else(|| {
+            format!(
+                "validated executable has no stable identity for {:?}",
+                function.name
+            )
+        })?;
+        signatures.insert(
+            function.name,
+            program
+                .function_contract(function_id)
+                .to_annotated_sig(&function.params, function.return_type),
+        );
+    }
+    for import in imports {
+        let external_id = program.external_function_id(import.name).ok_or_else(|| {
+            format!(
+                "validated executable has no external callable for imported alias {:?}",
+                import.name
+            )
+        })?;
+        let external = program.external_function(external_id);
+        let params = import
+            .sig
+            .param_names
+            .iter()
+            .copied()
+            .zip(external.parameter_types().iter().copied())
+            .zip(&external.contract().params)
+            .map(|((name, ty), contract)| AnnotatedParam {
+                name,
+                ty,
+                ownership: if contract.consumption == Consumption::Dead
+                    || contract.access == AccessClass::Borrowed
+                {
+                    Ownership::Borrowed
+                } else {
+                    Ownership::Owned
+                },
+            })
+            .collect();
+        signatures.insert(
+            import.name,
+            ori_arc::AnnotatedSig {
+                params,
+                return_type: external.return_type(),
+            },
+        );
+    }
+    Ok(signatures)
+}
+
+#[cfg(feature = "llvm")]
+fn project_callable_exports(
+    program: &ori_repr::executable::ExecutableProgram,
+    parse: &ParseOutput,
+    signatures: &[ori_types::FunctionSig],
+    interner: &ori_ir::StringInterner,
+    symbol_prefix: &str,
+) -> Result<Vec<RealizedCallableExport>, String> {
+    let mangler = ori_llvm::aot::Mangler::new();
+    let mut exports = Vec::new();
+    for (function, signature) in parse.module.functions.iter().zip(signatures) {
+        if !function.visibility.is_public() || signature.is_generic() {
+            continue;
+        }
+        let function_id = program.function_id(function.name).ok_or_else(|| {
+            format!(
+                "closed executable omitted public callable '{}'",
+                interner.lookup(function.name)
+            )
+        })?;
+        let body = &program.functions()[function_id.index()];
+        let source_name = interner.lookup(function.name).to_string();
+        let mangled_name = mangler.mangle_function(symbol_prefix, &source_name);
+        let metadata = program.export_callable_metadata(function_id, &mangled_name);
+        exports.push(RealizedCallableExport {
+            mangled_name,
+            source_name,
+            param_types: body.params.iter().map(|param| param.ty).collect(),
+            return_type: body.return_type,
+            metadata,
+        });
+    }
+    Ok(exports)
 }

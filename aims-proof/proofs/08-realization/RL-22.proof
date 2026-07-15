@@ -1,12 +1,12 @@
-Theorem RL-22: KnownSafe inner-pair elimination (physical RC provably positive)
+Theorem RL-22: KnownSafe inner-pair elimination (logical owner credit outstanding)
 
   Preconditions:
     - RL-22 governs KnownSafe pair elimination per Annex E §AIMS
-      KnownSafe Pair Elimination: when the physical RC is provably positive
-      (a dominating RcInc in scope with no intervening RcDec), inner
-      RcInc/RcDec pairs on the same variable SHALL be eliminated. KnownSafe(v)
-      = true at a point when there exists a dominating RcInc with no
-      intervening RcDec.
+      KnownSafe Pair Elimination: when a dominating logical owner credit remains
+      outstanding because no intervening debit discharged it, inner
+      credit/debit pairs on the same variable SHALL be eliminated. KnownSafe(v)
+      records exactly that ownership-observation fact; it does not assume a physical
+      reference counter.
     - Signature ArcFunction x AimsStateMap -> ArcFunction per
       the canonical proof notation:264; discharged against the sec-01
       Realization.proof sorry obligation.
@@ -22,23 +22,23 @@ Theorem RL-22: KnownSafe inner-pair elimination (physical RC provably positive)
 
       (P1) Elimination decision: RL-22 eliminates the inner pair iff
            KnownSafe(v) at P — i.e. a dominating RcInc with no intervening
-           RcDec (physical RC >= 2).
+           RcDec, interpreted as an outstanding logical owner credit.
 
-      (P2) RC-count preservation: when KnownSafe, physical RC >= 2, so the
-           inner RcDec cannot reach 0 (cannot free); removing the matched
-           inner inc+dec pair is net-0 on the balance ledger — the lifecycle
-           with the inner pair and the lifecycle with it eliminated both
-           balance to RC 0.
+      (P2) Logical-count preservation: when KnownSafe, the outstanding owner
+           credit proves the candidate pair can be removed without violating a
+           later owner-credit floor. Removing the matched inner credit/release pair
+           is net-0 on the balance ledger — the lifecycle with the inner pair
+           and the lifecycle with it eliminated both balance to zero.
 
-    RL-22 refines plain ARC by removing redundant inc/dec pairs the dominating
-    inc makes unnecessary, with no change to the observable RC balance.
+    RL-22 removes a redundant logical event pair without changing evaluator
+    behavior or exact owner-credit balance.
 
   Proof obligation:
     Constructive discharge by the rc_counting engine.
 
     Part (P1) — KnownSafe decision grid:
       dominating_inc_no_dec_eliminate -> KnownSafe (eliminate)
-      intervening_dec_keep_pair -> NOT KnownSafe (RC may be 1; keep)
+      intervening_dec_keep_pair -> NOT KnownSafe (credit may be discharged; keep)
       no_dominating_inc_keep_pair -> NOT KnownSafe (keep)
       Coverage gate: 3 decisions.
 
@@ -46,9 +46,9 @@ Theorem RL-22: KnownSafe inner-pair elimination (physical RC provably positive)
       The verifier asserts the with-inner-pair lifecycle ([alloc, outer inc,
       inner inc, inner dec, outer dec, final dec]) and the eliminated
       lifecycle ([alloc, outer inc, outer dec, final dec]) both net to 0 on
-      the RC ledger. Negative-direction witness: pair elimination must NOT
-      fire without a dominating inc (RC may be 1, so the inner dec could free
-      a still-referenced value) — asserted.
+      the logical count ledger. Negative-direction witness: pair elimination
+      must NOT fire without an outstanding dominating credit because the inner
+      release could otherwise violate a later owner-credit floor — asserted.
 
     Engines dispatched:
       rc_counting (PRIMARY —
@@ -62,4 +62,4 @@ Theorem RL-22: KnownSafe inner-pair elimination (physical RC provably positive)
 
   Expected:
     status: valid
-    reason: section_08 rc_counting engine discharges RL-22 via the KnownSafe decision grid (dominating inc + no intervening dec -> eliminate) and net-0 RC-ledger preservation showing the with-inner-pair and eliminated lifecycles both balance, with a negative-direction witness rejecting elimination without a dominating inc, grounded in the Swift ARC KnownSafe lineage (Annex E §AIMS §8)
+    reason: section_08 rc_counting engine discharges RL-22 via the KnownSafe decision grid (dominating logical owner credit + no intervening debit -> eliminate) and net-0 logical-ledger preservation showing the with-inner-pair and eliminated lifecycles both balance, with a negative-direction witness rejecting elimination without outstanding-credit evidence; a physical counter is only one possible target projection

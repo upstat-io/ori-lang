@@ -41,7 +41,7 @@ This approach gives cache locality (sequential traversal hits contiguous memory)
 
 ### Zero-Copy Sharing via Arc
 
-After canonicalization, the canonical IR needs to be consumed by multiple independent consumers: the evaluator, the test runner, the `check` command, and the LLVM backend. Rather than copying the data for each consumer, Ori wraps the `CanonResult` in an `Arc` (as `SharedCanonResult`), making sharing free and independent of the data's size.
+After canonicalization, the canonical IR needs to be consumed by multiple independent consumers: the evaluator, the test runner, the `check` command, and ARC lowering. Rather than copying the data for each consumer, Ori wraps the `CanonResult` in an `Arc` (as `SharedCanonResult`), making sharing free and independent of the data's size. Physical backends consume the realized AIMS artifact, not canonical IR directly.
 
 ### Type Interning
 
@@ -68,8 +68,12 @@ flowchart TB
     J --> K["ModuleEvalResult
     Value + stdout/stderr"]
     I --> L["AIMS Analysis"]
-    L --> M["LLVM Codegen"]
-    M --> N["Native Binary"]
+    L --> M["ExecutableProgram
+    Logical AIMS Plan + Stable Facts"]
+    M --> VP["VmLayoutPlan"]
+    M --> CP["CompiledLayoutPlan(TargetSpec)"]
+    VP --> N["Bytecode VM / VM JIT"]
+    CP --> O["LLVM / Native / Direct WASM"]
 
     classDef frontend fill:#1e3a5f,stroke:#60a5fa,color:#dbeafe
     classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
@@ -79,7 +83,7 @@ flowchart TB
     class A,B,C,D,E,F,G frontend
     class H,I canon
     class J,K interpreter
-    class L,M,N native
+    class L,M,VP,CP,N,O native
 ```
 
 ## Stage-by-Stage Data Structures
@@ -248,7 +252,7 @@ Data transformations:
 5. **Compile-time expressions → constants** — folded into `ConstantPool`
 6. **Every `CanNode` annotated with its resolved type** — from the `Pool`
 
-The `CanonResult` is wrapped in `SharedCanonResult` (`Arc<CanonResult>`) for zero-copy sharing across all consumers. The `Arc` wrapper means the evaluator, test runner, `check` command, and LLVM backend all read the same data without copying.
+The `CanonResult` is wrapped in `SharedCanonResult` (`Arc<CanonResult>`) for zero-copy sharing across all direct consumers. The evaluator, test runner, `check` command, and ARC lowering read the same data without copying. LLVM and VM consume the realized downstream artifact.
 
 ### Stage 4: Evaluation
 
@@ -350,7 +354,7 @@ The ownership story has three key properties:
 
 - **No data is copied between stages** — each stage produces new data; it doesn't clone the previous stage's output.
 - **AST is borrowed, not cloned, after parsing** — the type checker reads the `ExprArena` by reference, annotating it with types stored in a parallel array.
-- **Canonical IR is shared via `Arc`** — `SharedCanonResult` wraps `CanonResult` in `Arc` for zero-copy sharing across the evaluator, test runner, and LLVM backend.
+- **Canonical IR is shared via `Arc`** — `SharedCanonResult` wraps `CanonResult` for zero-copy sharing across the evaluator, test runner, checks, and ARC lowering; physical backends consume post-AIMS output.
 - **Salsa handles caching lifetimes** — query results are kept alive as long as they might be needed for incremental recomputation.
 
 ## Design Tradeoffs

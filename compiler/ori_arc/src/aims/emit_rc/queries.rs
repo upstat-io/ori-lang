@@ -1,4 +1,4 @@
-//! Post-emission query passes: RC-incremented variable tracking.
+//! Post-emission query passes: added-owner-credit tracking.
 //!
 //! Produces auxiliary data used by downstream pipeline steps (COW annotations,
 //! drop hints).
@@ -10,36 +10,34 @@ use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 #[cfg(test)]
 mod tests;
 
-/// Collect all variables whose underlying object had an `RcInc` emitted.
+/// Collect all variables whose logical storage identity received an added
+/// owner credit through the transitional `RcInc` carrier.
 ///
 /// Returns a set containing:
 /// - Every variable `v` that has an `RcInc { var: v }` instruction
 /// - Every variable on a `Let { dst, value: Var(src) }` alias edge whose
 ///   OTHER end is in the set — BOTH directions, transitive through alias
-///   chains. `dst` and `src` name the SAME allocation, so an inc on either
-///   bumps the shared object's physical refcount: forward (src incremented →
+///   chains. `dst` and `src` name the same logical storage identity, so an
+///   added credit on either applies to both aliases: forward (src incremented →
 ///   dst incremented) covers reads through later aliases; backward (dst
 ///   incremented → src incremented, re-distributed to every sibling by the
 ///   forward pass) covers a kept duplication-alias inc (the RL-1 funded
 ///   call-arg / store families keep the inc on the ALIAS while the root and
 ///   its other aliases stay live — classifying those as un-incremented would
-///   promote a later COW site to `StaticUnique` and mutate the physically
-///   shared buffer in place)
+///   promote a later COW site to `StaticUnique` despite a competing owner)
 /// - Every block parameter that receives an incremented variable through
 ///   a `Jump { target, args }` terminator (phi-edge propagation)
 /// - Every Select operand (`true_val` / `false_val`) when the `dst` is
-///   incremented (BUG-04-090 E-mat fix). At runtime, `Select dst` IS
-///   one of `{true_val, false_val}` — the Session H/I compensating Inc on
-///   `dst` bumps the chosen operand's allocation RC, so the AIMS-side
-///   `Unique` classification on those operands no longer reflects physical
-///   reality and unique-drop fast-path emission would free past the bumped
-///   RC. Propagation is conservative: marks BOTH operands incremented
-///   regardless of the runtime cond, because either could be the chosen.
+///   incremented. `Select dst` is one of `{true_val, false_val}`, so an added
+///   credit on `dst` belongs to the chosen operand's logical identity. The
+///   pre-event `Unique` classification is no longer valid for that identity.
+///   Propagation conservatively marks both operands because either can be
+///   chosen.
 ///
-/// Used by both COW annotations and drop hints: after RC emission, any
-/// variable in this set shares a heap object whose physical refcount was
-/// bumped above 1. The pre-emission AIMS uniqueness state (`Unique`) no
-/// longer reflects the physical reality for these variables.
+/// Used by both COW annotations and drop hints: after logical event
+/// realization, a variable in this set may have a competing owner credit. Its
+/// pre-event AIMS uniqueness state therefore cannot authorize single-owner
+/// mutation or cleanup.
 pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
     use crate::ir::ArcTerminator;
 

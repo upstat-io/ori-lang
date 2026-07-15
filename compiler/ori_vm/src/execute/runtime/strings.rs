@@ -2,7 +2,7 @@
 
 use ori_repr::executable::RuntimeCall;
 
-use crate::bytecode::{Register, StringBinaryOp};
+use crate::bytecode::StringBinaryOp;
 use crate::{ExecutionError, IndexKind, ValueKind};
 
 use super::super::heap::HeapObject;
@@ -30,29 +30,7 @@ impl Interpreter<'_> {
         }
     }
 
-    pub(in crate::execute) fn string_binary_and_advance(
-        &mut self,
-        frame: usize,
-        destination: Register,
-        operation: StringBinaryOp,
-        left: Register,
-        right: Register,
-    ) -> Result<(), ExecutionError> {
-        let value = self.string_binary(
-            operation,
-            self.register(frame, left),
-            self.register(frame, right),
-        )?;
-        self.store_and_advance(frame, destination, value);
-        Ok(())
-    }
-
-    pub(super) fn convert_to_string(
-        &mut self,
-        frame: usize,
-        value_register: Register,
-    ) -> Result<VmValue, ExecutionError> {
-        let value = self.register(frame, value_register);
+    pub(super) fn convert_to_string(&mut self, value: VmValue) -> Result<VmValue, ExecutionError> {
         let string = match value.kind() {
             ValueKind::Int => value.as_int()?.to_string(),
             ValueKind::Bool => value.as_bool()?.to_string(),
@@ -69,18 +47,13 @@ impl Interpreter<'_> {
 
     pub(super) fn concat(
         &mut self,
-        frame: usize,
-        left_register: Register,
-        right_register: Register,
+        left: VmValue,
+        right: VmValue,
     ) -> Result<VmValue, ExecutionError> {
-        self.string_binary(
-            StringBinaryOp::Concat,
-            self.register(frame, left_register),
-            self.register(frame, right_register),
-        )
+        self.string_binary(StringBinaryOp::Concat, left, right)
     }
 
-    fn string_binary(
+    pub(in crate::execute) fn string_binary(
         &mut self,
         operation: StringBinaryOp,
         left: VmValue,
@@ -127,134 +100,96 @@ impl Interpreter<'_> {
 
     pub(super) fn string_contains(
         &self,
-        frame: usize,
-        value_register: Register,
-        needle_register: Register,
+        value: VmValue,
+        needle: VmValue,
     ) -> Result<VmValue, ExecutionError> {
-        let value = self.string_ref(
-            self.register(frame, value_register),
-            RuntimeCall::StringContains,
-        )?;
-        let needle = self.string_ref(
-            self.register(frame, needle_register),
-            RuntimeCall::StringContains,
-        )?;
+        let value = self.string_ref(value, RuntimeCall::StringContains)?;
+        let needle = self.string_ref(needle, RuntimeCall::StringContains)?;
         Ok(VmValue::bool(value.contains(needle)))
     }
 
     pub(super) fn string_starts_with(
         &self,
-        frame: usize,
-        value_register: Register,
-        prefix_register: Register,
+        value: VmValue,
+        prefix: VmValue,
     ) -> Result<VmValue, ExecutionError> {
-        let value = self.string_ref(
-            self.register(frame, value_register),
-            RuntimeCall::StringStartsWith,
-        )?;
-        let prefix = self.string_ref(
-            self.register(frame, prefix_register),
-            RuntimeCall::StringStartsWith,
-        )?;
+        let value = self.string_ref(value, RuntimeCall::StringStartsWith)?;
+        let prefix = self.string_ref(prefix, RuntimeCall::StringStartsWith)?;
         Ok(VmValue::bool(value.starts_with(prefix)))
     }
 
     pub(super) fn string_ends_with(
         &self,
-        frame: usize,
-        value_register: Register,
-        suffix_register: Register,
+        value: VmValue,
+        suffix: VmValue,
     ) -> Result<VmValue, ExecutionError> {
-        let value = self.string_ref(
-            self.register(frame, value_register),
-            RuntimeCall::StringEndsWith,
-        )?;
-        let suffix = self.string_ref(
-            self.register(frame, suffix_register),
-            RuntimeCall::StringEndsWith,
-        )?;
+        let value = self.string_ref(value, RuntimeCall::StringEndsWith)?;
+        let suffix = self.string_ref(suffix, RuntimeCall::StringEndsWith)?;
         Ok(VmValue::bool(value.ends_with(suffix)))
     }
 
-    pub(super) fn string_is_empty(
-        &self,
-        frame: usize,
-        value_register: Register,
-    ) -> Result<VmValue, ExecutionError> {
-        let value = self.string_ref(
-            self.register(frame, value_register),
-            RuntimeCall::StringIsEmpty,
-        )?;
+    pub(super) fn string_is_empty(&self, value: VmValue) -> Result<VmValue, ExecutionError> {
+        let value = self.string_ref(value, RuntimeCall::StringIsEmpty)?;
         Ok(VmValue::bool(value.is_empty()))
     }
 
-    pub(super) fn string_trim(
-        &mut self,
-        frame: usize,
-        value_register: Register,
-    ) -> Result<VmValue, ExecutionError> {
-        let value = self.string_owned(self.register(frame, value_register))?;
+    pub(super) fn string_trim(&mut self, value: VmValue) -> Result<VmValue, ExecutionError> {
+        let value = self.string_owned(value)?;
         self.allocate_string(value.trim().to_owned())
     }
 
-    pub(super) fn string_uppercase(
-        &mut self,
-        frame: usize,
-        value_register: Register,
-    ) -> Result<VmValue, ExecutionError> {
-        let value = self.string_owned(self.register(frame, value_register))?;
+    pub(super) fn string_uppercase(&mut self, value: VmValue) -> Result<VmValue, ExecutionError> {
+        let value = self.string_owned(value)?;
         self.allocate_string(value.to_uppercase())
     }
 
-    pub(super) fn string_lowercase(
-        &mut self,
-        frame: usize,
-        value_register: Register,
-    ) -> Result<VmValue, ExecutionError> {
-        let value = self.string_owned(self.register(frame, value_register))?;
+    pub(super) fn string_lowercase(&mut self, value: VmValue) -> Result<VmValue, ExecutionError> {
+        let value = self.string_owned(value)?;
         self.allocate_string(value.to_lowercase())
     }
 
-    pub(super) fn string_split(
+    pub(super) fn string_split_value(
         &mut self,
-        frame: usize,
-        value_register: Register,
-        separator_register: Register,
+        value: VmValue,
+        separator: VmValue,
     ) -> Result<VmValue, ExecutionError> {
-        let value = self.string_owned(self.register(frame, value_register))?;
-        let separator = self.string_owned(self.register(frame, separator_register))?;
-        let pieces: Vec<String> = if separator.is_empty() {
-            if value.is_empty() {
-                vec![String::new()]
-            } else {
-                value
-                    .chars()
-                    .map(|character| character.to_string())
-                    .collect()
-            }
-        } else {
-            value.split(&separator).map(str::to_owned).collect()
+        let piece_count = {
+            let value = self.string_ref(value, RuntimeCall::StringSplit)?;
+            let separator = self.string_ref(separator, RuntimeCall::StringSplit)?;
+            validate_split(value, separator, self.config.max_collection_elements)?
         };
-        if pieces.len() > self.config.max_collection_elements {
-            return Err(ExecutionError::ResourceLimit {
-                resource: "collection elements",
-                limit: self.config.max_collection_elements,
-            });
-        }
-        let mut values = Vec::with_capacity(pieces.len());
-        for piece in pieces {
-            values.push(self.allocate_string(piece)?);
-        }
+        let allocation_count =
+            piece_count
+                .checked_add(1)
+                .ok_or(ExecutionError::MetricOverflow {
+                    metric: "live heap objects",
+                })?;
         self.heap
-            .allocate(HeapObject::List(values), self.config.max_heap_objects)
+            .validate_allocation_count(allocation_count, self.config.max_heap_objects)?;
+        let mut objects = {
+            let value = self.string_ref(value, RuntimeCall::StringSplit)?;
+            let separator = self.string_ref(separator, RuntimeCall::StringSplit)?;
+            collect_split_objects(value, separator, allocation_count)
+        };
+        objects.push(HeapObject::List(vec![VmValue::UNIT; piece_count]));
+        let prepared = self
+            .heap
+            .prepare_batch(&objects, self.config.max_heap_objects)?;
+        let result = prepared.value_at(piece_count);
+        let Some(HeapObject::List(values)) = objects.get_mut(piece_count) else {
+            return Err(ExecutionError::InvalidHeapObject {
+                call: RuntimeCall::StringSplit,
+            });
+        };
+        for (index, value) in values.iter_mut().enumerate() {
+            *value = prepared.value_at(index);
+        }
+        self.heap.commit_batch(&prepared, objects);
+        Ok(result)
     }
 
-    pub(super) fn print(
-        &mut self,
-        frame: usize,
-        value_register: Register,
-    ) -> Result<VmValue, ExecutionError> {
-        let string = self.string_owned(self.register(frame, value_register))?;
+    pub(super) fn print(&mut self, value: VmValue) -> Result<VmValue, ExecutionError> {
+        let string = self.string_owned(value)?;
         let requested = self
             .output
             .len()
@@ -275,13 +210,9 @@ impl Interpreter<'_> {
         Ok(VmValue::UNIT)
     }
 
-    pub(super) fn panic(
-        &self,
-        frame: usize,
-        message_register: Register,
-    ) -> Result<VmValue, ExecutionError> {
+    pub(super) fn panic(&self, message: VmValue) -> Result<VmValue, ExecutionError> {
         Err(ExecutionError::Panic {
-            message: self.string_owned(self.register(frame, message_register))?,
+            message: self.string_owned(message)?,
         })
     }
 
@@ -319,9 +250,10 @@ impl Interpreter<'_> {
             }
             ValueKind::Heap => match &self.heap.get(value)?.object {
                 HeapObject::String(value) => Ok(value),
-                HeapObject::List(_) | HeapObject::Builder(_) | HeapObject::Vacant => {
-                    Err(ExecutionError::InvalidHeapObject { call })
-                }
+                HeapObject::List(_)
+                | HeapObject::Builder(_)
+                | HeapObject::Closure { .. }
+                | HeapObject::Vacant => Err(ExecutionError::InvalidHeapObject { call }),
             },
             _ => Err(ExecutionError::TypeMismatch {
                 expected: ValueKind::ConstantString,
@@ -340,4 +272,85 @@ impl Interpreter<'_> {
             _ => Ok(false),
         }
     }
+}
+
+fn validate_split(value: &str, separator: &str, limit: usize) -> Result<usize, ExecutionError> {
+    let mut piece_count = 0_usize;
+    if separator.is_empty() {
+        if value.is_empty() {
+            validate_split_piece("", &mut piece_count, limit)?;
+        } else {
+            for character in value.chars() {
+                piece_count = piece_count
+                    .checked_add(1)
+                    .ok_or(ExecutionError::MetricOverflow {
+                        metric: "string split pieces",
+                    })?;
+                if piece_count > limit {
+                    return Err(ExecutionError::ResourceLimit {
+                        resource: "collection elements",
+                        limit,
+                    });
+                }
+                if character.len_utf8() > limit {
+                    return Err(ExecutionError::ResourceLimit {
+                        resource: "string bytes",
+                        limit,
+                    });
+                }
+            }
+        }
+    } else {
+        for piece in value.split(separator) {
+            validate_split_piece(piece, &mut piece_count, limit)?;
+        }
+    }
+    Ok(piece_count)
+}
+
+fn validate_split_piece(
+    piece: &str,
+    piece_count: &mut usize,
+    limit: usize,
+) -> Result<(), ExecutionError> {
+    *piece_count = piece_count
+        .checked_add(1)
+        .ok_or(ExecutionError::MetricOverflow {
+            metric: "string split pieces",
+        })?;
+    if *piece_count > limit {
+        return Err(ExecutionError::ResourceLimit {
+            resource: "collection elements",
+            limit,
+        });
+    }
+    if piece.len() > limit {
+        return Err(ExecutionError::ResourceLimit {
+            resource: "string bytes",
+            limit,
+        });
+    }
+    Ok(())
+}
+
+fn collect_split_objects(value: &str, separator: &str, capacity: usize) -> Vec<HeapObject> {
+    let mut objects = Vec::with_capacity(capacity);
+    if separator.is_empty() {
+        if value.is_empty() {
+            objects.push(HeapObject::String(String::new()));
+        } else {
+            objects.extend(
+                value
+                    .chars()
+                    .map(|character| HeapObject::String(character.to_string())),
+            );
+        }
+    } else {
+        objects.extend(
+            value
+                .split(separator)
+                .map(|piece| HeapObject::String(piece.to_owned())),
+        );
+    }
+    objects
 }

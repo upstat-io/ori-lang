@@ -148,6 +148,20 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    ("list", "prepend") => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::List { element } = ctx.type_info {
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                let r = emitter.emit_list_prepend_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm, ctx.receiver_ty);
+                if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
+                r
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
     ("list", "first") => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_first(ctx.arg_vals[0], *element, ctx.receiver_ty)

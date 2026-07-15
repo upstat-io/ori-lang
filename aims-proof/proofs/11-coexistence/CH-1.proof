@@ -227,9 +227,8 @@ Theorem CH-1: Burden-registry-lattice composition soundness
       as a precondition for the lattice-bridge consistency to be
       well-defined):
 
-        sub-class A: Owned x Linear x Once x Unique (RL-2 + RL-14 candidate)
-        sub-class B: Borrowed x Linear x Once x Unique (RL-14 headerless
-                                                       candidate)
+        sub-class A: Owned x Linear x Once x Unique (RL-2 logical-release class)
+        sub-class B: Borrowed x Linear x Once x Unique (caller-owned class)
         sub-class C: MaybeShared x Many (RL-7 dynamic COW candidate)
 
       For each variable v in vars(F), L[v] assigns each lattice dimension
@@ -253,8 +252,8 @@ Theorem CH-1: Burden-registry-lattice composition soundness
 
       For Class B, burden-owned fails on the Access = Owned conjunct;
       the burden registry MUST NOT classify Class B variables as
-      burden-emitted (RL-14 headerless: no RC emission; the burden walk
-      skips Borrowed variables per the shipped burden_lower.rs
+      burden-emitted (Borrowed carries no callee-owned release obligation at
+      this use; the burden walk skips Borrowed variables per the shipped burden_lower.rs
       DerivedOwnership side-table consumption).
 
       For Class C, burden-owned fails on the Uniqueness = Unique conjunct;

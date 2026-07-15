@@ -249,7 +249,7 @@ impl Deref for SharedArena {
 }
 ```
 
-Cloning a `SharedArena` is an `Arc::clone` — an atomic increment, not a deep copy. The type checker, canonicalizer, evaluator, and LLVM backend all hold `SharedArena` references to the same underlying data.
+Cloning a `SharedArena` is an `Arc::clone` — an atomic increment, not a deep copy. Frontend consumers such as the type checker and canonicalizer can hold references to the same underlying data. The evaluator retains an arena for module metadata during the canonical-evaluation migration, but physical backends do not consume `ExprArena` as their semantic input.
 
 ## Design Tradeoffs
 

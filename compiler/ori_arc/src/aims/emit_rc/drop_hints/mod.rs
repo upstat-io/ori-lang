@@ -25,15 +25,14 @@ pub(crate) fn is_collection_var(func: &ArcFunction, var: ArcVarId, pool: &Pool) 
 /// Collect variables passed as `Borrowed` arguments to Apply/Invoke calls
 /// whose callees may share references (`effects.may_share == true`).
 ///
-/// Runtime functions may internally call `ori_rc_inc` on borrowed arguments
-/// (e.g., `ori_list_slice` increments the original buffer's refcount to keep
-/// the slice alive). These runtime-internal RC ops are invisible to AIMS
-/// analysis. When the callee's contract has `effects.may_share == true`,
-/// we conservatively exclude borrowed args from the unique-drop fast path.
+/// A callee may mint a logical owner credit on a borrowed argument's storage
+/// identity, as a sharing view does. When its contract has
+/// `effects.may_share == true`, conservatively exclude the argument from
+/// single-owner cleanup.
 ///
 /// When `effects.may_share == false` (pure functions, simple accessors),
 /// the callee provably doesn't create shared references, so borrowed args
-/// preserve uniqueness and can safely use `drop_unique`.
+/// preserve uniqueness and remain eligible for single-owner cleanup.
 ///
 /// Also propagates through Let alias chains: if `%x` is borrowed in a call
 /// and `%y = %x`, then `%y` is also excluded.
@@ -59,8 +58,8 @@ pub(crate) fn collect_borrowed_call_args(
                     // For user functions (not builtins) with may_share==false,
                     // the callee provably doesn't share backing storage →
                     // borrowed args preserve uniqueness → safe for drop_unique.
-                    // Builtin contracts are not trusted for this because their
-                    // runtime implementations may do hidden RC ops.
+                    // The transitional builtin contract surface is incomplete;
+                    // production typed runtime descriptors close this fact.
                     if !is_safe_non_sharing_callee(*callee, contracts, builtins, func_names) {
                         for (i, &arg) in args.iter().enumerate() {
                             if arg_ownership.get(i).copied() == Some(ArgOwnership::Borrowed) {
@@ -171,8 +170,9 @@ fn insert_borrowed_from_ownership(
 ///
 /// Returns `true` only for user-analyzed functions (not builtins) where
 /// `effects.may_share == false`. Builtin contracts are not trusted here
-/// because runtime implementations may do hidden `ori_rc_inc` ops
-/// (e.g., `ori_list_slice` increments the backing buffer's refcount).
+/// because the transitional runtime descriptor surface does not yet prove all
+/// sharing-credit behavior. Production executable descriptors remove this
+/// conservative exception.
 fn is_safe_non_sharing_callee(
     callee: Name,
     contracts: &FxHashMap<Name, MemoryContract>,

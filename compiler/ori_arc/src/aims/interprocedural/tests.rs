@@ -1,14 +1,15 @@
 //! Tests for interprocedural AIMS analysis.
 
-use ori_ir::Name;
+use ori_ir::{BinaryOp, Name};
+use ori_registry::{OpStrategy, PrimitiveAllocationEffect, RuntimeOperator};
 use ori_types::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::contract::{ContextRegion, FipContract, MemoryContract};
+use crate::aims::contract::{ContextRegion, FipContract, MemoryAccessClass, MemoryContract};
 use crate::aims::intraprocedural::analyze_function;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
-    ArgOwnership, CtorKind, LitValue,
+    ArgOwnership, CtorKind, LitValue, PrimOp, PrimitiveFact,
 };
 use crate::ownership::Ownership;
 use crate::ArcClass;
@@ -108,6 +109,78 @@ fn extract_contract_literal_return() {
 }
 
 #[test]
+fn primitive_allocation_facts_reach_rl30_through_the_final_contract() {
+    for (runtime, expected_allocation) in [
+        (
+            RuntimeOperator::StringConcat,
+            PrimitiveAllocationEffect::MayAllocate,
+        ),
+        (
+            RuntimeOperator::ListConcat,
+            PrimitiveAllocationEffect::StrategyDependent,
+        ),
+    ] {
+        let mut func = ArcFunction {
+            name: name(90),
+            params: vec![
+                ArcParam {
+                    var: var(0),
+                    ty: ty(0),
+                    ownership: Ownership::Owned,
+                },
+                ArcParam {
+                    var: var(1),
+                    ty: ty(0),
+                    ownership: Ownership::Owned,
+                },
+            ],
+            var_types: vec![ty(0), ty(0), ty(0)],
+            blocks: vec![ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: ArcValue::PrimOp {
+                        op: PrimOp::Binary(BinaryOp::Add),
+                        args: vec![var(0), var(1)],
+                    },
+                }],
+                terminator: ArcTerminator::Return { value: var(2) },
+            }],
+            ..ArcFunction::default()
+        };
+        let fact = PrimitiveFact::resolve(OpStrategy::RuntimeCall(runtime), 2)
+            .unwrap_or_else(|| panic!("{runtime:?} must have a binary descriptor"));
+        assert_eq!(fact.descriptor.allocation, expected_allocation);
+        func.primitive_facts.insert(var(2), fact);
+
+        let classifier = TestClassifier::all_ref(1);
+        let sigs = FxHashMap::default();
+        let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+        let contract = extract_contract(
+            &func,
+            &state_map,
+            &classifier,
+            &sigs,
+            &FxHashSet::default(),
+            &[],
+            &ori_ir::StringInterner::new(),
+        );
+
+        assert!(
+            contract.effects.may_allocate,
+            "{runtime:?} allocation descriptor must reach the final contract"
+        );
+        assert_eq!(
+            contract.function_effect_facts(&func).memory_access(),
+            MemoryAccessClass::ReadWrite,
+            "{runtime:?} allocation descriptor must prevent an RL-30 ReadOnly proof"
+        );
+    }
+}
+
+#[test]
 fn extract_contract_param_used_once() {
     // fn f(x: str) -> str { return x }
     // param v0: str; return v0
@@ -147,6 +220,70 @@ fn extract_contract_param_used_once() {
     assert_eq!(contract.params[0].cardinality, Cardinality::Once);
     // Returning a param → preserves freshness.
     assert!(contract.return_info.preserves_freshness);
+}
+
+#[test]
+fn list_concat_return_is_unique_but_not_frozen_as_self_allocated() {
+    let mut func = ArcFunction {
+        name: name(3),
+        params: vec![
+            ArcParam {
+                var: var(0),
+                ty: ty(0),
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: var(1),
+                ty: ty(0),
+                ownership: Ownership::Owned,
+            },
+        ],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: var(2),
+                ty: ty(0),
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![var(0), var(1)],
+                },
+            }],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+    let Some(fact) =
+        PrimitiveFact::resolve(OpStrategy::RuntimeCall(RuntimeOperator::ListConcat), 2)
+    else {
+        panic!("expected a list-concat descriptor");
+    };
+    assert!(func.primitive_facts.insert(var(2), fact).is_none());
+
+    let classifier = TestClassifier::all_ref(1);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+
+    assert_eq!(contract.return_info.uniqueness, Uniqueness::Unique);
+    assert!(contract
+        .params
+        .iter()
+        .all(|parameter| parameter.access == AccessClass::Owned));
+    assert!(contract.return_info.preserves_freshness);
+    assert!(contract.effects.may_allocate);
+    assert!(!contract.return_info.returns_fresh_self_alloc);
+    assert!(!contract.fresh_self_allocation_facts().is_proven());
 }
 
 #[test]
@@ -1226,10 +1363,10 @@ fn demand_propagation_no_callers_stays_maybe_shared() {
     );
 }
 
-/// BUG-04-069: a forwarded Owned param is NOT provably RC==1. `Owned+Linear+Once`
+/// BUG-04-069: a forwarded Owned param is NOT provably single-owner. `Owned+Linear+Once`
 /// proves no-future-duplication, NOT no-existing-alias (the removed-IC-8/DP-10
 /// fallacy). The forwarded-param Case 2 use-count heuristic is dropped; only a
-/// fresh `Construct` (RC==1 by TF-3) tightens. This is the negative soundness pin.
+/// fresh `Construct` (one logical owner by TF-3) tightens. This is the negative soundness pin.
 #[test]
 fn demand_propagation_forwarded_param_stays_maybe_shared() {
     // callee(p0: T) -> T: { return p0 }
@@ -1289,12 +1426,12 @@ fn demand_propagation_forwarded_param_stays_maybe_shared() {
     assert_eq!(
         callee_contract.params[0].uniqueness,
         Uniqueness::MaybeShared,
-        "forwarded Owned param is not provably RC==1 → callee param stays MaybeShared (DP-10/IC-8 removed)"
+        "forwarded Owned param is not provably single-owner → callee param stays MaybeShared (DP-10/IC-8 removed)"
     );
 }
 
 /// BUG-04-069: a SINGLE fresh-`Construct` variable passed to the SAME
-/// (callee, `param_idx`) at >=2 call sites is RC>1 at the non-first use. The
+/// (callee, `param_idx`) at >=2 call sites may have another owner at the non-first use. The
 /// per-(callee,param) AND-fold must NOT tighten to Unique — the `count_var_uses
 /// == 1` guard on Case 1 (fresh Construct used exactly once) keeps it
 /// `MaybeShared`. Closes the DP-10-class hole on the Construct path that an
@@ -1304,7 +1441,7 @@ fn demand_propagation_construct_var_at_two_sites_stays_maybe_shared() {
     // callee(p0: T) -> T: { return p0 }
     // caller(): { v0 = Construct; v1 = callee(v0); v2 = callee(v0); return v2 }
     //
-    // v0 is a fresh Construct (RC==1 at construction) but is passed to the
+    // v0 starts with one fresh owner but is passed to the
     // SAME (callee, param 0) twice → count_var_uses(v0) == 2 → not Unique.
     let callee = ArcFunction {
         name: name(1),
@@ -1368,25 +1505,25 @@ fn demand_propagation_construct_var_at_two_sites_stays_maybe_shared() {
     assert_eq!(
         callee_contract.params[0].uniqueness,
         Uniqueness::MaybeShared,
-        "fresh Construct passed to same (callee,param) at 2 sites is RC>1 at second use → stays MaybeShared"
+        "fresh Construct passed to the same (callee, param) at two sites has multiple owner credits at the second use, so it stays MaybeShared"
     );
 }
 
-/// BUG-04-069: a fresh `Construct` value used once as a normal call argument
-/// AND once as a `BurdenInc` operand is RC>1 — `instr_use_count` counts the
+/// A fresh `Construct` used once as a normal call argument and once as a
+/// `BurdenInc` operand has multiple logical owner credits. `instr_use_count` counts the
 /// burden-op operand as a real use. `count_var_uses == 2` → the
 /// `count_var_uses == 1` guard on Case 1 keeps the callee param `MaybeShared`,
 /// NOT `Unique`. Pins that the `Burden*` family (`BurdenInc` / `BurdenDec` /
 /// `BurdenDecPartial` / `BurdenDecVariant` / `BurdenDecField`) participates in the
 /// use-count that gates uniqueness-tightening; a regression that stopped
 /// counting a burden operand would silently make a non-unique value appear
-/// unique → unsound RC elision.
+/// unique, which would make ownership-event elision unsound.
 #[test]
 fn demand_propagation_construct_var_with_burden_op_use_stays_maybe_shared() {
     // callee(p0: T) -> T: { return p0 }
     // caller(): { v0 = Construct; v1 = callee(v0); BurdenInc(v0); return v1 }
     //
-    // v0 is fresh (RC==1 at construction) but used twice: once as the Apply
+    // v0 starts with one fresh owner but is used twice: once as the Apply
     // arg, once as a BurdenInc operand → count_var_uses(v0) == 2 → not Unique.
     let callee = ArcFunction {
         name: name(1),
@@ -1443,7 +1580,7 @@ fn demand_propagation_construct_var_with_burden_op_use_stays_maybe_shared() {
     assert_eq!(
         callee_contract.params[0].uniqueness,
         Uniqueness::MaybeShared,
-        "fresh Construct also used as a BurdenInc operand is RC>1 → count_var_uses==2 → stays MaybeShared"
+        "fresh Construct also used as a BurdenInc operand has multiple owner credits, so count_var_uses == 2 and it stays MaybeShared"
     );
 }
 
@@ -1814,13 +1951,147 @@ fn extract_contract_with_trmc_computes_context_behavior() {
 
 // As-compiled impl-method contracts (compute_impl_method_contracts)
 
+fn impl_method_with_int_primops(site_count: usize) -> ArcFunction {
+    assert!((1..=2).contains(&site_count));
+    let Ok(return_var) = u32::try_from(1 + site_count) else {
+        panic!("primitive-site count must fit in an ARC variable identifier");
+    };
+    let mut body = vec![ArcInstr::Let {
+        dst: var(2),
+        ty: Idx::INT,
+        value: ArcValue::PrimOp {
+            op: PrimOp::Binary(BinaryOp::Add),
+            args: vec![var(0), var(1)],
+        },
+    }];
+    if site_count == 2 {
+        body.push(ArcInstr::Let {
+            dst: var(3),
+            ty: Idx::INT,
+            value: ArcValue::PrimOp {
+                op: PrimOp::Binary(BinaryOp::Add),
+                args: vec![var(2), var(1)],
+            },
+        });
+    }
+    ArcFunction {
+        name: name(12),
+        params: vec![
+            ArcParam {
+                var: var(0),
+                ty: Idx::INT,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: var(1),
+                ty: Idx::INT,
+                ownership: Ownership::Owned,
+            },
+        ],
+        return_type: Idx::INT,
+        var_types: vec![Idx::INT; 2 + site_count],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body,
+            terminator: ArcTerminator::Return {
+                value: var(return_var),
+            },
+        }],
+        ..ArcFunction::default()
+    }
+}
+
+#[test]
+fn impl_method_contract_freezes_builtin_primitive_facts_before_analysis() {
+    let pool = ori_types::Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut func = impl_method_with_int_primops(1);
+
+    let Ok(_contracts) = compute_impl_method_contracts(
+        std::slice::from_mut(&mut func),
+        &classifier,
+        &builtins,
+        &interner,
+    ) else {
+        panic!("the AIMS input seam should freeze the int-add descriptor");
+    };
+
+    assert_eq!(
+        func.primitive_facts.get(var(2)).map(|fact| fact.strategy),
+        Some(OpStrategy::SignedInteger)
+    );
+}
+
+#[test]
+fn impl_method_contract_rejects_malformed_frozen_primitive_fact_without_repair() {
+    let pool = ori_types::Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut func = impl_method_with_int_primops(1);
+    let Some(malformed) =
+        PrimitiveFact::resolve(OpStrategy::RuntimeCall(RuntimeOperator::ListConcat), 2)
+    else {
+        panic!("list concat should have a binary descriptor");
+    };
+    assert!(func.primitive_facts.insert(var(2), malformed).is_none());
+
+    let Err(errors) = compute_impl_method_contracts(
+        std::slice::from_mut(&mut func),
+        &classifier,
+        &builtins,
+        &interner,
+    ) else {
+        panic!("a frozen descriptor cannot be recomputed or repaired");
+    };
+
+    assert!(matches!(
+        errors.as_slice(),
+        [crate::verify::VerifyError::PrimitiveFactInvalid { dst, .. }] if *dst == var(2)
+    ));
+    assert_eq!(func.primitive_facts.get(var(2)), Some(malformed));
+}
+
+#[test]
+fn impl_method_contract_rejects_partial_frozen_primitive_facts_without_repair() {
+    let pool = ori_types::Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut func = impl_method_with_int_primops(2);
+    let Some(frozen) = PrimitiveFact::resolve(OpStrategy::SignedInteger, 2) else {
+        panic!("integer addition should have a descriptor");
+    };
+    assert!(func.primitive_facts.insert(var(2), frozen).is_none());
+
+    let Err(errors) = compute_impl_method_contracts(
+        std::slice::from_mut(&mut func),
+        &classifier,
+        &builtins,
+        &interner,
+    ) else {
+        panic!("a non-empty fact table must validate exactly");
+    };
+
+    assert!(errors.iter().any(|error| matches!(
+        error,
+        crate::verify::VerifyError::PrimitiveFactInvalid { dst, .. } if *dst == var(3)
+    )));
+    assert_eq!(func.primitive_facts.iter().count(), 1);
+    assert_eq!(func.primitive_facts.get(var(2)), Some(frozen));
+    assert_eq!(func.primitive_facts.get(var(3)), None);
+}
+
 /// Forwarder `f(x: ref) -> ref = x` — the structural Direct return-flow pair
 /// is published; every other dimension stays at the conservative default
 /// (the contract describes the method AS COMPILED on the immediate-emit
 /// path, which never applies its own contract).
 #[test]
 fn impl_method_contract_forwarder_publishes_direct_ttr_pair_only() {
-    let func = ArcFunction {
+    let mut func = ArcFunction {
         name: name(10),
         params: vec![ArcParam {
             var: var(0),
@@ -1841,12 +2112,14 @@ fn impl_method_contract_forwarder_publishes_direct_ttr_pair_only() {
     let classifier = TestClassifier::all_ref(1);
     let interner = ori_ir::StringInterner::new();
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
-    let out = compute_impl_method_contracts(
-        std::slice::from_ref(&func),
+    let Ok(out) = compute_impl_method_contracts(
+        std::slice::from_mut(&mut func),
         &classifier,
         &builtins,
         &interner,
-    );
+    ) else {
+        panic!("impl-method facts should resolve");
+    };
 
     let contract = &out[&name(10)];
     let p = &contract.params[0];
@@ -1878,7 +2151,7 @@ fn impl_method_contract_forwarder_publishes_direct_ttr_pair_only() {
 /// contract is FULLY conservative: no ttr, no return alias.
 #[test]
 fn impl_method_contract_non_forwarder_is_fully_conservative() {
-    let func = ArcFunction {
+    let mut func = ArcFunction {
         name: name(11),
         params: vec![ArcParam {
             var: var(0),
@@ -1903,12 +2176,14 @@ fn impl_method_contract_non_forwarder_is_fully_conservative() {
     let classifier = TestClassifier::all_ref(2).with_scalar(1);
     let interner = ori_ir::StringInterner::new();
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
-    let out = compute_impl_method_contracts(
-        std::slice::from_ref(&func),
+    let Ok(out) = compute_impl_method_contracts(
+        std::slice::from_mut(&mut func),
         &classifier,
         &builtins,
         &interner,
-    );
+    ) else {
+        panic!("impl-method facts should resolve");
+    };
 
     let contract = &out[&name(11)];
     assert!(!contract.params[0].transfers_through_return);

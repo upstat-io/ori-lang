@@ -30,9 +30,8 @@ fn v(n: u32) -> ArcVarId {
 fn rc_pointer_func(num_vars: u32, body: Vec<ArcInstr>) -> ArcFunction {
     let var_types: Vec<Idx> = (0..num_vars).map(|_| Idx::from_raw(0)).collect();
     let var_reprs: Vec<ValueRepr> = (0..num_vars).map(|_| ValueRepr::RcPointer).collect();
-    ArcFunction {
+    let mut function = ArcFunction {
         var_types,
-        var_reprs,
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -40,7 +39,9 @@ fn rc_pointer_func(num_vars: u32, body: Vec<ArcInstr>) -> ArcFunction {
             terminator: ArcTerminator::Return { value: v(0) },
         }],
         ..Default::default()
-    }
+    };
+    function.replace_variable_representations(var_reprs);
+    function
 }
 
 fn list_construct(dst: ArcVarId, args: Vec<ArcVarId>) -> ArcInstr {

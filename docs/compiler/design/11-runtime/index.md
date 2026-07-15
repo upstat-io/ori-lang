@@ -1,6 +1,6 @@
 ---
 title: "Runtime Overview"
-description: "Ori Compiler Design — AOT Runtime (ori_rt)"
+description: "Ori Compiler Design — Physical Runtime Adapters and ori_rt"
 order: 1100
 section: "Runtime"
 sidebar_title: "Runtime"
@@ -24,7 +24,9 @@ Languages that use **automatic reference counting** (ARC) as their memory manage
 
 Swift pioneered this pattern in a production setting. The Swift runtime provides `swift_retain` and `swift_release` (the equivalents of `ori_rc_inc` and `ori_rc_dec`), along with type metadata, protocol conformance tables, and heap object management. Lean 4 follows a similar pattern with its `lean_inc_ref` and `lean_dec_ref` functions. In both cases, the compiler's static analysis determines *where* to call these functions, and the runtime provides *what* those functions do.
 
-Ori's `ori_rt` crate follows this pattern: the [AIMS analysis pass](../09-aims/index.md) determines statically where reference count operations belong, and the runtime provides the atomic increment/decrement implementations, copy-on-write collection mutations, string operations, and I/O primitives that the generated code calls into.
+Ori follows this pattern with a backend-neutral seam. The [AIMS analysis pass](../09-aims/index.md) determines statically where ownership operations belong.
+
+The closed executable artifact carries typed `RuntimeOperation` identities and an `ExecutableDropPlan`; physical executors choose how those operations run. The `ori_rt` crate provides the compiled adapter's atomic increment/decrement implementations, copy-on-write collection mutations, string operations, and I/O primitives.
 
 ## What Makes Ori's Runtime Distinctive
 
@@ -32,7 +34,9 @@ Ori's `ori_rt` crate follows this pattern: the [AIMS analysis pass](../09-aims/i
 
 The `ori_rt` crate has **no dependencies on the compiler**. It does not import `ori_ir`, `ori_types`, `ori_parse`, or any other compiler crate. It links only against the Rust standard library and the system allocator. This is not an accident — it is a hard architectural constraint that keeps the runtime minimal and ensures that changes to the compiler's internal representations never ripple into the runtime.
 
-The contract between compiler and runtime is entirely defined by C-ABI function signatures. The LLVM backend emits `call @ori_rc_dec(ptr, drop_fn)`, and the runtime provides a function with that exact name and calling convention. Neither side knows about the other's internal types.
+The C ABI is the contract between compiled adapters and `ori_rt`, not the compiler's semantic runtime contract. Upstream, typed `RuntimeOperation` identities, AIMS ownership/effect facts, and the `ExecutableDropPlan` are authoritative.
+
+LLVM, native, compiled-WASM, and JIT projections map those identities to target ABI calls or inline sequences; the VM dispatches the same identities through its in-process adapter. `ori_rt` still knows only raw physical values and callbacks, never compiler-internal types.
 
 ### Dual Build Artifacts
 
@@ -41,7 +45,9 @@ The crate builds as both an `rlib` (Rust library) and a `staticlib` (C-compatibl
 - **`libori_rt.rlib`** — Used by `ori_llvm` for JIT execution. The LLVM execution engine resolves runtime function addresses directly from the loaded Rust library, enabling `ori run` to call runtime functions without a separate linking step.
 - **`libori_rt.a`** — Linked into AOT-compiled binaries by the system linker. When `ori build` produces a native executable, the linker resolves all `ori_*` symbols against this static archive.
 
-Both artifacts are built by `cargo b` (debug) or `cargo b --release` (release). This dual-output design means the same runtime code serves both the development workflow (JIT) and the production workflow (AOT), eliminating the class of bugs where the JIT runtime behaves differently from the AOT runtime.
+Both artifacts are built by `cargo b` (debug) or `cargo b --release` (release). This dual-output design lets the compiled JIT and AOT projections share one `ori_rt` implementation.
+
+Cross-executor parity is established one level higher: every physical executor consumes the same typed operation and drop-plan identities even when its adapter mechanism differs.
 
 ### Data Pointer Convention
 
@@ -71,25 +77,34 @@ Strings of 23 bytes or fewer are stored entirely inline in the 24-byte `OriStr` 
 
 ## Architecture
 
-The runtime sits at the bottom of the compilation pipeline. The LLVM backend emits `call` instructions targeting `ori_rt`'s `#[no_mangle] extern "C"` functions. These calls are resolved at link time (AOT) or symbol resolution time (JIT).
+The runtime sits at the bottom of physical execution. The LLVM backend emits `call` instructions targeting `ori_rt`'s `#[no_mangle] extern "C"` functions; those calls resolve at link time (AOT) or symbol resolution time (JIT).
+
+That is one projection of the shared executable contract. The VM consumes the same operation and drop identities through its own runtime adapter, while the representation-abstract evaluator branches before physical AIMS projection and remains the behavioral oracle.
 
 ```mermaid
 flowchart TB
     Source["Source .ori"] --> Parse["Parse"]
     Parse --> TypeCheck["Type Check"]
     TypeCheck --> Canon["Canonicalize"]
-    Canon --> ARC["AIMS Analysis
-    RC insertion"]
-    ARC --> LLVM["LLVM Codegen
-    call @ori_rc_dec
-    call @ori_list_push_cow
-    call @ori_str_concat"]
+    Canon --> Eval["Evaluator
+    representation-abstract oracle"]
+    Canon --> AIMS["AIMS
+    ownership + effect analysis"]
+    AIMS --> Executable["Closed executable artifact
+    RuntimeOperation identities
+    ExecutableDropPlan"]
+    Executable --> VM["Bytecode VM
+    in-process runtime adapter"]
+    Executable --> Compiled["Compiled projections
+    LLVM / native / WASM / JIT"]
+    Compiled --> CAbi["Target ABI adapter
+    ori_rt calls or inline sequences"]
 
-    LLVM --> Link["Link against
+    CAbi --> Link["Link against
     libori_rt.a"]
     Link --> Binary["Native Binary"]
 
-    LLVM --> JIT["JIT resolve against
+    CAbi --> JIT["JIT resolve against
     libori_rt.rlib"]
     JIT --> Exec["Direct Execution"]
 
@@ -99,12 +114,14 @@ flowchart TB
     classDef interpreter fill:#1a4731,stroke:#34d399,color:#d1fae5
 
     class Source,Parse,TypeCheck frontend
-    class Canon,ARC canon
-    class LLVM,Link,JIT native
-    class Binary,Exec interpreter
+    class Canon,AIMS,Executable canon
+    class Compiled,CAbi,Link,JIT,Binary,Exec native
+    class Eval,VM interpreter
 ```
 
-The runtime never calls back into the compiler. Data flows one way: compiled code calls runtime functions, the runtime operates on raw memory, and results are returned through C ABI conventions — return values for small results, sret output pointers for aggregates larger than 16 bytes, or in-place mutation for COW fast paths.
+The runtime never calls back into the compiler. A physical executor validates and projects the closed artifact, then its adapter operates on physical values.
+
+The compiled `ori_rt` path returns results through target ABI conventions — direct returns, sret output pointers chosen by `CompiledLayoutPlan`, or in-place mutation for COW fast paths. The VM adapter may use a different calling mechanism, but it cannot change operation semantics or drop obligations.
 
 ### Module Organization
 
@@ -177,11 +194,15 @@ The runtime exports approximately 80 C-ABI functions. They fall into six categor
 
 ### C ABI Design Decisions
 
-Runtime functions split across two ABI classes: most are `#[no_mangle] extern "C"` (non-unwinding — carry the `Nounwind` attribute in `ori_llvm`'s declaration table); panic/assertion/bounds-checking entry points that may unwind via Ori's exception mechanism are `#[no_mangle] extern "C-unwind"` (e.g., `ori_panic`, `ori_panic_cstr`, assertion helpers — these intentionally lack `Nounwind`, enforced by the `all_non_unwinding_functions_have_nounwind` audit test in `runtime_decl/tests.rs`). See `.claude/rules/runtime.md §Unwinding ABI` for the full unwinding-function table. Several design decisions shape the calling conventions:
+Runtime functions split across two compiled ABI classes: most are `#[no_mangle] extern "C"`; panic/assertion/bounds-checking entry points that may unwind via Ori's exception mechanism are `#[no_mangle] extern "C-unwind"` (for example, `ori_panic`, `ori_panic_cstr`, and assertion helpers). The typed `RuntimeOperation` descriptor owns the neutral `may_unwind` fact.
+
+LLVM projects it to `Nounwind` or an unwind-capable declaration. The shipped LLVM declaration table still mirrors that classification and its audit test checks the mirror.
+
+Eliminating that duplicate table is part of closing the executable-artifact seam. Several design decisions shape the compiled calling conventions:
 
 **sret output pattern.** Functions returning collections write results through an `out_ptr` parameter rather than returning by value. `OriList`, `OriMap`, and `OriStr` are all 24 bytes — above the 16-byte threshold for register return on x86-64 System V ABI. Explicit sret gives the codegen control over the destination address, which is essential for correct integration with LLVM's alloca/store/load pattern.
 
-**Function pointer callbacks.** COW operations accept `inc_fn` (element RC increment), `elem_dec_fn` (element RC decrement), `key_eq` (key equality), and comparator callbacks as C function pointers. The LLVM backend generates type-specialized trampolines for each concrete type. This keeps the runtime entirely type-agnostic — it never needs to know what type the elements are, only how to increment, decrement, compare, or drop them.
+**Function pointer callbacks.** COW operations accept `inc_fn` (element RC increment), `elem_dec_fn` (element RC decrement), `key_eq` (key equality), and comparator callbacks as C function pointers. The shared executable artifact selects the logical operation and drop identities. A compiled adapter materializes type-specialized trampolines from those identities; the VM dispatches them without manufacturing C function pointers. This keeps `ori_rt` type-agnostic without making LLVM glue the semantic authority.
 
 **Consuming semantics.** Every COW mutation function takes ownership of the caller's reference to the data buffer. This is not just a convention — it is load-bearing for correctness. The fast path (unique owner) mutates in place and returns the same pointer without any RC changes. If the convention were borrowing (caller retains its reference), the fast path would need an extra increment to hand back the reference, and the common case would pay an atomic operation it does not need.
 
@@ -241,5 +262,5 @@ These modes compose: `ORI_TRACE_RC=1 ORI_CHECK_LEAKS=1 ORI_RT_DEBUG=1 ./binary` 
 - [Collections & COW](./collections-cow.md) — Copy-on-write mutation protocol, list/map/set operations
 - [String SSO](./string-sso.md) — Small string optimization, SSO/heap discrimination, COW string operations
 - [Data Structures](./data-structures.md) — Memory layouts for OriList, OriMap, OriSet, OriStr, iterators
-- [AIMS](../09-aims/index.md) — The analysis pass that determines where RC operations are inserted
-- [LLVM Backend](../10-llvm-backend/index.md) — The code generator that emits calls to runtime functions
+- [AIMS](../09-aims/index.md) — The backend-neutral calculus that freezes logical ownership/drop obligations and effect facts; physical plans choose their mechanisms
+- [LLVM Backend](../10-llvm-backend/index.md) — One compiled projection of typed runtime operations

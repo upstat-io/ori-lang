@@ -5,7 +5,9 @@
 //! live in the consuming crates where the dependency exists.
 
 use crate::defs::*;
-use crate::{MemoryStrategy, OpStrategy, TypeParamArity, TypeTag};
+use crate::{
+    MemoryStrategy, MethodRuntime, OpStrategy, RuntimeOperator, StrRuntime, TypeParamArity, TypeTag,
+};
 
 // Primitive type constants used across tests.
 const PRIMITIVE_TYPES: &[&crate::TypeDef] = &[&INT, &FLOAT, &BOOL, &BYTE, &CHAR];
@@ -59,55 +61,55 @@ fn all_methods_have_names() {
 
 #[test]
 fn int_comparison_is_signed() {
-    assert_eq!(INT.operators.lt, OpStrategy::IntInstr);
-    assert_eq!(INT.operators.gt, OpStrategy::IntInstr);
-    assert_eq!(INT.operators.lt_eq, OpStrategy::IntInstr);
-    assert_eq!(INT.operators.gt_eq, OpStrategy::IntInstr);
+    assert_eq!(INT.operators.lt, OpStrategy::SignedInteger);
+    assert_eq!(INT.operators.gt, OpStrategy::SignedInteger);
+    assert_eq!(INT.operators.lt_eq, OpStrategy::SignedInteger);
+    assert_eq!(INT.operators.gt_eq, OpStrategy::SignedInteger);
 }
 
 #[test]
 fn byte_comparison_is_unsigned() {
-    assert_eq!(BYTE.operators.lt, OpStrategy::UnsignedCmp);
-    assert_eq!(BYTE.operators.gt, OpStrategy::UnsignedCmp);
-    assert_eq!(BYTE.operators.lt_eq, OpStrategy::UnsignedCmp);
-    assert_eq!(BYTE.operators.gt_eq, OpStrategy::UnsignedCmp);
+    assert_eq!(BYTE.operators.lt, OpStrategy::UnsignedComparison);
+    assert_eq!(BYTE.operators.gt, OpStrategy::UnsignedComparison);
+    assert_eq!(BYTE.operators.lt_eq, OpStrategy::UnsignedComparison);
+    assert_eq!(BYTE.operators.gt_eq, OpStrategy::UnsignedComparison);
 }
 
 #[test]
 fn char_comparison_is_unsigned() {
-    assert_eq!(CHAR.operators.lt, OpStrategy::UnsignedCmp);
-    assert_eq!(CHAR.operators.gt, OpStrategy::UnsignedCmp);
-    assert_eq!(CHAR.operators.lt_eq, OpStrategy::UnsignedCmp);
-    assert_eq!(CHAR.operators.gt_eq, OpStrategy::UnsignedCmp);
+    assert_eq!(CHAR.operators.lt, OpStrategy::UnsignedComparison);
+    assert_eq!(CHAR.operators.gt, OpStrategy::UnsignedComparison);
+    assert_eq!(CHAR.operators.lt_eq, OpStrategy::UnsignedComparison);
+    assert_eq!(CHAR.operators.gt_eq, OpStrategy::UnsignedComparison);
 }
 
 #[test]
 fn bool_comparison_is_unsigned() {
-    assert_eq!(BOOL.operators.lt, OpStrategy::UnsignedCmp);
-    assert_eq!(BOOL.operators.gt, OpStrategy::UnsignedCmp);
-    assert_eq!(BOOL.operators.lt_eq, OpStrategy::UnsignedCmp);
-    assert_eq!(BOOL.operators.gt_eq, OpStrategy::UnsignedCmp);
+    assert_eq!(BOOL.operators.lt, OpStrategy::UnsignedComparison);
+    assert_eq!(BOOL.operators.gt, OpStrategy::UnsignedComparison);
+    assert_eq!(BOOL.operators.lt_eq, OpStrategy::UnsignedComparison);
+    assert_eq!(BOOL.operators.gt_eq, OpStrategy::UnsignedComparison);
 }
 
 #[test]
 fn bool_equality_is_bool_logic() {
-    assert_eq!(BOOL.operators.eq, OpStrategy::BoolLogic);
-    assert_eq!(BOOL.operators.neq, OpStrategy::BoolLogic);
+    assert_eq!(BOOL.operators.eq, OpStrategy::BooleanLogic);
+    assert_eq!(BOOL.operators.neq, OpStrategy::BooleanLogic);
 }
 
 #[test]
 fn float_comparison_is_float_instr() {
-    assert_eq!(FLOAT.operators.lt, OpStrategy::FloatInstr);
-    assert_eq!(FLOAT.operators.gt, OpStrategy::FloatInstr);
-    assert_eq!(FLOAT.operators.lt_eq, OpStrategy::FloatInstr);
-    assert_eq!(FLOAT.operators.gt_eq, OpStrategy::FloatInstr);
-    assert_eq!(FLOAT.operators.eq, OpStrategy::FloatInstr);
-    assert_eq!(FLOAT.operators.neq, OpStrategy::FloatInstr);
+    assert_eq!(FLOAT.operators.lt, OpStrategy::FloatingPoint);
+    assert_eq!(FLOAT.operators.gt, OpStrategy::FloatingPoint);
+    assert_eq!(FLOAT.operators.lt_eq, OpStrategy::FloatingPoint);
+    assert_eq!(FLOAT.operators.gt_eq, OpStrategy::FloatingPoint);
+    assert_eq!(FLOAT.operators.eq, OpStrategy::FloatingPoint);
+    assert_eq!(FLOAT.operators.neq, OpStrategy::FloatingPoint);
 }
 
 #[test]
 fn bool_not_is_bool_logic() {
-    assert_eq!(BOOL.operators.not, OpStrategy::BoolLogic);
+    assert_eq!(BOOL.operators.not, OpStrategy::BooleanLogic);
 }
 
 #[test]
@@ -130,10 +132,10 @@ fn float_has_no_bitwise_ops() {
 
 #[test]
 fn float_has_no_floor_div() {
-    // float.rem = FloatInstr (proactive addition — LLVM handles `frem`).
+    // float.rem = FloatingPoint (proactive addition — LLVM handles `frem`).
     // float.floor_div = Unsupported (floor division is integer-only).
     assert_eq!(FLOAT.operators.floor_div, OpStrategy::Unsupported);
-    assert_eq!(FLOAT.operators.rem, OpStrategy::FloatInstr);
+    assert_eq!(FLOAT.operators.rem, OpStrategy::FloatingPoint);
 }
 
 #[test]
@@ -301,14 +303,14 @@ fn str_operators_all_runtime_call_or_unsupported() {
     ];
     for (name, op) in all {
         assert!(
-            matches!(op, OpStrategy::RuntimeCall { .. } | OpStrategy::Unsupported),
+            matches!(op, OpStrategy::RuntimeCall(_) | OpStrategy::Unsupported),
             "str operator `{name}` must be RuntimeCall or Unsupported, got {op:?}"
         );
     }
 }
 
 #[test]
-fn str_runtime_call_names_are_valid() {
+fn str_runtime_call_identities_are_string_operations() {
     let ops = &STR.operators;
     let all = [
         ops.add,
@@ -333,11 +335,14 @@ fn str_runtime_call_names_are_valid() {
         ops.shr,
     ];
     for op in all {
-        if let OpStrategy::RuntimeCall { fn_name, .. } = op {
-            assert!(
-                fn_name.starts_with("ori_str_"),
-                "RuntimeCall fn_name `{fn_name}` must start with `ori_str_`"
-            );
+        if let OpStrategy::RuntimeCall(runtime) = op {
+            assert!(matches!(
+                runtime,
+                RuntimeOperator::StringConcat
+                    | RuntimeOperator::StringEqual
+                    | RuntimeOperator::StringNotEqual
+                    | RuntimeOperator::StringCompare
+            ));
         }
     }
 }
@@ -435,15 +440,16 @@ fn str_comparison_operators_use_ori_str_compare() {
         ("gt_eq", ops.gt_eq),
     ] {
         match op {
-            OpStrategy::RuntimeCall {
-                fn_name,
-                returns_bool,
-            } => {
+            OpStrategy::RuntimeCall(runtime) => {
                 assert_eq!(
-                    fn_name, "ori_str_compare",
+                    runtime,
+                    RuntimeOperator::StringCompare,
                     "str.{name} should use ori_str_compare"
                 );
-                assert!(returns_bool, "str.{name} comparison should return bool");
+                assert!(
+                    runtime.returns_bool(),
+                    "str.{name} comparison should return bool"
+                );
             }
             _ => panic!("str.{name} should be RuntimeCall, got {op:?}"),
         }
@@ -453,15 +459,13 @@ fn str_comparison_operators_use_ori_str_compare() {
 #[test]
 fn str_neq_uses_ori_str_ne() {
     match STR.operators.neq {
-        OpStrategy::RuntimeCall {
-            fn_name,
-            returns_bool,
-        } => {
+        OpStrategy::RuntimeCall(runtime) => {
             assert_eq!(
-                fn_name, "ori_str_ne",
+                runtime,
+                RuntimeOperator::StringNotEqual,
                 "str.neq should use ori_str_ne (not ori_str_neq)"
             );
-            assert!(returns_bool);
+            assert!(runtime.returns_bool());
         }
         _ => panic!("str.neq should be RuntimeCall"),
     }
@@ -497,6 +501,60 @@ fn trait_methods_have_correct_trait_name() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn len_trait_and_runtime_identity_cannot_drift() {
+    for type_def in BUILTIN_TYPES {
+        for method in type_def.methods {
+            if method.trait_name == Some("Len") {
+                assert!(
+                    method.params.is_empty(),
+                    "{}.{}, Len arity",
+                    type_def.name,
+                    method.name
+                );
+                assert_eq!(
+                    method.runtime,
+                    Some(MethodRuntime::Length),
+                    "{}.{} runtime identity",
+                    type_def.name,
+                    method.name,
+                );
+            }
+            if method.runtime == Some(MethodRuntime::Length) {
+                assert_eq!(
+                    method.trait_name,
+                    Some("Len"),
+                    "{}.{} trait identity",
+                    type_def.name,
+                    method.name,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn string_runtime_identity_is_registry_owned() {
+    let expected = [
+        ("concat", StrRuntime::Concat),
+        ("contains", StrRuntime::Contains),
+        ("starts_with", StrRuntime::StartsWith),
+        ("ends_with", StrRuntime::EndsWith),
+        ("is_empty", StrRuntime::IsEmpty),
+        ("trim", StrRuntime::Trim),
+        ("to_uppercase", StrRuntime::Uppercase),
+        ("to_lowercase", StrRuntime::Lowercase),
+        ("split", StrRuntime::Split),
+    ];
+
+    for (name, operation) in expected {
+        let method = crate::find_method(TypeTag::Str, name)
+            .unwrap_or_else(|| panic!("str.{name} must remain registered"));
+        assert_eq!(method.runtime, Some(MethodRuntime::Str(operation)));
+        assert_eq!(operation.arity(), method.params.len() + 1);
     }
 }
 

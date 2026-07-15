@@ -220,8 +220,8 @@ impl TypeTag {
 
 /// How values of a type are managed in memory.
 ///
-/// This determines whether the ARC pipeline inserts retain/release
-/// operations, and how the LLVM backend copies/moves values.
+/// This is a backend-neutral input to AIMS ownership realization and to each
+/// executor's physical storage and copy/move projection.
 ///
 /// For generic types (`List`, `Option`, etc.), the memory strategy describes
 /// the container's OWN strategy, not the transitive strategy of its
@@ -231,31 +231,24 @@ impl TypeTag {
 /// type parameters.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MemoryStrategy {
-    /// Value type: bitwise copy, no reference counting.
-    ///
-    /// Values live in registers or on the stack. Copying is a memcpy.
-    /// No destructor needed.
+    /// Value type: bitwise-copyable logical value with no counted ownership.
     ///
     /// Examples: `int`, `float`, `bool`, `byte`, `char`, `Unit`, `Never`,
     /// `Duration`, `Size`, `Ordering`.
     ///
-    /// In LLVM: passed by value, no RC calls emitted.
-    /// In ARC: `ArcClass::Scalar` (for this type alone; compound types
+    /// In AIMS: `ArcClass::Scalar` (for this type alone; compound types
     /// containing only `Copy` children are also Scalar transitively).
+    /// Each executor chooses its own physical storage and calling convention.
     Copy,
 
-    /// Reference-counted heap allocation.
-    ///
-    /// Values contain a pointer to heap-allocated memory with a reference
-    /// count header. Copying increments the count (`ori_rc_inc`), dropping
-    /// decrements it (`ori_rc_dec`), and when the count reaches zero the
-    /// memory is freed.
+    /// Logical value governed by counted ownership.
     ///
     /// Examples: `str`, `Error`, `List`, `Map`, `Set`, `Channel`,
     /// `Function`, `Iterator`.
     ///
-    /// In LLVM: retain/release calls around copies and drops.
-    /// In ARC: `ArcClass::DefiniteRef`.
+    /// In AIMS: `ArcClass::DefiniteRef`; the realized ownership plan contains
+    /// the required retain/release events. Pointer shape, headers, allocation,
+    /// and event implementation belong to each executor's physical projection.
     Arc,
 
     /// Structural: memory strategy depends on contents.
@@ -324,88 +317,252 @@ pub enum Ownership {
 // Enforce that Ownership fits in a single byte.
 const _: () = assert!(size_of::<Ownership>() == 1);
 
-/// How an operator is lowered to machine code for a specific type.
+/// One operand's semantic ownership use at a primitive-operation boundary.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum PrimitiveOperandUse {
+    /// The operation reads the value and leaves its ownership obligation with
+    /// the caller.
+    Borrow,
+    /// The operation takes one logical ownership obligation.
+    Consume,
+}
+
+/// A compact set of primitive operand indices.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PrimitiveOperandSet(u8);
+
+impl PrimitiveOperandSet {
+    /// No operands.
+    pub const EMPTY: Self = Self(0);
+    /// The first two operands.
+    pub const FIRST_TWO: Self = Self(0b11);
+
+    /// Whether the set is empty.
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Whether an operand is in the set.
+    #[must_use]
+    pub const fn contains(self, operand: usize) -> bool {
+        operand < u8::BITS as usize && self.0 & (1_u8 << operand) != 0
+    }
+
+    /// Whether the set names an operand outside `arity`.
+    #[must_use]
+    pub const fn fits_arity(self, arity: usize) -> bool {
+        if arity >= u8::BITS as usize {
+            true
+        } else {
+            self.0 < (1_u8 << arity)
+        }
+    }
+}
+
+/// Semantic ownership origin of a primitive result.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum PrimitiveResultOwnership {
+    /// Non-reference-counted result outside the AIMS lattice carrier.
+    Scalar,
+    /// One independent owned result whose storage is not sourced from an
+    /// input obligation.
+    IndependentOwned,
+    /// One independent owned result whose physical storage may come from one
+    /// of the named consumed inputs or from an independent allocation.
+    OwnedFromConsumedOrIndependent {
+        /// Inputs eligible to fund physical storage takeover.
+        eligible_inputs: PrimitiveOperandSet,
+    },
+    /// Result aliases one input and inherits its state.
+    Alias {
+        /// Aliased operand index.
+        operand: u8,
+    },
+}
+
+/// Physical allocation possibility, separate from result ownership.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum PrimitiveAllocationEffect {
+    /// The primitive does not allocate.
+    None,
+    /// The primitive may allocate independent storage.
+    MayAllocate,
+    /// Allocation depends on the admitted physical strategy row.
+    StrategyDependent,
+}
+
+/// Backend-neutral ownership descriptor for one primitive operation.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PrimitiveDescriptor {
+    /// Semantic result ownership.
+    pub result: PrimitiveResultOwnership,
+    /// One ownership use per operand.
+    pub operand_uses: &'static [PrimitiveOperandUse],
+    /// Allocation possibility, independent of logical result ownership.
+    pub allocation: PrimitiveAllocationEffect,
+}
+
+impl PrimitiveDescriptor {
+    /// Validate arity, index bounds, takeover consumption, and the permitted
+    /// result/allocation combinations. Consumers must reject invalid metadata.
+    #[must_use]
+    pub fn is_valid_for(self, arity: usize) -> bool {
+        if self.operand_uses.len() != arity {
+            return false;
+        }
+        match (self.result, self.allocation) {
+            (PrimitiveResultOwnership::Scalar, PrimitiveAllocationEffect::None)
+            | (
+                PrimitiveResultOwnership::IndependentOwned,
+                PrimitiveAllocationEffect::MayAllocate,
+            ) => true,
+            (PrimitiveResultOwnership::Alias { operand }, PrimitiveAllocationEffect::None) => {
+                usize::from(operand) < arity
+            }
+            (
+                PrimitiveResultOwnership::OwnedFromConsumedOrIndependent { eligible_inputs },
+                PrimitiveAllocationEffect::StrategyDependent,
+            ) => {
+                !eligible_inputs.is_empty()
+                    && eligible_inputs.fits_arity(arity)
+                    && self.operand_uses.iter().enumerate().all(|(index, use_)| {
+                        !eligible_inputs.contains(index) || *use_ == PrimitiveOperandUse::Consume
+                    })
+            }
+            _ => false,
+        }
+    }
+}
+
+const ONE_BORROWED_OPERAND: &[PrimitiveOperandUse] = &[PrimitiveOperandUse::Borrow];
+const TWO_BORROWED_OPERANDS: &[PrimitiveOperandUse] =
+    &[PrimitiveOperandUse::Borrow, PrimitiveOperandUse::Borrow];
+const TWO_CONSUMED_OPERANDS: &[PrimitiveOperandUse] =
+    &[PrimitiveOperandUse::Consume, PrimitiveOperandUse::Consume];
+
+/// Typed identity for a runtime-backed primitive operator.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum RuntimeOperator {
+    /// UTF-8 string concatenation.
+    StringConcat,
+    /// UTF-8 string equality.
+    StringEqual,
+    /// UTF-8 string inequality.
+    StringNotEqual,
+    /// UTF-8 string ordering comparison.
+    StringCompare,
+    /// Persistent-list concatenation.
+    ListConcat,
+}
+
+impl RuntimeOperator {
+    /// Whether the source-level operator result is boolean.
+    #[must_use]
+    pub const fn returns_bool(self) -> bool {
+        !matches!(self, Self::StringConcat | Self::ListConcat)
+    }
+
+    /// Canonical ownership descriptor for this runtime operation.
+    #[must_use]
+    pub const fn descriptor(self) -> PrimitiveDescriptor {
+        match self {
+            Self::StringConcat => PrimitiveDescriptor {
+                result: PrimitiveResultOwnership::IndependentOwned,
+                operand_uses: TWO_BORROWED_OPERANDS,
+                allocation: PrimitiveAllocationEffect::MayAllocate,
+            },
+            Self::StringEqual | Self::StringNotEqual | Self::StringCompare => PrimitiveDescriptor {
+                result: PrimitiveResultOwnership::Scalar,
+                operand_uses: TWO_BORROWED_OPERANDS,
+                allocation: PrimitiveAllocationEffect::None,
+            },
+            Self::ListConcat => PrimitiveDescriptor {
+                result: PrimitiveResultOwnership::OwnedFromConsumedOrIndependent {
+                    eligible_inputs: PrimitiveOperandSet::FIRST_TWO,
+                },
+                operand_uses: TWO_CONSUMED_OPERANDS,
+                allocation: PrimitiveAllocationEffect::StrategyDependent,
+            },
+        }
+    }
+}
+
+/// Backend-neutral executable strategy for an operator on a specific type.
 ///
-/// Each builtin type declares an `OpStrategy` for every operator it supports.
-/// The LLVM backend reads this strategy and emits the corresponding
-/// instructions, eliminating the scattered `if is_float` / `if is_str`
-/// guard chains that currently live in `emit_binary_op()`.
+/// Each builtin type declares one `OpStrategy` for every supported operator.
+/// Evaluator, VM, and compiled projections consume that shared semantic
+/// classification instead of rediscovering it from type spelling.
 ///
-/// The strategy carries enough information for the backend to emit correct
-/// code without further type inspection. For `RuntimeCall`, the function
-/// name is included so the backend just calls it. For instruction-level
-/// strategies, the backend knows the exact LLVM instruction family.
+/// The strategy classifies source semantics. Each executor projects that
+/// identity into its own instruction, bytecode, or runtime-call mechanism.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum OpStrategy {
-    /// Signed integer instructions.
-    ///
-    /// Arithmetic: `add`, `sub`, `mul`, `sdiv`, `srem`.
-    /// Comparison: `icmp slt`, `icmp sgt`, `icmp sle`, `icmp sge`.
-    /// Equality: `icmp eq`, `icmp ne`.
-    /// Negation: `sub 0, x`.
-    /// Bitwise: `and`, `or`, `xor`, `shl`, `ashr`.
-    IntInstr,
+    /// Signed integer arithmetic, equality, ordering, bitwise logic, shifts,
+    /// and negation.
+    SignedInteger,
 
-    /// Floating-point instructions.
-    ///
-    /// Arithmetic: `fadd`, `fsub`, `fmul`, `fdiv`, `frem`.
-    /// Comparison: `fcmp olt`, `fcmp ogt`, `fcmp ole`, `fcmp oge`.
-    /// Equality: `fcmp oeq`, `fcmp one`.
-    /// Negation: `fneg`.
-    FloatInstr,
+    /// Floating-point arithmetic, equality, ordering, and negation.
+    FloatingPoint,
 
-    /// Unsigned integer comparison.
-    ///
-    /// Comparison: `icmp ult`, `icmp ugt`, `icmp ule`, `icmp uge`.
-    /// Equality: `icmp eq`, `icmp ne` (same as signed for equality).
-    /// No arithmetic operators — `byte` and `char` don't support `+`, `-`, etc.
-    ///
-    /// Why: `bool` ordering uses unsigned comparison since `false=0, true=1`.
-    UnsignedCmp,
+    /// Unsigned equality and ordering for byte, character, and boolean values.
+    UnsignedComparison,
 
-    /// Boolean logic instructions.
-    ///
-    /// And: `and`. Or: `or`. Xor: `xor`.
-    /// Equality: `icmp eq`, `icmp ne`.
-    /// No arithmetic, no ordering (ordering uses `UnsignedCmp`).
-    /// Backs the logical operators `&&`, `||`.
-    BoolLogic,
+    /// Boolean equality and eager logical operations.
+    BooleanLogic,
 
-    /// Delegate to an `ori_rt` runtime function.
-    ///
-    /// The function name is the symbol in the runtime library that
-    /// implements this operation. The LLVM backend emits a `call`
-    /// instruction to this function.
-    ///
-    /// `returns_bool` indicates whether the runtime function returns
-    /// `i1` (for equality/comparison predicates like `ori_str_eq`)
-    /// vs the type's own representation (for operations like
-    /// `ori_str_concat` which returns a new `str`).
-    ///
-    /// Strategy for operators that delegate entirely to a runtime function.
-    RuntimeCall {
-        /// The runtime function symbol name (e.g., `"ori_str_concat"`).
-        fn_name: &'static str,
-        /// `true` if the function returns `i1` (bool), `false` if it
-        /// returns the same type as the operands.
-        returns_bool: bool,
-    },
+    /// Recursive equality over a builtin compound value.
+    StructuralEquality,
+
+    /// Lexicographic ordering over a builtin compound value.
+    StructuralOrdering,
+
+    /// Delegate to one typed runtime operation.
+    RuntimeCall(RuntimeOperator),
 
     /// This operator is not supported for this type.
     ///
-    /// Attempting to use this operator is a type error caught by the
-    /// type checker. The LLVM backend should never encounter this
-    /// variant — if it does, it's a compiler bug.
+    /// Attempting to use this operator is a type error caught by the type
+    /// checker. No executor may encounter this variant in validated input;
+    /// if one does, it is a compiler bug.
     Unsupported,
 }
 
-// RuntimeCall has &'static str + bool + discriminant + padding.
-// 64-bit: (16 + 1 + 1 + padding) = 24 bytes.
-// 32-bit (WASM): (8 + 1 + 1 + padding) = 12 bytes.
-#[cfg(target_pointer_width = "64")]
-const _: () = assert!(size_of::<OpStrategy>() == 24);
-#[cfg(target_pointer_width = "32")]
-const _: () = assert!(size_of::<OpStrategy>() == 12);
+// Fieldless strategies and the niche-packed runtime identity fit in one byte.
+const _: () = assert!(size_of::<OpStrategy>() == 1);
+
+impl OpStrategy {
+    /// Canonical primitive descriptor for this strategy and arity.
+    /// Unsupported strategies or unsupported arities have no descriptor and
+    /// must fail validation before AIMS or execution.
+    #[must_use]
+    pub const fn descriptor(self, arity: usize) -> Option<PrimitiveDescriptor> {
+        match self {
+            Self::RuntimeCall(runtime) => Some(runtime.descriptor()),
+            Self::SignedInteger
+            | Self::FloatingPoint
+            | Self::UnsignedComparison
+            | Self::BooleanLogic
+            | Self::StructuralEquality
+            | Self::StructuralOrdering => {
+                let operand_uses = match arity {
+                    1 => ONE_BORROWED_OPERAND,
+                    2 => TWO_BORROWED_OPERANDS,
+                    _ => return None,
+                };
+                Some(PrimitiveDescriptor {
+                    result: PrimitiveResultOwnership::Scalar,
+                    operand_uses,
+                    allocation: PrimitiveAllocationEffect::None,
+                })
+            }
+            Self::Unsupported => None,
+        }
+    }
+}
 
 /// How many type parameters a builtin type expects.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]

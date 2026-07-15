@@ -312,9 +312,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `receiver_owned` mirrors the list path's `owns_data`: the set buffer is a
     /// SEPARATE allocation from the converted list (unlike `emit_list_iter`, which
     /// reuses the same buffer), so the set buffer must be decremented HERE — but
-    /// only when the receiver is owned. An owned receiver had its RC inc'd (AIMS
-    /// for `[own]`, or the auto-iter slice-aware inc), so the dec matches that inc.
-    /// A BORROWED receiver got no callee inc — the OWNER/caller emits the dec
+    /// only when the receiver is owned. The current compiled adapter inc'd an
+    /// owned receiver as its projection of `[own]` (or via the auto-iter
+    /// slice-aware path), so the dec matches that inc. A BORROWED receiver got
+    /// no callee inc — the current adapter emits the release for the owner/caller
     /// (Spec: Annex E §AIMS RL-2; `AimsProof.Realization.RL2_borrowed_param_emits_caller_dec`),
     /// so decrementing here would double-free the caller's still-owned set buffer.
     pub(crate) fn emit_set_iter(
@@ -327,8 +328,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let list_val = self.emit_set_to_list(receiver, elem_ty)?;
 
         if receiver_owned {
-            // Owned receiver: its RC was inc'd (AIMS `[own]` / auto-iter inc), so
-            // dec the set buffer here — the converted list now owns the element
+            // Owned receiver: the compiled adapter inc'd its RC when projecting
+            // the shared `[own]` fact (or auto-iter transfer), so dec the set
+            // buffer here — the converted list now owns the element
             // references; this dec matches the inc, freeing the set buffer when no
             // other refs exist (RL2_release_exactly_once).
             let (data_ptr, len, cap) = self.extract_set_components(receiver);

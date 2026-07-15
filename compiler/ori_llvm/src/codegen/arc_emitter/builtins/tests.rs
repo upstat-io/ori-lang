@@ -16,6 +16,37 @@ use ori_registry::lowercase_type_name;
 
 use super::builtin_table;
 
+#[test]
+fn option_result_handlers_have_closed_runtime_identities() {
+    let table = builtin_table();
+    for tag in [ori_registry::TypeTag::Option, ori_registry::TypeTag::Result] {
+        let type_def = ori_registry::find_type(tag)
+            .unwrap_or_else(|| panic!("{tag:?} registry definition should exist"));
+        for method in type_def.methods {
+            let has_handler = table.has(type_def.name, method.name)
+                || super::traceable::TRACELESS_TRACEABLE_METHODS.contains(&method.name);
+            assert!(
+                has_handler,
+                "{}.{} has no LLVM handler or traceable intercept",
+                type_def.name, method.name
+            );
+            let runtime = method.runtime.unwrap_or_else(|| {
+                panic!(
+                    "{}.{} has LLVM behavior but no closed runtime identity",
+                    type_def.name, method.name
+                )
+            });
+            assert_eq!(
+                runtime.arity(),
+                method.params.len() + 1,
+                "{}.{} runtime arity",
+                type_def.name,
+                method.name
+            );
+        }
+    }
+}
+
 /// Build the set of `(type_name, method_name)` pairs from the registry.
 ///
 /// DEI-only methods are listed under `"DoubleEndedIterator"` to match
@@ -258,7 +289,7 @@ fn registry_op_strategies_cover_all_operators() {
 
     for type_def in BUILTIN_TYPES {
         let ops = &type_def.operators;
-        for (field_name, strategy) in [
+        for (_field_name, strategy) in [
             ("add", ops.add),
             ("sub", ops.sub),
             ("mul", ops.mul),
@@ -282,17 +313,13 @@ fn registry_op_strategies_cover_all_operators() {
         ] {
             match strategy {
                 OpStrategy::Unsupported
-                | OpStrategy::IntInstr
-                | OpStrategy::FloatInstr
-                | OpStrategy::UnsignedCmp
-                | OpStrategy::BoolLogic => {} // Unsupported or handled by emit_{int,float,unsigned,bool}_*_op
-                OpStrategy::RuntimeCall { fn_name, .. } => {
-                    assert!(
-                        !fn_name.is_empty(),
-                        "{}.operators.{field_name} has empty RuntimeCall fn_name",
-                        type_def.name
-                    );
-                }
+                | OpStrategy::SignedInteger
+                | OpStrategy::FloatingPoint
+                | OpStrategy::UnsignedComparison
+                | OpStrategy::BooleanLogic
+                | OpStrategy::StructuralEquality
+                | OpStrategy::StructuralOrdering
+                | OpStrategy::RuntimeCall(_) => {}
             }
         }
     }

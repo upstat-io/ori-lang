@@ -8,8 +8,8 @@
 //! return `Option<T>`. `close` transitions the channel to a closed state.
 
 use crate::{
-    DeiPropagation, MemoryStrategy, MethodDef, MethodKind, OpDefs, Ownership, ParamDef, ReturnTag,
-    TypeDef, TypeParamArity, TypeProjection, TypeTag,
+    DeiPropagation, MemoryStrategy, MethodDef, MethodKind, MethodRuntime, OpDefs, Ownership,
+    ParamDef, ReturnTag, TypeDef, TypeParamArity, TypeProjection, TypeTag,
 };
 
 /// `(value: T)` — element being sent.
@@ -40,6 +40,7 @@ const fn chan(
         receiver,
         params,
         returns,
+        runtime: None,
         trait_name,
         pure: false,
         backend_required: false,
@@ -54,7 +55,7 @@ static CHANNEL_METHODS: &[MethodDef] = &[
     chan("close", &[], ReturnTag::Unit, Ownership::Borrow, None),
     chan("is_closed", &[], BOOL, Ownership::Borrow, None),
     chan("is_empty", &[], BOOL, Ownership::Borrow, Some("IsEmpty")),
-    chan("len", &[], INT, Ownership::Borrow, Some("Len")),
+    chan("len", &[], INT, Ownership::Borrow, Some("Len")).with_runtime(MethodRuntime::Length),
     chan("receive", &[], OPT_ELEM, Ownership::Borrow, None),
     chan("recv", &[], OPT_ELEM, Ownership::Borrow, None),
     chan(

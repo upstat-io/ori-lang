@@ -14,6 +14,36 @@ pub mod strategy;
 use crate::Name;
 use strategy::{CombineOp, DeriveStrategy, FieldOp, FormatOpen, StructBody, SumBody};
 
+/// Stable module-local identity of one accepted derived implementation.
+///
+/// The type checker mints these only after validation and coherence succeed.
+/// Canonical generated bodies and concrete executable instances retain this
+/// identity instead of using `ExprId::INVALID` or rediscovering derives from
+/// source spelling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct DerivedImplId(u32);
+
+impl DerivedImplId {
+    /// Construct an identity from its deterministic module-local ordinal.
+    #[must_use]
+    pub const fn new(index: u32) -> Self {
+        Self(index)
+    }
+
+    /// Return the module-local ordinal.
+    #[must_use]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Return the ordinal as an index.
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 /// The parameter/return shape of a derived method's signature.
 ///
 /// Consuming crates (`ori_types`, `ori_llvm`) use this to construct type-correct

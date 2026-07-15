@@ -1,9 +1,8 @@
 //! Read-only consumer-edge attribution for the provenance DAG.
 //!
-//! Walks the drop-descriptor tree and attributes each generated per-type
-//! drop-glue symbol (`_ori_drop$<idx>`) back to the `Idx` chain that produced
-//! it. Diagnostic-only — consumes the [`super::compute_drop_info`] descriptor
-//! and the [`super::drop_glue_symbol`] naming SSOT; never alters drop emission.
+//! Walks the drop-descriptor tree and attributes each logical per-type drop
+//! plan back to the `Idx` chain that produced it. Diagnostic-only: it consumes
+//! [`super::compute_drop_info`] and never selects a physical projection.
 
 use rustc_hash::FxHashSet;
 
@@ -11,21 +10,19 @@ use ori_types::{ConsumerEdge, Idx, Pool};
 
 use crate::ArcClassification;
 
-use super::{compute_drop_info, drop_glue_symbol, drop_info_child_types};
+use super::{compute_drop_info, drop_info_child_types};
 
 /// Read-only consumer attribution for the provenance DAG.
 ///
 /// Walks the drop-descriptor tree from `root` (the same root the provenance DAG
-/// walks) and records one [`ConsumerEdge`] per type whose refcount-zero
-/// teardown generates a per-type drop function (`_ori_drop$<idx>`), attributing
-/// that symbol to the `Idx` chain the drop-synthesis walk descended to reach it.
+/// walks) and records one [`ConsumerEdge`] per type with a structural drop plan,
+/// attributing that plan to the `Idx` chain synthesis descended to reach it.
 /// Makes an RC-on-scalar emission point at the generic-leaf chain that produced
-/// it (the `Wrap#217{inner: T#141}` -> `_ori_drop$141` thru-line).
+/// it (the `Wrap#217{inner: T#141}` to leaf-plan thru-line).
 ///
-/// Diagnostic-only: consumes [`compute_drop_info`] (a pure function of the
-/// frozen pool + classifier) and the [`drop_glue_symbol`] naming SSOT; NEVER
-/// alters drop emission. Depth-bounded + cycle-guarded, mirroring the DAG walk;
-/// each generated symbol is attributed exactly once (first-discovered chain).
+/// Diagnostic-only: consumes [`compute_drop_info`] as a pure function of the
+/// frozen pool and classifier; never alters drop realization. The walk is
+/// depth-bounded and cycle-guarded, and attributes each plan once.
 #[must_use]
 pub fn compute_consumer_attribution(
     root: Idx,
@@ -54,7 +51,7 @@ pub fn compute_consumer_attribution(
 
 /// Mutable accumulator threaded through the recursive drop-descriptor walk —
 /// bundles the pool/classifier borrows, the depth cap, the cycle-guard visited
-/// set, the per-symbol dedup set, and the output so the recursion is one
+/// set, the per-plan dedup set, and the output so the recursion is one
 /// `&mut self` method, not a 7-arg helper.
 struct ConsumerAttribution<'a> {
     classifier: &'a dyn ArcClassification,
@@ -66,13 +63,11 @@ struct ConsumerAttribution<'a> {
 }
 
 impl ConsumerAttribution<'_> {
-    /// Record one consumer edge for `type_idx` (deduped — each generated symbol
-    /// is attributed once, on its first-discovered chain).
+    /// Record one consumer edge for `type_idx` on its first-discovered chain.
     fn record(&mut self, type_idx: Idx, chain: &[Idx]) {
         if self.emitted.insert(type_idx) {
             self.edges.push(ConsumerEdge {
                 type_idx,
-                drop_glue_symbol: drop_glue_symbol(type_idx),
                 walked_chain: chain.to_vec(),
             });
         }
@@ -88,13 +83,9 @@ impl ConsumerAttribution<'_> {
         if !self.pool.is_valid_idx(resolved) || !self.visited.insert(resolved) {
             return;
         }
-        // Gate on drop-glue existence: a node with NO per-type drop function (a
-        // scalar, OR an iterator dispatched inline via `RcStrategy::Iterator`)
-        // returns `None` here and is neither recorded nor descended — naming
-        // `_ori_drop$<idx>` for it would drift from the emitted symbol set. This
-        // is the same iterator gotcha `compute_drop_info` itself guards; the
-        // descent MUST honor it for every node, root and descendant alike (a
-        // drop-bearing parent's iterator-typed child still has no drop glue).
+        // A scalar or iterator-runtime leaf has no structural per-type plan and
+        // is neither recorded nor descended. Honor that distinction for roots
+        // and descendants so attribution cannot invent a physical traversal.
         let kids = match compute_drop_info(ty, self.classifier, self.pool) {
             None => return,
             Some(info) => drop_info_child_types(&info.kind),

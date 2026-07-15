@@ -69,8 +69,8 @@ fn ordering_no_comparison_operators() {
 
 #[test]
 fn ordering_eq_neq_use_int_instr() {
-    assert_eq!(ORDERING.operators.eq, OpStrategy::IntInstr);
-    assert_eq!(ORDERING.operators.neq, OpStrategy::IntInstr);
+    assert_eq!(ORDERING.operators.eq, OpStrategy::SignedInteger);
+    assert_eq!(ORDERING.operators.neq, OpStrategy::SignedInteger);
 }
 
 #[test]
@@ -97,7 +97,7 @@ fn ordering_then_with_backend_required() {
         .unwrap_or_else(|| panic!("then_with method should exist"));
     assert!(
         m.backend_required,
-        "then_with has eval + LLVM emitter coverage"
+        "then_with requires coverage in every admitted executor"
     );
 }
 

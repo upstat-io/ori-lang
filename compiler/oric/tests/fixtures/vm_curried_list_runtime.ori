@@ -1,0 +1,12 @@
+@main () -> int = {
+    let $append = left -> right -> left + right;
+    let $joined = append([1, 2, 3])([4, 5, 6]);
+
+    if joined.len() == 6
+    && joined[0] == 1
+    && joined[1] == 2
+    && joined[2] == 3
+    && joined[3] == 4
+    && joined[4] == 5
+    && joined[5] == 6 then 0 else 1
+}

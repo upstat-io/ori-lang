@@ -246,8 +246,7 @@ fn apply_select_fold(func: &mut ArcFunction, branch_idx: usize, diamond: &Select
     for (i, (merge_param, ty)) in merge_params.iter().enumerate() {
         let then_val = resolved_then[i];
         let else_val = resolved_else[i];
-        let repr = func.var_repr(*merge_param).unwrap_or(ValueRepr::Scalar);
-        let dst = func.fresh_var_repr(*ty, repr);
+        let dst = func.fresh_var_like_typed(*merge_param, *ty);
 
         if then_val == else_val {
             // Both arms produce the same value — no need for select.
@@ -294,8 +293,7 @@ fn move_arm_body(
     for (i, instr) in body.iter().enumerate() {
         match instr {
             ArcInstr::Let { dst, ty, value } => {
-                let repr = func.var_repr(*dst).unwrap_or(ValueRepr::Scalar);
-                let fresh = func.fresh_var_repr(*ty, repr);
+                let fresh = func.fresh_var_like_typed(*dst, *ty);
                 renames.insert(*dst, fresh);
 
                 func.blocks[branch_idx].body.push(ArcInstr::Let {

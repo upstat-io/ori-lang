@@ -64,26 +64,17 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 self.builder.record_codegen_error();
             }
 
-            if self.codegen_ctx.nounwind_functions.contains(&func.name) {
+            let nounwind = self.codegen_ctx.nounwind_functions.contains(&func.name);
+            if nounwind {
                 self.builder.add_nounwind_attribute(func.func_id);
                 debug!(
                     name = %self.interner.lookup(func.name),
                     "marked nounwind"
                 );
             }
-            if self.codegen_ctx.pure_functions.contains(&func.name) {
-                self.builder.add_memory_none_attribute(func.func_id);
-                debug!(
-                    name = %self.interner.lookup(func.name),
-                    "marked memory(none)"
-                );
-            } else if self.codegen_ctx.readonly_functions.contains(&func.name) {
-                self.builder.add_memory_read_attribute(func.func_id);
-                debug!(
-                    name = %self.interner.lookup(func.name),
-                    "marked memory(read)"
-                );
-            }
+            self.apply_rl31_param_attributes(func.name, func.func_id, &func.abi, nounwind, 0);
+            self.apply_effect_attributes(func.name, func.func_id, &func.abi);
+            self.apply_return_attributes(func.name, func.func_id, &func.abi);
 
             self.exit_debug_scope();
         }
@@ -100,19 +91,21 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// derives, tests, main wrapper).
     pub fn apply_posthoc_nounwind(&mut self) {
         let mut total_added = 0u32;
+        let mut newly_nounwind = Vec::new();
         // Fixed-point: newly-marked nounwind functions update their LLVM
         // attribute, which lets callers pass the `function_has_no_invoke`
         // check in subsequent iterations. HashMap iteration order is
         // non-deterministic, so a single pass can miss call chains.
         loop {
             let mut changed = false;
-            for (&name, &(func_id, _)) in &self.codegen_ctx.functions {
+            for (&name, &(func_id, ref abi)) in &self.codegen_ctx.functions {
                 if self.codegen_ctx.nounwind_functions.contains(&name) {
                     continue;
                 }
                 if self.builder.function_has_no_invoke(func_id) {
                     self.builder.add_nounwind_attribute(func_id);
                     self.codegen_ctx.nounwind_functions.insert(name);
+                    newly_nounwind.push((name, func_id, abi.clone()));
                     total_added = total_added.saturating_add(1);
                     changed = true;
                     trace!(
@@ -124,6 +117,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             if !changed {
                 break;
             }
+        }
+        for (name, func_id, abi) in newly_nounwind {
+            self.apply_rl31_param_attributes(name, func_id, &abi, true, 0);
         }
         if total_added > 0 {
             debug!(total_added, "post-hoc nounwind pass complete");
@@ -161,13 +157,23 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.builder.record_codegen_error();
         }
 
-        if self.codegen_ctx.nounwind_functions.contains(&lambda.name) {
+        let nounwind = self.codegen_ctx.nounwind_functions.contains(&lambda.name);
+        if nounwind {
             self.builder.add_nounwind_attribute(lambda.func_id);
         }
-        if self.codegen_ctx.pure_functions.contains(&lambda.name) {
-            self.builder.add_memory_none_attribute(lambda.func_id);
-        } else if self.codegen_ctx.readonly_functions.contains(&lambda.name) {
-            self.builder.add_memory_read_attribute(lambda.func_id);
-        }
+        let extra_leading_params = u32::from(
+            self.codegen_ctx
+                .non_capturing_lambdas
+                .contains(&lambda.name),
+        );
+        self.apply_rl31_param_attributes(
+            lambda.name,
+            lambda.func_id,
+            &lambda.abi,
+            nounwind,
+            extra_leading_params,
+        );
+        self.apply_effect_attributes(lambda.name, lambda.func_id, &lambda.abi);
+        self.apply_return_attributes(lambda.name, lambda.func_id, &lambda.abi);
     }
 }

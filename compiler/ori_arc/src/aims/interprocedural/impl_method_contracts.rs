@@ -1,14 +1,9 @@
-//! As-compiled contract computation for impl methods + per-function
-//! caller-side contract augmentation.
+//! Retired immediate-emission contract logic kept only for regression tests.
 //!
-//! Impl methods compile on the immediate-emit path and never enter the
-//! whole-program `analyze_program` set, so callers see no contract for them
-//! (IC-1 gap). This module computes a SANITIZED per-method contract that
-//! describes the method AS COMPILED — `MemoryContract::conservative` for
-//! every dimension except the structural `transfers_through_return` /
-//! `return_alias` Direct pair — and exposes it to a caller's Phase-5 burden
-//! lowering through a per-function augmented contract map keyed by the bare
-//! callee name.
+//! Production impl methods are members of the same closed AIMS batch as every
+//! other executable body. This module models the superseded per-method repair
+//! path so its historical edge cases remain pinned without exposing that path
+//! in a production build.
 //!
 //! INVARIANT: the published contract never claims behavior the compiled
 //! method does not have. The method's own pipeline runs with the
@@ -23,6 +18,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
+use crate::verify::VerifyError;
 use crate::ArcClassification;
 
 use super::super::builtins::seed_builtin_contracts;
@@ -36,21 +32,32 @@ use super::scc_driver::analyze_scc_single;
 /// starts from `ParamContract::CONSERVATIVE`; only the structural
 /// `transfers_through_return` + `return_alias == Some(Direct)` pair is
 /// copied through. Keys are the analysis function names.
-pub fn compute_impl_method_contracts(
-    funcs: &[ArcFunction],
+///
+/// The shared AIMS input seam freezes an empty primitive-fact table exactly
+/// once and validates every non-empty table without repair before analysis.
+/// Invalid or partial frozen evidence rejects the batch.
+pub(super) fn compute_impl_method_contracts(
+    funcs: &mut [ArcFunction],
     classifier: &dyn ArcClassification,
     builtins: &BuiltinOwnershipSets,
     interner: &ori_ir::StringInterner,
-) -> FxHashMap<Name, MemoryContract> {
+) -> Result<FxHashMap<Name, MemoryContract>, Vec<VerifyError>> {
     if funcs.is_empty() {
-        return FxHashMap::default();
+        return Ok(FxHashMap::default());
     }
+    super::super::freeze_primitive_facts(funcs, classifier)?;
     let mut seed: FxHashMap<Name, MemoryContract> = FxHashMap::default();
     seed_builtin_contracts(&mut seed, builtins, interner);
 
     let mut out: FxHashMap<Name, MemoryContract> = FxHashMap::default();
     for func in funcs {
-        let extracted = analyze_scc_single(func, classifier, &seed, interner);
+        let extracted = analyze_scc_single(
+            func,
+            classifier,
+            &seed,
+            interner,
+            &crate::pipeline::callable_boundary::ValidatedCallableBoundaryFacts::empty(),
+        );
         out.insert(func.name, sanitize_to_as_compiled(&extracted));
     }
 
@@ -73,7 +80,7 @@ pub fn compute_impl_method_contracts(
         }
     }
 
-    out
+    Ok(out)
 }
 
 /// Project an extracted contract onto the as-compiled shape: conservative in
@@ -107,8 +114,7 @@ fn sanitize_to_as_compiled(extracted: &MemoryContract) -> MemoryContract {
 /// Any unresolved or divergent site poisons the name (conservative
 /// no-contract treatment, the status quo). Returns `None` when no binding
 /// fires — callers pass the base map through unchanged.
-#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
-pub fn augment_contracts_with_impl_callees(
+pub(super) fn augment_contracts_with_impl_callees(
     func: &ArcFunction,
     base: &FxHashMap<Name, MemoryContract>,
     impl_contracts: &FxHashMap<(Idx, Name), MemoryContract>,

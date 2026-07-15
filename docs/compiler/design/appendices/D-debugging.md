@@ -213,7 +213,7 @@ The `diagnostics/` directory contains shell scripts that compose the low-level d
 
 **`dual-exec-debug.sh`** runs a program through both the interpreter (`ori run`) and the AOT backend (`ori build` followed by execution), comparing exit codes and stdout. When the results differ --- indicating a codegen bug --- it automatically runs `ir-dump.sh` and `rc-stats.sh` to capture diagnostic context. This is the primary tool for "it works in the interpreter but crashes when compiled" investigations.
 
-**`dual-exec-verify.sh`** extends the dual-execution concept to batch mode, running an entire test suite through both backends. Supports `--test-only` (only test functions), `--main-only` (only `@main` functions), and `--json` (machine-readable output). Used in CI to detect interpreter/AOT divergence across the full spec test suite.
+**`dual-exec-verify.sh`** batch-compares the evaluator and LLVM/AOT path. It supports `--test-only` (only test functions), `--main-only` (only `@main` functions), and `--json` (machine-readable output). This remains a useful two-path diagnostic, but it is not a complete cross-executor verdict once the VM is in scope; VM parity must be included by the production matrix.
 
 ### Focused Analysis
 
@@ -262,7 +262,7 @@ Shows function calls and method dispatch at function granularity. Use `trace` fo
 ```bash
 diagnostics/dual-exec-debug.sh file.ori --verbose
 ```
-Runs both backends, compares results, and automatically captures IR and RC statistics on mismatch.
+Runs the evaluator and LLVM path, compares results, and automatically captures IR and RC statistics on mismatch. Run the VM parity probe separately until the diagnostic surface is unified.
 
 **"Memory leak?"** --- A compiled program's memory usage grows without bound.
 ```bash

@@ -118,8 +118,7 @@ mod idx_provenance {
     }
 
     /// Positive leg: the traced root surfaces ONE DAG carrying the generic-vs-concrete
-    /// divergence, and (under `--features llvm`) the `_ori_drop$<leaf>` consumer-edge
-    /// attribution rooted at the traced body.
+    /// divergence and the generic leaf's logical drop-plan attribution.
     fn assert_divergent_dag(trace: &str, root: u32) {
         assert!(
             trace.contains("Provenance DAG"),
@@ -143,27 +142,30 @@ mod idx_provenance {
             "DAG must carry a `generic ... <> concrete ...` divergence line:\n{trace}"
         );
 
-        // The drop-glue consumer-attribution leg is realized only under the `llvm`
-        // feature; the non-llvm `consumer_attribution` returns an empty edge set.
+        // Consumer attribution is currently built with the ARC-enabled feature.
         #[cfg(feature = "llvm")]
         {
             assert!(
                 trace.contains("consumer edge(s)") && !trace.contains("0 consumer edge(s)"),
-                "DAG must carry >=1 drop-glue consumer edge under --features llvm:\n{trace}"
+                "DAG must carry at least one drop-plan consumer edge:\n{trace}"
             );
             let leaf = divergence_generic_idx(trace);
-            let symbol = format!("_ori_drop${leaf}");
             let edge_line = trace
                 .lines()
-                .find(|l| l.contains(&symbol) && l.contains("<=consumes="))
+                .find(|line| {
+                    line.contains("drop-plan")
+                        && line.contains(&format!("#{leaf}"))
+                        && line.contains("<=consumes=")
+                })
                 .unwrap_or_else(|| {
-                    panic!("no consumer edge attributing the generic-leaf drop glue `{symbol}`:\n{trace}")
+                    panic!(
+                        "no consumer edge attributes the generic-leaf drop plan #{leaf}:\n{trace}"
+                    )
                 });
-            // Multi-hop walked chain: leaf drop glue descends from a parent body, rooted
-            // at the traced outer body — the provenance the diagnostic surfaces.
+            // The leaf plan descends from a parent body rooted at the trace.
             assert!(
                 edge_line.contains(" -> "),
-                "the generic-leaf drop glue must attribute via a multi-hop walked chain:\n{edge_line}"
+                "the generic-leaf drop plan must have a multi-hop walked chain:\n{edge_line}"
             );
             assert!(
                 edge_line.contains(&format!("#{leaf}")),

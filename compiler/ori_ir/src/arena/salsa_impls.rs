@@ -5,7 +5,7 @@
 //! type-args side-tables (`method_call_type_args`/`receiver_type_args`) are
 //! EXCLUDED — they are sparse parse-recorded metadata, not arena structure;
 //! folding them into the Salsa key shifts memoization and perturbs downstream
-//! (AIMS RC realization) determinism. A blanket `#[derive(PartialEq, Eq, Hash)]`
+//! AIMS logical-realization determinism. A blanket `#[derive(PartialEq, Eq, Hash)]`
 //! would include them.
 
 use std::fmt;

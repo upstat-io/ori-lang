@@ -91,9 +91,10 @@ impl ContextBehavior {
 ///
 /// # Soundness (Lemma 2, Leijen & Lorenzen JFP 2025)
 ///
-/// In-place TRMC requires the context variable to be `Unique` (refcount == 1)
-/// at every point between context creation and application. The intraprocedural
-/// analysis verifies this via the converged `Uniqueness` dimension.
+/// In-place TRMC requires the context variable to have exactly one logical
+/// owner at every point between context creation and application. The
+/// intraprocedural analysis verifies this via the converged `Uniqueness`
+/// dimension; physical count representation is outside this contract.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContextRegion {
     /// Block containing the `Construct` instruction (context open).

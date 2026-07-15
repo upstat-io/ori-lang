@@ -1,68 +1,43 @@
-Theorem RL-14: non-escaping headerless stack allocation (Locality <= FunctionLocal, Unique)
+Theorem RL-14: Locality freezes a backend-neutral LifetimeBound
 
   Preconditions:
-    - RL-14 governs headerless stack promotion per Annex E §AIMS Stack
-      Promotion: non-escaping allocations (Locality <= FunctionLocal AND
-      Uniqueness = Unique) with fixed size SHALL be stack-allocated via
-      alloca with NO RC header and NO RC ops; stack dealloc at scope exit.
-      Owned reference-type FIELDS receive explicit RcDec in REVERSE
-      declaration order at scope exit (VF-1 exempts these field-drop
-      Project+RcDec from DecOnBorrowed).
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - DP-8 (is_local) <=> Locality IN {BlockLocal, FunctionLocal}. Uniqueness
-      = Unique is load-bearing: a MaybeShared headerless stack value crashes
-      on IsShared (DP-4), so non-unique locals route to RL-14a (immortal
-      header) instead.
-    - Shipped: realize/project_escape.rs (escape-driven field RcDec) +
-      realize/decide.rs (Locality consumption); repr.md sec-RH-3
-      heap-vs-stack classification.
-    - depends-on sec-05: DP-8 (is_local) soundness.
+    - RL-14 consumes the converged Locality lattice value.
+    - AIMS freezes a logical lifetime bound and allocation-site identity.
+    - Extent and all physical mechanisms remain outside AllocationFacts.
 
   Soundness property:
-    Forall fixed-size value v:
+    Forall allocation site s, block id b, and Locality L:
 
-      (P1) Strategy decision: RL-14 selects a headerless stack allocation iff
-           is_local(v) (Locality <= FunctionLocal) AND Uniqueness(v) = Unique
-           AND v is fixed-size. A non-unique local routes to RL-14a; a
-           dynamic-size local routes to RL-15; an escaping value routes to
-           RL-16.
+      (P1) lifetimeFromLocality(BlockLocal, b) = LifetimeBound.block(b).
 
-      (P2) RC soundness: a headerless stack value carries no RC header and
-           emits no RC ops on itself — it cannot be shared (Unique) and
-           cannot escape the frame (local), so it is deallocated by the stack
-           frame at scope exit. Its Owned heap-reference FIELDS receive
-           field-level RcDec at scope exit (reverse declaration order),
-           releasing the children exactly once.
+      (P2) lifetimeFromLocality(FunctionLocal, b) = LifetimeBound.function.
 
-    RL-14 refines plain ARC: plain ARC heap-allocates every reference value
-    with a full RC header; RL-14 eliminates the header AND every RC op when
-    the lattice proves the value is local + unique + fixed-size.
+      (P3) lifetimeFromLocality(HeapEscaping, b) = LifetimeBound.escaping.
+
+      (P4) lifetimeFromLocality(Unknown, b) = LifetimeBound.unknown.
+
+    The result constrains admissible physical lifetimes without selecting a
+    VM or compiled placement mechanism.
 
   Proof obligation:
-    Constructive discharge by the case_analysis engine via finite
-    enumeration of the Locality x Uniqueness x size strategy grid.
+    Constructive discharge by the case_analysis engine over all Locality
+    variants. The negative direction rejects any Unknown input mapped to a
+    shorter or more precise lifetime.
 
-    Part (P1/P2) — strategy grid:
-      blocklocal_unique_fixed_headerless -> HeaderlessStack
-      functionlocal_unique_fixed_headerless -> HeaderlessStack
-      local_maybeshared_immortal_header -> ImmortalHeaderStack (RL-14a)
-      local_unique_dynamic_bump -> BumpAlloc (RL-15)
-      heapescaping_heap -> Heap (RL-16)
-      Coverage gate: 5 strategy decisions. Negative-direction witness: a
-      MaybeShared local must NOT be headerless (would crash on IsShared) —
-      asserted.
+    Part (P1/P2/P3/P4) - lifetime grid:
+      block_lifetime -> block(b)
+      function_lifetime -> function
+      caller_extent_lifetime -> callerExtent(exact uses)
+      escaping_lifetime -> escaping
+      unknown_lifetime -> unknown
+      Coverage gate: 5 lifetime cases.
 
     Engines dispatched:
-      case_analysis (PRIMARY — section_08::verify_rl14_headerless_stack;
-        Locality x Uniqueness x size strategy enumeration; emits Fail on a
-        wrong strategy or an unsound headerless selection)
-      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      case_analysis (PRIMARY - section_08::verify_rl14_lifetime_facts;
+        Locality-to-LifetimeBound derivation)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
 
   Expected:
     status: valid
-    reason: section_08 case_analysis engine discharges RL-14 via the Locality x Uniqueness x size strategy grid (headerless stack only for local+Unique+fixed; non-unique -> RL-14a immortal header; dynamic -> RL-15 bump; escaping -> RL-16 heap) with a negative-direction witness rejecting a headerless MaybeShared local, grounded in the shipped realize/project_escape.rs field-RcDec + repr.md RH-3 classification
+    reason: section_08 case_analysis engine discharges RL-14 by deriving block, function, exact caller, escaping, and conservative unknown LifetimeBound facts without selecting physical storage

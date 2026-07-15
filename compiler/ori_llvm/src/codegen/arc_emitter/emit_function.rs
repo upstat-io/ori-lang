@@ -185,8 +185,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         });
 
         // Invariant: pointer-only params must not have RcInc/RcDec in the ARC IR.
-        // Borrowed params shouldn't get RC ops from the AIMS pipeline. If this
-        // fires, the param was incorrectly classified as pointer-only.
+        // A borrowed parameter has no logical transfer/release pair, so the
+        // current compiled-counter carrier must contain no RC ops for it. If
+        // this fires, the param was incorrectly classified as pointer-only.
         #[cfg(debug_assertions)]
         for block in &func.blocks {
             for instr in &block.body {

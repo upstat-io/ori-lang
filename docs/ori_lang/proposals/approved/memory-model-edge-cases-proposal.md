@@ -40,7 +40,7 @@ trait Drop {
 
 ### Semantics
 
-- When a value's reference count reaches zero, its `Drop.drop` method is called if implemented
+- At a value's exactly-once logical death point, its `Drop.drop` method is called if implemented
 - Drop is called before memory is reclaimed
 - Drop methods cannot be async (see "Async Destructors" below)
 - Drop methods should not panic (see "Panic During Destruction" below)
@@ -61,26 +61,28 @@ impl FileHandle: Drop {
 
 ---
 
-## Reference Counting Atomicity
+> **Backend-neutrality clarification (2026-07-14):** This proposal predates the one-calculus executable seam. Its original atomic-reference-count requirement is superseded by Spec §21 and §22: AIMS freezes logical owner-credit, reachability, visibility, and cleanup obligations, while each physical plan chooses and validates a shared-safe mechanism. The counter algorithm below describes the current compiled ARC adapter only.
+
+## Cross-Task Ownership Safety
 
 ### Requirement
 
-All reference count operations MUST be atomic (thread-safe):
+Ownership-bearing values shared across tasks MUST preserve logical owner credits, visibility, and exactly-once cleanup without a data race:
 
 ```ori
 let shared = create_large_data()
 parallel(
     tasks: [
-        () -> read(shared),   // Increments refcount atomically
-        () -> read(shared),   // Increments refcount atomically
+        () -> read(shared),   // Receives a shared-safe logical owner
+        () -> read(shared),   // Receives a shared-safe logical owner
     ],
 )
-// Decrements happen atomically as tasks complete
+// Each task discharges its owner exactly once
 ```
 
-### Implementation
+### Current Compiled ARC Projection
 
-The runtime uses atomic compare-and-swap operations:
+The current compiled runtime uses atomic operations for potentially shared counter-backed objects:
 
 | Operation | Atomicity |
 |-----------|-----------|
@@ -88,19 +90,13 @@ The runtime uses atomic compare-and-swap operations:
 | Decrement refcount | Atomic fetch-sub |
 | Check for zero | Part of decrement operation |
 
-### Why This Matters
+### Required Safety Property
 
-Without atomic refcounts:
-- Two tasks could decrement simultaneously
-- Both could see refcount = 1
-- Both could attempt to free memory
-- Use-after-free or double-free bugs
+Any selected mechanism shall prevent lost ownership updates, premature cleanup, use-after-free, and double cleanup. Atomic counters, ownership transfer, immutable sharing, regions, or locks may satisfy the obligation; AIMS does not choose among them.
 
 ### Performance Note
 
-Atomic operations have overhead compared to non-atomic. Implementations may optimize:
-- Elide refcount operations when values don't escape
-- Most programs are not refcount-bound
+Atomic operations have overhead compared to confined bookkeeping. Physical plans may select a confined mechanism when frozen reachability facts prove it sound, and may elide a counter entirely when the logical event plan requires none.
 
 ---
 
@@ -108,12 +104,12 @@ Atomic operations have overhead compared to non-atomic. Implementations may opti
 
 ### When Destructors Run
 
-Destructors run when a value's reference count reaches zero:
+Destructors run at the final logical owner/cleanup event:
 
 | Context | Timing |
 |---------|--------|
 | Local binding goes out of scope | Immediately at scope end |
-| Last reference dropped | Immediately after drop |
+| Final logical owner relinquished | Immediately after the ownership release |
 | Field of struct dropped | After struct destructor |
 | Collection element | When removed or collection dropped |
 

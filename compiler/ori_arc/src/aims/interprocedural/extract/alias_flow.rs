@@ -7,6 +7,7 @@
 mod return_alias_shapes;
 
 use ori_ir::Name;
+use ori_registry::PrimitiveOperandUse;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
@@ -40,6 +41,26 @@ pub(crate) fn build_alias_to_param_map(
     param_vars: &FxHashMap<ArcVarId, usize>,
     sigs: Option<&FxHashMap<Name, MemoryContract>>,
 ) -> FxHashMap<ArcVarId, FxHashSet<usize>> {
+    build_alias_to_param_map_excluding(func, param_vars, sigs, None)
+}
+
+/// Build the alias map without consulting the contract of the function being
+/// checked. The VF-3 oracle uses this adapter so a recursive call cannot make
+/// the inferred subject manufacture its own return-alias evidence.
+pub(crate) fn build_subject_independent_alias_to_param_map(
+    func: &ArcFunction,
+    param_vars: &FxHashMap<ArcVarId, usize>,
+    sigs: &FxHashMap<Name, MemoryContract>,
+) -> FxHashMap<ArcVarId, FxHashSet<usize>> {
+    build_alias_to_param_map_excluding(func, param_vars, Some(sigs), Some(func.name))
+}
+
+fn build_alias_to_param_map_excluding(
+    func: &ArcFunction,
+    param_vars: &FxHashMap<ArcVarId, usize>,
+    sigs: Option<&FxHashMap<Name, MemoryContract>>,
+    excluded_callee: Option<Name>,
+) -> FxHashMap<ArcVarId, FxHashSet<usize>> {
     let mut alias_to_param: FxHashMap<ArcVarId, FxHashSet<usize>> = param_vars
         .iter()
         .map(|(&v, &idx)| {
@@ -53,7 +74,7 @@ pub(crate) fn build_alias_to_param_map(
         changed = false;
         for block in &func.blocks {
             for instr in &block.body {
-                changed |= absorb_instr_aliases(instr, &mut alias_to_param, sigs);
+                changed |= absorb_instr_aliases(instr, &mut alias_to_param, sigs, excluded_callee);
             }
             if let ArcTerminator::Jump { target, args } = &block.terminator {
                 let target_params = &func.blocks[target.index()].params;
@@ -76,6 +97,7 @@ pub(crate) fn build_alias_to_param_map(
                         *callee,
                         args,
                         sigs_map,
+                        excluded_callee,
                         &mut alias_to_param,
                     );
                 }
@@ -91,6 +113,7 @@ fn absorb_instr_aliases(
     instr: &ArcInstr,
     alias_to_param: &mut FxHashMap<ArcVarId, FxHashSet<usize>>,
     sigs: Option<&FxHashMap<Name, MemoryContract>>,
+    excluded_callee: Option<Name>,
 ) -> bool {
     match instr {
         // Let { dst, Var(src) } — direct alias
@@ -123,7 +146,14 @@ fn absorb_instr_aliases(
             ..
         } => {
             if let Some(sigs_map) = sigs {
-                absorb_callee_return_transfer(*dst, *callee, args, sigs_map, alias_to_param)
+                absorb_callee_return_transfer(
+                    *dst,
+                    *callee,
+                    args,
+                    sigs_map,
+                    excluded_callee,
+                    alias_to_param,
+                )
             } else {
                 false
             }
@@ -146,8 +176,12 @@ fn absorb_callee_return_transfer(
     callee: Name,
     args: &[ArcVarId],
     sigs: &FxHashMap<Name, MemoryContract>,
+    excluded_callee: Option<Name>,
     alias_to_param: &mut FxHashMap<ArcVarId, FxHashSet<usize>>,
 ) -> bool {
+    if excluded_callee == Some(callee) {
+        return false;
+    }
     let Some(callee_contract) = sigs.get(&callee) else {
         return false;
     };
@@ -180,10 +214,8 @@ fn absorb_alias(
     dst_set.len() != before
 }
 
-/// Scan Apply / Invoke call sites for arguments that alias a parameter
-/// and flow to a callee with an Owned parameter contract. Returns the
-/// set of parameter indices consumed via callees.
-pub(super) fn find_consumed_via_callees(
+/// Find parameter aliases consumed by a call or typed primitive operation.
+pub(super) fn find_consumed_params(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, MemoryContract>,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
@@ -191,11 +223,28 @@ pub(super) fn find_consumed_via_callees(
     let mut consumed = FxHashSet::default();
     for block in &func.blocks {
         for instr in &block.body {
-            if let ArcInstr::Apply {
-                func: callee, args, ..
-            } = instr
-            {
-                absorb_owned_callee_args(*callee, args, sigs, alias_to_param, &mut consumed);
+            match instr {
+                ArcInstr::Apply {
+                    func: callee, args, ..
+                } => {
+                    absorb_owned_callee_args(*callee, args, sigs, alias_to_param, &mut consumed);
+                }
+                ArcInstr::Let {
+                    dst,
+                    value: crate::ir::ArcValue::PrimOp { args, .. },
+                    ..
+                } => {
+                    let fact = func.primitive_facts.get(*dst).unwrap_or_else(|| {
+                        panic!("validated PrimOp v{} is missing its frozen fact", dst.raw())
+                    });
+                    absorb_consumed_primitive_args(
+                        args,
+                        fact.descriptor.operand_uses,
+                        alias_to_param,
+                        &mut consumed,
+                    );
+                }
+                _ => {}
             }
         }
         if let ArcTerminator::Invoke {
@@ -206,6 +255,22 @@ pub(super) fn find_consumed_via_callees(
         }
     }
     consumed
+}
+
+fn absorb_consumed_primitive_args(
+    args: &[ArcVarId],
+    operand_uses: &[PrimitiveOperandUse],
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    consumed: &mut FxHashSet<usize>,
+) {
+    for (&argument, &use_) in args.iter().zip(operand_uses) {
+        if use_ != PrimitiveOperandUse::Consume {
+            continue;
+        }
+        if let Some(parameter_indices) = alias_to_param.get(&argument) {
+            consumed.extend(parameter_indices);
+        }
+    }
 }
 
 /// For each arg position where the callee parameter is Owned and the arg

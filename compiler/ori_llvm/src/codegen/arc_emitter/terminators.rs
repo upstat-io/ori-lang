@@ -338,36 +338,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         };
 
-        // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
-        if let Some(val) = self.try_emit_format_call(callee, arc_args, arc_func) {
-            self.br_exiting_catchpad(normal_block);
-            self.builder.position_at_end(normal_block);
-            self.def_var_repr(dst, val, arc_func);
-            return;
-        }
-
-        // Prelude builtin functions (str, int, float, byte, hash_combine, etc.)
-        if let Some(val) = super::builtins::prelude::try_emit_prelude_function(
-            self,
-            func_name_str,
+        let runtime_projection_allowed = self.runtime_projection_allowed(arc_func, dst);
+        if self.try_emit_invoke_runtime_projection(
+            dst,
+            callee,
             arc_args,
+            normal_block,
             arc_func,
+            runtime_projection_allowed,
         ) {
-            self.br_exiting_catchpad(normal_block);
-            self.builder.position_at_end(normal_block);
-            self.def_var_repr(dst, val, arc_func);
-            return;
-        }
-
-        // Traceless Traceable accessors must precede `resolve_callee`: a
-        // `backend_required: false` Traceable method otherwise resolves to an
-        // unbacked `_ori_trace` mono decl.
-        if let Some(val) =
-            self.try_emit_traceless_traceable(callee, arc_args, arc_func, arc_func.var_type(dst))
-        {
-            self.br_exiting_catchpad(normal_block);
-            self.builder.position_at_end(normal_block);
-            self.def_var_repr(dst, val, arc_func);
             return;
         }
 
@@ -405,15 +384,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Internal protocol intercepts: `__index` arrives as an Invoke when
         // the receiver can panic (list OOB → `ori_list_get`); the armed
         // route above sends that runtime call through `invoke`.
-        if self.try_emit_protocol(dst, callee, arc_args, arc_func) {
+        if runtime_projection_allowed && self.try_emit_protocol(dst, callee, arc_args, arc_func) {
             self.intercepted_unwind = None;
             self.br_exiting_catchpad(normal_block);
             self.builder.position_at_end(normal_block);
             return;
         }
-        let builtin_val = self
-            .try_emit_builtin_method(callee, arc_args, arc_func, arc_func.var_type(dst))
-            .or_else(|| self.try_emit_builtin_associated(callee, arc_args, arc_func.var_type(dst)));
+        let builtin_val = runtime_projection_allowed.then(|| {
+            self.try_emit_builtin_method(callee, arc_args, arc_func, arc_func.var_type(dst))
+                .or_else(|| {
+                    self.try_emit_builtin_associated(callee, arc_args, arc_func.var_type(dst))
+                })
+        });
+        let builtin_val = builtin_val.flatten();
         self.intercepted_unwind = None;
 
         if let Some(val) = builtin_val {
@@ -422,11 +405,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.br_exiting_catchpad(normal_block);
             self.builder.position_at_end(normal_block);
             self.def_var_repr(dst, val, arc_func);
-        } else if let Some(func_id) = self.builder.try_runtime_fn(func_name_str) {
+        } else if let Some(func_id) = runtime_projection_allowed
+            .then(|| self.builder.try_runtime_fn(func_name_str))
+            .flatten()
+        {
             self.emit_runtime_fn_call(dst, func_id, callee, arc_args, &arg_vals, mode, arc_func);
         } else {
-            let msg =
-                format!("unresolved function `{func_name_str}` in invoke — missing mono instance?");
+            let msg = self.unresolved_direct_call_message(arc_func, dst, func_name_str, "invoke");
             tracing::warn!("{msg}");
             // Emit a branch to the normal block so the IR stays well-formed
             // (every block must have a terminator).
@@ -437,6 +422,51 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.def_var(dst, EmittedValue::Immediate(unit));
             self.builder.record_codegen_error_with_msg(msg);
         }
+    }
+
+    /// Emit runtime-backed direct-call projections before closed target resolution.
+    fn try_emit_invoke_runtime_projection(
+        &mut self,
+        dst: ArcVarId,
+        callee: Name,
+        arc_args: &[ArcVarId],
+        normal_block: BlockId,
+        arc_func: &ArcFunction,
+        runtime_projection_allowed: bool,
+    ) -> bool {
+        if !runtime_projection_allowed {
+            return false;
+        }
+
+        // Format, prelude, and traceless accessors are ordered to match Apply
+        // emission and must run before a same-named declaration is resolved.
+        let callee_name = self.interner.lookup(callee);
+        let value = self
+            .try_emit_format_call(callee, arc_args, arc_func)
+            .or_else(|| {
+                super::builtins::prelude::try_emit_prelude_function(
+                    self,
+                    callee_name,
+                    arc_args,
+                    arc_func,
+                )
+            })
+            .or_else(|| {
+                self.try_emit_traceless_traceable(
+                    callee,
+                    arc_args,
+                    arc_func,
+                    arc_func.var_type(dst),
+                )
+            });
+
+        let Some(value) = value else {
+            return false;
+        };
+        self.br_exiting_catchpad(normal_block);
+        self.builder.position_at_end(normal_block);
+        self.def_var_repr(dst, value, arc_func);
+        true
     }
 
     /// Emit an `InvokeIndirect` terminator — indirect call through a closure

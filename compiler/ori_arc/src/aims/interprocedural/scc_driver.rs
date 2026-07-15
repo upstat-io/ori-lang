@@ -4,6 +4,9 @@
 //! topological order (callees before callers). Non-recursive SCCs get a
 //! single intraprocedural pass; recursive SCCs iterate to convergence.
 
+use std::collections::HashMap;
+use std::hash::BuildHasher;
+
 use ori_ir::Name;
 use rustc_hash::FxHashMap;
 
@@ -11,6 +14,7 @@ use crate::borrow::BuiltinOwnershipSets;
 use crate::graph::call_graph::CallGraph;
 use crate::graph::scc::compute_sccs;
 use crate::ir::ArcFunction;
+use crate::pipeline::callable_boundary::ValidatedCallableBoundaryFacts;
 use crate::ArcClassification;
 
 use super::super::contract::{FipContract, MemoryContract};
@@ -36,6 +40,44 @@ pub fn analyze_program(
     builtins: &BuiltinOwnershipSets,
     interner: &ori_ir::StringInterner,
 ) -> FxHashMap<Name, MemoryContract> {
+    analyze_program_with_external_contracts(
+        functions,
+        classifier,
+        builtins,
+        interner,
+        &FxHashMap::default(),
+    )
+}
+
+/// Compute local contracts while treating producer-frozen external contracts
+/// as immutable interprocedural inputs.
+pub fn analyze_program_with_external_contracts<S: BuildHasher>(
+    functions: &[ArcFunction],
+    classifier: &dyn ArcClassification,
+    builtins: &BuiltinOwnershipSets,
+    interner: &ori_ir::StringInterner,
+    external_contracts: &HashMap<Name, MemoryContract, S>,
+) -> FxHashMap<Name, MemoryContract> {
+    analyze_program_with_external_contracts_and_boundaries(
+        functions,
+        classifier,
+        builtins,
+        interner,
+        external_contracts,
+        &ValidatedCallableBoundaryFacts::empty(),
+    )
+}
+
+/// Compute local contracts with immutable external inputs and exact semantic
+/// callable-boundary roles.
+pub(crate) fn analyze_program_with_external_contracts_and_boundaries<S: BuildHasher>(
+    functions: &[ArcFunction],
+    classifier: &dyn ArcClassification,
+    builtins: &BuiltinOwnershipSets,
+    interner: &ori_ir::StringInterner,
+    external_contracts: &HashMap<Name, MemoryContract, S>,
+    callable_boundaries: &ValidatedCallableBoundaryFacts<'_>,
+) -> FxHashMap<Name, MemoryContract> {
     let graph = CallGraph::build(functions);
     let sccs = compute_sccs(&graph);
 
@@ -46,6 +88,14 @@ pub fn analyze_program(
 
     // Pre-seed builtin contracts so call sites get accurate ownership info.
     super::super::builtins::seed_builtin_contracts(&mut all_sigs, builtins, interner);
+    // Explicit compiled-unit imports override same-spelled builtin seeds. The
+    // call target table makes the distinction structural, so the calculus
+    // consumes the producer's exact contract rather than name heuristics.
+    all_sigs.extend(
+        external_contracts
+            .iter()
+            .map(|(&name, contract)| (name, contract.clone())),
+    );
 
     for scc in &sccs {
         if scc.is_recursive(&graph) {
@@ -57,10 +107,17 @@ pub fn analyze_program(
             if scc_funcs.is_empty() {
                 continue;
             }
-            let scc_sigs = analyze_scc_fixpoint(&scc_funcs, classifier, &all_sigs, interner);
+            let scc_sigs = analyze_scc_fixpoint(
+                &scc_funcs,
+                classifier,
+                &all_sigs,
+                interner,
+                callable_boundaries,
+            );
             all_sigs.extend(scc_sigs);
         } else if let Some(&func) = func_by_name.get(&scc.members[0]) {
-            let contract = analyze_scc_single(func, classifier, &all_sigs, interner);
+            let contract =
+                analyze_scc_single(func, classifier, &all_sigs, interner, callable_boundaries);
             all_sigs.insert(func.name, contract);
         }
         // External/FFI functions not in `func_by_name` are skipped —
@@ -71,9 +128,25 @@ pub fn analyze_program(
     // Post-fixpoint demand propagation. Tighten a callee
     // parameter's uniqueness to Unique when every caller passes a fresh,
     // single-use Construct argument.
-    tighten_uniqueness_from_callers(functions, classifier, &mut all_sigs);
+    let immutable_external_names: rustc_hash::FxHashSet<_> =
+        external_contracts.keys().copied().collect();
+    tighten_uniqueness_from_callers(
+        functions,
+        classifier,
+        &mut all_sigs,
+        &immutable_external_names,
+    );
 
-    // FIP coverage reporting.
+    trace_contract_summary(&all_sigs, interner);
+
+    all_sigs
+}
+
+/// Report converged contract coverage and per-function demand dimensions.
+fn trace_contract_summary(
+    all_sigs: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
+) {
     let mut fip_certified = 0u32;
     let mut fip_conditional = 0u32;
     let mut fip_bounded = 0u32;
@@ -106,7 +179,7 @@ pub fn analyze_program(
     // a caller @main consults?" — the impl-method interprocedural-contract
     // diagnostic. `ORI_LOG=ori_arc::aims::interprocedural=debug`.
     if tracing::enabled!(target: "ori_arc::aims::interprocedural", tracing::Level::DEBUG) {
-        for (name, contract) in &all_sigs {
+        for (name, contract) in all_sigs {
             let ttr: Vec<usize> = contract
                 .params
                 .iter()
@@ -138,8 +211,6 @@ pub fn analyze_program(
             );
         }
     }
-
-    all_sigs
 }
 
 /// Analyze a non-recursive function in a single pass.
@@ -148,12 +219,13 @@ pub(super) fn analyze_scc_single(
     classifier: &dyn ArcClassification,
     all_sigs: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
+    callable_boundaries: &ValidatedCallableBoundaryFacts<'_>,
 ) -> MemoryContract {
     let state_map = analyze_function(func, classifier, all_sigs, &[], Vec::new());
     // Non-recursive: empty SCC peer set → has_unbounded_stack = false.
     // No context regions for non-recursive (TRMC requires recursion).
     let empty_peers = rustc_hash::FxHashSet::default();
-    extract_contract(
+    let mut contract = extract_contract(
         func,
         &state_map,
         classifier,
@@ -161,7 +233,9 @@ pub(super) fn analyze_scc_single(
         &empty_peers,
         &[],
         interner,
-    )
+    );
+    callable_boundaries.constrain_contract(func.name, &mut contract);
+    contract
 }
 
 /// Analyze a mutually recursive SCC via fixed-point iteration.
@@ -175,6 +249,7 @@ fn analyze_scc_fixpoint(
     classifier: &dyn ArcClassification,
     external_sigs: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
+    callable_boundaries: &ValidatedCallableBoundaryFacts<'_>,
 ) -> FxHashMap<Name, MemoryContract> {
     // Build the SCC peer set for constant-stack analysis.
     let scc_peers: rustc_hash::FxHashSet<Name> = scc_funcs.iter().map(|f| f.name).collect();
@@ -215,7 +290,7 @@ fn analyze_scc_fixpoint(
             // interprocedural fixpoint; the rewrite runs in the per-function
             // pipeline after contracts converge).
             let context_regions = crate::aims::normalize::detect_context_regions(func);
-            let new_contract = extract_contract(
+            let mut new_contract = extract_contract(
                 func,
                 &state_map,
                 classifier,
@@ -224,6 +299,7 @@ fn analyze_scc_fixpoint(
                 &context_regions,
                 interner,
             );
+            callable_boundaries.constrain_contract(func.name, &mut new_contract);
 
             let old_contract = &local_sigs[&func.name];
             if &new_contract != old_contract {

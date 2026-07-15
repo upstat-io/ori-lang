@@ -8,7 +8,8 @@
 //! 1. Iterator handles release their reference to the source collection.
 //! 2. The `downgrade_trivial_invokes` pass in `merge_blocks()` won't
 //!    collapse the Invoke into an `Apply` (losing the unwind path).
-//! 3. The LLVM codegen emits a proper cleanup landing pad.
+//! 3. Every physical projection preserves a cleanup edge; LLVM materializes
+//!    the current projection as a landing pad.
 //!
 //! # Pipeline placement
 //!
@@ -125,7 +126,7 @@ pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_i
         let drop_instrs: Vec<ArcInstr> = live_iters
             .iter()
             .map(|&iter_var| {
-                let dst = func.fresh_var(Idx::UNIT);
+                let dst = func.fresh_scalar_var(Idx::UNIT);
                 ArcInstr::Apply {
                     dst,
                     ty: Idx::UNIT,

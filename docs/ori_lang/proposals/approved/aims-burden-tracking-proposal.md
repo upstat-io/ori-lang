@@ -4,11 +4,13 @@
 **Author:** Eric (with Claude assistance)
 **Created:** 2026-05-08
 **Approved:** 2026-05-08
-**Affects:** Compiler (`ori_arc`, `ori_llvm`, `ori_registry`), spec (Annex E §AIMS), in-tree rules (`canon.md §7.1`, `missions.md §AIMS`, `aims-rules.md`, `arc.md`, `registry.md`)
+**Affects:** Compiler (`ori_arc`, `ori_repr`, `ori_registry`, `ori_vm`, compiled backends), spec (Annex E §AIMS), in-tree rules (`canon.md §7.1`, `missions.md §AIMS`, `aims-rules.md`, `arc.md`, `registry.md`)
 **Depends On:** *(none)*
 **Related:** `clang-arc-lessons` (plan; downstream optimization layer)
 
 **Spec governance note:** Annex E §AIMS substantive rewrites in §"Spec & Grammar Impact" are **conditionally authoritative** — they are committed as the target spec content but take effect only when the §Prototype Gate (Phase A) passes. If the gate fails, the proposal returns to draft and the rewrites are withdrawn. If the gate passes, `/sync-aims-spec` post-§10 implementation propagates them to Annex E unconditionally. This conditional-approval shape follows the `aims-spec-promotion-proposal.md` precedent.
+
+**Backend-neutrality clarification (2026-07-14):** This proposal predates the closed executable-artifact seam. References below to LLVM fact export, LLVM-generated drop glue, C ABI callbacks, or compiled thunk layout describe the implementation that motivated the proposal, not AIMS authority. AIMS produces backend-neutral ownership, effect, provenance, and drop facts once. Executable construction freezes them with typed `RuntimeOperation` identities and an `ExecutableDropPlan`. The evaluator remains the representation-abstract behavioral oracle; the VM, LLVM/native, compiled-WASM, and JIT paths validate and project the same artifact. No backend may rerun AIMS or infer semantic policy from its physical layout.
 
 ---
 
@@ -90,8 +92,11 @@ The lattice's role narrows from constructor-of-correctness to optimizer:
 - **Cardinality + Consumption** dimensions drive DP-2 (`is_rc_dec_unnecessary`) and DP-3 (`is_rc_inc_elidable`) elimination of redundant burden ops
 - **Uniqueness** drives COW (`StaticUnique` in-place vs `Dynamic` runtime check vs `StaticShared` unconditional copy), unchanged
 - **Shape + Uniqueness** drive FBIP / Reset / Reuse (DP-6, RL-11, RL-11a), unchanged
-- **Locality** drives stack promotion (RL-14) and RC-header compression (RL-17, RL-18), unchanged
-- **Effect summary** flags continue to inform interprocedural contracts and LLVM fact export (RL-29, RL-30, RL-31), unchanged
+- **Locality/lifetime** supplies only a backend-neutral lower bound. Neutral
+  extent, `OwnerBound`, `OwnershipObservationFacts`, and visibility facts compose with it after AIMS;
+  `VmLayoutPlan` and `CompiledLayoutPlan(TargetSpec)` independently select and
+  validate storage, header presence/width, and count mechanics.
+- **Effect summary** flags continue to inform interprocedural contracts and backend-neutral executable facts (RL-29, RL-30, RL-31); LLVM attributes, VM metadata, native/WASM operations, and JIT guards are projections
 - **TRMC** structural rewrite (PL-7..PL-11) operates over the burden-emitted IR, unchanged
 - **Immortal pre-pass** continues to feed AimsStateMap as a typed pre-pass input, unchanged
 - **Interprocedural `MemoryContract`** SCC fixpoint computes `ParamContract` / `ReturnContract` / `EffectSummary` exactly as today
@@ -119,13 +124,13 @@ Representation uses `&'static [...]` slices identical in shape to existing regis
 
 ```
 struct BurdenSpec {
-    self_heap_alloc: bool,                       // type sits behind heap allocation needing RC header
+    self_managed: bool,                          // value has a logical ownership/cleanup obligation
     owned_fields: &'static [OwnedField],         // owned references paid in reverse decl order
     borrowed_fields: &'static [BorrowedField],   // no decs; lifetime tied via type system
     variant_burdens: &'static [VariantBurden],   // empty for non-sum types
     element_burden: Option<TypeId>,              // collections: per-element recursion
-    compiled_drop: Option<FnSym>,                // Some(fn) for recursive types
-    user_drop: Option<FnSym>,                    // Some(fn) when type implements Drop trait
+    recursive_drop: Option<DropPlanId>,          // logical recursive cleanup plan
+    user_drop: Option<FunctionId>,               // stable identity for a user Drop body
 }
 
 struct OwnedField {
@@ -154,11 +159,11 @@ This split is consistent with how Ori already partitions per-type metadata: buil
 
 1. **Internal-only `impl Trait` returns** (callee monomorphized within same crate, no public API surface): Ori's existing monomorphization specializes the concrete type at the call site; the burden walk uses the concrete `BurdenSpec` directly. No indirection.
 
-2. **Cross-crate `impl Trait` returns** (callee in upstream crate, caller in downstream): the callee crate generates a per-instantiation **burden-table thunk** `_ori_burden_drop_<callee>_<instantiation_id>` that performs the burden walk for that concrete instantiation. The thunk address is stored in the return value's wide pointer (alongside the data pointer, similar to how trait objects carry vtables today). Caller-side burden walk dispatches via the thunk pointer.
+2. **Cross-crate `impl Trait` returns** (callee in upstream crate, caller in downstream): executable construction assigns the concrete cleanup a stable `DropPlanId` and closes it in `ExecutableDropPlan`. The ID is semantic; it does not prescribe a wide-pointer field, symbol name, or calling convention. The VM dispatches the ID directly. A compiled layout may project it to a metadata entry or per-instantiation thunk.
 
-3. **Devirtualization opportunities** (compiler optimization, §05 deliverable): when LLVM can prove the concrete `impl Trait` instantiation at a call site (single instantiation visible to the optimizer), LLVM's existing devirtualization replaces the thunk call with a direct call to the concrete burden-walk inlined. This is a standard LLVM optimization applied to the new burden-thunk dispatch sites.
+3. **Devirtualization opportunities** (physical optimization, §05 deliverable): when a compiled projection can prove the concrete `impl Trait` instantiation at a call site, it may replace drop-plan dispatch with a direct or inlined cleanup. LLVM devirtualization is one implementation. A VM quickening or JIT specialization may reach the same result without changing the AIMS plan.
 
-4. **Cost analysis**: indirection is one extra pointer load + one indirect call per `impl Trait` drop site. For idiomatic Ori code where most `impl Trait` returns are internal (mission per `missions.md §Ori`), devirtualization eliminates the cost. For genuine cross-crate `impl Trait`, the cost is bounded (one indirection per drop site) and matches the existing trait-object vtable cost.
+4. **Cost analysis**: the abstract cost is one drop-plan dispatch per unresolved `impl Trait` drop site. Pointer loads, indirect calls, VM table lookups, or JIT guards are projection-specific costs and must be measured in their own executor. Internal monomorphization removes the dispatch without changing ownership semantics.
 
 The §05 implementation prioritizes Internal-only devirtualization; cross-crate indirection is the fallback that preserves correctness when devirtualization fails.
 
@@ -178,7 +183,7 @@ A closure value of type `Closure<R>` has:
 
 ```
 BurdenSpec for Closure<R>:
-    self_heap_alloc: true                      // closure env is heap-allocated
+    self_managed: true                         // closure env has a logical ownership/cleanup obligation
     owned_fields: &[
         OwnedField { field_path: env.captured_0, field_type: <type of capture #0> },
         OwnedField { field_path: env.captured_1, field_type: <type of capture #1> },
@@ -197,57 +202,66 @@ Capture variants:
 
 `PartialApply` is one transfer point per captured argument. A binding consumed by `PartialApply` AND passed to an `Owned` callee in the same expression has transfer-count = 2 → one `BurdenInc` lands.
 
-### Recursive and Self-Referential Types — Compiled Drop Glue
+### Recursive and Self-Referential Types — Executable Drop Plans
 
 For non-recursive types, `BurdenSpec` walk is finite at compile time. For recursive types (`struct Node { next: Option<Node> }`, mutually-recursive `enum Tree`), naive walks would not terminate.
 
-Resolution: when a `BurdenSpec` walk visits the same TypeId twice (cycle detected via `visited: HashSet<TypeId>` at registration time), the compiler emits a compiled drop function `_ori_burden_drop_<mangled_type>` once per type, and `BurdenSpec.compiled_drop: Some(fn)` points at it.
+Resolution: when a `BurdenSpec` walk visits the same TypeId twice (cycle detected via `visited: HashSet<TypeId>` at registration time), AIMS closes the recursive walk under a stable `DropPlanId`. `BurdenSpec.recursive_drop` points at that logical identity, and executable construction validates and freezes its body in `ExecutableDropPlan`.
 
-**Critical clarification (per codex R9 Finding 3): `compiled_drop` is the drop-glue body invoked from the zero-refcount branch of `ori_rc_dec`, NOT a direct call at every release site.** Phase 5 emission for recursive types emits `BurdenDec(v)` at ordinary release sites, identical to non-recursive types — the burden op is a reference release, not a drop invocation. At runtime, `ori_rc_dec` performs the atomic decrement and only invokes `compiled_drop` when the refcount reaches zero. This preserves shared-reference correctness: a recursive value with `rc > 1` released via `BurdenDec` decrements its count without invoking the drop body, exactly matching the non-recursive case. The recursive aspect is purely how the drop body is compiled (per-type function rather than inline walk), not how the dec sites work.
+**Critical clarification (per codex R9 Finding 3): a recursive drop plan runs only when the final ownership credit is released, not at every release site.** Phase 5 emission for recursive types emits `BurdenDec(v)` at ordinary release sites, identical to non-recursive types. The operation is a reference release, not a drop invocation. A value with more than one owner loses one credit without running the plan. This invariant is backend-neutral; `ori_rc_dec` plus compiled glue is the C-ABI projection, while the VM enforces the same final-owner gate in its runtime adapter.
 
 ```
 Phase 5 emission for recursive type (e.g., struct Node { next: Option<Node> }):
     Same as non-recursive: BurdenDec(v) at release sites; BurdenInc(v) before transfers.
 
-Codegen for the type's drop glue (compile-time):
-    compiled_drop_<Node>(v):
-        // body walks the BurdenSpec structurally:
-        //   BurdenDec(v.next)  ← recursively triggers compiled_drop_<Node> via ori_rc_dec if next's rc=0
-        //   free(v)            ← release self heap allocation
+ExecutableDropPlan entry for Node:
+    drop_plan<Node>(v):
+        release(v.next)   // recursively runs Node's plan only on the final owner
+        FinalRelease(v)   // logical self-cleanup/storage-lifetime obligation
 
-Runtime invocation chain for a Node going out of scope at refcount=1:
-    BurdenDec(v) → RcDec(v) at Phase 7 → ori_rc_dec(v) atomically decrements → rc=0 → invoke compiled_drop_<Node>(v) → recursively decs v.next → ... → frees self
+Compiled C-ABI projection for a Node whose refcount is 1:
+    BurdenDec(v) → RcDec(v) → ori_rc_dec(v) → rc=0 → drop_operation_<Node>(v)
+
+VM projection for the same value:
+    BurdenDec(v) → release_owner(v) → owners=0 → execute DropPlanId<Node>
 ```
 
-This matches Lean 4's `IR/RC.lean` per-type drop call shape, Rust drop glue, and C++ destructor compilation. The `BurdenSpec` stays first-class data — the spec describes what gets walked; for cyclic types the walk is COMPILED into the type's drop glue function (called only when refcount=0), not inlined at every release site.
+This matches the ownership shape of Lean 4's `IR/RC.lean`, Rust drop glue, and C++ destructor compilation. Ori keeps the walk as first-class data.
+
+Compiled projections may materialize one glue function per type; the VM may interpret or specialize the same plan. Neither projection authors the walk.
 
 ### `Drop` Trait Interaction — AUGMENT, with Partial-Move Restriction
 
-**Architectural distinction (per codex R8 Finding 4): `BurdenDec` and drop glue are different things.**
+**Architectural distinction (per codex R8 Finding 4): `BurdenDec` and an executable drop plan are different things.**
 
-- **`BurdenDec(v)`** is a **reference release**: it decrements `v`'s RC by one. It does NOT directly invoke user drop or walk owned fields. At the runtime level, `BurdenDec` lowers to `RcDec(v)` at Phase 7, and `ori_rc_dec` checks the refcount: if > 0 after decrement, return; if = 0, invoke the type's drop glue.
-- **Drop glue** is a **per-type compiled function** (`_ori_burden_drop_<mangled_type>`) invoked by `ori_rc_dec` when refcount reaches zero. The drop glue is what runs the user's `@drop` method, walks the owned-field BurdenSpec (recursively releasing each field's reference), and finally frees the self allocation.
+- **`BurdenDec(v)`** is a **reference release**: it removes one ownership credit. It does not directly invoke user drop or walk owned fields. Phase 7 realizes it as a typed release operation.
+- **`ExecutableDropPlan`** owns the per-type final-owner cleanup: run the user's `@drop` method, walk the owned-field `BurdenSpec` in reverse declaration order, and release the self allocation. A compiled drop function and a VM drop-dispatch entry are projections of this plan.
 
-The user's `@drop` method runs FIRST inside the drop glue (matching Rust's Drop semantics), THEN the compiler walks owned fields:
+The user's `@drop` method runs FIRST inside the executable drop plan (matching Rust's Drop semantics), THEN the plan walks owned fields:
 
 ```
-ori_rc_dec(v):
-    refcount = atomic_dec(v.header.refcount)
-    if refcount > 0: return
-    # refcount reached zero — invoke drop glue
-    drop_glue_<type_of_v>(v)
+release_owner(v):
+    owners = decrement_owner_count(v)
+    if owners > 0: return
+    execute_drop_plan(type_of_v, v)
 
-drop_glue_<type_of_v>(v):
+ExecutableDropPlan[type_of_v](v):
     if user_drop is Some(f):
         Apply { func: f, args: [v] }     # user's @drop runs FIRST; sees fields valid
     for each owned_field in BurdenSpec.owned_fields (reverse decl order):
         BurdenDec(v.field)               # release the field's reference
-                                         # (recursively triggers field's drop glue if refcount=0)
-    if self_heap_alloc:
-        free(v)                          # release the self allocation
+                                         # (runs its drop plan only on the final owner)
+    if self_managed:
+        FinalRelease(v)                  # logical self cleanup/storage-lifetime obligation
 ```
 
-Phase 5 emission produces `BurdenDec` operations at last-use sites; the drop glue is generated once per type at codegen time and lives in compiled code (matching the existing `ori_llvm/codegen/arc_emitter/drop_gen.rs` shape). Phase 5 burden ops do NOT directly run user drop or walk fields — they emit references-releases that `ori_rc_dec` routes to drop glue when needed.
+Phase 5 emission produces `BurdenDec` operations at last-use sites; executable construction closes one logical drop plan per type. The existing `ori_llvm/codegen/arc_emitter/drop_gen.rs` implementation is a compiled projection and remains a migration gap wherever it re-derives the walk.
+
+`FinalRelease` does not mean `free`, heap, header decrement, or region teardown.
+The selected `VmLayoutPlan` or `CompiledLayoutPlan(TargetSpec)` discharges it
+with the mechanism proven sufficient for that value's frozen facts.
+
+Phase 5 burden ops do not directly run user drop or walk fields; each physical executor routes a final-owner release to the bound plan.
 
 **Partial Move Restriction**: Ori shall FORBID partial moves of fields on types that implement a custom `Drop` trait. Tracking conditionally-moved fields would require dynamic drop flags (significant runtime layout/ABI cost not in scope) or per-CFG-path drop tracking that conflicts with the trivial-Phase-5 design.
 
@@ -293,23 +307,26 @@ These ordering rules are mechanical: at each terminator, walk the block's local-
 
 ### `Value` Trait Composition — Empty Burden
 
-Types with the `Value` trait have inline storage, bitwise copy, no ARC. Empty `BurdenSpec`:
+- Types with the `Value` trait are bitwise-copyable and have no logical managed cleanup burden.
+- Their physical storage may be inline, a register, a frame slot, or another admitted representation.
+- Their `BurdenSpec` is empty:
 
 ```
 BurdenSpec {
-    self_heap_alloc: false,
+    self_managed: false,
     owned_fields: &[],
     borrowed_fields: &[],
     variant_burdens: &[],
     element_burden: None,
-    compiled_drop: None,
+    recursive_drop: None,
     user_drop: None,
 }
 ```
 
-Generic composition handles mixed-`Value` containers correctly. `Result<ValueType, HeapType>` at monomorphization:
+Generic composition handles mixed-`Value` containers correctly.
+`Result<ValueType, ManagedType>` at monomorphization:
 - `Ok(vt: ValueType)` variant burden inherits `ValueType::Burden = empty` → no drop work
-- `Err(ht: HeapType)` variant burden inherits `HeapType::Burden = full` → drops fire normally
+- `Err(mt: ManagedType)` variant burden inherits `ManagedType::Burden = full` → drops fire normally
 
 Compiler validates `Value` trait conformance during type-check; conforming types automatically receive empty BurdenSpec via registration.
 
@@ -361,13 +378,16 @@ The earlier framing "BUG-04-118-class bugs become unrepresentable" was overstate
 
 The burden model changes WHERE alias tracking matters (elimination, not emission). It does NOT eliminate the need for accurate alias tracking. The architectural payoff is reduced surface, not zero surface.
 
-### RL-29 / RL-30 Mostly Duplicate Contracts
+### RL-29 / RL-30 Mostly Duplicate Executable Facts
 
-The earlier framing "BurdenSpec is a queryable second-consumer for RL-29/30/31 LLVM fact export" was overstated (gemini R3 Major, opencode R4 Major Finding 1). Honest accounting:
+The earlier framing "BurdenSpec is a queryable second-consumer for RL-29/30/31 LLVM fact export" was overstated (gemini R3 Major, opencode R4 Major Finding 1) and too backend-specific. Honest accounting:
 
-- **RL-29 (`noalias`)** consumes `ReturnContract.preserves_freshness` + `uniqueness`. BurdenSpec's `self_heap_alloc` partially overlaps with `preserves_freshness` derivation but adds little novel precision.
-- **RL-30 (`memory(...)`)** consumes `ParamContract.access` + `may_share` + `EffectSummary`. BurdenSpec's `borrowed_fields` vs `owned_fields` partially overlaps with `ParamContract.access` but adds little novel precision.
-- **RL-31 (alias-scope disjointness)** is the genuinely novel consumer. Type-level field-graph disjointness is a proof technique the contract layer cannot express; BurdenSpec's `field_type` chains can prove that two parameters' reachable owned-field graphs are disjoint at the type level.
+- **RL-29 (freshness)** consumes `ReturnContract.returns_fresh_self_alloc`.
+  `BurdenSpec.self_managed` partially overlaps with managed-result derivation
+  but adds little novel precision. LLVM `noalias` is one projection of the
+  neutral result.
+- **RL-30 (memory effects)** consumes `ParamContract.access`, `may_share`, and complete `EffectSummary` facts. `BurdenSpec.borrowed_fields` vs `owned_fields` partially overlaps with parameter access but adds little novel precision. LLVM `memory(...)` is one fail-closed projection; other executors may use the same facts for optimization without LLVM attributes.
+- **RL-31 (parameter disjointness)** is the genuinely novel consumer. Type-level field-graph disjointness is a proof technique the contract layer cannot express; `BurdenSpec.field_type` chains can prove that two parameters' reachable owned-field graphs are disjoint. LLVM alias scopes, VM specialization guards, and native/WASM alias metadata are downstream projections.
 
 The registry's value rests on:
 1. RL-31 type-level disjointness (one concrete novel consumer)
@@ -406,7 +426,9 @@ This proposal adopts Lean 4's borrow-vs-owned parameter convention (already pres
 
 ### Rust Drop Glue / C++ Destructors
 
-Both compilers generate per-type drop functions structurally — at type definition time, the compiler emits a function that walks fields. This is structurally identical to BurdenSpec's compiled-drop fallback for recursive types. The difference: in Rust and C++ the drop is compiled code, not queryable data. This proposal elevates the drop information to data in a registry for non-recursive types; recursive types still use compiled drop functions.
+Both compilers generate per-type drop functions structurally — at type definition time, the compiler emits a function that walks fields. This is structurally identical to projecting Ori's recursive `ExecutableDropPlan` into compiled glue.
+
+The difference: in Rust and C++ the drop is compiled code, not queryable data. Ori keeps the drop information as data for all types; a compiled function is one physical realization, not the authority.
 
 ### Swift Ownership Pipeline Re-Architecture
 
@@ -518,7 +540,7 @@ Implementation lands at `plans/aims-burden-tracking/` with `feature_plan: true` 
 - **§01** — BurdenRegistry data structures + registration API + integration with TypeRegistry
 - **§02** — Burden composition via type parameters at monomorphization; existing `DropInfo`/`DropKind` lift into `BurdenSpec`
 - **§03** — Phase 5 ARC lowering emits trivial burden ops; transfer points wired
-- **§04** — Recursive-type compiled drop-glue fallback; closure capture composition; Drop trait AUGMENT + partial-move restriction; Value trait empty-burden composition
+- **§04** — Recursive-type executable drop plans plus compiled/VM projections; closure capture composition; Drop trait AUGMENT + partial-move restriction; Value trait empty-burden composition
 - **§04a** — Minimal lattice adaptation: register `BurdenInc`/`BurdenDec` in `aims-rules.md §3 Forward Transfer Matrix` as TF-N/A (no `dst`, no forward state, no backward demand — same as existing `RcInc`/`RcDec`); wire DP-2/DP-3 to apply at burden-op sites for elimination decisions. This adaptation is sufficient to run lattice elimination over the burden baseline in standalone verification mode for Prototype Gate criterion 6 (per opencode R10 F2 — resolves the gate circularity). The full Phase 6 lattice rewrite at §05 builds on this adaptation.
 
 ### Prototype Gate (BLOCKS §05+)
@@ -582,9 +604,9 @@ This addresses the under-drop risk codex R9 Finding 2 identified: a mixed covere
 - `ori_registry::burden` — new module
 - `ori_arc::lower::burden_lower` — new module for Phase 5 burden emission
 - `ori_arc::ir::instr.rs` — `BurdenInc { var }` / `BurdenDec { var }` instructions
-- Compiled drop-glue functions (`_ori_burden_drop_<mangled_type>`) for recursive types
+- `ExecutableDropPlan` entries for recursive types, with compiled glue and VM dispatch as projections
 
-**Non-AIMS consumers of `DropInfo` / `DropKind`** (LLVM codegen, evaluator) — `compute_drop_info` becomes a thin wrapper around `BurdenRegistry::lookup` returning a structurally-equivalent shape during transition. §02 audits and re-points consumers.
+**Consumers of `DropInfo` / `DropKind`** — `compute_drop_info` becomes a thin wrapper around `BurdenRegistry::lookup` during transition. Executable construction freezes the result as `ExecutableDropPlan`; VM, LLVM/native, compiled-WASM, and JIT validate and project it. The evaluator uses logical type semantics and remains outside the physical drop-plan branch. §02 audits and re-points every consumer.
 
 ### Cycle Handling
 
@@ -600,9 +622,11 @@ These are GENUINE uncertainties that the §Prototype Gate addresses or that defe
 
 Last-syntactic-use lifespan matches Perceus. Lattice clawback for missed-elision cases must produce identical RC ops to current AIMS on representative hot loops. §05 Phase 0 deliverable includes a perf microbenchmark commitment.
 
-### Q2: Existential types (`impl Trait` returns)
+### Q2: Existential types (`impl Trait` returns) — RESOLVED by stable drop-plan identity
 
-When a function returns `impl Trait` and the concrete type is hidden from the caller, the caller cannot statically query `BurdenRegistry::lookup(concrete_type_id)`. Resolution: caller-side burden walk dispatches via vtable-like burden-spec-table indirection at the `impl Trait` boundary (one indirection per opaque-return call site). Trade-off: indirection cost vs. monomorphization breadth. Decision deferred to §02 implementation.
+When a function returns `impl Trait` and the concrete type is hidden from the caller, executable construction binds its cleanup to a stable `DropPlanId`. AIMS does not choose a vtable field, pointer width, symbol, or calling convention.
+
+The VM dispatches the ID through its drop table; compiled layouts may use metadata or a thunk and may devirtualize it. Monomorphization and physical indirection remain performance choices, not ownership-policy choices.
 
 ### Q3: Sharing detection complexity (RESOLVED by Phase 5 trivial / Phase 6 optimization split)
 
@@ -614,7 +638,7 @@ The Phase 0 deliverable for §05 includes RL-31 burden-aware design. The registr
 
 ### Q5: Migration testability
 
-The 16 BUG-04-118 originally-failing tests are a starting regression corpus. §07 adds shape-explicit coverage for: closures-inside-loops with conditional capture, recursive types via compiled drop-glue, Drop-trait collision cases, Value/HeapType mixed sum-type variants, unwind-path drop emission.
+The 16 BUG-04-118 originally-failing tests are a starting regression corpus. §07 adds shape-explicit coverage for: closures-inside-loops with conditional capture, recursive types via shared drop-plan identity in VM and compiled projections, Drop-trait collision cases, Value/managed mixed sum-type variants, unwind-path drop emission.
 
 ### Q6: TRMC interaction
 
@@ -634,11 +658,24 @@ User `@drop (self) -> void` runs FIRST; compiler burden walk runs SECOND. The co
 
 ### Q10: Value trait + Drop trait mutual exclusivity
 
-Per `ori-syntax.md §Value`, Value types have inline storage, bitwise copy, no ARC. Per `drop-trait-proposal.md`, Drop types perform user-defined cleanup at refcount-zero. **These are mutually exclusive**: a Value type has no heap allocation backing, so refcount-zero cleanup never fires. The compiler enforces this at type-definition time: a type implementing both `Value` and `Drop` produces error `EVALUE_DROP_CONFLICT`. Standard library types are designed to be one or the other, never both.
+- Per `ori-syntax.md §Value`, `Value` types are bitwise-copyable and have no logical managed-cleanup obligation.
+- Per `drop-trait-proposal.md`, `Drop` types have a user-defined logical cleanup action.
+- **These are mutually exclusive** because bitwise copying cannot duplicate a
+  unique cleanup obligation, not because either trait mandates inline or heap storage.
+- The compiler rejects a type implementing both with
+  `EVALUE_DROP_CONFLICT`; physical planners remain free to place either
+  admitted kind in any representation compatible with its facts.
 
 ### Q11: Sendable + atomic vs non-atomic burden ops
 
-Sendable types cross thread boundaries via channels. Channel send is a transfer point (Owned argument transferred to consumer). Burden walks must use atomic RC operations for Sendable types crossing thread boundaries to satisfy memory-ordering correctness. Non-Sendable types (or Sendable types provably staying in one thread per `aims-rules.md §RL-19`) use non-atomic RC. The atomic/non-atomic decision is a Phase 7 realization choice (existing AIMS apparatus), not a Phase 5 emission choice — `BurdenInc`/`BurdenDec` are uniform; their realization to atomic vs non-atomic `RcInc`/`RcDec` happens at Phase 7 per existing RL-19/RL-20/RL-21.
+- Sendable types may cross thread boundaries via channels; channel send is a
+  logical ownership transfer from producer to consumer.
+- AIMS freezes `ThreadReachability::PotentiallyShared` for allocations that may
+  become concurrently reachable and `Confined` only when closed evidence proves it.
+- `BurdenInc`/`BurdenDec` remain uniform logical events.
+- After AIMS, `VmLayoutPlan` and `CompiledLayoutPlan(TargetSpec)` independently
+  choose a race-safe atomic, thread-confined, actor-owned, or other sufficient mechanism.
+- No atomic opcode or ordering is selected in Phase 7 of AIMS.
 
 ### Q12: FFI empty BurdenSpec soundness
 
@@ -646,7 +683,11 @@ Foreign types (`CPtr`, `JsValue`, types from `extern "c" from "lib"` blocks) hav
 
 ### Q13: Recursive type-graph cycles in burden composition (compile-time, distinct from runtime cycle collection)
 
-Recursive types (`struct Node { next: Option<Node> }`) produce TypeId cycles in `BurdenSpec::field_type` chains. Runtime cycle collection (Bacon-Rajan, generational refs) is OUT of scope. Compile-time cycle handling IS in scope: per §Recursive and Self-Referential Types, BurdenSpec walks detect cycles via `visited: HashSet<TypeId>` at registration time and emit compiled drop-glue functions for cyclic types. This handles compile-time recursion in burden composition; runtime cycle leaks (where a Node's `next` field forms a runtime reference cycle) remain a separate concern handled by future cycle-collection proposal.
+Recursive types (`struct Node { next: Option<Node> }`) produce TypeId cycles in `BurdenSpec.field_type` chains. Runtime cycle collection (Bacon-Rajan, generational refs) is OUT of scope.
+
+Compile-time cycle handling IS in scope: per §Recursive and Self-Referential Types, `BurdenSpec` walks detect cycles via `visited: HashSet<TypeId>` at registration time and close a recursive `ExecutableDropPlan`. Compiled glue and VM dispatch project that plan.
+
+This handles compile-time recursion in burden composition; runtime cycle leaks remain a separate concern handled by a future cycle-collection proposal.
 
 ### Q14: Whether this should be approved at all
 

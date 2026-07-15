@@ -92,7 +92,7 @@ pub(crate) fn registered_enum_with_single_payload_variant(
 }
 
 /// Register a user ENUM burden in the COMPUTE shape (`build_enum_burden`
-/// parity): `self_heap_alloc: true`, the unique payload-bearing variant
+/// parity): `self_owned_identity: true`, the unique payload-bearing variant
 /// carrying BOTH a transfer-on-match rule AND a retained owned field —
 /// the shape the constructless type-derived variant skip requires.
 pub(crate) fn registered_tagged_enum_with_unique_payload_variant(
@@ -107,7 +107,7 @@ pub(crate) fn registered_tagged_enum_with_unique_payload_variant(
         None => core::num::NonZeroU32::MIN,
     };
     let burden = UserBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         variant_burdens: vec![UserVariantBurden {
             variant_id: ori_registry::burden::VariantId::new(nz),
             transfers_on_match: vec![UserTransferRule {
@@ -137,7 +137,7 @@ pub(crate) fn registered_tagged_enum_with_unique_payload_variant(
 }
 
 /// Register a 2-field user-defined struct (`{ data: str, name: str }`) with
-/// BOTH fields heap-burden-typed and a `UserBurdenSpec` naming BOTH as owned.
+/// BOTH fields ownership-bearing and a `UserBurdenSpec` naming BOTH as owned.
 ///
 /// Sibling to `registered_struct_with_burden` (preserved single-field variant
 /// for `burden_lookup/tests.rs`); introduces this multi-field shape so
@@ -171,7 +171,7 @@ pub(crate) fn registered_struct_with_two_owned_str_fields(
         },
     ];
     let burden = UserBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: vec![
             UserOwnedField {
                 field_path: vec![0],
@@ -197,18 +197,18 @@ pub(crate) fn registered_struct_with_two_owned_str_fields(
     );
 }
 
-/// Register a 2-field Value/HeapType-mixed struct (`{ tag: int, payload: str }`)
-/// whose `UserBurdenSpec.owned_fields` names ONLY the heap field (`payload`,
+/// Register a 2-field scalar/ownership-bearing struct (`{ tag: int, payload: str }`)
+/// whose `UserBurdenSpec.owned_fields` names ONLY the ownership-bearing field (`payload`,
 /// `field_path: vec![1]`, `Idx::STR`); the `Value` field (`tag`, `Idx::INT`,
 /// field 0) is OMITTED from `owned_fields`.
 ///
 /// `burden_carries_rc` returns true via the non-empty `owned_fields`, so the
 /// struct's SSA value enters the owned-burden walk, but the whole-var
-/// `BurdenDec` covers only the `str` field through drop-glue — the `Value`
+/// `BurdenDec` covers only the `str` field through logical cleanup — the scalar
 /// field drives no burden op (no per-field inc, no `BurdenDecField`). A mixed
-/// fixture is the only shape that distinguishes "only the `HeapType` field is
+/// fixture is the only shape that distinguishes "only the ownership-bearing field is
 /// burden-tracked" from "every field is owned".
-pub(crate) fn registered_struct_value_heap_mixed(
+pub(crate) fn registered_struct_scalar_owned_mixed(
     registry: &mut TypeRegistry,
     name: &str,
     idx: Idx,
@@ -228,7 +228,7 @@ pub(crate) fn registered_struct_value_heap_mixed(
         },
     ];
     let burden = UserBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: vec![UserOwnedField {
             field_path: vec![1],
             field_type: Idx::STR,

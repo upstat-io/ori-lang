@@ -5,12 +5,12 @@
 //! - Unannotated FFI / opaque types (`CPtr`, `JsValue`, `JsPromise<T>`, and
 //!   `extern "c" from "lib" { ... }` types WITHOUT `#free` annotation) get
 //!   an EMPTY `BuiltinBurdenSpec` (`EMPTY_BURDEN_SPEC` below): no fields, no
-//!   variants, `self_heap_alloc = false`, `compiled_drop = None`,
+//!   variants, `self_owned_identity = false`, `drop_operation = None`,
 //!   `user_drop = None`. Sound ONLY for caller-managed lifetime — Ori does
 //!   NOT decrement; the FFI consumer owns cleanup.
 //!
 //! - Annotated FFI types (`extern "c" from "lib" #free(fn) { ... }`) get an
-//!   explicit `UserBurdenSpec` (heap-backed, in `ori_types`) with
+//!   explicit `UserBurdenSpec` (owned-vector storage in `ori_types`) with
 //!   `user_drop: Some(FnSym)` pointing at the user-supplied free function.
 //!
 //! Spec: Annex E §AIMS RL-31 Sufficient-Noalias Rule clause 8 explicitly

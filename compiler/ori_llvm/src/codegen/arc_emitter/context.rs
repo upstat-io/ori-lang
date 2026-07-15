@@ -9,6 +9,7 @@
 
 use ori_arc::ir::ValueRepr;
 use ori_arc::ownership::Ownership;
+use ori_arc::{ClosureAdapterPlan, RetainPlanTable};
 use ori_ir::canon::MonoInstanceId;
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
@@ -333,8 +334,20 @@ impl InvokeMode {
 pub struct CodegenContext {
     /// Declared functions: `Name` → (`FunctionId`, ABI).
     pub functions: FxHashMap<Name, (FunctionId, FunctionAbi)>,
+    /// Exact post-AIMS direct-call targets keyed by artifact function name and
+    /// stable result register. Populated only from `ExecutableProgram`.
+    pub executable_call_targets:
+        FxHashMap<(Name, ori_arc::ArcVarId), ori_repr::executable::CallableTarget>,
+    /// Artifact function names in stable `FunctionId` order.
+    pub executable_function_names: Vec<Name>,
+    /// Import-local names in stable artifact `ExternalFunctionId` order.
+    pub executable_external_names: Vec<Name>,
     /// Type-qualified method lookup: `(type_name, method_name)` → (`FunctionId`, ABI).
     pub method_functions: FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
+    /// Artifact-bound user-drop operations keyed by their exact semantic type.
+    /// Production drop emission and nounwind analysis consult only this table;
+    /// the general method map is retained for unbound unit-test fixtures.
+    pub user_drop_functions: FxHashMap<Idx, (FunctionId, FunctionAbi)>,
     /// Maps receiver type `Idx` → type `Name` for operator trait dispatch.
     pub type_idx_to_name: FxHashMap<Idx, Name>,
     /// Per-instantiation derived-method dispatch: `(concrete_resolved_idx, method_name)` →
@@ -379,12 +392,15 @@ pub struct CodegenContext {
     /// Maps lambda `Name` → ownership of each capture param (indexed by
     /// position in the `PartialApply` args list).
     pub lambda_capture_ownership: FxHashMap<Name, Vec<Ownership>>,
-    /// Known-pure function names (no memory effects). These get the LLVM
-    /// `memory(none)` attribute, enabling aggressive optimization.
-    pub pure_functions: FxHashSet<Name>,
-    /// Known read-only function names (reads memory, no writes). These get
-    /// the LLVM `memory(read)` attribute. Strictly weaker than `pure_functions`.
-    pub readonly_functions: FxHashSet<Name>,
+    /// Frozen closure-call adapters keyed by their concrete target.
+    /// Populated only from the validated executable artifact.
+    pub closure_adapters: FxHashMap<Name, ClosureAdapterPlan>,
+    /// Closed backend-neutral ownership topology used by frozen adapter actions.
+    pub retain_plans: RetainPlanTable,
+    /// Whether this context is bound to a closed executable artifact.
+    /// A bound context fails closed on missing closure facts; it never consults
+    /// the transitional per-lambda ownership map above.
+    pub executable_facts_bound: bool,
     /// Memoized `ori_arc::type_drop_may_unwind` results keyed by type `Idx`.
     ///
     /// Interior-mutable so the nounwind analysis (`is_arc_function_nounwind`,

@@ -6,7 +6,7 @@
 
 use std::mem::ManuallyDrop;
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use tracing::{debug, instrument};
 
 use ori_ir::ast::{Module, TestDef};
@@ -14,17 +14,15 @@ use ori_ir::canon::CanonResult;
 use ori_ir::{Name, StringInterner};
 use ori_types::{FunctionSig, ImplSig, TypeEntry};
 
+use super::runtime_mappings;
+use super::{llvm_dump_requested, CompiledTestModule, ImportedFunctionForCodegen, LLVMEvalError};
 use crate::codegen::function_compiler::FunctionCompiler;
 use crate::codegen::ir_builder::IrBuilder;
 use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
 use crate::codegen::type_registration;
 use crate::context::SimpleCx;
-use ori_repr::monomorphize::MonoTargetMaps;
 
-use super::runtime_mappings;
-use super::{llvm_dump_requested, CompiledTestModule, ImportedFunctionForCodegen, LLVMEvalError};
-
-impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
+impl super::OwnedLLVMEvaluator {
     /// Compile an entire module with all its tests using the V2 pipeline.
     ///
     /// This is the recommended way to run multiple tests from the same module.
@@ -48,9 +46,8 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
     /// - `impl_sigs`: Impl method signatures ([`ImplSig`]), keyed by owning impl receiver type + method name
     /// - `imported_functions`: Individual imported functions to compile into
     ///   this JIT module so calls to them resolve correctly
-    /// - `mono_instances`: Monomorphized generic function instances
-    /// - `annotated_sigs`: Pre-computed borrow inference results from the caller
-    /// - `arc_cache`: Pre-lowered ARC functions (consumed during define phase)
+    /// - `mono_functions`: Checked specialization inventory used by executable realization
+    /// - `executable`: Closed post-AIMS program shared with every executable backend
     #[instrument(skip_all, level = "debug", fields(
         functions = module.functions.len(),
         tests = tests.len(),
@@ -68,17 +65,11 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         interner: &StringInterner,
         function_sigs: &[FunctionSig],
         user_types: &[TypeEntry],
-        collection_burdens: &[(ori_types::Idx, ori_types::burden::UserBurdenSpec)],
         impl_sigs: &[ImplSig],
         imported_functions: &[ImportedFunctionForCodegen<'_>],
-        mono_instances: &[ori_types::MonoInstance],
-        annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
-        mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
-        narrowing_policy: Option<ori_repr::NarrowingPolicy>,
-        imported_type_metadata: &[ori_types::ExportedTypeMetadata],
-        imported_collection_surfaces: &[u64],
-        trait_impl_fn_names: &[(ori_types::Idx, Name)],
-        imported_mono_functions: Vec<ori_repr::monomorphize::MonoFunction>,
+        mono_functions: &[ori_repr::monomorphize::MonoFunction],
+        executable: &ori_repr::executable::ExecutableProgram,
+        impl_emission_names: &[Option<Name>],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         // V2 pipeline
 
@@ -102,7 +93,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             // SAFETY: Detached reference to scx — see comment above.
             let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
 
-            self.compile_all_functions(
+            Self::compile_all_functions(
                 scx_ref,
                 module,
                 tests,
@@ -110,17 +101,11 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 interner,
                 function_sigs,
                 user_types,
-                collection_burdens,
                 impl_sigs,
                 imported_functions,
-                mono_instances,
-                annotated_sigs,
-                &mut arc_cache,
-                narrowing_policy,
-                imported_type_metadata,
-                imported_collection_surfaces,
-                trait_impl_fn_names,
-                imported_mono_functions,
+                mono_functions,
+                executable,
+                impl_emission_names,
             )
         };
 
@@ -143,168 +128,45 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         clippy::too_many_lines,
         reason = "sequential JIT pipeline — splitting would fragment the compilation flow"
     )]
-    fn compile_all_functions(
-        &self,
-        scx_ref: &'tcx SimpleCx<'tcx>,
+    fn compile_all_functions<'ctx>(
+        scx_ref: &'ctx SimpleCx<'ctx>,
         module: &Module,
         tests: &[&TestDef],
         canon: &CanonResult,
         interner: &StringInterner,
         function_sigs: &[FunctionSig],
         user_types: &[TypeEntry],
-        collection_burdens: &[(ori_types::Idx, ori_types::burden::UserBurdenSpec)],
         impl_sigs: &[ImplSig],
         imported_functions: &[ImportedFunctionForCodegen<'_>],
-        mono_instances: &[ori_types::MonoInstance],
-        annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
-        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
-        narrowing_policy: Option<ori_repr::NarrowingPolicy>,
-        imported_type_metadata: &[ori_types::ExportedTypeMetadata],
-        imported_collection_surfaces: &[u64],
-        trait_impl_fn_names: &[(ori_types::Idx, Name)],
-        imported_mono_functions: Vec<ori_repr::monomorphize::MonoFunction>,
+        mono_functions: &[ori_repr::monomorphize::MonoFunction],
+        executable: &ori_repr::executable::ExecutableProgram,
+        impl_emission_names: &[Option<Name>],
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
-        // Type infrastructure
-        let classifier = ori_arc::ArcClassifier::new(self.pool);
-
-        // Compute representation plan (canonical reprs only).
-        let all_arc_funcs = ori_arc::collect_all_arc_functions(arc_cache);
-        let policy = narrowing_policy.unwrap_or_else(|| {
-            if ori_repr::NarrowingPolicy::env_disabled() {
-                ori_repr::NarrowingPolicy::Disabled
-            } else {
-                ori_repr::NarrowingPolicy::Aggressive
-            }
-        });
-        // Extract #repr attributes from user types for the repr plan.
-        let repr_attrs: Vec<(ori_types::Idx, ori_ir::ReprAttrKind)> = user_types
-            .iter()
-            .filter_map(|te| te.repr.map(|r| (te.idx, r)))
-            .collect();
-        // Extract public type indices for ABI-safe narrowing.
-        let mut pub_type_indices: Vec<ori_types::Idx> = user_types
-            .iter()
-            .filter(|te| te.visibility == ori_types::Visibility::Public)
-            .map(|te| te.idx)
-            .collect();
-        // Mark collection wrapper types from public function signatures as
-        // public, recursively walking into nested types.
-        ori_types::collect_public_collection_types(self.pool, function_sigs, &mut pub_type_indices);
-        // Collect unconstrained function names (pub + trait impl). Uses
-        // trait_impl_fn_names, not all impl_sigs — only trait impl methods
-        // (callable via dynamic dispatch) are unconstrained; inherent methods
-        // have statically-known callers.
-        let unconstrained_fn_names = ori_repr::collect_unconstrained_fn_names(
-            function_sigs,
-            trait_impl_fn_names,
-            Some(interner),
-        );
-        let repr_plan = ori_repr::compute_repr_plan_with_interner(
-            self.pool,
-            &all_arc_funcs,
-            policy,
-            &repr_attrs,
-            Some(interner),
-            &pub_type_indices,
-            imported_type_metadata,
-            imported_collection_surfaces,
-            &unconstrained_fn_names,
-            // JIT also has analysis-only impl methods.
-            impl_sigs.iter().any(|entry| !entry.sig.is_generic()),
-        );
-        let store = TypeInfoStore::new_with_plan(self.pool, &repr_plan);
-        let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(&repr_plan));
+        // Type/layout infrastructure is a physical projection of the same
+        // closed program; LLVM does not rebuild semantic analysis inputs.
+        let pool = executable.pool();
+        let classifier = ori_arc::ArcClassifier::new(pool);
+        let repr_plan = executable.repr_plan();
+        let store = TypeInfoStore::new_with_plan(pool, repr_plan);
+        let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner), Some(repr_plan));
         let mut builder = IrBuilder::new_jit(scx_ref);
         type_registration::register_user_types(&resolver, user_types);
 
-        let mut mono_functions = ori_repr::monomorphize::collect_mono_functions(
-            mono_instances,
-            function_sigs,
-            impl_sigs,
-            // JIT: single-module scope; cross-module imports are an AOT concern.
-            &[],
-            interner,
-            self.pool,
-        );
-        mono_functions.extend(imported_mono_functions);
-
-        // PC-2 contract check — diagnostic localization for
-        // JIT pre-mono IR. Non-load-bearing: the primary seam in
-        // process_arc_function owns record_codegen_error(); this site only
-        // attributes diagnostics to the caller-pre-populated arc_cache.
-        //
-        // Empty exempt set: lower_and_infer_borrows skips generics in
-        // arc_lowering.rs; arc_cache contains only non-generic bodies +
-        // imported monomorphized instances — both categories have empty
-        // scheme_var_ids.
-        let exempt: FxHashSet<u32> = FxHashSet::default();
-        for (_fn_name, (arc_fn, lambdas)) in arc_cache.iter() {
-            if let Err(err) =
-                ori_arc::assert_no_unresolved_type_vars(self.pool, arc_fn, interner, &exempt)
-            {
-                tracing::error!(
-                    contract_violation = true,
-                    error = ?err,
-                    site = "jit_pre_mono",
-                    "Tag::Var in JIT pre-mono ARC IR"
-                );
-            }
-            for lambda in lambdas {
-                if let Err(err) =
-                    ori_arc::assert_no_unresolved_type_vars(self.pool, lambda, interner, &exempt)
-                {
-                    tracing::error!(
-                        contract_violation = true,
-                        error = ?err,
-                        site = "jit_pre_mono_lambda",
-                        "Tag::Var in JIT pre-mono lambda ARC IR"
-                    );
-                }
-            }
-        }
-
-        // INVARIANT: every reachable mono lands in arc_cache before the
-        // interprocedural pass below (PL-5: no-stale-summary). Without this,
-        // analyze_program sees an arc_cache missing every mono and produces
-        // CONSERVATIVE contracts for every generic call site.
-        if !mono_functions.is_empty() {
-            crate::codegen::function_compiler::pre_lower_monos_to_arc_cache(
-                &mono_functions,
-                canon,
-                interner,
-                self.pool,
-                arc_cache,
-            );
-            // INVARIANT: Apply / Invoke targets in cached ArcFunctions resolve
-            // to mangled mono names before AIMS contract lookup. Without this,
-            // forwarder bodies (e.g., wrap calling @id) reference generic names
-            // that miss `analyze_program`'s mono-keyed contract map, breaking
-            // transitive transfers_through_return propagation across hops.
-            ori_repr::monomorphize::rewrite_apply_targets_for_monos(
-                arc_cache,
-                &mono_functions,
-                self.pool,
-                interner,
-            );
-        }
-
-        let aims_contracts = Self::run_interprocedural_analyses(arc_cache, &classifier, interner);
-
-        // Reconstruct the TypeRegistry from the type-checker exports so
-        // class-ledger Step-4b emission resolves collection / closure
-        // UserBurdenSpec. Mirrors the AOT codegen_pipeline reconstruction
-        // (eval/LLVM parity). Spec: Annex E §AIMS.
-        let mut type_registry = ori_types::TypeRegistry::from_typed_exports(
-            user_types.to_vec(),
-            collection_burdens.to_vec(),
-        );
-        // An imported function's body resolves its internal collection types into
-        // the merged pool, but register_imported_function composes burdens for
-        // signature types only, leaving class-ledger Step-4b emission without
-        // the burden metadata for an imported body's internal collection (e.g.
-        // a dead for-yield local). Fill the gaps from the merged pool.
-        // Spec: Annex E §AIMS.
-        ori_types::register_resolved_collection_burdens(self.pool, &mut type_registry);
+        let annotated_sigs: FxHashMap<_, _> = executable
+            .functions()
+            .iter()
+            .map(|function| {
+                let function_id = executable
+                    .function_id(function.name)
+                    .unwrap_or_else(|| unreachable!("validated function must have an identity"));
+                (
+                    function.name,
+                    executable
+                        .function_contract(function_id)
+                        .to_annotated_sig(&function.params, function.return_type),
+                )
+            })
+            .collect();
 
         // Two-pass function compilation
         debug!("declaring functions (phase 1)");
@@ -313,15 +175,14 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
             &store,
             &resolver,
             interner,
-            self.pool,
-            &type_registry,
+            pool,
             "",
-            annotated_sigs,
+            &annotated_sigs,
             &classifier,
             None, // No debug info for JIT
-            aims_contracts,
             std::env::var("ORI_VERIFY_ARC").is_ok_and(|v| v != "0"),
         );
+        fc.bind_executable_program(executable);
         fc.declare_all(&module.functions, function_sigs);
 
         // Declare imported functions
@@ -344,14 +205,33 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 count = mono_functions.len(),
                 "declaring monomorphized functions"
             );
-            fc.declare_mono_functions(&mono_functions);
+            fc.declare_mono_functions(mono_functions);
         }
+
+        // Impl bodies retain qualified physical symbols, while tests retain
+        // their panic-catching wrapper projection. Everything else not already
+        // claimed by source/import/mono declarations is a closed artifact
+        // family and enters through the generic generated-body seam.
+        let deferred_artifact_parents: Vec<Name> = impl_emission_names
+            .iter()
+            .flatten()
+            .copied()
+            .chain(tests.iter().map(|test| test.name))
+            .collect();
+        let artifact_remainder = fc.declare_artifact_remainder(&deferred_artifact_parents);
 
         // Compile impl methods
         if !module.impls.is_empty() {
             debug!("compiling impl methods");
-            fc.compile_impls(&module.impls, impl_sigs, canon, &module.traits);
+            fc.compile_impls_from_artifact(
+                &module.impls,
+                impl_sigs,
+                canon,
+                &module.traits,
+                impl_emission_names,
+            );
         }
+        fc.bind_user_drop_targets();
 
         // Compile derived trait methods
         if module.types.iter().any(|t| !t.derives.is_empty()) {
@@ -361,8 +241,7 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
 
         // Prepare bodies (ARC pipeline), compute nounwind set, emit LLVM IR
         debug!("preparing function bodies (phase 2a, ARC pipeline)");
-        let mut prepared =
-            fc.prepare_all_cached(&module.functions, function_sigs, canon, arc_cache);
+        let mut prepared = fc.prepare_all_from_artifact(&module.functions, function_sigs);
 
         if !imported_functions.is_empty() {
             debug!(
@@ -370,11 +249,9 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 "preparing imported function bodies"
             );
             for imp_fn in imported_functions {
-                prepared.extend(fc.prepare_all_cached(
+                prepared.extend(fc.prepare_all_from_artifact(
                     std::slice::from_ref(imp_fn.function),
                     std::slice::from_ref(&imp_fn.sig),
-                    imp_fn.canon,
-                    arc_cache,
                 ));
             }
         }
@@ -384,25 +261,17 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
                 count = mono_functions.len(),
                 "preparing monomorphized function bodies"
             );
-            prepared.extend(fc.prepare_mono_cached(&mono_functions, canon, arc_cache));
+            prepared.extend(fc.prepare_mono_from_artifact(mono_functions));
         }
+
+        prepared.extend(fc.prepare_artifact_remainder_from_artifact(&artifact_remainder));
 
         fc.compute_nounwind_set(&prepared);
         fc.emit_prepared_functions(prepared);
 
         // Compile test wrappers
         debug!("compiling test wrappers");
-        // Test bodies are lowered directly here (NOT via `arc_cache`), so they
-        // miss the `rewrite_apply_targets_for_monos` pass that rewrites generic
-        // call targets to mangled mono names. Without it, a test body's
-        // `Invoke @assert_eq(generic)` misses the mono-keyed AIMS contract
-        // (`@assert_eq$m$..`), so a borrowed transfer-through-return arg is
-        // mis-excluded from the dead-collection release scan and leaks. Pass the
-        // mono maps so test bodies get the same rewrite as `arc_cache` functions
-        // (eval/AOT contract parity).
-        let mono_target_maps =
-            (!mono_functions.is_empty()).then(|| MonoTargetMaps::build(&mono_functions, self.pool));
-        let wrappers = fc.compile_tests(tests, canon, mono_target_maps.as_ref());
+        let wrappers = fc.compile_tests(tests);
 
         // Post-hoc nounwind: catch impl methods and test wrappers that were
         // compiled before the two-pass analysis but contain no invoke instructions.
@@ -412,19 +281,6 @@ impl<'tcx> super::OwnedLLVMEvaluator<'tcx> {
         let errors = builder.codegen_error_count() + store.type_error_count();
         let descriptions = builder.codegen_error_descriptions();
         (wrappers, errors, descriptions)
-    }
-
-    /// Run interprocedural AIMS contract analysis (ownership).
-    fn run_interprocedural_analyses(
-        arc_cache: &FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
-        classifier: &ori_arc::ArcClassifier,
-        interner: &StringInterner,
-    ) -> FxHashMap<Name, ori_arc::MemoryContract> {
-        let all_funcs = ori_arc::collect_all_arc_functions(arc_cache);
-
-        let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
-        let mut all_funcs_mut = all_funcs;
-        ori_arc::compute_aims_contracts(&mut all_funcs_mut, classifier, interner, &builtins)
     }
 
     /// Validate compiled IR and create the JIT execution engine.

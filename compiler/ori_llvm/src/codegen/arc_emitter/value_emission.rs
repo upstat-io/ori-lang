@@ -14,6 +14,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit an `ArcValue` as an LLVM value.
     pub(super) fn emit_value(
         &mut self,
+        dst: ArcVarId,
         value: &ori_arc::ir::ArcValue,
         ty: Idx,
         func: &ArcFunction,
@@ -25,7 +26,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             ori_arc::ir::ArcValue::PrimOp { op, args } => {
                 let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
-                self.emit_primop(*op, &arg_vals, ty, func, args)
+                self.emit_primop(dst, *op, &arg_vals, ty, func, args)
             }
         }
     }
@@ -81,23 +82,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a primitive operation.
     fn emit_primop(
         &mut self,
+        dst: ArcVarId,
         op: PrimOp,
         arg_vals: &[ValueId],
         _ty: Idx,
         func: &ArcFunction,
         arc_args: &[ArcVarId],
     ) -> ValueId {
+        let fact = func.primitive_facts.get(dst).unwrap_or_else(|| {
+            panic!("validated PrimOp v{} is missing its frozen fact", dst.raw())
+        });
         match op {
             PrimOp::Binary(bin_op) => {
                 let lhs = arg_vals[0];
                 let rhs = arg_vals[1];
                 let lhs_ty = func.var_type(arc_args[0]);
-                self.emit_binary_op(bin_op, lhs, rhs, lhs_ty, arc_args[0], arc_args[1], func)
+                self.emit_binary_op(bin_op, lhs, rhs, lhs_ty, fact.strategy, func)
             }
             PrimOp::Unary(un_op) => {
                 let operand = arg_vals[0];
                 let operand_ty = func.var_type(arc_args[0]);
-                self.emit_unary_op(un_op, operand, operand_ty)
+                self.emit_unary_op(un_op, operand, operand_ty, fact.strategy)
             }
         }
     }

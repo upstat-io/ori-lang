@@ -8,8 +8,8 @@
 //! `KeyType` and `ValueType` projections.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag, ONE_SELF_BORROW,
+    MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef,
+    TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 // Parameter arrays
@@ -132,8 +132,10 @@ static MAP_METHODS: &[MethodDef] = &[
         Ownership::Borrow,
         false,
     ),
-    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
-    MethodDef::compound("length", &[], INT, Some("Len"), Ownership::Borrow, false),
+    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Length),
+    MethodDef::compound("length", &[], INT, Some("Len"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Length),
     MethodDef::compound(
         "merge",
         &ONE_SELF_BORROW,

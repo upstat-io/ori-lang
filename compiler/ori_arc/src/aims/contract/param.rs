@@ -6,6 +6,25 @@
 
 use super::super::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness};
 
+/// Independent-owner credit required before entering a callee through a
+/// borrowed residual-call boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CalleeOwnerDemand {
+    /// The callee observes the value without consuming an ownership credit.
+    Borrow,
+    /// The callee consumes one credit for the complete value.
+    WholeValue,
+    /// The callee consumes one credit for exactly one projected field.
+    ProjectedField(u32),
+}
+
+/// Contradictory final contract facts that demand both whole-value and
+/// projected-field credits at one parameter.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CalleeOwnerDemandConflict {
+    pub field: u32,
+}
+
 /// Shape of how a parameter aliases the callee's return value.
 ///
 /// Caller-side carrier for BUG-04-090's `apply_result_aliases` side-table
@@ -87,7 +106,8 @@ pub struct ParamContract {
     pub cardinality: Cardinality,
     /// May this parameter's value escape the callee (stored, returned, shared)?
     pub may_escape: bool,
-    /// May this parameter's value be shared (refcount > 1) by the callee?
+    /// May the callee introduce or observe multiple logical owners of this
+    /// parameter's value?
     pub may_share: bool,
     /// Locality lower bound: the callee guarantees this parameter stays at
     /// least this local (v1: always `Unknown`).
@@ -95,9 +115,10 @@ pub struct ParamContract {
     /// Caller-guaranteed uniqueness at entry.
     ///
     /// When ALL call sites pass this parameter with `Owned + Linear + Once`,
-    /// the interprocedural analysis tightens this to `Unique` — the callee
-    /// can trust that the argument's runtime RC == 1 at entry. This is the
-    /// callee-side dual of COW-aware borrowing (07.3.1).
+    /// the interprocedural analysis tightens this to `Unique` — the callee can
+    /// trust that exactly one logical owner exists at entry. This is the
+    /// callee-side dual of COW-aware borrowing (07.3.1); it does not prescribe
+    /// a runtime counter.
     ///
     /// Default: `MaybeShared` (no caller guarantee).
     pub uniqueness: Uniqueness,
@@ -105,17 +126,17 @@ pub struct ParamContract {
     /// terminator (BUG-04-090 fix).
     ///
     /// When `true`, ownership of the parameter transfers through the return
-    /// to the caller — the callee MUST NOT emit a scope-exit `RcDec` on the
-    /// parameter, because the caller will dec the bound result variable
-    /// when ITS scope exits. Computed from the structural Return-flow alias
+    /// to the caller — the callee MUST NOT discharge the parameter's ownership
+    /// credit at scope exit, because the caller owns the bound result's eventual
+    /// release. The current carrier spells that release `RcDec`. Computed from the structural Return-flow alias
     /// fact in `detect_consumed_params` (NOT from `preserves_freshness`,
     /// which is currently spec-inverted).
     ///
-    /// Completes the Lean 4 `ownParamsUsingArgs` pattern: inc/dec
+    /// Completes the logical `ownParamsUsingArgs` pattern: event-pair
     /// elimination on owned-arg → owned-callee-param transfer applies to
-    /// BOTH the caller's inc AND the callee's dec.
+    /// both the caller's additional credit and the callee's release.
     ///
-    /// Default: `false` (conservative — emit dec).
+    /// Default: `false` (conservative — retain the release obligation).
     pub transfers_through_return: bool,
     /// Shape of how this parameter aliases the callee's return value
     /// (BUG-04-090 fix — caller-side carrier for `apply_result_aliases`).
@@ -168,8 +189,8 @@ pub struct ParamContract {
     /// `realize::emit_unified::borrowed_arg_release_verdict`: a collection at a
     /// borrowed terminator-`Invoke` arg whose callee param `iter_consumes` is
     /// `true` is classified `ApplyToIterConsumingParam` (RL-2 TRANSFER) and its
-    /// caller burden dec is SUPPRESSED — the callee's `ori_iter_drop` is the
-    /// single release. Soundness:
+    /// caller release is suppressed — the callee's iterator cleanup is the
+    /// single logical release. Soundness:
     /// `AimsProof.Realization::RL2_iter_consuming_caller_dec_splits`.
     ///
     /// IC-3 join: OR (once `true` on any path, stays `true`).
@@ -185,30 +206,32 @@ pub struct ParamContract {
     /// (a COW-mutator like `xs.push(v)` consumes the receiver `[own]`, an iter
     /// consume routes through `@iter [own]`, a transfer hands it inward). Borrow
     /// inference leaves a COW-mutated receiver param `access: Borrowed` (the
-    /// runtime manages the COW receiver's RC internally), so `access == Borrowed`
-    /// alone does NOT prove non-COW — this is the distinct per-param fact that
-    /// does, the affirmative read-only complement of `iter_consumes`.
+    /// physical runtime manages the receiver's sharing mechanics), so
+    /// `access == Borrowed` alone does NOT prove non-COW — this is the distinct
+    /// per-param fact that does, the affirmative read-only complement of
+    /// `iter_consumes`.
     ///
     /// Consumed on the CALLER side by
     /// `realize::emit_unified::compute_user_call_arg_lineages`: a fresh-local
     /// COLLECTION at a Borrowed user-call arg whose callee param
     /// `borrowed_read_only` is `true` SURVIVES the call and the caller retains
     /// ownership — it stays ELIGIBLE for the dead-owned alloc-aware net, which
-    /// fires ONE RL-2 scope-exit release iff net +1 (the collection analogue of
-    /// the borrowed-`str` carve-out). A COW-mutating callee
-    /// (`borrowed_read_only == false`) stays EXCLUDED (a caller release would
-    /// double-free the COW-shared buffer).
+    /// fires one RL-2 scope-exit release iff one logical credit remains (the
+    /// collection analogue of the borrowed-`str` carve-out). A COW-mutating callee
+    /// (`borrowed_read_only == false`) stays excluded because the transfer and
+    /// cleanup facts already assign the one release.
     ///
     /// Soundness: a pure borrow-read of a surviving Borrowed collection is
-    /// `ApplyToBorrowedParam` (RL-2 NON-transfer → caller decs)
+    /// `ApplyToBorrowedParam` (RL-2 non-transfer → caller releases)
     /// — `AimsProof.Realization::RL2_borrowed_param_emits_caller_dec` +
     /// `RL2_release_exactly_once`. A COW-mutated / iter-consumed param is a
-    /// transfer (NO caller dec) — `RL2_transfer_kinds_no_dec`.
+    /// transfer (no caller release) — historical theorem
+    /// `RL2_transfer_kinds_no_dec`.
     ///
     /// IC-3 join: AND (the read-only guarantee holds only if it holds on EVERY
     /// path — any owned-position use on any path clears it).
     ///
-    /// Scalar params: `false` (no RC, never a release target — the gate also
+    /// Scalar params: `false` (no managed ownership obligation, never a release target — the gate also
     /// requires a non-scalar collection arg so the value is irrelevant for them).
     ///
     /// Default: `false` (conservative — caller keeps its exclusion, no release).
@@ -271,6 +294,27 @@ pub struct ParamContract {
 }
 
 impl ParamContract {
+    /// Freeze the exact owner-credit obligation at a borrowed residual-call
+    /// boundary.
+    ///
+    /// This is the single semantic oracle for closure adapters. Ordinary Owned
+    /// access, borrowed COW consumption, and plain RL-2 iterator consumption
+    /// require a whole-value credit. Field-grained iterator consumption needs
+    /// only that field's credit; retaining every field would leak. Return alias
+    /// and return containment facts have their own result accounting and do not
+    /// add a pre-entry credit here.
+    pub fn callee_owner_demand(&self) -> Result<CalleeOwnerDemand, CalleeOwnerDemandConflict> {
+        let whole_value = self.access == AccessClass::Owned
+            || self.borrowed_cow_consumed
+            || self.is_rl2_consume();
+        match (whole_value, self.iter_consumes_projected_field) {
+            (true, Some(field)) => Err(CalleeOwnerDemandConflict { field }),
+            (true, None) => Ok(CalleeOwnerDemand::WholeValue),
+            (false, Some(field)) => Ok(CalleeOwnerDemand::ProjectedField(field)),
+            (false, None) => Ok(CalleeOwnerDemand::Borrow),
+        }
+    }
+
     /// Conservative: owned, unrestricted, many uses, may escape/share, unknown locality,
     /// no caller uniqueness guarantee, no return-flow transfer, no return alias.
     pub const CONSERVATIVE: Self = Self {

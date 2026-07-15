@@ -10,7 +10,7 @@ use ori_ir::canon::{CanFieldRange, CanId, CanMapEntryRange, CanRange};
 use ori_ir::{Name, Span, StringInterner};
 use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
+use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue, MethodCallForm, PrimOp};
 
 use super::expr::ArcLowerer;
 use super::ArcIrBuilder;
@@ -21,6 +21,11 @@ impl ArcLowerer<'_> {
     /// Lower a tuple expression to ARC IR.
     pub(crate) fn lower_tuple(&mut self, exprs: CanRange, ty: Idx, span: Span) -> ArcVarId {
         let elem_ids: Vec<_> = self.arena.get_expr_list(exprs).to_vec();
+        if elem_ids.is_empty() {
+            return self
+                .builder
+                .emit_let(ty, ArcValue::Literal(LitValue::Unit), Some(span));
+        }
         let args: Vec<_> = elem_ids.iter().map(|&id| self.lower_expr(id)).collect();
         self.builder
             .emit_construct(ty, CtorKind::Tuple, args, Some(span))
@@ -182,8 +187,12 @@ impl ArcLowerer<'_> {
                 // as an i64. Route through the SSO-aware `len` builtin method
                 // (dispatches to `ori_str_len` at codegen time) instead.
                 let len_fn = self.interner.intern("len");
+                let len = self
+                    .builder
+                    .emit_apply(Idx::INT, len_fn, vec![recv], Some(span), None);
                 self.builder
-                    .emit_apply(Idx::INT, len_fn, vec![recv], Some(span), None)
+                    .note_method_call(len, recv_ty, MethodCallForm::Instance);
+                len
             } else {
                 // Emit a Project to extract the length field (field 0 for
                 // list {len, cap, data})

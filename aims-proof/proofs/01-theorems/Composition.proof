@@ -70,20 +70,22 @@ Theorem CH-3: Per-class coexistence with active stack burden — three sub-class
 
   Preconditions:
     - Three AIMS variable classes participate in burden coexistence:
-        sub-class A: Owned x Linear x Once x Unique (RL-2 + RL-14 candidate)
-        sub-class B: Borrowed x Linear x Once x Unique (RL-14 headerless candidate)
+        sub-class A: Owned x Linear x Once x Unique (RL-2 logical-release class)
+        sub-class B: Borrowed x Linear x Once x Unique (caller-owned class)
         sub-class C: MaybeShared x Many (RL-7 dynamic COW candidate)
     - Burden-registry annotations classify each variable into one of these
       three classes; coexistence requires per-class well-formedness
 
   Soundness property:
     Forall v in vars(F).
-      class_of(v) = A: consume_stack honors RL-2 last-use dec AND RL-14
-        stack-promotion field-level RcDec; burden annotation MUST agree.
-      class_of(v) = B: consume_stack honors RL-14 headerless invariant;
-        no RC emission; burden annotation MUST agree.
+      class_of(v) = A: consume_stack honors RL-2 last-use release and RL-14a
+        exact cleanup-event identity; burden annotation MUST agree.
+      class_of(v) = B: consume_stack honors Borrowed caller ownership;
+        no callee-owned release emission; burden annotation MUST agree.
       class_of(v) = C: consume_stack honors RL-7 dynamic COW slow-path;
         burden annotation MUST flag MaybeShared.
+      RL-14 LifetimeBound and RL-15 ExtentClass are orthogonal to this class
+      partition; any physical plan is admitted separately by RL-18.
       No variable in two classes; no variable without class assignment;
       coexistence well-formedness = total + disjoint class partition.
 
@@ -141,7 +143,7 @@ Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with bur
     - Burden-registry pre-pass per the burden-prototype design is a typed pre-pass
       input that lands on AimsStateMap (per Annex E §AIMS §2
       invariant 5(c)) — NOT a new lattice dimension; NOT an independent
-      RC emission path
+      ownership-policy or realization path
     - Burden-registry runs as Step 1 typed pre-pass (BEFORE analyze_program)
       or as Step 4-companion pre-pass (BEFORE analyze_function), depending
       on per-variable vs per-function granularity

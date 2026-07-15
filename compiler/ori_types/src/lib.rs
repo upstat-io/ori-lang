@@ -43,12 +43,16 @@ pub use infer::{check_expr, infer_expr, resolve_parsed_type, ExprIndex, InferEng
 pub use infer::{compose_burden_for_idx, register_resolved_collection_burdens};
 pub use item::Item;
 pub use lifetime::LifetimeId;
-pub use operator::{registry_binary_strategy, registry_unary_strategy};
+pub use operator::{
+    primitive_binary_strategy, primitive_unary_strategy, registry_binary_strategy,
+    registry_unary_strategy, user_structural_binary_strategy,
+};
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
-    AssignDesugar, ConstParamInfo, ConstValue, DeferredMonoCall, DeferredVarBinding, EffectClass,
-    ExportedTypeMetadata, FnWhereClause, FormatSpecTypes, FunctionSig, GenericArg, ImplSig,
-    MonoInstance, MonoInstanceId, TypeCheckResult, TypedModule,
+    AcceptedDerivedImpl, AssignDesugar, ConstParamInfo, ConstValue, DeferredMonoCall,
+    DeferredVarBinding, EffectClass, ExportedTypeMetadata, FnWhereClause, FormatSpecTypes,
+    FunctionSig, GenericArg, ImplMethodId, ImplMethodRole, ImplSig, MonoInstance, MonoInstanceId,
+    TypeCheckResult, TypedModule,
 };
 pub use pool::{
     build_mono_body_type_map, collect_public_collection_types, extend_var_subst_with_roots,

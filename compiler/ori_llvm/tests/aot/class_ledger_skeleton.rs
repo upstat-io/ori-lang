@@ -29,7 +29,8 @@ use std::process::Command;
 
 use crate::util::{compile_and_run_with_build_env, ori_binary, stdlib_path};
 
-/// The gated burden-sole probe — the sanctioned RC/AOT verdict surface.
+/// The gated burden-sole probe — the sanctioned verdict surface for the
+/// current compiled-counter adapter, not for AIMS or sibling executors.
 const PROBE: &[(&str, &str)] = &[
     ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
     ("ORI_VERIFY_ARC", "1"),

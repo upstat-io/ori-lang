@@ -348,16 +348,18 @@ Theorem CN-7: REMOVED decision-predicate result not lattice-state mutation
 
   Preconditions:
     - This rule was REMOVED from Annex E §AIMS
-    - The former rule about Shared + CollectionBuffer COW mode was a decision-predicate result, not a lattice-state mutation
-    - Covered by DP-9 (Shared implies StaticShared cow_mode)
+    - The former rule about Shared + CollectionBuffer mutation mode was a
+      decision-predicate result, not a lattice-state mutation
+    - Covered by DP-9 (Shared implies IsolationRequired)
 
   Soundness property:
     REMOVED. Canonicalization rules SHALL only mutate lattice dimensions.
-    Assigning cow_mode is a DECISION, not a state mutation.
-    The case is covered by DP-9 (Shared implies StaticShared).
+    Assigning mutation_obligation is a DECISION, not a state mutation.
+    The case is covered by DP-9 (Shared implies IsolationRequired).
 
   Proof obligation:
-    sorry -- this rule is no longer active; subsumed by DP-9 cow_mode classifier
+    sorry -- this rule is no longer active; subsumed by the DP-9
+             mutation_obligation classifier
 
     Engines dispatched:
       case_analysis
@@ -895,7 +897,9 @@ Theorem TF-13: capture_state_update transfers closure-context state to captured 
 
   Preconditions:
     - PartialApply captures vars per Annex E §AIMS TF-13
-    - closure_state.locality drives access promotion (Borrowed plus HeapEscaping yields dangling without Owned promotion)
+    - closure_state.locality drives access promotion (Borrowed plus
+      HeapEscaping would let the closure outlive its source without Owned
+      promotion)
     - closure cardinality le Once preserves linear; > Once widens to Unrestricted
 
   Soundness property:
@@ -949,16 +953,16 @@ Theorem TF-14: propagate_project_source_demand widens source cardinality and loc
     status: unimplemented_engine_shape
     reason: sec-01 skeleton; sec-04 discharges TF-14 Project backward propagation
 
-Theorem DP-1: is_rc_needed truth table
+Theorem DP-1: needs_ownership_events truth table
 
   Preconditions:
     - s is an AimsState per the canonical proof notation
-    - is_rc_needed predicate per Annex E §AIMS DP-1
+    - needs_ownership_events predicate per Annex E §AIMS DP-1
     - is_scalar(s) per L-9 (SCALAR sentinel exclusion)
 
   Soundness property:
     Forall s in AimsState.
-      is_rc_needed(s)
+      needs_ownership_events(s)
         iff (s.access = O and s.consumption is not Dead and not is_scalar(s))
 
   Proof obligation:
@@ -969,18 +973,19 @@ Theorem DP-1: is_rc_needed truth table
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-05 discharges DP-1 is_rc_needed truth table
+    reason: sec-01 skeleton; sec-05 discharges DP-1 needs_ownership_events truth table
 
-Theorem DP-2: is_rc_dec_unnecessary truth table
+Theorem DP-2: is_release_unnecessary truth table
 
   Preconditions:
     - s is an AimsState per the canonical proof notation
-    - is_rc_dec_unnecessary predicate per Annex E §AIMS DP-2
-    - Gates supplementary RC ops only; terminal RL-2/RL-4/RL-5 own their logic
+    - is_release_unnecessary predicate per Annex E §AIMS DP-2
+    - Gates supplementary release events only; terminal RL-2/RL-4/RL-5 own
+      their logic
 
   Soundness property:
     Forall s in AimsState.
-      is_rc_dec_unnecessary(s)
+      is_release_unnecessary(s)
         iff (s.cardinality = absent or s.consumption = Dead)
 
   Proof obligation:
@@ -991,18 +996,18 @@ Theorem DP-2: is_rc_dec_unnecessary truth table
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-05 discharges DP-2 is_rc_dec_unnecessary truth table
+    reason: sec-01 skeleton; sec-05 discharges DP-2 is_release_unnecessary truth table
 
-Theorem DP-3: is_rc_inc_elidable truth table
+Theorem DP-3: is_additional_credit_elidable truth table
 
   Preconditions:
     - s is an AimsState per the canonical proof notation
-    - is_rc_inc_elidable predicate per Annex E §AIMS DP-3
+    - is_additional_credit_elidable predicate per Annex E §AIMS DP-3
     - Single-use (Once) + Linear-or-Affine consumption are the true cases
 
   Soundness property:
     Forall s in AimsState.
-      is_rc_inc_elidable(s)
+      is_additional_credit_elidable(s)
         iff (s.cardinality = 1 and (s.consumption = Linear or
              s.consumption = Affine))
 
@@ -1014,18 +1019,19 @@ Theorem DP-3: is_rc_inc_elidable truth table
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-05 discharges DP-3 is_rc_inc_elidable truth table
+    reason: sec-01 skeleton; sec-05 discharges DP-3 is_additional_credit_elidable truth table
 
-Theorem DP-4: needs_cow_check truth table
+Theorem DP-4: needs_sharing_observation truth table
 
   Preconditions:
     - s is an AimsState per the canonical proof notation
-    - needs_cow_check predicate per Annex E §AIMS DP-4
-    - Static cases (Unique, Shared) skip runtime check; MaybeShared requires runtime IsShared
+    - needs_sharing_observation predicate per Annex E §AIMS DP-4
+    - ProvenUnique and ProvenShared need no observation; MaybeShared requires
+      an observation before selecting the same-identity or isolation outcome
 
   Soundness property:
     Forall s in AimsState.
-      needs_cow_check(s)
+      needs_sharing_observation(s)
         iff (s.uniqueness = MaybeShared)
 
   Proof obligation:
@@ -1036,7 +1042,7 @@ Theorem DP-4: needs_cow_check truth table
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-05 discharges DP-4 needs_cow_check truth table
+    reason: sec-01 skeleton; sec-05 discharges DP-4 needs_sharing_observation truth table
 
 Theorem DP-5: can_mutate_in_place context-dependent check
 
@@ -1090,17 +1096,17 @@ Theorem DP-6: is_reuse_candidate truth table
     status: unimplemented_engine_shape
     reason: sec-01 skeleton; sec-05 discharges DP-6 is_reuse_candidate truth table
 
-Theorem DP-7: is_rc_skip_eligible truth table
+Theorem DP-7: is_event_pair_elision_eligible truth table
 
   Preconditions:
     - s is an AimsState per the canonical proof notation
-    - is_rc_skip_eligible predicate per Annex E §AIMS DP-7
+    - is_event_pair_elision_eligible predicate per Annex E §AIMS DP-7
     - Scope: callee's PARAMETER state; ArgEscaping floor in TF-11 applies to caller, not callee contract
     - Param inc/dec pair elision only; does NOT apply to fresh-allocation terminal dec
 
   Soundness property:
     Forall s in AimsState (callee parameter).
-      is_rc_skip_eligible(s)
+      is_event_pair_elision_eligible(s)
         iff (is_local(s)
              and s.access = O
              and s.consumption = Linear
@@ -1116,7 +1122,7 @@ Theorem DP-7: is_rc_skip_eligible truth table
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-05 discharges DP-7 is_rc_skip_eligible truth table
+    reason: sec-01 skeleton; sec-05 discharges DP-7 is_event_pair_elision_eligible truth table
 
 Theorem DP-8: is_local truth table
 
@@ -1140,21 +1146,23 @@ Theorem DP-8: is_local truth table
     status: unimplemented_engine_shape
     reason: sec-01 skeleton; sec-05 discharges DP-8 is_local truth table
 
-Theorem DP-9: cow_mode context-dependent classifier
+Theorem DP-9: mutation_obligation context-dependent classifier
 
   Preconditions:
     - s is an AimsState per the canonical proof notation
-    - cow_mode classifier per Annex E §AIMS DP-9
-    - CowMode in {StaticUnique, StaticShared, Dynamic}
+    - mutation_obligation classifier per Annex E §AIMS DP-9
+    - MutationObligation in {SameIdentityAdmissible, IsolationRequired,
+      SharingObservationRequired}
     - Context: var, field, point + IC-3 ParamContract.uniqueness when applicable
 
   Soundness property:
     Forall s, var, field, point.
-      Unique and can_mutate_in_place implies StaticUnique
-      Unique and not can_mutate_in_place implies StaticShared
-      MaybeShared and param with IC-3 Unique implies StaticUnique
-      MaybeShared otherwise implies Dynamic
-      Shared implies StaticShared
+      Unique and can_mutate_in_place implies SameIdentityAdmissible
+      Unique and not can_mutate_in_place implies IsolationRequired
+      MaybeShared and param with IC-3 Unique and can_mutate_in_place implies
+        SameIdentityAdmissible
+      MaybeShared otherwise implies SharingObservationRequired
+      Shared implies IsolationRequired
 
   Proof obligation:
     sorry -- discharged by sec-05 decision predicate proofs
@@ -1164,15 +1172,15 @@ Theorem DP-9: cow_mode context-dependent classifier
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-05 discharges DP-9 cow_mode classifier
+    reason: sec-01 skeleton; sec-05 discharges DP-9 mutation_obligation classifier
 
 Theorem DP-10: REMOVED Backward analysis does not prove absence of existing aliases
 
   Preconditions:
     - This rule was REMOVED from Annex E §AIMS
-    - The former rule claimed Owned + Linear + Once implies RC == 1
+    - The former rule claimed Owned + Linear + Once implies one logical owner
     - Unsound: backward analysis proves no FUTURE duplication, not absence of EXISTING aliases
-    - Owned + Linear + Once does NOT imply RC == 1; one use may be store-into-data-structure creating alias
+    - Owned + Linear + Once does NOT imply one logical owner; one use may store into a data structure and create an alias
 
   Soundness property:
     REMOVED. Uniqueness is ONLY established by the Uniqueness lattice dimension
@@ -1373,7 +1381,7 @@ Theorem IC-8: REMOVED derived parameter uniqueness unsoundly from caller consump
   Preconditions:
     - This rule was REMOVED from Annex E §AIMS
     - The former rule derived parameter uniqueness from caller consumption patterns
-    - Unsound: caller with MaybeShared arg used linearly may still hold RC > 1 from upstream aliases
+    - Unsound: a caller with a MaybeShared argument used linearly may still carry multiple logical owner credits through upstream aliases
     - Same root cause as DP-10
 
   Soundness property:
@@ -1595,7 +1603,8 @@ Theorem IA-7: Convergence bound
 Theorem IA-8: Immortal-variable exclusion
 
   Preconditions:
-    - Immortal variables (heap-allocated constants with MAX_REFCOUNT) per Annex E §AIMS IA-8
+    - Variables carrying the backend-neutral Immortal classification per
+      Annex E §AIMS IA-8
     - Treated as scalars in the analysis; recorded in AimsStateMap.immortals: Vec<bool>
 
   Soundness property:
@@ -1946,16 +1955,19 @@ Theorem PL-11: ContextBehavior initialization and join
     status: unimplemented_engine_shape
     reason: sec-01 skeleton; sec-07 discharges PL-11 ContextBehavior join
 
-Theorem RL-1: RC inc emission
+Theorem RL-1: Owner-credit event realization
 
   Preconditions:
-    - RC inc emission rule per Annex E §AIMS RL-1
-    - Inc emitted when a value is duplicated (passed to Owned param while still live)
+    - Logical owner-credit rule per Annex E §AIMS RL-1
+    - An owner-credit event is required when an owned value gains a
+      simultaneous owner
 
   Soundness property:
     Forall function f, variable v, call site c.
-      duplicated_use(v, c) implies emit RcInc(v) at c
-    where duplicated_use = v is passed to Owned parameter while still live in caller.
+      simultaneous_owner_creation(v, c) implies realize ownerCredit(v) at c.
+    A physical plan may project the event to a counter increment, another
+    ownership carrier, or no instruction when its validated mechanism makes
+    the credit structural.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -1967,19 +1979,22 @@ Theorem RL-1: RC inc emission
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-1 RC inc emission
+    reason: sec-01 skeleton; sec-08 discharges RL-1 owner-credit realization
 
-Theorem RL-2: Last-use RcDec emission
+Theorem RL-2: Last-use release realization
 
   Preconditions:
-    - Last-use RcDec emission rule per Annex E §AIMS RL-2
-    - RC dec emitted at last use UNLESS ownership-transferring
+    - Last-use release rule per Annex E §AIMS RL-2
+    - A release event is realized at last use unless ownership transfers
     - Ownership-transferring last uses: Return, Construct/Reuse/CollectionReuse arg, Set value, PartialApply capture, Apply/Invoke to Owned param, Jump arg (RL-4 exemption)
 
   Soundness property:
     Forall function f, variable v in owned_non_scalar_vars(f).
-      RL-2 emits RcDec(v) at last_use(v) UNLESS last_use(v) is ownership-transferring;
-      For every heap-allocating definition site of v, the realized IR contains a matching RcDec(v) on every CFG path from definition to function exit.
+      RL-2 realizes release(v) at last_use(v) UNLESS last_use(v) transfers
+      ownership;
+      For every definition site that creates an owned allocation identity
+      for v, the realized IR contains a matching logical debit or ownership
+      transfer on every CFG path from definition to function exit.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -1991,19 +2006,22 @@ Theorem RL-2: Last-use RcDec emission
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-2 last-use RcDec emission
+    reason: sec-01 skeleton; sec-08 discharges RL-2 last-use release
 
-Theorem RL-3: RC ops elided when lattice proves unnecessary
+Theorem RL-3: Ownership-event pairs elided when proven unnecessary
 
   Preconditions:
-    - RC elision rule per Annex E §AIMS RL-3
-    - DP-2 (is_rc_dec_unnecessary), DP-3 (is_rc_inc_elidable), DP-7 (is_rc_skip_eligible) gate elision
+    - Logical event-elision rule per Annex E §AIMS RL-3
+    - DP-2 (is_release_unnecessary), DP-3
+      (is_additional_credit_elidable), and DP-7
+      (is_event_pair_elision_eligible) gate elision
 
   Soundness property:
     Forall function f, variable v, program point p.
-      DP-2(s_v) implies skip RcDec(v) at p
-      DP-3(s_v) implies skip RcInc(v) at p
-      DP-7(s_v) on callee parameter implies skip inc/dec pair at boundary.
+      DP-2(s_v) implies no supplementary release(v) at p
+      DP-3(s_v) implies no additional ownerCredit(v) at p
+      DP-7(s_v) on a callee parameter implies elide the matching
+        ownerCredit/release pair at the boundary.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2015,19 +2033,20 @@ Theorem RL-3: RC ops elided when lattice proves unnecessary
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-3 lattice-proven RC elision
+    reason: sec-01 skeleton; sec-08 discharges RL-3 lattice-proven event elision
 
-Theorem RL-4: Edge-specific decs
+Theorem RL-4: Edge-specific release events
 
   Preconditions:
-    - Edge-specific decs per Annex E §AIMS RL-4
-    - Owned non-scalar alive at block exit, dead at successor entry: emit dec on that edge
+    - Edge-specific releases per Annex E §AIMS RL-4
+    - Owned non-scalar alive at block exit and dead at successor entry:
+      realize release on that edge
     - Jump argument exemption: variables passed as Jump args transfer ownership to successor block param
 
   Soundness property:
     Forall function f, variable v, CFG edge (B, S).
       v owned non-scalar AND v alive at B's exit AND v dead at S's entry AND v not Jump arg on (B, S)
-        implies emit RcDec(v) on edge (B, S).
+        implies realize release(v) on edge (B, S).
       Borrowed variables: NOT covered by RL-4.
 
   Proof obligation:
@@ -2040,19 +2059,20 @@ Theorem RL-4: Edge-specific decs
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-4 edge-specific decs
+    reason: sec-01 skeleton; sec-08 discharges RL-4 edge-specific releases
 
 Theorem RL-5: Dead-at-entry cleanup
 
   Preconditions:
     - Dead-at-entry cleanup per Annex E §AIMS RL-5
-    - Owned non-scalar block param with Cardinality = absent at entry: immediate dec
+    - Owned non-scalar block param with Cardinality = absent at entry:
+      immediate cleanup release
     - Borrowed Absent params: NOT covered
 
   Soundness property:
     Forall function f, block B, variable v in block_params(B).
       v owned non-scalar AND v.cardinality at B's entry = absent
-        implies emit RcDec(v) at B's entry.
+        implies realize cleanup(v) at B's entry.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2066,16 +2086,18 @@ Theorem RL-5: Dead-at-entry cleanup
     status: unimplemented_engine_shape
     reason: sec-01 skeleton; sec-08 discharges RL-5 dead-at-entry cleanup
 
-Theorem RL-6: Static unique mutation in-place
+Theorem RL-6: Proven-unique mutation preserves identity
 
   Preconditions:
-    - Static unique mutation per Annex E §AIMS RL-6
-    - Uniqueness = Unique: emit in-place, no IsShared check
+    - Same-identity mutation obligation per Annex E §AIMS RL-6
+    - Uniqueness = Unique and DP-5 true admits mutation of the same logical
+      identity without a sharing observation
 
   Soundness property:
     Forall function f, Set/SetTag instruction i with base b.
       s_b.uniqueness = Unique AND DP-5(s_b, var, field, point) = true
-        implies emit in-place mutation; no IsShared check.
+        implies mutation preserves the logical identity and needs no sharing
+        observation.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2087,18 +2109,20 @@ Theorem RL-6: Static unique mutation in-place
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-6 static unique mutation
+    reason: sec-01 skeleton; sec-08 discharges RL-6 same-identity mutation
 
-Theorem RL-7: Dynamic COW MaybeShared
+Theorem RL-7: MaybeShared mutation requires sharing observation
 
   Preconditions:
-    - Dynamic COW per Annex E §AIMS RL-7
-    - Uniqueness = MaybeShared: emit IsShared check; branch to in-place or copy
+    - Sharing-observation obligation per Annex E §AIMS RL-7
+    - Uniqueness = MaybeShared requires an observation before selecting the
+      same-identity or isolation outcome
 
   Soundness property:
     Forall function f, Set/SetTag instruction i with base b.
       s_b.uniqueness = MaybeShared
-        implies emit IsShared check; branch (unique -> in-place; shared -> copy).
+        implies observe sharing; observed unique -> SameIdentityAdmissible;
+        observed shared -> IsolationRequired.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2110,18 +2134,18 @@ Theorem RL-7: Dynamic COW MaybeShared
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-7 dynamic COW MaybeShared
+    reason: sec-01 skeleton; sec-08 discharges RL-7 sharing observation
 
-Theorem RL-8: Static shared mutation unconditional copy
+Theorem RL-8: Proven-shared mutation requires isolation
 
   Preconditions:
-    - Static shared mutation per Annex E §AIMS RL-8
-    - Uniqueness = Shared: emit unconditional copy
+    - Mutation-isolation obligation per Annex E §AIMS RL-8
+    - Uniqueness = Shared requires isolating the mutation from aliases
 
   Soundness property:
     Forall function f, Set/SetTag instruction i with base b.
       s_b.uniqueness = Shared
-        implies emit unconditional copy (no IsShared check; shared path always taken).
+        implies IsolationRequired without a sharing observation.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2133,18 +2157,19 @@ Theorem RL-8: Static shared mutation unconditional copy
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-8 static shared mutation
+    reason: sec-01 skeleton; sec-08 discharges RL-8 mutation isolation
 
-Theorem RL-9: COW compound contraction
+Theorem RL-9: Sharing-observation representation equivalence
 
   Preconditions:
-    - COW compound contraction per Annex E §AIMS RL-9
-    - Diamond IsShared -> Branch -> (clone+Set | Set) -> Merge contracted to single compound
+    - Observation-form equivalence per Annex E §AIMS RL-9
+    - Explicit and compact representations must choose the same admissible
+      logical mutation outcome
 
   Soundness property:
-    Forall COW diamond D in realized IR.
-      contract_cow(D) = single_compound_instr(D)
-    Equivalent behavior; tighter IR.
+    Forall sharing observations O.
+      explicit_observation_outcome(O) = compact_observation_outcome(O).
+    The theorem does not prescribe either physical representation.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2156,19 +2181,19 @@ Theorem RL-9: COW compound contraction
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-9 COW compound contraction
+    reason: sec-01 skeleton; sec-08 discharges RL-9 observation equivalence
 
-Theorem RL-10: Disjoint field mutation does not trigger COW
+Theorem RL-10: Disjoint field mutation needs no aggregate isolation
 
   Preconditions:
-    - Disjoint field mutation per Annex E §AIMS RL-10
+    - Disjoint field mutation obligation per Annex E §AIMS RL-10
     - DP-5 enforces field-aware disjointness in Step 1
     - SetTag excluded: tag change invalidates ALL payload fields
 
   Soundness property:
     Forall function f, Set instruction Set(base, field_F, value).
       (active borrows from same source AND all from disjoint fields)
-        implies safe without COW;
+        implies safe without aggregate isolation;
       SetTag conflicts with ALL active borrows regardless of field.
 
   Proof obligation:
@@ -2183,20 +2208,23 @@ Theorem RL-10: Disjoint field mutation does not trigger COW
     status: unimplemented_engine_shape
     reason: sec-01 skeleton; sec-08 discharges RL-10 disjoint field mutation
 
-Theorem RL-11: Same-block reuse
+Theorem RL-11: Same-block donor/recipient credit transfer
 
   Preconditions:
-    - Same-block reuse per Annex E §AIMS RL-11
-    - Reset precedes Reuse; no intervening throw/alloc/use-of-aliases
-    - Dying value Uniqueness = Unique
+    - Same-block credit transfer per Annex E §AIMS RL-11
+    - Donor precedes recipient with no intervening throw, owner creation, or
+      alias use
+    - Donor Uniqueness = Unique
 
   Soundness property:
-    Forall function f, block B with Reset(v_dying) at p_r and Reuse at p_u where p_r < p_u within B.
-      (s_v_dying.uniqueness = Unique
-       AND no_intervening_throw(p_r, p_u)
-       AND no_intervening_alloc(p_r, p_u)
-       AND no_intervening_use_of_aliases(p_r, p_u))
-        implies allocation of v_dying SHALL be reused at p_u.
+    Forall function f, block B with donor d at p_d and recipient r at p_r
+    where p_d < p_r within B.
+      (s_d.uniqueness = Unique
+       AND no_intervening_throw(p_d, p_r)
+       AND no_intervening_owner_creation(p_d, p_r)
+       AND no_intervening_use_of_aliases(p_d, p_r))
+        implies one donor credit may transfer to r.
+    Reset/Reuse or another storage mechanism is a target-carrier choice.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2208,19 +2236,22 @@ Theorem RL-11: Same-block reuse
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-11 same-block reuse
+    reason: sec-01 skeleton; sec-08 discharges RL-11 same-block credit transfer
 
-Theorem RL-11a: Dynamic reuse for MaybeShared
+Theorem RL-11a: MaybeShared donor observation outcomes
 
   Preconditions:
-    - Dynamic reuse per Annex E §AIMS RL-11a
-    - Dying value Uniqueness = MaybeShared: emit IsShared check; unique branch Reset/Reuse; shared branch fresh allocation
+    - MaybeShared donor rule per Annex E §AIMS RL-11a
+    - A sharing observation selects transfer when isolated or a fresh
+      recipient credit when shared
     - Requires DP-6 eligibility
 
   Soundness property:
     Forall function f, candidate reuse site with dying value v.
-      DP-6(s_v) = true AND s_v.uniqueness = MaybeShared
-        implies emit IsShared(v); unique -> Reset/Reuse fast path; shared -> fresh allocation slow path.
+      DP-6(s_v) = true AND s_v.uniqueness = MaybeShared implies:
+        observed unique -> transfer donor credit to recipient;
+        observed shared -> preserve donor credit and create a fresh recipient
+          credit.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2232,16 +2263,16 @@ Theorem RL-11a: Dynamic reuse for MaybeShared
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-11a dynamic reuse MaybeShared
+    reason: sec-01 skeleton; sec-08 discharges RL-11a donor observation
 
-Theorem RL-12: Cross-block reuse
+Theorem RL-12: Cross-block donor/recipient credit transfer
 
   Preconditions:
-    - Cross-block reuse per Annex E §AIMS RL-12
+    - Cross-block credit transfer per Annex E §AIMS RL-12
     - Death block dominates allocation block; allocation block post-dominates death block (EXCLUDING unwind edges)
     - Both share same innermost loop header (or neither in loop)
     - Dying value statically Unique
-    - No throw on path between Reset and Reuse (token leak prevention on unwind)
+    - No throw on the donor-to-recipient path
 
   Soundness property:
     Forall function f, blocks B_d (death) and B_a (allocation).
@@ -2250,7 +2281,7 @@ Theorem RL-12: Cross-block reuse
        AND same_innermost_loop(B_d, B_a)
        AND s_v_dying.uniqueness = Unique
        AND no_block_on_path_throws)
-        implies allocation reuse is sound.
+        implies donor/recipient credit transfer is sound.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2262,14 +2293,15 @@ Theorem RL-12: Cross-block reuse
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-12 cross-block reuse
+    reason: sec-01 skeleton; sec-08 discharges RL-12 cross-block credit transfer
 
-Theorem RL-13: REMOVED Construct plus Once does not imply RC equals one at death
+Theorem RL-13: REMOVED Construct plus Once does not imply one logical owner at death
 
   Preconditions:
     - This rule was REMOVED from Annex E §AIMS
-    - The former rule claimed Construct + Once implies RC == 1 at death
-    - Unsound: one use may be store-into-data-structure (creates alias via RcInc)
+    - The former rule claimed Construct + Once implies one logical owner at death
+    - Unsound: one use may store into a data structure and create another
+      logical owner
     - Same root cause as DP-10
 
   Soundness property:
@@ -2288,19 +2320,16 @@ Theorem RL-13: REMOVED Construct plus Once does not imply RC equals one at death
     status: unimplemented_engine_shape
     reason: sec-01 REMOVAL confirmation entry RL-13; no active theorem to discharge
 
-Theorem RL-14: Non-escaping fixed-size stack promotion Unique
+Theorem RL-14: Locality freezes a backend-neutral LifetimeBound
 
   Preconditions:
-    - Non-escaping fixed-size stack promotion per Annex E §AIMS RL-14
-    - Locality le FunctionLocal AND Uniqueness = Unique: stack-allocate via alloca
-    - No RC header; no RC ops; stack dealloc at scope exit
-    - Heap children: explicit RcDec per Owned field in REVERSE DECLARATION ORDER
+    - RL-14 consumes converged Locality and a stable allocation-site identity.
+    - AllocationFacts contains no physical placement or ownership mechanism.
 
   Soundness property:
-    Forall function f, allocation v with s_v.locality le FunctionLocal AND s_v.uniqueness = Unique AND fixed_size(v).
-      stack_promote(v) := alloca;
-      no RC header; no RC ops emitted on v;
-      heap children: emit RcDec per Owned field in reverse declaration order at scope exit and on CFG edges where v dies.
+    BlockLocal maps to block lifetime; FunctionLocal maps to function lifetime;
+    HeapEscaping maps to escaping; Unknown maps to Unknown. ArgEscaping is
+    governed by RL-15a. These are admissibility bounds, not storage choices.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2312,19 +2341,18 @@ Theorem RL-14: Non-escaping fixed-size stack promotion Unique
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-14 non-escaping fixed-size Unique stack promotion
+    reason: sec-01 skeleton; sec-08 discharges RL-14 backend-neutral LifetimeBound freezing
 
-Theorem RL-14a: Non-escaping fixed-size stack promotion with header
+Theorem RL-14a: CleanupObligation preserves exact logical event identity
 
   Preconditions:
-    - Non-escaping fixed-size stack-with-header per Annex E §AIMS RL-14a
-    - Locality le FunctionLocal AND Uniqueness is not Unique: alloca WITH RC header initialized to MAX_REFCOUNT (immortal)
-    - Immortal prevents free on stack pointer
+    - Logical release events, drop plan, field order, and exit identities are known or explicitly Unknown.
+    - Both normal and unwind exits are part of the contract.
 
   Soundness property:
-    Forall function f, allocation v with s_v.locality le FunctionLocal AND s_v.uniqueness is not Unique AND fixed_size(v).
-      stack_promote_with_header(v) := alloca with RC header := MAX_REFCOUNT;
-      heap children: field-level RcDec per RL-14.
+    Every exact release event appears on the required normal and unwind paths;
+    drop-plan, field-order, lifetime-end, and event identities are unchanged by
+    target projection.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2336,22 +2364,17 @@ Theorem RL-14a: Non-escaping fixed-size stack promotion with header
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-14a non-escaping fixed-size with header
+    reason: sec-01 skeleton; sec-08 discharges RL-14a exact CleanupObligation coverage
 
-Theorem RL-15: Non-escaping dynamic-size bump allocator
+Theorem RL-15: ExtentClass is representation-owned projection evidence
 
   Preconditions:
-    - Non-escaping dynamic-size per Annex E §AIMS RL-15
-    - Locality le FunctionLocal: function-local bump allocator
-    - Bump objects retain RC headers if Uniqueness is not Unique
-    - Heap children per RL-14; bump region freed at function return
+    - Representation supplies StaticShape(type) or RuntimeSized(storage-site).
+    - AllocationFacts is already frozen.
 
   Soundness property:
-    Forall function f, dynamic-size allocation v with s_v.locality le FunctionLocal.
-      bump_alloc(v);
-      RC header retained if s_v.uniqueness is not Unique;
-      heap children: field-level RcDec per RL-14;
-      bump region freed at function return.
+    Replacing ExtentClass in ProjectionInput cannot change AllocationFacts.
+    Static/dynamic extent constrains a target plan but is not an AIMS fact.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2363,22 +2386,18 @@ Theorem RL-15: Non-escaping dynamic-size bump allocator
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-15 non-escaping dynamic-size bump
+    reason: sec-01 skeleton; sec-08 discharges RL-15 representation-owned extent seam
 
-Theorem RL-15a: ArgEscaping caller-stack with conditional header
+Theorem RL-15a: ArgEscaping freezes an exact nonempty CallerExtent
 
   Preconditions:
-    - ArgEscaping caller-stack allocation per Annex E §AIMS RL-15a
-    - Locality = ArgEscaping: stack-allocate in CALLER; most conservative across multiple callees
-    - Per-callee variants: Borrowed+Unique+may_share=false (headerless); Borrowed+!Unique (header); Owned (header)
-    - PartialApply closure capture: TF-13 promotes Borrowed+ArgEscaping access to Owned -> CN-8 clamps -> RL-14 instead
+    - Locality is ArgEscaping.
+    - Caller-use evidence carries stable call-site identity and protocol.
 
   Soundness property:
-    Forall function f, allocation v with s_v.locality = ArgEscaping, callee with relevant ParamContract.
-      callee Borrowed + Unique + may_share=false: caller-stack headerless; heap children: field-level RcDec per RL-14
-      callee Borrowed + uniqueness is not Unique: caller-stack with RC header := MAX_REFCOUNT (immortal)
-      callee Owned: caller-stack with RC header := MAX_REFCOUNT (immortal); callee may RcDec (no-op on immortal); caller responsible for field cleanup
-      multiple callees: most conservative requirement wins.
+    A nonempty caller-use list maps to CallerExtent with every call site and
+    BorrowOnly, MayShare, or OwnershipTransfer protocol preserved exactly.
+    Missing caller-use evidence maps to Unknown, never an invented extent.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2390,17 +2409,18 @@ Theorem RL-15a: ArgEscaping caller-stack with conditional header
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-15a ArgEscaping caller-stack
+    reason: sec-01 skeleton; sec-08 discharges RL-15a exact CallerExtent freezing
 
-Theorem RL-16: Escaping heap allocation
+Theorem RL-16: Missing evidence freezes conservative AllocationFacts
 
   Preconditions:
-    - Escaping allocation per Annex E §AIMS RL-16
-    - Locality ge HeapEscaping: heap-allocate with full RC header
+    - Allocation evidence is absent, conflicting, or has the wrong site identity.
 
   Soundness property:
-    Forall function f, allocation v with s_v.locality ge HeapEscaping.
-      heap_alloc(v) with full RC header.
+    Lifetime becomes Unknown, OwnerBound becomes Unbounded,
+    ThreadReachability becomes PotentiallyShared, ExternalVisibility becomes
+    Unknown, and ownership-observation and cleanup obligations remain Unknown. No physical
+    fallback mechanism is selected.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2412,20 +2432,18 @@ Theorem RL-16: Escaping heap allocation
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-16 escaping heap allocation
+    reason: sec-01 skeleton; sec-08 discharges RL-16 conservative AllocationFacts defaults
 
-Theorem RL-17: Sharing bound analysis
+Theorem RL-17: OwnerBound is a dynamic upper bound
 
   Preconditions:
-    - Sharing bound analysis per Annex E §AIMS RL-17
-    - Determines maximum simultaneous RC: is_local + Unique -> none; N straight-line incs -> Bounded(N+1); loops/recursion/global -> Unbounded
+    - Exact retain-event identities and escape evidence are available or conservative.
 
   Soundness property:
-    Forall function f, variable v.
-      sharing_bound(v) =
-        none if is_local(s_v) AND s_v.uniqueness = Unique
-        Bounded(N+1) if N straight-line incs of v in f
-        Unbounded if loops, recursion, or global reach v.
+    N straight-line retain sites imply at most N extra simultaneous owners.
+    Local uniqueness without a loop, global, or external-retention path implies
+    one owner. A loop/global path or external retention forces Unbounded and
+    takes precedence over local uniqueness.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2437,25 +2455,20 @@ Theorem RL-17: Sharing bound analysis
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-17 sharing bound analysis
+    reason: sec-01 skeleton; sec-08 discharges RL-17 dynamic OwnerBound derivation and precedence
 
-Theorem RL-18: RC header width narrowing
+Theorem RL-18: A physical plan must prove capability satisfaction
 
   Preconditions:
-    - RC header width narrowing per Annex E §AIMS RL-18
-    - Result of RL-17 drives narrowing: Unique -> none; Bounded(le 127) -> i8; Bounded(le 32767) -> i16; Bounded(le 2^31-1) -> i32; Unbounded -> i64
-    - Narrowing ONLY for types not escaping compilation unit
-    - ABI-visible types (dyn Trait, FFI, cross-CU) ALWAYS i64
+    - AllocationFacts and representation-owned ExtentClass are frozen.
+    - A target proposes LayoutCapabilities without changing those inputs.
 
   Soundness property:
-    Forall function f, type T not ABI-visible, variable v of type T.
-      rc_header_width(v) =
-        none if sharing_bound(v) = none
-        i8 if sharing_bound(v) = Bounded(le 127)
-        i16 if sharing_bound(v) = Bounded(le 32767)
-        i32 if sharing_bound(v) = Bounded(le 2^31-1)
-        i64 if sharing_bound(v) = Unbounded.
-    ABI-visible T: ALWAYS i64.
+    Satisfies checks allocation-site identity, lifetime and extent coverage,
+    owner capacity, exact ownership-observation and cleanup identity, unwind coverage,
+    thread safety, and external visibility. Capability refinement separately
+    pins external-contract identity; a stronger capability under that same
+    identity preserves satisfaction.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2467,20 +2480,18 @@ Theorem RL-18: RC header width narrowing
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-18 RC header width narrowing
+    reason: sec-01 skeleton; sec-08 discharges RL-18 VmLayoutPlan and CompiledLayoutPlan Satisfies admission
 
-Theorem RL-18a: Unified representation Locality is SSOT
+Theorem RL-18a: VM and compiled plans erase to one exact AIMS trace
 
   Preconditions:
-    - Unified representation constraint per Annex E §AIMS RL-18a
-    - All escape-driven decisions consume Locality as primary input
-    - Thread-boundary analysis is DERIVED, NOT a separate per-variable escape dimension
+    - A VmLayoutPlan and CompiledLayoutPlan satisfy the same facts and extent.
+    - Their physical placements and ownership mechanisms may differ.
 
   Soundness property:
-    Forall escape-driven decision D in {stack promotion, RC header sizing, thread-locality}.
-      D consults Locality dimension as primary input;
-      no parallel per-variable escape enums permitted.
-    Locality is the single source of truth for escape classification.
+    Each validated plan refines aimsTrace(facts), preserving exact OwnershipObservationFacts
+    and CleanupObligation identity. Therefore vmPlanTrace equals
+    compiledPlanTrace even when the mechanisms differ.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2492,18 +2503,17 @@ Theorem RL-18a: Unified representation Locality is SSOT
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-18a unified representation
+    reason: sec-01 skeleton; sec-08 discharges RL-18a validated VM/compiled logical-event parity
 
-Theorem RL-19: Thread-local non-atomic RC
+Theorem RL-19: Locality and call-graph evidence freeze ThreadReachability
 
   Preconditions:
-    - Thread-local non-atomic RC per Annex E §AIMS RL-19
-    - Values with no cross-thread escape path: non-atomic RC (plain load/store)
-    - Thread-locality derived from Locality + call-graph: no escape via spawn, channel send, FFI
+    - Converged Locality and cross-thread boundary evidence are available.
 
   Soundness property:
-    Forall function f, variable v.
-      thread_local(v) (no escape via spawn/channel/FFI) implies emit non-atomic RC for v.
+    Unknown Locality or a proven thread-boundary path maps to PotentiallyShared;
+    otherwise the value maps to Confined. This is a logical reachability fact,
+    not an atomicity or instruction-selection decision.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2515,17 +2525,17 @@ Theorem RL-19: Thread-local non-atomic RC
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-19 thread-local non-atomic RC
+    reason: sec-01 skeleton; sec-08 discharges RL-19 backend-neutral ThreadReachability derivation
 
-Theorem RL-20: Thread-shared atomic RC
+Theorem RL-20: PotentiallyShared requires a shared-safe capability
 
   Preconditions:
-    - Thread-shared atomic RC per Annex E §AIMS RL-20
-    - Cross-thread escape (spawn/channel/FFI): atomic RC (CAS-based)
+    - ThreadReachability is frozen and a target advertises ThreadCapability.
 
   Soundness property:
-    Forall function f, variable v.
-      thread_shared(v) implies emit atomic RC for v.
+    PotentiallyShared is covered only by sharedSafe. Confined is covered by
+    confinedOnly or sharedSafe. AIMS admits capabilities and does not prescribe
+    atomic RC, a lock, ownership transfer, or any other physical mechanism.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2537,19 +2547,17 @@ Theorem RL-20: Thread-shared atomic RC
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-20 thread-shared atomic RC
+    reason: sec-01 skeleton; sec-08 discharges RL-20 target-owned thread-capability admission
 
-Theorem RL-21: Whole-program non-atomic RC
+Theorem RL-21: A no-thread-boundary proof freezes all facts as Confined
 
   Preconditions:
-    - Whole-program non-atomic RC per Annex E §AIMS RL-21
-    - No spawn/channel AND no FFI calls exporting Ori-managed pointers: ALL values thread-local
-    - FFI included (foreign code may hand pointer to another thread)
+    - Whole-program analysis proves no spawn, channel, or foreign/opaque path can cross a thread boundary.
 
   Soundness property:
-    Forall program P.
-      (no_spawn(P) AND no_channel(P) AND no_ffi_export(P))
-        implies emit non-atomic RC for all variables in P.
+    programThreadReachability maps every allocation to Confined. Physical
+    planners remain free to use a confined-specialized or conservative
+    shared-safe mechanism, subject to Satisfies.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2561,21 +2569,24 @@ Theorem RL-21: Whole-program non-atomic RC
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-21 whole-program non-atomic RC
+    reason: sec-01 skeleton; sec-08 discharges RL-21 whole-program Confined reachability fact
 
 Theorem RL-22: KnownSafe pair elimination
 
   Preconditions:
     - KnownSafe pair elimination per Annex E §AIMS RL-22
-    - Physical RC provably positive (outer RcInc in scope, no intervening dec)
+    - A logical owner credit is proven outstanding with no intervening release;
+      no physical-counter premise
     - Initial: KnownSafe := false at function entry
-    - Transfer: RcInc(v) -> KnownSafe(v) := true; RcDec(v) -> false for v, SSA aliases, borrow aliases
-    - Set/SetTag/may_deallocate calls -> false for all v
+    - Transfer: ownerCredit(v) -> KnownSafe(v) := true; release(v) -> false
+      for v, SSA aliases, and borrow aliases
+    - Mutation or deallocation hazards -> false for all affected identities
 
   Soundness property:
-    Forall function f, variable v, program point p with inner RcInc(v) / RcDec(v) pair.
+    Forall function f, variable v, program point p with an inner
+    ownerCredit(v) / release(v) pair.
       KnownSafe(v) at p = true
-        implies eliminate inner inc/dec pair on v at p.
+        implies eliminate the inner logical event pair on v at p.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2613,18 +2624,20 @@ Theorem RL-23: KnownSafe flag propagation at joins
     status: unimplemented_engine_shape
     reason: sec-01 skeleton; sec-08 discharges RL-23 KnownSafe AND-join at merges
 
-Theorem RL-24: PRE-style global RC motion bidirectional dataflow
+Theorem RL-24: Global logical-event refinement via bidirectional dataflow
 
   Preconditions:
-    - PRE-style global RC motion per Annex E §AIMS RL-24
-    - Bidirectional dataflow: bottom-up release + top-down retain
-    - Identifies matching (Inc, Dec) pairs across blocks
+    - Global event refinement per Annex E §AIMS RL-24
+    - Bidirectional dataflow: bottom-up release + top-down owner credit
+    - Identifies matching (ownerCredit, release) pairs across blocks
 
   Soundness property:
     Forall function f, variable v.
-      pre_pair_identification(v) := matching (RcInc(v) at p_inc, RcDec(v) at p_dec)
-        across any CFG path from p_inc to p_dec.
-      Bottom-up release pass identifies decs available; top-down retain pass identifies incs available.
+      pair_identification(v) := matching
+        (ownerCredit(v) at p_credit, release(v) at p_release)
+        across any CFG path from p_credit to p_release.
+      Bottom-up analysis identifies available releases; top-down analysis
+      identifies available owner credits.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2636,7 +2649,7 @@ Theorem RL-24: PRE-style global RC motion bidirectional dataflow
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-24 PRE-style RC motion bidirectional
+    reason: sec-01 skeleton; sec-08 discharges RL-24 bidirectional logical event refinement
 
 Theorem RL-25: Pair eliminable condition
 
@@ -2645,7 +2658,7 @@ Theorem RL-25: Pair eliminable condition
     - Eliminable when: KnownSafe = true OR both forward/backward paths safe AND no CFG hazard (path count alignment)
 
   Soundness property:
-    Forall function f, identified pair (RcInc(v), RcDec(v)).
+    Forall function f, identified pair (ownerCredit(v), release(v)).
       eliminable iff
         (KnownSafe(v) = true at intermediate points)
         OR (forward_safe(v) AND backward_safe(v) AND path_count_aligned(v)).
@@ -2662,17 +2675,20 @@ Theorem RL-25: Pair eliminable condition
     status: unimplemented_engine_shape
     reason: sec-01 skeleton; sec-08 discharges RL-25 pair-eliminable condition
 
-Theorem RL-26: RC motion barrier restrictions
+Theorem RL-26: Logical event-ordering barrier restrictions
 
   Preconditions:
-    - RC motion barrier restrictions per Annex E §AIMS RL-26
-    - Barriers for v: (a) calls passing v to Owned or may_share=true param; (b) IsShared(v); (c) Set/SetTag on v or any aggregate containing v
-    - RcDec(v) additionally cannot move past any use of v or aliases
+    - Event-ordering barriers per Annex E §AIMS RL-26
+    - Barriers for v include ownership-transferring or sharing-observing calls,
+      sharing observations, and aggregate mutations affecting v
+    - release(v) additionally cannot move past any use of v or aliases
 
   Soundness property:
-    Forall function f, variable v, candidate motion move RC_op(v) from p_old to p_new.
-      RC_op = RcInc(v): MUST NOT cross any barrier for v on path (p_old, p_new)
-      RC_op = RcDec(v): MUST NOT cross any barrier for v AND MUST NOT cross any use of v or aliases.
+    Forall function f, variable v, candidate motion of logical event e(v)
+    from p_old to p_new.
+      e = ownerCredit(v): MUST NOT cross any barrier for v
+      e = release(v): MUST NOT cross any barrier for v AND MUST NOT cross any
+        use of v or aliases.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2684,18 +2700,19 @@ Theorem RL-26: RC motion barrier restrictions
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-26 RC motion barrier restrictions
+    reason: sec-01 skeleton; sec-08 discharges RL-26 logical event-ordering barriers
 
-Theorem RL-27: Selective barriers at call sites
+Theorem RL-27: Selective logical event ordering at call sites
 
   Preconditions:
-    - Selective barriers per Annex E §AIMS RL-27
-    - Flush RC ops at call sites when: callee param is Owned + non-Dead OR Borrowed + may_share=true
-    - Borrowed + may_share=false + pure functions require no barrier
+    - Selective event ordering per Annex E §AIMS RL-27
+    - Order affected pending events before calls when a callee parameter is
+      Owned + non-Dead or Borrowed + may_share=true
+    - Borrowed + may_share=false + pure functions require no ordering barrier
 
   Soundness property:
     Forall function f, call site c with callee parameters P.
-      flush_rc_ops_at(c) iff exists p in P.
+      order_affected_events_before(c) iff exists p in P.
         (p.access = O AND p.consumption is not Dead)
         OR (p.access = Borrowed AND p.may_share = true).
 
@@ -2711,15 +2728,16 @@ Theorem RL-27: Selective barriers at call sites
     status: unimplemented_engine_shape
     reason: sec-01 skeleton; sec-08 discharges RL-27 selective barriers at call sites
 
-Theorem RL-28: Unknown callees conservative flush
+Theorem RL-28: Unknown callees conservatively order pending events
 
   Preconditions:
-    - Unknown callees conservative flush per Annex E §AIMS RL-28
-    - FFI, indirect, no-contract calls: flush all pending RC ops
+    - Unknown-callee ordering per Annex E §AIMS RL-28
+    - FFI, indirect, and no-contract calls order all pending logical events
+      before entry
 
   Soundness property:
     Forall function f, call site c with unknown callee.
-      flush_all_pending_rc_ops_at(c).
+      order_all_pending_events_before(c).
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2731,18 +2749,21 @@ Theorem RL-28: Unknown callees conservative flush
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-28 unknown callees conservative flush
+    reason: sec-01 skeleton; sec-08 discharges RL-28 unknown-callee event ordering
 
-Theorem RL-29: Fresh-allocation returns marked noalias
+Theorem RL-29: Backend-neutral fresh-self-allocation facts
 
   Preconditions:
-    - Fresh-allocation returns per Annex E §AIMS RL-29
-    - ReturnContract.preserves_freshness = true AND ReturnContract.uniqueness = Unique: mark with LLVM noalias
-    - Gate is preserves_freshness, NOT uniqueness alone (passthrough may alias)
+    - Fresh-self-allocation facts per Annex E §AIMS RL-29
+    - Gate solely on ReturnContract.returns_fresh_self_alloc
+    - Preserved freshness and uniqueness are insufficient for passthrough or
+      consumed-storage results
 
   Soundness property:
-    Forall function f with ReturnContract.preserves_freshness = true AND ReturnContract.uniqueness = Unique.
-      emit LLVM noalias on f's return value.
+    Forall function f.
+      freeze FreshSelfAllocationFact.proven iff every return path yields
+      storage allocated by f with no upstream alias. LLVM may separately emit
+      return noalias only for a proven direct-pointer ABI return.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2754,30 +2775,22 @@ Theorem RL-29: Fresh-allocation returns marked noalias
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-29 noalias on fresh-allocation returns
+    reason: sec-01 skeleton; sec-08 discharges RL-29 neutral fresh-self-allocation facts and target projection fidelity
 
-Theorem RL-30: Effect-based call annotations
+Theorem RL-30: Backend-neutral whole-function memory-access facts
 
   Preconditions:
-    - Effect-based call annotations per Annex E §AIMS RL-30
-    - Parameter access from IC-3 ParamContract.access + may_share
-    - Borrowed + may_share=false: reads only; Borrowed + may_share=true: reads+RC-header writes; Owned: reads+writes
-    - Pure calls -> memory(none); may_share=true -> memory(... inaccessiblemem: readwrite); etc.
+    - MemoryAccessFact derivation per Annex E §AIMS RL-30
+    - Inputs are IC-3 + IC-5 + realized-operation may_write_inaccessible;
+      may_throw fails closed for panic/TLS runtime writes
+    - Every untyped call or runtime operation fails closed to ReadWrite
 
   Soundness property:
-    Forall function f, call site c.
-      RL-30 emits LLVM memory(...) attribute on c
-      consistent with derived IC-5 + ParamContract:
-        pure read-only: memory(argmem: read)
-        pure + may_read_inaccessible: memory(argmem: read, inaccessiblemem: read)
-        pure all-Absent params: memory(none)
-        allocating + arg access: memory(argmem: readwrite, inaccessiblemem: readwrite)
-        pure allocator (no arg access): memory(inaccessiblemem: readwrite)
-        may_share=true + Borrowed: memory(argmem: read, inaccessiblemem: readwrite)
-        may_share=true + no params: memory(inaccessiblemem: readwrite)
-        deallocating: memory(inaccessiblemem: readwrite) (+argmem if Owned/may_share)
-        non-allocating Owned-param writers: memory(argmem: readwrite, inaccessiblemem: readwrite)
-        fallback: memory(argmem: readwrite, inaccessiblemem: readwrite).
+    Forall function f.
+      RL-30 freezes ReadOnly iff no write source is possible; otherwise
+      ReadWrite. ReadOnly permits both argument and inaccessible-memory reads.
+      LLVM separately maps ReadOnly to generic memory(read) and ReadWrite to
+      omitted.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2789,13 +2802,13 @@ Theorem RL-30: Effect-based call annotations
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-30 effect-based call annotations
+    reason: sec-01 skeleton; sec-08 discharges RL-30 neutral memory-access facts and target projection fidelity
 
-Theorem RL-31: Disjoint Borrowed parameters alias-scope metadata
+Theorem RL-31: Backend-neutral disjoint-Borrowed-parameter fact
 
   Preconditions:
     - Disjoint Borrowed parameters per Annex E §AIMS RL-31
-    - Two Borrowed params cannot alias same memory at runtime
+    - Proven fact means two Borrowed params cannot alias the same memory
     - Proof requires cross-function provenance summary (not in IC-2/IC-3 alone)
     - Per-call-site disjointness from callers' borrow_sources + project_alias_sources
     - VF-2 (contract consistency) verifies
@@ -2803,8 +2816,10 @@ Theorem RL-31: Disjoint Borrowed parameters alias-scope metadata
   Soundness property:
     Forall function f with Borrowed parameter pair (p_i, p_j).
       cross_call_site_provenance_summary(p_i, p_j) shows disjoint root sets at all call sites
-        implies emit !alias.scope + !noalias metadata pairs on (p_i, p_j).
-    ANY call site failing -> no alias metadata.
+        and the type facet holds implies ParameterDisjointnessFact.proven.
+    ANY call site or facet failing -> ParameterDisjointnessFact.notProven.
+    LLVM alias metadata is a separate target projection that additionally
+    requires sound ABI and metadata placement.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2816,7 +2831,7 @@ Theorem RL-31: Disjoint Borrowed parameters alias-scope metadata
 
   Expected:
     status: unimplemented_engine_shape
-    reason: sec-01 skeleton; sec-08 discharges RL-31 disjoint Borrowed alias metadata
+    reason: sec-01 skeleton; sec-08 discharges RL-31 neutral parameter-disjointness facts and target projection fidelity
 
 Theorem RL-32: Borrow inference initial Borrowed
 
@@ -2868,14 +2883,16 @@ Theorem RL-34: Tail call preservation
 
   Preconditions:
     - Tail call preservation per Annex E §AIMS RL-34
-    - Never insert RcDec after a tail call
-    - Transfer ownership ONLY when callee parameter is Owned
-    - Callee Borrowed: tail-call requires caller to arrange dec BEFORE call
+    - Every ownership handoff or release must occur before the tail call
+    - Transfer ownership only when the callee parameter is Owned
+    - Callee Borrowed: tail-call requires the caller's release obligation to
+      be discharged before the call
 
   Soundness property:
     Forall function f, tail call c with arg v to callee parameter p.
-      p.access = O implies tail call permitted; ownership of v transfers to callee (no caller-side dec)
-      p.access = Borrowed implies tail-call requires caller arranges RcDec(v) BEFORE c (no post-tail-call dec).
+      p.access = O implies tail call permitted; ownership of v transfers to
+        the callee before c
+      p.access = Borrowed implies tail call requires release(v) before c.
 
   Proof obligation:
     sorry -- discharged by sec-08 realization rule proofs
@@ -2895,7 +2912,8 @@ Theorem VF-1: Layer 1 structural well-formedness
     - Layer 1 structural well-formedness per Annex E §AIMS VF-1
     - Five dedicated checks: UseBeforeDef, DanglingBlockRef, RcOnScalar, DecOnBorrowed (parameter-restricted), ArgOwnershipLenMismatch
     - Three checkpoints: after AIMS emission (Step 6); after full pipeline (Step 11); after post-pipeline passes (sec-8 RL-22 through RL-26)
-    - Field-drop projections from RL-14/RL-14a/RL-15/RL-15a exempt from DecOnBorrowed
+    - Target field-drop events that exactly discharge CleanupObligation are
+      distinguished from borrowed-parameter decrements by DecOnBorrowed
 
   Soundness property:
     Forall function F with realized ARC IR.
@@ -2923,17 +2941,19 @@ Theorem VF-2: Layer 2 AIMS contract consistency
 
   Preconditions:
     - Layer 2 AIMS contract consistency per Annex E §AIMS VF-2
-    - Four sub-checks: (a) AbsentParamHasUses; (b) RL-31 alias metadata disjointness; (c) RL-29 noalias returns; (d) RL-30 memory attribute derivability
-    - Sub-checks (b), (c), (d) are TARGET-ONLY (require RL-29/RL-30/RL-31 LLVM fact export)
-    - When shipped: mandatory per VF-8
+    - Four sub-checks: (a) AbsentParamHasUses; (b) RL-31 neutral disjointness;
+      (c) RL-29 fresh-self-allocation fact agreement; (d) RL-30 neutral
+      memory-access fact derivability
+    - Target spelling and placement are separate backend-fidelity obligations
 
   Soundness property:
     Forall function F with realized IR and MemoryContract C.
       VF-2(F, C) iff
         (a) Forall parameter p with p.cardinality = absent. no_live_use(F, p)
-        AND (b) Forall LLVM alias-scope metadata on Borrowed params. backed by RL-31 disjointness proof
-        AND (c) Forall LLVM noalias return. ReturnContract.preserves_freshness = true AND ReturnContract.uniqueness = Unique
-        AND (d) Forall LLVM memory(...) attribute on call. derivable from IC-5 + ParamContract per RL-30.
+        AND (b) every frozen RL-31 fact is backed by a disjointness proof
+        AND (c) every frozen RL-29 fact matches IC-4 returns_fresh_self_alloc
+        AND (d) every frozen RL-30 fact derives from IC-5 + ParamContract +
+                realized operations.
 
   Proof obligation:
     sorry -- discharged by sec-09 verification layer proofs

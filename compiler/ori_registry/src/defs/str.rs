@@ -6,8 +6,8 @@
 
 use crate::{
     defs::params::{COUNT_PARAM, INT_RANGE_PARAMS},
-    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
-    TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
+    MemoryStrategy, MethodDef, MethodRuntime, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag,
+    RuntimeOperator, StrRuntime, TypeDef, TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 // Parameter arrays
@@ -134,8 +134,10 @@ static STR_METHODS: &[MethodDef] = &[
         ReturnTag::SelfType,
         None,
         Ownership::Borrow,
-    ),
-    MethodDef::primitive("contains", &SUBSTR_PARAM, BOOL, None, Ownership::Borrow),
+    )
+    .with_runtime(MethodRuntime::Str(StrRuntime::Concat)),
+    MethodDef::primitive("contains", &SUBSTR_PARAM, BOOL, None, Ownership::Borrow)
+        .with_runtime(MethodRuntime::Str(StrRuntime::Contains)),
     MethodDef::primitive("debug", &[], STR_TAG, Some("Debug"), Ownership::Borrow),
     MethodDef::primitive(
         "ends_with",
@@ -147,7 +149,8 @@ static STR_METHODS: &[MethodDef] = &[
         BOOL,
         None,
         Ownership::Borrow,
-    ),
+    )
+    .with_runtime(MethodRuntime::Str(StrRuntime::EndsWith)),
     MethodDef::primitive(
         "equals",
         &ONE_SELF_BORROW,
@@ -172,7 +175,8 @@ static STR_METHODS: &[MethodDef] = &[
         Ownership::Borrow,
     ),
     MethodDef::primitive("into", &[], ERROR_TAG, None, Ownership::Borrow),
-    MethodDef::primitive("is_empty", &[], BOOL, Some("IsEmpty"), Ownership::Borrow),
+    MethodDef::primitive("is_empty", &[], BOOL, Some("IsEmpty"), Ownership::Borrow)
+        .with_runtime(MethodRuntime::Str(StrRuntime::IsEmpty)),
     MethodDef::primitive(
         "iter",
         &[],
@@ -187,8 +191,10 @@ static STR_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
     ),
-    MethodDef::primitive("len", &[], INT, Some("Len"), Ownership::Borrow),
-    MethodDef::primitive("length", &[], INT, Some("Len"), Ownership::Borrow),
+    MethodDef::primitive("len", &[], INT, Some("Len"), Ownership::Borrow)
+        .with_runtime(MethodRuntime::Length),
+    MethodDef::primitive("length", &[], INT, Some("Len"), Ownership::Borrow)
+        .with_runtime(MethodRuntime::Length),
     MethodDef::primitive(
         "lines",
         &[],
@@ -251,7 +257,8 @@ static STR_METHODS: &[MethodDef] = &[
         ReturnTag::List(TypeTag::Str),
         None,
         Ownership::Borrow,
-    ),
+    )
+    .with_runtime(MethodRuntime::Str(StrRuntime::Split)),
     MethodDef::primitive(
         "starts_with",
         &[ParamDef {
@@ -262,7 +269,8 @@ static STR_METHODS: &[MethodDef] = &[
         BOOL,
         None,
         Ownership::Borrow,
-    ),
+    )
+    .with_runtime(MethodRuntime::Str(StrRuntime::StartsWith)),
     MethodDef::primitive(
         "substring",
         &INT_RANGE_PARAMS,
@@ -297,7 +305,8 @@ static STR_METHODS: &[MethodDef] = &[
         ReturnTag::SelfType,
         None,
         Ownership::Borrow,
-    ),
+    )
+    .with_runtime(MethodRuntime::Str(StrRuntime::Lowercase)),
     MethodDef::primitive("to_str", &[], STR_TAG, Some("Printable"), Ownership::Borrow),
     MethodDef::primitive(
         "to_uppercase",
@@ -305,8 +314,10 @@ static STR_METHODS: &[MethodDef] = &[
         ReturnTag::SelfType,
         None,
         Ownership::Borrow,
-    ),
-    MethodDef::primitive("trim", &[], ReturnTag::SelfType, None, Ownership::Borrow),
+    )
+    .with_runtime(MethodRuntime::Str(StrRuntime::Uppercase)),
+    MethodDef::primitive("trim", &[], ReturnTag::SelfType, None, Ownership::Borrow)
+        .with_runtime(MethodRuntime::Str(StrRuntime::Trim)),
     MethodDef::primitive(
         "trim_end",
         &[],
@@ -330,39 +341,18 @@ pub static STR: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(0),
     methods: STR_METHODS,
     operators: OpDefs {
-        add: OpStrategy::RuntimeCall {
-            fn_name: "ori_str_concat",
-            returns_bool: false,
-        },
+        add: OpStrategy::RuntimeCall(RuntimeOperator::StringConcat),
         sub: OpStrategy::Unsupported,
         mul: OpStrategy::Unsupported,
         div: OpStrategy::Unsupported,
         rem: OpStrategy::Unsupported,
         floor_div: OpStrategy::Unsupported,
-        eq: OpStrategy::RuntimeCall {
-            fn_name: "ori_str_eq",
-            returns_bool: true,
-        },
-        neq: OpStrategy::RuntimeCall {
-            fn_name: "ori_str_ne",
-            returns_bool: true,
-        },
-        lt: OpStrategy::RuntimeCall {
-            fn_name: "ori_str_compare",
-            returns_bool: true,
-        },
-        gt: OpStrategy::RuntimeCall {
-            fn_name: "ori_str_compare",
-            returns_bool: true,
-        },
-        lt_eq: OpStrategy::RuntimeCall {
-            fn_name: "ori_str_compare",
-            returns_bool: true,
-        },
-        gt_eq: OpStrategy::RuntimeCall {
-            fn_name: "ori_str_compare",
-            returns_bool: true,
-        },
+        eq: OpStrategy::RuntimeCall(RuntimeOperator::StringEqual),
+        neq: OpStrategy::RuntimeCall(RuntimeOperator::StringNotEqual),
+        lt: OpStrategy::RuntimeCall(RuntimeOperator::StringCompare),
+        gt: OpStrategy::RuntimeCall(RuntimeOperator::StringCompare),
+        lt_eq: OpStrategy::RuntimeCall(RuntimeOperator::StringCompare),
+        gt_eq: OpStrategy::RuntimeCall(RuntimeOperator::StringCompare),
         neg: OpStrategy::Unsupported,
         not: OpStrategy::Unsupported,
         bit_and: OpStrategy::Unsupported,

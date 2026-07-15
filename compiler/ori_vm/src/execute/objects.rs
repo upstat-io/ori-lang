@@ -2,45 +2,54 @@
 
 use ori_arc::CtorKind;
 
-use crate::bytecode::Register;
 use crate::{ExecutionError, IndexKind, ValueKind};
 
-use super::frame::Aggregate;
+use super::arena::{Aggregate, AggregateKind};
 use super::heap::HeapObject;
+use super::operands::{FrameSlot, OperandAccess};
 use super::value::{ExitValue, VmValue};
-use super::Interpreter;
+use super::{ArenaAllocationRoots, Interpreter};
 
 impl Interpreter<'_> {
-    pub(super) fn execute_moves(&mut self, frame_index: usize, moves_index: usize) {
+    pub(super) fn execute_moves(
+        &mut self,
+        frame_index: usize,
+        moves_index: usize,
+        operands: &mut impl OperandAccess,
+    ) {
         let moves = &self.program.moves[moves_index];
         let frame = &mut self.frames[frame_index];
         let registers = &mut frame.registers;
         let move_scratch = &mut frame.move_scratch;
         move_scratch.clear();
         for &(_, source) in moves {
-            move_scratch.push(registers[source.index()]);
+            move_scratch.push(operands.read(registers, source));
         }
         for (&(destination, _), &value) in moves.iter().zip(move_scratch.iter()) {
-            registers[destination.index()] = value;
+            registers[operands.write(destination).index()] = value;
         }
+        move_scratch.clear();
     }
 
     pub(super) fn construct(
         &mut self,
         frame: usize,
-        destination: Register,
+        destination: FrameSlot,
         constructor: CtorKind,
-        operands: usize,
+        operand_list: usize,
+        operand_cursor: &mut impl OperandAccess,
     ) -> Result<VmValue, ExecutionError> {
-        let arguments = self.operands(operands).to_vec();
+        let arguments = &self.program.operands[operand_list];
         match constructor {
             CtorKind::Tuple | CtorKind::Struct(_) | CtorKind::EnumVariant { .. } => {
-                let values = arguments
-                    .iter()
-                    .map(|&argument| self.register(frame, argument))
-                    .collect::<Vec<_>>();
+                if arguments.len() > 4 {
+                    return Err(ExecutionError::ResourceLimit {
+                        resource: "aggregate fields",
+                        limit: 4,
+                    });
+                }
                 let mut aggregate = Aggregate {
-                    length: u8::try_from(values.len()).map_err(|_| {
+                    length: u8::try_from(arguments.len()).map_err(|_| {
                         ExecutionError::ResourceLimit {
                             resource: "aggregate fields",
                             limit: 4,
@@ -50,23 +59,23 @@ impl Interpreter<'_> {
                         CtorKind::EnumVariant { variant, .. } => u64::from(variant),
                         _ => 0,
                     },
+                    kind: if matches!(constructor, CtorKind::EnumVariant { .. }) {
+                        AggregateKind::Variant
+                    } else {
+                        AggregateKind::Product
+                    },
                     ..Aggregate::default()
                 };
-                for (slot, value) in aggregate.fields.iter_mut().zip(values) {
-                    *slot = value;
+                for (slot, &argument) in aggregate.fields.iter_mut().zip(arguments) {
+                    *slot = operand_cursor.read(&self.frames[frame].registers, argument);
                 }
-                let slot = destination.index();
-                let bound = self.frames[frame].aggregates.len();
-                let target = self.frames[frame].aggregates.get_mut(slot).ok_or(
-                    ExecutionError::LocalHandleOutOfBounds {
-                        kind: ValueKind::Aggregate,
-                        frame,
-                        slot,
-                    },
-                )?;
-                *target = aggregate;
-                debug_assert!(slot < bound);
-                VmValue::aggregate(frame, destination.raw())
+                self.prepare_value_arena_allocation(ArenaAllocationRoots::overwriting(
+                    frame,
+                    destination,
+                    &aggregate.fields[..usize::from(aggregate.length)],
+                ))?;
+                self.value_arena
+                    .allocate_aggregate(aggregate, self.config.max_value_arena_entries)
             }
             CtorKind::ListLiteral => {
                 if arguments.len() > self.config.max_collection_elements {
@@ -77,7 +86,7 @@ impl Interpreter<'_> {
                 }
                 let values = arguments
                     .iter()
-                    .map(|&argument| self.register(frame, argument))
+                    .map(|&argument| operand_cursor.read(&self.frames[frame].registers, argument))
                     .collect::<Vec<_>>();
                 self.heap
                     .allocate(HeapObject::List(values), self.config.max_heap_objects)
@@ -91,18 +100,26 @@ impl Interpreter<'_> {
     }
 
     pub(super) fn project(&self, value: VmValue, field: u32) -> Result<VmValue, ExecutionError> {
+        if value.kind() == ValueKind::IteratorStep {
+            let item = value.as_iterator_step()?;
+            return match field {
+                0 => Ok(VmValue::int(i64::from(item.is_some()))),
+                1 => Ok(item.unwrap_or(VmValue::int(0))),
+                _ => Err(ExecutionError::AggregateFieldOutOfBounds {
+                    field: field as usize,
+                    length: 2,
+                }),
+            };
+        }
         if value.kind() == ValueKind::Aggregate {
             let aggregate = self.aggregate(value)?;
             let index = field as usize;
-            return aggregate
-                .fields
-                .get(index)
-                .copied()
-                .filter(|_| index < usize::from(aggregate.length))
-                .ok_or(ExecutionError::AggregateFieldOutOfBounds {
+            return aggregate.projected_field(index)?.ok_or(
+                ExecutionError::AggregateFieldOutOfBounds {
                     field: index,
-                    length: usize::from(aggregate.length),
-                });
+                    length: aggregate.projected_field_count(),
+                },
+            );
         }
         if value.kind() == ValueKind::Heap && field == 0 {
             return match &self.heap.get(value)?.object {
@@ -114,7 +131,7 @@ impl Interpreter<'_> {
                     })?;
                     Ok(VmValue::int(length))
                 }
-                HeapObject::String(_) | HeapObject::Vacant => {
+                HeapObject::String(_) | HeapObject::Closure { .. } | HeapObject::Vacant => {
                     Err(ExecutionError::UnsupportedPrimitive {
                         operation: "heap field projection",
                     })
@@ -132,8 +149,7 @@ impl Interpreter<'_> {
         field: u32,
         value: VmValue,
     ) -> Result<(), ExecutionError> {
-        let (frame, slot) = base.aggregate_parts()?;
-        let aggregate = self.aggregate_mut(frame, slot)?;
+        let aggregate = self.value_arena.aggregate_mut(base)?;
         let index = field as usize;
         if index >= usize::from(aggregate.length) {
             return Err(ExecutionError::AggregateFieldOutOfBounds {
@@ -146,8 +162,7 @@ impl Interpreter<'_> {
     }
 
     pub(super) fn set_tag(&mut self, base: VmValue, tag: u64) -> Result<(), ExecutionError> {
-        let (frame, slot) = base.aggregate_parts()?;
-        self.aggregate_mut(frame, slot)?.variant = tag;
+        self.value_arena.aggregate_mut(base)?.variant = tag;
         Ok(())
     }
 
@@ -157,98 +172,11 @@ impl Interpreter<'_> {
             ValueKind::Bool => Ok(u64::from(value.as_bool()?)),
             ValueKind::Char => Ok(u64::from(value.as_char()? as u32)),
             ValueKind::Aggregate => Ok(self.aggregate(value)?.variant),
+            ValueKind::IteratorStep => Ok(0),
             _ => Err(ExecutionError::UnsupportedPrimitive {
                 operation: "switch discriminant",
             }),
         }
-    }
-
-    pub(super) fn promote_escaping(
-        &mut self,
-        value: VmValue,
-        source_frame: usize,
-        target_frame: usize,
-        destination: Option<Register>,
-    ) -> Result<VmValue, ExecutionError> {
-        match value.kind() {
-            ValueKind::Aggregate => {
-                self.promote_aggregate(value, source_frame, target_frame, destination)
-            }
-            ValueKind::Iterator => Err(ExecutionError::EscapingIterator),
-            ValueKind::Heap => {
-                self.promote_heap_values(value, source_frame, target_frame)?;
-                Ok(value)
-            }
-            _ => Ok(value),
-        }
-    }
-
-    fn promote_aggregate(
-        &mut self,
-        value: VmValue,
-        source_frame: usize,
-        target_frame: usize,
-        destination: Option<Register>,
-    ) -> Result<VmValue, ExecutionError> {
-        let (owner, _) = value.aggregate_parts()?;
-        if owner != source_frame {
-            return Ok(value);
-        }
-        let mut aggregate = *self.aggregate(value)?;
-        for index in 0..usize::from(aggregate.length) {
-            aggregate.fields[index] =
-                self.promote_escaping(aggregate.fields[index], source_frame, target_frame, None)?;
-        }
-        let target_slot = if let Some(destination) = destination {
-            let slot = destination.index();
-            let target = self.frames[target_frame].aggregates.get_mut(slot).ok_or(
-                ExecutionError::LocalHandleOutOfBounds {
-                    kind: ValueKind::Aggregate,
-                    frame: target_frame,
-                    slot,
-                },
-            )?;
-            *target = aggregate;
-            slot
-        } else {
-            if self.frames[target_frame].aggregates.len() >= self.config.max_frame_values {
-                return Err(ExecutionError::ResourceLimit {
-                    resource: "frame aggregate values",
-                    limit: self.config.max_frame_values,
-                });
-            }
-            let slot = self.frames[target_frame].aggregates.len();
-            self.frames[target_frame].aggregates.push(aggregate);
-            slot
-        };
-        let slot = u32::try_from(target_slot).map_err(|_| ExecutionError::ResourceLimit {
-            resource: "frame aggregate values",
-            limit: self.config.max_frame_values,
-        })?;
-        VmValue::aggregate(target_frame, slot)
-    }
-
-    fn promote_heap_values(
-        &mut self,
-        value: VmValue,
-        source_frame: usize,
-        target_frame: usize,
-    ) -> Result<(), ExecutionError> {
-        let values = match &self.heap.get(value)?.object {
-            HeapObject::List(values) | HeapObject::Builder(values) => Some(values.clone()),
-            HeapObject::String(_) | HeapObject::Vacant => None,
-        };
-        let Some(mut values) = values else {
-            return Ok(());
-        };
-        for element in &mut values {
-            *element = self.promote_escaping(*element, source_frame, target_frame, None)?;
-        }
-        match &mut self.heap.get_mut(value)?.object {
-            HeapObject::List(target) | HeapObject::Builder(target) => *target = values,
-            HeapObject::String(_) | HeapObject::Vacant => {}
-        }
-        Ok(())
     }
 
     pub(super) fn materialize(&self, value: VmValue) -> Result<ExitValue, ExecutionError> {
@@ -291,6 +219,7 @@ impl Interpreter<'_> {
                         .collect::<Result<Vec<_>, _>>()?;
                     Ok(ExitValue::List(values))
                 }
+                HeapObject::Closure { .. } => Err(ExecutionError::EscapingClosure),
                 HeapObject::Vacant => Err(ExecutionError::ReleasedHeap {
                     index: value.heap_index()?,
                 }),
@@ -306,6 +235,17 @@ impl Interpreter<'_> {
                 Ok(ExitValue::Aggregate {
                     variant: aggregate.variant,
                     fields,
+                })
+            }
+            ValueKind::IteratorStep => {
+                let item = value.as_iterator_step()?;
+                self.consume_materialization_budget(2, remaining)?;
+                Ok(ExitValue::Aggregate {
+                    variant: 0,
+                    fields: vec![
+                        ExitValue::Int(i64::from(item.is_some())),
+                        self.materialize_with_budget(item.unwrap_or(VmValue::int(0)), remaining)?,
+                    ],
                 })
             }
             ValueKind::Iterator => Err(ExecutionError::EscapingIterator),
@@ -327,30 +267,7 @@ impl Interpreter<'_> {
     }
 
     pub(super) fn aggregate(&self, value: VmValue) -> Result<&Aggregate, ExecutionError> {
-        let (frame, slot) = value.aggregate_parts()?;
-        self.frames
-            .get(frame)
-            .and_then(|frame| frame.aggregates.get(slot))
-            .ok_or(ExecutionError::LocalHandleOutOfBounds {
-                kind: ValueKind::Aggregate,
-                frame,
-                slot,
-            })
-    }
-
-    fn aggregate_mut(
-        &mut self,
-        frame: usize,
-        slot: usize,
-    ) -> Result<&mut Aggregate, ExecutionError> {
-        self.frames
-            .get_mut(frame)
-            .and_then(|frame| frame.aggregates.get_mut(slot))
-            .ok_or(ExecutionError::LocalHandleOutOfBounds {
-                kind: ValueKind::Aggregate,
-                frame,
-                slot,
-            })
+        self.value_arena.aggregate(value)
     }
 }
 

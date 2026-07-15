@@ -12,9 +12,8 @@ use crate::input::SourceFile;
 use crate::parser::ParseOutput;
 use ori_eval::{
     collect_def_impl_methods_with_config, collect_extend_methods_with_config,
-    collect_impl_methods_with_config, process_derives, register_module_functions,
-    register_newtype_constructors, register_variant_constructors, DefaultFieldTypeRegistry,
-    MethodCollectionConfig, UserMethodRegistry,
+    collect_impl_methods_with_config, process_derives, register_module_bindings,
+    DefaultFieldTypeRegistry, MethodCollectionConfig, UserMethodRegistry,
 };
 use ori_ir::canon::SharedCanonResult;
 use std::path::Path;
@@ -134,14 +133,9 @@ impl Evaluator<'_> {
         // when called from different contexts (e.g., from within a prelude function).
         let shared_arena = parse_result.arena.clone();
 
-        // Then register all local functions (with canonical IR when available)
-        register_module_functions(&parse_result.module, &shared_arena, self.env_mut(), canon);
-
-        // Register variant constructors from type declarations
-        register_variant_constructors(&parse_result.module, self.env_mut());
-
-        // Register newtype constructors from type declarations
-        register_newtype_constructors(&parse_result.module, self.env_mut());
+        // Register constructors before functions so function captures observe
+        // this module's bindings rather than same-named prelude values.
+        register_module_bindings(&parse_result.module, &shared_arena, self.env_mut(), canon);
 
         // Build up user method registry from impl and extend blocks
         let mut user_methods = UserMethodRegistry::new();

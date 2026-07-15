@@ -20,7 +20,7 @@ use ori_ir::canon::{
     MonoInstanceId,
 };
 use ori_ir::{ExprArena, ExprId, Name, Span, TypeId};
-use ori_types::{TypeCheckResult, TypedModule};
+use ori_types::{Idx, Tag, TypeCheckResult, TypedModule};
 use tracing::debug;
 
 /// Lower a type-checked AST to canonical form.
@@ -426,7 +426,26 @@ impl<'a> Lowerer<'a> {
     ///
     /// The evaluator still checks the environment first for variable shadowing,
     /// so this classification is safe even if a variable shadows a type name.
-    pub(super) fn is_type_reference(&self, name: Name) -> bool {
+    pub(super) fn is_type_reference(&self, name: Name, ty: Idx) -> bool {
+        // A module variant can share a name with a universe type (notably
+        // `Error`). Type checking has already selected the variant, so its
+        // function/result type is authoritative over a name-only type lookup.
+        let resolved = self.pool.resolve_fully(ty);
+        let result_type = if self.pool.tag(resolved) == Tag::Function {
+            self.pool.resolve_fully(self.pool.function_return(resolved))
+        } else {
+            resolved
+        };
+        if self.pool.tag(result_type) == Tag::Enum
+            && self
+                .pool
+                .enum_variants(result_type)
+                .iter()
+                .any(|(variant, _)| *variant == name)
+        {
+            return false;
+        }
+
         // Builtin types with associated functions (pre-interned Name comparison).
         if name == self.name_duration || name == self.name_size {
             return true;

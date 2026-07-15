@@ -2,6 +2,17 @@ use crate::*;
 
 // Registry-level integrity tests
 
+fn contains_identifier(source: &str, identifier: &str) -> bool {
+    source.match_indices(identifier).any(|(start, matched)| {
+        let before = source[..start].chars().next_back();
+        let after = source[start + matched.len()..].chars().next();
+        let is_identifier_char = |character: char| character == '_' || character.is_alphanumeric();
+
+        before.is_none_or(|character| !is_identifier_char(character))
+            && after.is_none_or(|character| !is_identifier_char(character))
+    })
+}
+
 #[test]
 fn no_duplicate_methods() {
     use std::collections::BTreeSet;
@@ -414,7 +425,12 @@ fn purity_no_heap_allocation_types() {
                                 continue;
                             }
                             for heap_type in heap_types {
-                                if trimmed.contains(heap_type) {
+                                let found = if *heap_type == "String" {
+                                    contains_identifier(trimmed, heap_type)
+                                } else {
+                                    trimmed.contains(heap_type)
+                                };
+                                if found {
                                     results.push(format!(
                                         "{}:{}: {} (contains `{}`)",
                                         path.display(),
@@ -444,4 +460,13 @@ fn purity_no_heap_allocation_types() {
         "ori_registry MUST NOT use heap-allocating types (use &'static slices). Found:\n{}",
         violations.join("\n")
     );
+}
+
+#[test]
+fn heap_type_scan_matches_string_identifier_only() {
+    assert!(contains_identifier("field: String", "String"));
+    assert!(contains_identifier("Option<String>", "String"));
+    assert!(!contains_identifier("ToString", "String"));
+    assert!(!contains_identifier("StringConcat", "String"));
+    assert!(!contains_identifier("StringEqual", "String"));
 }

@@ -6,17 +6,16 @@
 //!   (2) Capture-by-reference → `borrowed_fields[i]` populated; owned untouched.
 //!   (3) Captures-of-captures (nested closures) → outer's `owned_field` carries
 //!       the inner closure's `Idx`; inner's burden registered separately and
-//!       resolved at codegen via `TypeRegistry::burden(inner_idx)`.
+//!       resolved through `TypeRegistry::burden(inner_idx)`.
 //!   (4) Capture-of-projection → treated as `borrowed_field` with parent's
 //!       lifetime; the projection itself does not own — parent owns.
 //!
-//! Plus boundary pins for `compiled_drop` `FnSym` uniqueness per closure `Idx` +
-//! the per-`Idx` mangling key shared with the recursive-type drop functions
-//! per `_ori_drop$<idx_raw>` at `drop_gen.rs:45`.
+//! Plus boundary pins for stable `drop_operation` identity uniqueness per
+//! closure `Idx` and the shared recursive-type identity space.
 
-use super::{compose_closure_burden_spec, mint_closure_drop_fn_sym, ClosureCapture};
+use super::{compose_closure_burden_spec, mint_closure_drop_operation, ClosureCapture};
 use crate::registry::burden::UserBurdenSpec;
-use crate::registry::burden_compose::scc::mint_compiled_drop_fn_sym;
+use crate::registry::burden_compose::scc::mint_drop_operation_sym;
 use crate::Idx;
 
 /// Synthetic closure `Idx` in the dynamic range (`FIRST_DYNAMIC` = 64). Avoids
@@ -40,8 +39,8 @@ fn closure_with_single_owned_str_capture_populates_one_owned_field() {
     let spec = compose_closure_burden_spec(ci, &captures, &[]);
 
     assert!(
-        spec.self_heap_alloc,
-        "closure env MUST be heap-allocated (self_heap_alloc: true)",
+        spec.self_owned_identity,
+        "a captured environment must introduce its own logical identity",
     );
     assert_eq!(
         spec.owned_fields.len(),
@@ -101,7 +100,7 @@ fn closure_with_single_borrowed_capture_populates_borrowed_fields_not_owned() {
     }];
     let spec = compose_closure_burden_spec(ci, &[], &captures);
 
-    assert!(spec.self_heap_alloc);
+    assert!(spec.self_owned_identity);
     assert!(
         spec.owned_fields.is_empty(),
         "capture-by-reference does not populate owned_fields",
@@ -143,12 +142,12 @@ fn closure_with_mixed_owned_and_borrowed_captures_populates_both_field_sets() {
 #[test]
 fn closure_capturing_another_closure_carries_inner_idx_in_owned_field() {
     // success criterion: outer env field IS Closure<...> with its OWN
-    // compiled_drop. Recursion handled identically to recursive types
-    // — outer closure's drop body recursively invokes inner closure's
-    // compiled_drop via the inner field's UserBurdenSpec lookup at codegen.
+    // drop_operation. Recursion is handled identically to recursive types:
+    // the outer environment's logical cleanup traverses the inner closure's
+    // drop_operation via its UserBurdenSpec.
     //
     // Composition records the inner closure's Idx in owned_fields[i].field_type;
-    // codegen resolves the inner burden via SEPARATE TypeRegistry::burden lookup.
+    // the consumer resolves the inner burden via a separate registry lookup.
     let outer = closure_idx(4);
     let inner = closure_idx(5);
     let captures = [ClosureCapture {
@@ -160,18 +159,18 @@ fn closure_capturing_another_closure_carries_inner_idx_in_owned_field() {
     assert_eq!(outer_spec.owned_fields.len(), 1);
     assert_eq!(
         outer_spec.owned_fields[0].field_type, inner,
-        "outer's owned_field MUST carry the inner closure's Idx — codegen resolves the nested burden via TypeRegistry::burden(inner)",
+        "outer's owned field must carry the inner closure's stable type identity",
     );
 
-    // Inner closure has its own (distinct) burden + compiled_drop FnSym.
+    // The inner closure has its own distinct burden and cleanup identity.
     let inner_captures = [ClosureCapture {
         field_index: 0,
         field_type: Idx::STR,
     }];
     let inner_spec = compose_closure_burden_spec(inner, &inner_captures, &[]);
     assert_ne!(
-        outer_spec.compiled_drop, inner_spec.compiled_drop,
-        "outer and inner closures MUST get distinct compiled_drop FnSyms (per-Idx mangling per drop_gen.rs:45)",
+        outer_spec.drop_operation, inner_spec.drop_operation,
+        "outer and inner closures must get distinct cleanup identities",
     );
 }
 
@@ -201,38 +200,35 @@ fn closure_capturing_projection_uses_borrowed_field_with_parent_idx() {
     );
 }
 
-// compiled_drop FnSym key invariant
+// Stable cleanup-operation identity
 
 #[test]
-fn closure_compiled_drop_fn_sym_matches_per_idx_mangling_key() {
-    // mangling contract: closure drop functions share the
-    // `_ori_drop$<idx_raw>` mangling key with recursive-type drop functions
-    // per `drop_gen.rs:45`. mint_closure_drop_fn_sym MUST delegate to
-    // scc::mint_compiled_drop_fn_sym so the per-Idx distinctness contract
-    // (`raw + 1`, saturating) holds identically.
+fn closure_drop_operation_matches_per_idx_identity_key() {
+    // Closure and recursive-type cleanup operations share one stable identity
+    // space. Physical projections decide whether and how to name a helper.
     let ci = closure_idx(7);
     let captures = [ClosureCapture {
         field_index: 0,
         field_type: Idx::STR,
     }];
     let spec = compose_closure_burden_spec(ci, &captures, &[]);
-    let expected = mint_compiled_drop_fn_sym(ci);
+    let expected = mint_drop_operation_sym(ci);
     assert_eq!(
-        spec.compiled_drop,
+        spec.drop_operation,
         Some(expected),
-        "closure compiled_drop MUST follow the Idx-derived mangling shared with recursive-type drops",
+        "closure cleanup must follow the shared Idx-derived identity",
     );
-    let direct = mint_closure_drop_fn_sym(ci);
+    let direct = mint_closure_drop_operation(ci);
     assert_eq!(
         direct, expected,
-        "mint_closure_drop_fn_sym MUST delegate to scc::mint_compiled_drop_fn_sym",
+        "closure cleanup identity must use the shared operation identity space",
     );
 }
 
 #[test]
-fn closure_drop_fn_syms_for_distinct_closures_are_distinct() {
+fn closure_drop_operations_for_distinct_closures_are_distinct() {
     // per-Idx distinctness: two closures with distinct Idx values
-    // MUST get distinct compiled_drop FnSyms even when their capture shapes are
+    // MUST get distinct cleanup identities even when their capture shapes are
     // structurally identical.
     let a = closure_idx(8);
     let b = closure_idx(9);
@@ -243,32 +239,25 @@ fn closure_drop_fn_syms_for_distinct_closures_are_distinct() {
     let spec_a = compose_closure_burden_spec(a, &captures, &[]);
     let spec_b = compose_closure_burden_spec(b, &captures, &[]);
     assert_ne!(
-        spec_a.compiled_drop, spec_b.compiled_drop,
-        "distinct closure Idx values MUST yield distinct compiled_drop FnSyms",
+        spec_a.drop_operation, spec_b.drop_operation,
+        "distinct closure Idx values must yield distinct cleanup identities",
     );
 }
 
 // Non-capturing closure — empty owned_fields + empty borrowed_fields
 
 #[test]
-fn closure_with_zero_captures_yields_empty_field_sets_but_still_heap_alloc() {
-    // The closure env-header layout: even a closure with zero
-    // captures has self_heap_alloc=true at the spec level — the env-header is
-    // the load-bearing allocation site for the drop_fn slot. The codegen path
-    // emit_rc_dec_closure (rc_ops.rs:266-268) short-circuits when env_ptr is
-    // constant null (non-capturing); composition records the heap-alloc
-    // disposition uniformly + the codegen short-circuit owns the runtime
-    // optimization.
+fn closure_with_zero_captures_keeps_conservative_callable_identity() {
+    // The shared burden remains conservative because this producer does not
+    // yet carry the later closure-site discharge proof. A physical plan may
+    // erase storage and cleanup only after consuming that exact proof.
     let ci = closure_idx(10);
     let spec = compose_closure_burden_spec(ci, &[], &[]);
 
-    assert!(
-        spec.self_heap_alloc,
-        "self_heap_alloc records the env-header disposition; non-capturing closures get the null-env short-circuit at runtime, not at spec-composition time",
-    );
+    assert!(spec.self_owned_identity);
     assert!(spec.owned_fields.is_empty());
     assert!(spec.borrowed_fields.is_empty());
-    assert!(spec.compiled_drop.is_some());
+    assert!(spec.drop_operation.is_some());
     assert!(spec.user_drop.is_none());
 }
 
@@ -341,7 +330,7 @@ fn closure_owned_borrowed_partition_is_a_pure_function_of_classification_input()
 fn closure_burden_does_not_inherit_default_user_burden_spec() {
     // Defensive: confirm the composed spec is NOT structurally equal to
     // UserBurdenSpec::default() even at zero captures (default carries
-    // self_heap_alloc=false, compiled_drop=None — both differ for closures).
+    // self_owned_identity=false, drop_operation=None — both differ for closures).
     let ci = closure_idx(12);
     let spec = compose_closure_burden_spec(ci, &[], &[]);
     assert_ne!(spec, UserBurdenSpec::default());

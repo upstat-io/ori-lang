@@ -39,14 +39,16 @@ Theorem TF-7: PartialApply transfer produces FRESH(NonReusable)
           reflexivity (componentwise product order self-comparable).
 
     Part (a) — per-dimension column verification:
-      access = Owned per Appendix A row 7 — closure heap allocation owned
-        by the producer of the PartialApply result.
+      access = Owned per Appendix A row 7 — the fresh closure identity is
+        owned by the producer of the PartialApply result.
       consumption = Linear — newly-allocated, exactly-once consumed at
         each use (Cardinality Once means single use before propagation).
       cardinality = Once — fresh allocation; downstream uses accumulate
         via TF-11 backward demand.
-      uniqueness = Unique — newly-allocated closure has RC = 1 by
-        construction; no aliases possible before any subsequent ArcInstr.
+      uniqueness = Unique — the closure starts with one logical ownership
+        credit by construction; no aliases exist before a subsequent
+        ArcInstr. Physical placement and count representation are not part
+        of TF-7.
       locality = BlockLocal — allocation site is the basic block where
         PartialApply lives; escape narrowing happens at later instructions
         + CN-6/CN-8 canonicalization.

@@ -9,7 +9,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use super::method_sig::{allocate_generic_binders, build_method_sig};
 use crate::check::registration::resolve_type_with_method_generics;
 use crate::check::ModuleChecker;
-use crate::{check_expr, ContextKind, Expected, ExpectedOrigin, Idx};
+use crate::{check_expr, ContextKind, Expected, ExpectedOrigin, Idx, ImplMethodId};
 
 /// Check all impl method bodies.
 ///
@@ -84,17 +84,18 @@ fn check_impl_block(
         assoc_bindings.insert(impl_assoc.name, ty);
     }
 
+    let impl_context = ImplBodyContext {
+        impl_index,
+        self_type,
+        type_params: &impl_generic_params,
+        substitutions: &impl_substitutions,
+        inline_bounds: &impl_inline_bounds,
+    };
+
     checker.with_impl_assoc_scope(assoc_bindings, trait_idx, |checker| {
         // Check explicitly defined methods
         for method in &impl_def.methods {
-            check_impl_method(
-                checker,
-                method,
-                self_type,
-                &impl_generic_params,
-                &impl_substitutions,
-                &impl_inline_bounds,
-            );
+            check_impl_method(checker, method, &impl_context);
             if is_trait_impl {
                 checker.register_trait_impl_fn_name(self_type, method.name);
             }
@@ -111,14 +112,7 @@ fn check_impl_block(
                         if let TraitItem::DefaultMethod(default) = item {
                             if !overridden.contains(&default.name) {
                                 let as_impl = ImplMethod::from(default);
-                                check_impl_method(
-                                    checker,
-                                    &as_impl,
-                                    self_type,
-                                    &impl_generic_params,
-                                    &impl_substitutions,
-                                    &impl_inline_bounds,
-                                );
+                                check_impl_method(checker, &as_impl, &impl_context);
                                 checker.register_trait_impl_fn_name(self_type, default.name);
                             }
                         }
@@ -127,6 +121,15 @@ fn check_impl_block(
             }
         }
     });
+}
+
+/// Impl-level inputs shared by every method body in one impl block.
+struct ImplBodyContext<'a> {
+    impl_index: usize,
+    self_type: Idx,
+    type_params: &'a [Name],
+    substitutions: &'a FxHashMap<Name, Idx>,
+    inline_bounds: &'a [(Idx, Vec<Name>)],
 }
 
 /// Type check a single impl method body.
@@ -139,11 +142,12 @@ fn check_impl_block(
 fn check_impl_method(
     checker: &mut ModuleChecker<'_>,
     method: &ImplMethod,
-    self_type: Idx,
-    type_params: &[Name],
-    impl_substitutions: &FxHashMap<Name, Idx>,
-    impl_inline_bounds: &[(Idx, Vec<Name>)],
+    impl_context: &ImplBodyContext<'_>,
 ) {
+    let method_id = ImplMethodId::new(impl_context.impl_index, method.body);
+    let role = checker.impl_method_role(method_id);
+    let self_type = impl_context.self_type;
+
     // Create child environment from frozen base
     let Some(child_env) = checker.child_of_base() else {
         return;
@@ -167,13 +171,14 @@ fn check_impl_method(
     // overlays so an impl-level type-param annotation (`x: T`) resolves to the
     // impl `RigidVar` allocated once in `check_impl_block`, not a fresh
     // `Tag::Named`. Method-level binders win on a name collision (inner scope).
-    let mut combined_substitutions = impl_substitutions.clone();
+    let mut combined_substitutions = impl_context.substitutions.clone();
     combined_substitutions.extend(method_substitutions.iter().map(|(&n, &i)| (n, i)));
 
     // Combined scope for type resolution: impl-level (parent) + method-level
     // (child). Without method-level names in scope, `(self, f: T -> U) -> Box<U>`
     // shapes would fail to resolve `U` at body-check time.
-    let combined_type_params: Vec<Name> = type_params
+    let combined_type_params: Vec<Name> = impl_context
+        .type_params
         .iter()
         .copied()
         .chain(method_generic_params.iter().copied())
@@ -259,7 +264,7 @@ fn check_impl_method(
     // Impl-level bounds (`impl<T: Bound>`) registered on the engine
     // alongside method-level ones so body-internal dispatch on an impl-level
     // `RigidVar` resolves via the bound-chain.
-    let impl_bounds_for_engine = impl_inline_bounds.to_vec();
+    let impl_bounds_for_engine = impl_context.inline_bounds.to_vec();
     let (
         expr_types,
         errors,
@@ -445,5 +450,5 @@ fn check_impl_method(
     // Export impl method signature for codegen.
     // Codegen needs param_types, return_type, and type_params to compute ABI,
     // plus the owning receiver `self_type` to key mono-collection dispatch.
-    checker.register_impl_sig(self_type, method.name, sig);
+    checker.register_impl_sig(method_id, self_type, method.name, role, sig);
 }

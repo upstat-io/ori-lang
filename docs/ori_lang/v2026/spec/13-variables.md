@@ -173,7 +173,7 @@ Drop order for function parameters after the body returns is implementation-defi
 
 The built-in function `drop_early(value:)` explicitly drops a value before the end of its scope. After `drop_early(value: x)`, the binding `x` is inaccessible; any subsequent use is a compile-time error. `drop_early` works on both mutable and immutable bindings — it concerns ownership, not mutability.
 
-See [Clause 21](21-memory-model.md) for details on the ARC memory model.
+See [Clause 21](21-memory-model.md) for automatic ownership semantics and the informative current compiled ARC projection.
 
 ## 13.8 Blank Identifier
 

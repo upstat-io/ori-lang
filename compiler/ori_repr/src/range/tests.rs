@@ -475,7 +475,7 @@ fn config_default_values() {
     assert_eq!(c.max_iterations, 20);
     assert_eq!(c.max_blocks, 500);
     assert_eq!(c.max_scc_iterations, 10);
-    assert_eq!(c.max_total_scc_iterations, 50);
+    assert_eq!(c.max_feedback_iterations, 5);
 }
 
 // FieldSummaryTable

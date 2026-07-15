@@ -42,8 +42,9 @@ Theorem TF-9: Reuse transfer produces FRESH with shape inherited from Reset
         same-type Reset/Reuse pairing.
       ReusableEnum: nominal enum variant with stable variant-id +
         compatible payload layout.
-      Both inherit RC = 1 + Unique invariant from the Reset of the
-      dying value (RL-11 requires Uniqueness = Unique for source).
+      Both inherit exactly one logical owner credit plus the Unique
+      invariant from the Reset of the dying value (RL-11 requires
+      Uniqueness = Unique for source).
       CollectionBuffer + NonReusable + ContextHole NOT eligible for
       Reuse (CollectionReuse uses TF-9a; NonReusable + ContextHole
       have no nominal type-id for pairing).
@@ -53,14 +54,15 @@ Theorem TF-9: Reuse transfer produces FRESH with shape inherited from Reset
         the result.
       consumption = Linear — fresh allocation slot, exactly-once consumed.
       cardinality = Once — fresh allocation; downstream uses via TF-11.
-      uniqueness = Unique — RC = 1 invariant inherited from Reset (RL-11
-        requires source Unique).
+      uniqueness = Unique — one-logical-owner invariant inherited from
+        Reset (RL-11 requires source Unique).
       locality = BlockLocal — Reuse fires within same allocation site or
         dominator-validated cross-block region (RL-11 + RL-12 same-block /
         post-dominator guarantee).
       effect = {may_alloc=true} = 0b001 — Reuse is allocation-equivalent
-        at the AIMS layer; physical RC may bump if RL-11 fast-path fires,
-        but the AIMS-level transfer treats Reuse as fresh-equivalent.
+        at the AIMS layer. A satisfying physical plan may recycle, replace,
+        or otherwise realize storage while preserving the same fresh logical
+        result and exact owner-credit transfer.
 
     Part (c) — per-token constant-function monotonicity:
       For fixed Reset-token shape (Reusable* variant), TF-9 emits

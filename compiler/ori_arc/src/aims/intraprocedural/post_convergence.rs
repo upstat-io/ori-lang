@@ -4,7 +4,7 @@
 //! side tables in the [`AimsStateMap`] using the converged state:
 //!
 //! - [`populate_borrow_sources`] — borrow source tracking for Project instructions
-//! - [`populate_sparse_events`] — reusable allocations + local-alloc candidates
+//! - [`populate_sparse_events`] — reusable logical shapes + placement-eligibility candidates
 //! - [`populate_var_shapes`] — per-variable shape from definitions
 //! - [`detect_trmc_candidates`] — TRMC `ContextHole` detection
 //! - [`populate_context_events`] — ContextOpen/ContextClose from normalize metadata
@@ -25,7 +25,7 @@ use super::super::contract::{ContextRegion, MemoryContract, ReturnContract};
 use super::super::lattice::{
     AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ShapeClass, Uniqueness,
 };
-use super::super::transfer::transfer_def;
+use super::super::transfer::transfer_def_resolved;
 use super::state_map::{AimsEvent, AimsStateMap};
 
 /// Populate the borrow source side table after analysis converges.
@@ -38,6 +38,13 @@ use super::state_map::{AimsEvent, AimsStateMap};
 pub(crate) fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFunction) {
     for block in &func.blocks {
         for instr in &block.body {
+            if instr
+                .defined_var()
+                .is_some_and(|dst| state_map.is_scalar(dst))
+            {
+                continue;
+            }
+
             // Use the converged state to compute the transfer result.
             let get_state = |v: ArcVarId| -> AimsState {
                 if state_map.is_scalar(v) {
@@ -46,7 +53,7 @@ pub(crate) fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFu
                 state_map.var_state_at_block_entry(block.id, v)
             };
 
-            if let Some(def) = transfer_def(instr, &get_state) {
+            if let Some(def) = transfer_def_resolved(func, instr, &get_state) {
                 if let (Some(dst), Some(source)) = (instr.defined_var(), def.borrow_source) {
                     state_map.set_borrow_source(dst, source);
                 }
@@ -65,13 +72,13 @@ pub(crate) fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFu
 ///    that the `ReusePlanner` can match against death events for cross-block
 ///    reuse.
 ///
-/// 2. **Local-allocation eligibility** (`AimsEvent::LocalAllocCandidate`):
+/// 2. **Placement eligibility** (`AimsEvent::PlacementEligibilityCandidate`):
 ///    Variables whose effective exit-locality (`effective_locality_at_block_exit`,
 ///    which JOINs the lattice value with the contract-narrowed value populated
 ///    by `populate_call_result_states`) shows `Locality::FunctionLocal` or
 ///    `BlockLocal`. The effective query is load-bearing for direct call results:
 ///    without it, a callee with `return_info.locality = FunctionLocal` would
-///    not surface as a `LocalAllocCandidate` because the lattice's BOTTOM
+///    not surface as a `PlacementEligibilityCandidate` because the lattice's BOTTOM
 ///    locality is `BlockLocal` (already FunctionLocal-eligible) but the
 ///    contract-derived narrowing is invisible.
 ///
@@ -79,7 +86,7 @@ pub(crate) fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFu
 /// `block.terminator` (covers Invoke — the only terminator that defines
 /// a variable). The terminator walk is required because Invoke results
 /// would otherwise be silently skipped, leaving terminator-defined call
-/// results without `LocalAllocCandidate` events even when their contract
+/// results without `PlacementEligibilityCandidate` events even when their contract
 /// narrowed locality.
 pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFunction) {
     for (block_idx, block) in func.blocks.iter().enumerate() {
@@ -92,10 +99,10 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
         for (instr_idx, instr) in block.body.iter().enumerate() {
             // Reusable allocation candidates: Construct with reusable ctor.
             // Use `is_excluded` (skips both scalars AND immortals) —
-            // `is_scalar` alone leaks immortal
-            // heap-allocated constants into reuse candidates, where they
-            // cannot be reused because their MAX_REFCOUNT prevents the
-            // reset/reuse pipeline from acquiring the allocation.
+            // `is_scalar` alone leaks immortal identities into reuse
+            // candidates. Immortal identity and lifetime are stable
+            // contracts, so destructive reset/reuse cannot acquire them
+            // regardless of the target's physical encoding.
             if let ArcInstr::Construct { dst, ctor, .. } = instr {
                 if !state_map.is_excluded(*dst)
                     && matches!(ctor, CtorKind::Struct(_) | CtorKind::EnumVariant { .. })
@@ -108,11 +115,11 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
                 }
             }
 
-            // Local-allocation eligibility: variables with local exit state.
+            // Placement eligibility: variables with a bounded exit lifetime.
             // Uses `effective_locality_at_block_exit` (NOT raw lattice
             // locality) so contract-narrowed call results surface here.
             // `is_excluded` excludes both scalars and immortals from
-            // local-alloc candidacy.
+            // placement eligibility.
             if let Some(dst) = instr.defined_var() {
                 if state_map.is_excluded(dst) {
                     continue;
@@ -122,7 +129,7 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
                     effective_loc,
                     Locality::FunctionLocal | Locality::BlockLocal
                 ) {
-                    state_map.record_event(AimsEvent::LocalAllocCandidate {
+                    state_map.record_event(AimsEvent::PlacementEligibilityCandidate {
                         block: blk,
                         instr: instr_idx,
                         var: dst,
@@ -143,7 +150,7 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
                     effective_loc,
                     Locality::FunctionLocal | Locality::BlockLocal
                 ) {
-                    state_map.record_event(AimsEvent::LocalAllocCandidate {
+                    state_map.record_event(AimsEvent::PlacementEligibilityCandidate {
                         block: blk,
                         // Terminator instruction index = body length
                         // (terminators are notionally at body-end).
@@ -616,7 +623,7 @@ pub(crate) fn detect_trmc_candidates(
             // Function-level may_share is NOT checked: it's too conservative
             // (any returned Construct triggers may_share via HeapEscaping → may_share
             // rule). The per-variable Unique guarantee is the actual soundness
-            // condition — refcount == 1 at the mutation point.
+            // condition — exactly one logical owner at the mutation point.
             let state = state_map.var_state_at_block_exit(blk, *dst);
             if state.uniqueness != Uniqueness::Unique {
                 continue;

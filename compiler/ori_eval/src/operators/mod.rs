@@ -299,7 +299,7 @@ fn eval_float_binary(a: f64, b: f64, op: BinaryOp) -> EvalResult {
 /// Binary operations on booleans.
 ///
 /// Supports equality, ordering (false < true, unsigned comparison), and
-/// logical operators (&&, ||). Registry: `eq: BoolLogic`, `lt: UnsignedCmp`.
+/// logical operators (&&, ||). Registry: `eq: BooleanLogic`, `lt: UnsignedComparison`.
 fn eval_bool_binary(a: bool, b: bool, op: BinaryOp) -> EvalResult {
     match op {
         BinaryOp::Eq => Ok(Value::Bool(a == b)),
@@ -351,7 +351,7 @@ fn eval_char_binary(a: char, b: char, op: BinaryOp) -> EvalResult {
 /// Binary operations on bytes.
 ///
 /// Supports arithmetic (checked for overflow), comparison (unsigned ordering),
-/// and bitwise operations. Registry: arithmetic `IntInstr`, comparison `UnsignedCmp`.
+/// and bitwise operations. Registry: arithmetic `SignedInteger`, comparison `UnsignedComparison`.
 fn eval_byte_binary(a: u8, b: u8, op: BinaryOp) -> EvalResult {
     match op {
         BinaryOp::Add => a

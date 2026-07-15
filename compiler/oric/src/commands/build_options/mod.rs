@@ -85,7 +85,8 @@ pub struct BuildOptions {
     /// Storing the raw string avoids a compile-time dependency on `ori_llvm` in
     /// `BuildOptions` (which is used in non-LLVM builds too).
     pub sanitizer_env: Option<String>,
-    /// Output path for the AIMS RC-survivor remark stream (`--emit-rc-remarks <path>`).
+    /// Output path for the current compiled-counter adapter's RC-survivor remark
+    /// stream (`--emit-rc-remarks <path>`).
     ///
     /// When set, `build_file` bridges it to the `ORI_RC_REMARKS` env var so the
     /// `ori_arc` realization-time emitter (which cannot depend on `oric`) emits

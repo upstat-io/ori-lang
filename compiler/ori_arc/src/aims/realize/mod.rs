@@ -5,9 +5,10 @@
 //!
 //! # Architecture
 //!
-//! - **Phase 1** ([`realize_rc_reuse`]): pre-merge. The burden path emits RC
-//!   via class-ledger Step 4b emission + Phase 7 lowering, then reuse from
-//!   collected events. Calls edge cleanup at the end.
+//! - **Phase 1** ([`realize_rc_reuse`]): pre-merge. The class ledger freezes
+//!   logical ownership events at Step 4b; Phase 7 maps them into the current
+//!   transitional `Rc*` carrier. Reuse consumes the same events, followed by
+//!   edge cleanup.
 //! - **Phase 2** ([`realize_annotations`]): post-merge. Walks post-merge IR
 //!   using ArcVarId-keyed state lookups for COW and drop hint decisions.
 //!
@@ -16,8 +17,8 @@
 //!
 //! # References
 //!
-//! - AIMS unified realization (Perceus-inspired RC + reuse)
-//! - Perceus (Reinking et al., PLDI 2021): unified RC + reuse
+//! - AIMS unified logical ownership-event + reuse realization
+//! - Perceus (Reinking et al., PLDI 2021): historical RC + reuse influence
 //! - FP² (Marshall et al., ESOP 2022): FIP-guided reuse decisions
 
 pub mod decide;
@@ -32,7 +33,7 @@ pub mod rl31_disjoint;
 mod tests;
 
 pub(crate) use rc_remark::emit_survivor_remarks_all_kept;
-pub use rl31_disjoint::{prove_param_noalias, NoaliasProof};
+pub use rl31_disjoint::{prove_param_disjointness, ParamDisjointnessFacts};
 
 use ori_ir::Name;
 use ori_types::{Pool, TypeRegistry};
@@ -54,9 +55,11 @@ use crate::uniqueness::CowAnnotations;
 /// Both phases accumulate into `synergy_metrics`.
 #[derive(Debug)]
 pub struct RealizationResult {
-    /// RC operations inserted (`RcInc` + `RcDec` count).
+    /// Logical ownership events materialized in the current transitional
+    /// carrier (`RcInc` + `RcDec` count).
     pub rc_ops_inserted: usize,
-    /// Reuse operations inserted (Reset + Reuse + `IsShared` count).
+    /// Reuse operations inserted (`Reset` + `Reuse` + the transitional
+    /// `IsShared` sharing-query carrier count).
     pub reuse_ops_inserted: usize,
     /// COW annotations computed in Phase 2, keyed by `(block_idx, instr_idx)`.
     pub cow_annotations: CowAnnotations,
@@ -68,7 +71,8 @@ pub struct RealizationResult {
     pub fip_evidence: FipEvidence,
     /// Cross-dimensional synergy metrics.
     ///
-    /// Phase 1 populates RC/reuse metrics, Phase 2 populates COW metrics.
+    /// Phase 1 populates ownership-event/reuse metrics (reported through the
+    /// current RC-named compatibility fields); Phase 2 populates COW metrics.
     /// `canonicalize_cross_fires` is set externally from backward analysis.
     pub synergy_metrics: metrics::SynergyMetrics,
 }
@@ -87,11 +91,13 @@ pub struct FipEvidence {
     pub missed_reuses: usize,
 }
 
-/// Phase 1: RC and reuse emission (pre-merge).
+/// Transitional Phase 1: ownership-event carrier and reuse emission (pre-merge).
 ///
-/// Reads the converged [`AimsStateMap`], emits `RcInc`/`RcDec` and
-/// `Reset`/`Reuse` operations, populates `arg_ownership` on
-/// `Apply`/`Invoke` instructions, and calls edge cleanup.
+/// Reads the converged [`AimsStateMap`] and materializes the current shared
+/// carrier's `RcInc`/`RcDec`, `Reset`/`Reuse`, argument-ownership, and edge
+/// cleanup records. The concrete RC spelling is migration debt: production AIMS
+/// freezes logical events and admissibility facts, and each validated physical
+/// plan chooses a mechanism that satisfies them.
 ///
 /// Returns a partial [`RealizationResult`] — `cow_annotations` and
 /// `drop_hints` are empty (populated by Phase 2 after `merge_blocks`).
@@ -116,12 +122,12 @@ pub fn realize_rc_reuse(
     // This function therefore does NOT invoke
     // emit_arg_ownership — the prelude has already populated arg_ownership
     // before it runs. `_builtins` is unused here (kept for signature
-    // stability); contracts / interner / pool are consumed by the
-    // RC-emission (Sub-step B) and reuse-emission (Sub-step C) sub-steps.
+    // stability); contracts / interner / pool are consumed by the current
+    // ownership-event carrier (Sub-step B) and reuse (Sub-step C) sub-steps.
 
     // Sub-step B: mechanically lower the verified class-ledger plan. Its RL-1
-    // funding incs become RcInc instructions in Phase 7; the class-ledger path
-    // is the sole RC emitter.
+    // owner-credit events become transitional RcInc instructions in Phase 7;
+    // the class-ledger path is the sole materializer of that current carrier.
     let (rc_ops_inserted, death_events, alloc_events, phase1_metrics) = {
         let _span = tracing::debug_span!("realize_rc_unified").entered();
         emit_unified::emit_rc_unified(func, state_map, pool, interner, contracts, type_registry)

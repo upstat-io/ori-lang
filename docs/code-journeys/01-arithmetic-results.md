@@ -223,7 +223,7 @@ This program uses only `int` scalars (i64), which are value types stored directl
 @add: no heap values -- pure scalar arithmetic (int params, int return)
 @main: no heap values -- all let bindings hold int scalars
 Total RC ops: 0 (optimal for scalar-only program)
-AIMS lattice: all values classified as scalar -- no RC analysis needed
+AIMS lattice: all values classified as scalar -- no logical ownership events
 ```
 
 </details>
@@ -688,7 +688,7 @@ entry:
 }
 ```
 
-**Delta**: 0 instructions. **OPTIMAL.** The `ori_check_leaks` integration is mandatory for AIMS RC leak detection and adds zero unjustified overhead.
+**Delta**: 0 instructions. **OPTIMAL.** The `ori_check_leaks` integration validates the current compiled-counter projection's allocation and cleanup balance and adds zero unjustified overhead. Shared-calculus and sibling-executor conformance require separate gates.
 
 #### Module Summary
 
@@ -776,4 +776,4 @@ The codegen does not perform interprocedural constant folding -- `@add` is a sep
 
 ## Verdict
 
-Journey 1's arithmetic codegen achieves a perfect score. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction with zero overhead beyond mandatory overflow checking. All attributes are correctly applied -- `memory(none)` on the pure `@_ori_add`, `nounwind` on all user functions via fixed-point analysis, `noundef` on all parameters and returns, and `cold noreturn` on panic paths. ARC is correctly absent for pure scalar arithmetic -- zero RC operations. The main wrapper now integrates RC leak detection via `ori_check_leaks`, which is optimal for the AIMS pipeline.
+Journey 1's arithmetic codegen achieves a perfect score. Both `@add` and `@main` match the hand-written ideal IR instruction-for-instruction with zero overhead beyond mandatory overflow checking. All attributes are correctly applied -- `memory(none)` on the pure `@_ori_add`, `nounwind` on all user functions via fixed-point analysis, `noundef` on all parameters and returns, and `cold noreturn` on panic paths. AIMS freezes no ownership/drop event for pure scalars, and the captured compiled-counter projection consequently emits zero RC operations. Its `ori_check_leaks` integration validates that projection rather than defining AIMS.

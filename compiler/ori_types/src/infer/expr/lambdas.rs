@@ -64,14 +64,11 @@ pub(crate) fn infer_lambda(
 
     let closure_idx = engine.infer_function(&param_types, body_ty);
 
-    // Register the closure's heap-env burden so the Phase-5 burden walker
-    // resolves `type_registry.burden(closure_idx)` and tracks the closure
-    // env's RC. The closure env is heap-allocated (`self_heap_alloc: true`);
-    // its release is otherwise emitted only by the predicate stack's
-    // `BorrowingApplyClosure` path, so under the burden-only path
-    // (`ORI_DISABLE_PREDICATE_STACK_RC=1`) the env leaks without this
-    // registration. The default path eliminates / coexists these burden ops
-    // with the predicate-stack closure drop. Spec: Annex E §AIMS.
+    // Register a conservative logical callable identity so the AIMS burden
+    // walk accounts for closure ownership on every execution path. Exact
+    // capture topology is frozen later from realized closure sites; a physical
+    // projection may erase a non-capturing environment only from that proof.
+    // This registration selects no storage, header, or counter mechanism.
     let closure_burden = compose_closure_burden_spec(closure_idx, &[], &[]);
     engine.record_composed_burden(closure_idx, closure_burden);
 

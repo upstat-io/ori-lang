@@ -1,4 +1,7 @@
--- AimsProof library root: the shared AIMS model module.
+-- AimsProof library root: the shared, backend-neutral AIMS model module.
+-- VM, LLVM/native, compiled-WebAssembly, and JIT are sibling physical
+-- projections; target storage, layout, ABI, counters, and instruction spelling
+-- are not AIMS facts.
 -- Per-category proof modules (Lattice, Canonicalization, Transfer, ...) are
 -- added here as they land.
 import AimsProof.Model
@@ -16,5 +19,6 @@ import AimsProof.Partition
 import AimsProof.RunningCount
 import AimsProof.Ledger
 import AimsProof.ContractBoundary
+import AimsProof.Oracle
 import AimsProof.ProvenanceComposition
 import AimsProof.FieldDecomposition

@@ -9,12 +9,22 @@ mod bytecode;
 mod compile;
 mod error;
 mod execute;
+mod physical;
 mod verify;
 
-pub use bytecode::{BytecodeMetrics, BytecodeProgram, TableKind, VerifiedProgram};
+pub use bytecode::{BytecodeMetrics, BytecodeProgram, OpcodeKind, TableKind, VerifiedProgram};
 pub use compile::{compile, compile_with_options, CompileOptions};
 pub use error::{
     ArcInstructionKind, CompileError, ExecutionError, IndexKind, ValueKind, VerifyError,
 };
-pub use execute::{execute, ExecutionConfig, ExecutionMetrics, ExecutionOutcome, ExitValue};
+pub use execute::{
+    execute, execute_physical_profiled, execute_physical_report, execute_profiled, execute_report,
+    ExecutionConfig, ExecutionMetrics, ExecutionOutcome, ExecutionProfile, ExecutionReport,
+    ExitValue, OpcodeCount, OpcodePairCount, ProfileFunctionId, ProfilePc, ProfiledExecutionReport,
+    RegionCount,
+};
+pub use physical::{
+    prepare, PhysicalElementSizes, PhysicalFunctionStorageMetrics, PhysicalLayoutViolation,
+    PhysicalOptions, PhysicalPlanMetrics, PhysicalVmPlan, PrepareError,
+};
 pub use verify::verify;

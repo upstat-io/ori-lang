@@ -1,14 +1,16 @@
 //! ARC instruction lowering.
 
-use ori_arc::{ArcFunction, ArcInstr, ArcValue, LitValue, PrimOp};
-use ori_repr::{
-    binary_primitive_strategy,
-    executable::{BlockIndex, CallPosition, CallSite},
-    unary_primitive_strategy, BuiltinType, PrimitiveStrategy,
+use ori_arc::{
+    ArcFunction, ArcInstr, ArcValue, ArcVarId, ArgOwnership, LitValue, PrimOp, RcAtomicity,
+    RcStrategy,
 };
+use ori_registry::{OpStrategy, RuntimeOperator};
+use ori_repr::executable::{BlockIndex, CallPosition, CallSite};
 
 use super::Compiler;
-use crate::bytecode::{Constant, Continuation, IntBinaryOp, Op, Register, StringBinaryOp};
+use crate::bytecode::{
+    Constant, Continuation, IntBinaryOp, Op, RcSemantics, Register, StringBinaryOp,
+};
 use crate::{ArcInstructionKind, CompileError};
 
 const MAX_LOCAL_AGGREGATE_FIELDS: usize = 4;
@@ -20,18 +22,32 @@ impl Compiler<'_> {
         block_index: usize,
         instruction_index: usize,
         instruction: &ArcInstr,
+        register_rc_strategies: &[Option<RcStrategy>],
     ) -> Result<Op, CompileError> {
         match instruction {
             ArcInstr::Let { dst, value, .. } => self.compile_let(function, *dst, value),
-            ArcInstr::Apply { dst, args, .. } => {
-                let callee = self.call_target(function, block_index, instruction_index)?;
-                Ok(Op::Call {
-                    dst: Register::from_arc(*dst),
-                    callee,
-                    args: self.add_operands(args)?,
-                    normal: Continuation::Next,
-                    unwind: None,
-                })
+            ArcInstr::Apply {
+                dst,
+                args,
+                arg_ownership,
+                ..
+            } => self.compile_direct_call(
+                function,
+                block_index,
+                instruction_index,
+                *dst,
+                args,
+                arg_ownership,
+            ),
+            ArcInstr::ApplyIndirect {
+                dst,
+                closure,
+                args,
+                arg_ownership,
+                ..
+            } => self.compile_closure_call(function, *dst, *closure, args, arg_ownership),
+            ArcInstr::PartialApply { dst, args, .. } => {
+                self.compile_partial_apply(function, block_index, instruction_index, *dst, args)
             }
             ArcInstr::Project {
                 dst, value, field, ..
@@ -42,40 +58,31 @@ impl Compiler<'_> {
             }),
             ArcInstr::Construct {
                 dst, ctor, args, ..
-            } => {
-                if matches!(
-                    ctor,
-                    ori_arc::CtorKind::MapLiteral
-                        | ori_arc::CtorKind::SetLiteral
-                        | ori_arc::CtorKind::Closure { .. }
-                ) {
-                    return Err(CompileError::UnsupportedConstructor {
-                        function: function.name,
-                        constructor: *ctor,
-                    });
-                }
-                if !matches!(ctor, ori_arc::CtorKind::ListLiteral)
-                    && args.len() > MAX_LOCAL_AGGREGATE_FIELDS
-                {
-                    return Err(CompileError::ConstructorTooWide {
-                        function: function.name,
-                        fields: args.len(),
-                        limit: MAX_LOCAL_AGGREGATE_FIELDS,
-                    });
-                }
-                Ok(Op::Construct {
-                    dst: Register::from_arc(*dst),
-                    ctor: *ctor,
-                    args: self.add_operands(args)?,
-                })
-            }
-            ArcInstr::RcInc { var, count, .. } => Ok(Op::RcInc {
-                var: Register::from_arc(*var),
-                count: *count,
-            }),
-            ArcInstr::RcDec { var, .. } => Ok(Op::RcDec {
-                var: Register::from_arc(*var),
-            }),
+            } => self.compile_construct(function, *dst, *ctor, args),
+            ArcInstr::RcInc {
+                var,
+                count,
+                strategy,
+                atomicity,
+            } => compile_rc_inc(
+                function,
+                *var,
+                *count,
+                *strategy,
+                *atomicity,
+                register_rc_strategies,
+            ),
+            ArcInstr::RcDec {
+                var,
+                strategy,
+                atomicity,
+            } => compile_rc_dec(
+                function,
+                *var,
+                *strategy,
+                *atomicity,
+                register_rc_strategies,
+            ),
             ArcInstr::IsShared { dst, var } => Ok(Op::IsShared {
                 dst: Register::from_arc(*dst),
                 var: Register::from_arc(*var),
@@ -101,11 +108,111 @@ impl Compiler<'_> {
                 true_value: Register::from_arc(*true_val),
                 false_value: Register::from_arc(*false_val),
             }),
-            other => Err(CompileError::UnsupportedInstruction {
-                function: function.name,
-                instruction: unsupported_kind(other),
-            }),
+            other => {
+                let instruction = unsupported_kind(other);
+                Err(CompileError::UnsupportedInstruction {
+                    function: function.name,
+                    function_symbol: self.source.symbols().lookup(function.name).into(),
+                    instruction,
+                    operation: unsupported_operation(instruction),
+                })
+            }
         }
+    }
+
+    fn compile_direct_call(
+        &mut self,
+        function: &ArcFunction,
+        block_index: usize,
+        instruction_index: usize,
+        destination: ArcVarId,
+        arguments: &[ArcVarId],
+        ownership: &[ArgOwnership],
+    ) -> Result<Op, CompileError> {
+        let callee = super::validate_vm_call_target(
+            function.name,
+            self.call_target(function, block_index, instruction_index)?,
+        )?;
+        Ok(Op::Call {
+            dst: Register::from_arc(destination),
+            callee,
+            args: self.add_call_arguments(function.name, arguments, ownership)?,
+            normal: Continuation::Next,
+            unwind: None,
+        })
+    }
+
+    fn compile_closure_call(
+        &mut self,
+        function: &ArcFunction,
+        destination: ArcVarId,
+        closure: ArcVarId,
+        arguments: &[ArcVarId],
+        ownership: &[ArgOwnership],
+    ) -> Result<Op, CompileError> {
+        Ok(Op::CallClosure {
+            dst: Register::from_arc(destination),
+            closure: Register::from_arc(closure),
+            args: self.add_call_arguments(function.name, arguments, ownership)?,
+            normal: Continuation::Next,
+            unwind: None,
+        })
+    }
+
+    fn compile_partial_apply(
+        &mut self,
+        function: &ArcFunction,
+        block_index: usize,
+        instruction_index: usize,
+        destination: ArcVarId,
+        captures: &[ArcVarId],
+    ) -> Result<Op, CompileError> {
+        let target = self.call_target(function, block_index, instruction_index)?;
+        let ori_repr::executable::CallableTarget::Function(callee) = target else {
+            return Err(CompileError::InvalidClosureTarget {
+                function: function.name,
+                target,
+            });
+        };
+        Ok(Op::MakeClosure {
+            dst: Register::from_arc(destination),
+            callee,
+            captures: self.add_operands(captures)?,
+        })
+    }
+
+    fn compile_construct(
+        &mut self,
+        function: &ArcFunction,
+        destination: ori_arc::ArcVarId,
+        constructor: ori_arc::CtorKind,
+        arguments: &[ori_arc::ArcVarId],
+    ) -> Result<Op, CompileError> {
+        if matches!(
+            constructor,
+            ori_arc::CtorKind::MapLiteral
+                | ori_arc::CtorKind::SetLiteral
+                | ori_arc::CtorKind::Closure { .. }
+        ) {
+            return Err(CompileError::UnsupportedConstructor {
+                function: function.name,
+                constructor,
+            });
+        }
+        if !matches!(constructor, ori_arc::CtorKind::ListLiteral)
+            && arguments.len() > MAX_LOCAL_AGGREGATE_FIELDS
+        {
+            return Err(CompileError::ConstructorTooWide {
+                function: function.name,
+                fields: arguments.len(),
+                limit: MAX_LOCAL_AGGREGATE_FIELDS,
+            });
+        }
+        Ok(Op::Construct {
+            dst: Register::from_arc(destination),
+            ctor: constructor,
+            args: self.add_operands(arguments)?,
+        })
     }
 
     fn compile_let(
@@ -126,10 +233,12 @@ impl Compiler<'_> {
             }),
             ArcValue::PrimOp { op, args } => match (op, args.as_slice()) {
                 (PrimOp::Binary(op), [left, right]) => {
-                    Ok(self.compile_binary(function, dst, *op, *left, *right))
+                    let fact = primitive_fact(function, destination, args.len())?;
+                    self.compile_binary(function.name, dst, *op, *left, *right, fact.strategy)
                 }
                 (PrimOp::Unary(op), [argument]) => {
-                    Ok(self.compile_unary(function, dst, *op, *argument))
+                    let fact = primitive_fact(function, destination, args.len())?;
+                    Ok(self.compile_unary(dst, *op, *argument, fact.strategy))
                 }
                 (PrimOp::Binary(_), operands) => Err(CompileError::PrimitiveArity {
                     function: function.name,
@@ -147,72 +256,81 @@ impl Compiler<'_> {
 
     fn compile_binary(
         &self,
-        function: &ArcFunction,
+        function: ori_ir::Name,
         destination: Register,
         operation: ori_ir::BinaryOp,
         left: ori_arc::ArcVarId,
         right: ori_arc::ArcVarId,
-    ) -> Op {
-        let left_type = self.source.pool().builtin_type_tag(function.var_type(left));
-        let right_type = self
-            .source
-            .pool()
-            .builtin_type_tag(function.var_type(right));
-        if self.options.typed_primitives
-            && left_type == Some(BuiltinType::Int)
-            && right_type == Some(BuiltinType::Int)
-            && binary_primitive_strategy(BuiltinType::Int, operation) == PrimitiveStrategy::IntInstr
-        {
+        strategy: OpStrategy,
+    ) -> Result<Op, CompileError> {
+        if matches!(
+            strategy,
+            OpStrategy::StructuralEquality
+                | OpStrategy::StructuralOrdering
+                | OpStrategy::Unsupported
+        ) {
+            return Err(CompileError::UnsupportedPrimitiveProjection {
+                function,
+                destination: destination.index(),
+                strategy,
+            });
+        }
+        if self.options.typed_primitives && strategy == OpStrategy::SignedInteger {
             if let Some(operation) = IntBinaryOp::from_binary(operation) {
-                return Op::IntBinary {
+                return Ok(Op::IntBinary {
                     dst: destination,
                     op: operation,
                     lhs: Register::from_arc(left),
                     rhs: Register::from_arc(right),
-                };
+                });
             }
         }
         if self.options.typed_primitives
-            && left_type == Some(BuiltinType::Str)
-            && right_type == Some(BuiltinType::Str)
             && matches!(
-                binary_primitive_strategy(BuiltinType::Str, operation),
-                PrimitiveStrategy::RuntimeCall { .. }
+                strategy,
+                OpStrategy::RuntimeCall(
+                    RuntimeOperator::StringConcat
+                        | RuntimeOperator::StringEqual
+                        | RuntimeOperator::StringNotEqual
+                        | RuntimeOperator::StringCompare
+                )
             )
         {
             if let Some(operation) = StringBinaryOp::from_binary(operation) {
-                return Op::StringBinary {
+                return Ok(Op::StringBinary {
                     dst: destination,
                     op: operation,
                     lhs: Register::from_arc(left),
                     rhs: Register::from_arc(right),
-                };
+                });
             }
         }
-        Op::Binary {
+        if strategy == OpStrategy::RuntimeCall(RuntimeOperator::ListConcat) {
+            return Ok(Op::RuntimeBinary {
+                dst: destination,
+                operator: RuntimeOperator::ListConcat,
+                lhs: Register::from_arc(left),
+                rhs: Register::from_arc(right),
+            });
+        }
+        Ok(Op::Binary {
             dst: destination,
             op: operation,
             lhs: Register::from_arc(left),
             rhs: Register::from_arc(right),
-        }
+        })
     }
 
     fn compile_unary(
         &self,
-        function: &ArcFunction,
         destination: Register,
         operation: ori_ir::UnaryOp,
         argument: ori_arc::ArcVarId,
+        strategy: OpStrategy,
     ) -> Op {
-        let argument_type = self
-            .source
-            .pool()
-            .builtin_type_tag(function.var_type(argument));
         if self.options.typed_primitives
             && operation == ori_ir::UnaryOp::Not
-            && argument_type == Some(BuiltinType::Bool)
-            && unary_primitive_strategy(BuiltinType::Bool, operation)
-                == PrimitiveStrategy::BoolLogic
+            && strategy == OpStrategy::BooleanLogic
         {
             return Op::BoolNot {
                 dst: destination,
@@ -286,10 +404,91 @@ impl Compiler<'_> {
     }
 }
 
+fn primitive_fact(
+    function: &ArcFunction,
+    destination: ori_arc::ArcVarId,
+    arity: usize,
+) -> Result<ori_arc::ir::PrimitiveFact, CompileError> {
+    let fact =
+        function
+            .primitive_facts
+            .get(destination)
+            .ok_or(CompileError::MissingPrimitiveFact {
+                function: function.name,
+                destination: destination.index(),
+            })?;
+    if fact.is_valid_for(arity) {
+        Ok(fact)
+    } else {
+        Err(CompileError::InvalidPrimitiveFact {
+            function: function.name,
+            destination: destination.index(),
+        })
+    }
+}
+
+fn compile_rc_inc(
+    function: &ArcFunction,
+    var: ori_arc::ArcVarId,
+    count: u32,
+    strategy: RcStrategy,
+    atomicity: RcAtomicity,
+    register_rc_strategies: &[Option<RcStrategy>],
+) -> Result<Op, CompileError> {
+    Ok(Op::RcInc {
+        var: Register::from_arc(var),
+        count,
+        semantics: rc_semantics(function, var, strategy, atomicity, register_rc_strategies)?,
+    })
+}
+
+fn compile_rc_dec(
+    function: &ArcFunction,
+    var: ori_arc::ArcVarId,
+    strategy: RcStrategy,
+    atomicity: RcAtomicity,
+    register_rc_strategies: &[Option<RcStrategy>],
+) -> Result<Op, CompileError> {
+    Ok(Op::RcDec {
+        var: Register::from_arc(var),
+        semantics: rc_semantics(function, var, strategy, atomicity, register_rc_strategies)?,
+    })
+}
+
+fn rc_semantics(
+    function: &ArcFunction,
+    var: ori_arc::ArcVarId,
+    strategy: RcStrategy,
+    atomicity: RcAtomicity,
+    register_rc_strategies: &[Option<RcStrategy>],
+) -> Result<RcSemantics, CompileError> {
+    let semantics = RcSemantics::new(strategy, atomicity);
+    if !semantics.has_supported_atomicity() {
+        return Err(CompileError::UnsupportedRcAtomicity {
+            function: function.name,
+            atomicity,
+        });
+    }
+    if !semantics.has_supported_strategy() {
+        return Err(CompileError::UnsupportedRcStrategy {
+            function: function.name,
+            strategy,
+        });
+    }
+    let expected = register_rc_strategies.get(var.index()).copied().flatten();
+    if expected != Some(strategy) {
+        return Err(CompileError::RcStrategyMismatch {
+            function: function.name,
+            register: var.index(),
+            expected,
+            found: strategy,
+        });
+    }
+    Ok(semantics)
+}
+
 fn unsupported_kind(instruction: &ArcInstr) -> ArcInstructionKind {
     match instruction {
-        ArcInstr::ApplyIndirect { .. } => ArcInstructionKind::ApplyIndirect,
-        ArcInstr::PartialApply { .. } => ArcInstructionKind::PartialApply,
         ArcInstr::RcDecPartial { .. } => ArcInstructionKind::RcDecPartial,
         ArcInstr::RcDecField { .. } => ArcInstructionKind::RcDecField,
         ArcInstr::RcDecVariant { .. } => ArcInstructionKind::RcDecVariant,
@@ -303,6 +502,8 @@ fn unsupported_kind(instruction: &ArcInstr) -> ArcInstructionKind {
         ArcInstr::CollectionReuse { .. } => ArcInstructionKind::CollectionReuse,
         ArcInstr::Let { .. }
         | ArcInstr::Apply { .. }
+        | ArcInstr::ApplyIndirect { .. }
+        | ArcInstr::PartialApply { .. }
         | ArcInstr::Project { .. }
         | ArcInstr::Construct { .. }
         | ArcInstr::RcInc { .. }
@@ -313,5 +514,21 @@ fn unsupported_kind(instruction: &ArcInstr) -> ArcInstructionKind {
         | ArcInstr::Select { .. } => {
             unreachable!("supported instructions return before classification")
         }
+    }
+}
+
+const fn unsupported_operation(instruction: ArcInstructionKind) -> &'static str {
+    match instruction {
+        ArcInstructionKind::RcDecPartial => "partial-value reference-count cleanup",
+        ArcInstructionKind::RcDecField => "field reference-count cleanup",
+        ArcInstructionKind::RcDecVariant => "variant reference-count cleanup",
+        ArcInstructionKind::BurdenInc => "an unresolved ownership increment",
+        ArcInstructionKind::BurdenDec => "an unresolved ownership decrement",
+        ArcInstructionKind::BurdenDecPartial => "partial-value ownership cleanup",
+        ArcInstructionKind::BurdenDecField => "field ownership cleanup",
+        ArcInstructionKind::BurdenDecVariant => "variant ownership cleanup",
+        ArcInstructionKind::Reset => "a constructor-reuse reset",
+        ArcInstructionKind::Reuse => "constructor allocation reuse",
+        ArcInstructionKind::CollectionReuse => "collection-buffer reuse",
     }
 }

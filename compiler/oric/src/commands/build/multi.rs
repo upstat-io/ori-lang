@@ -128,6 +128,12 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
         }
     }
 
+    super::require_cli_entry(
+        path,
+        options,
+        compiled_modules.iter().any(|module| module.has_cli_entry),
+    );
+
     let is_lto = !matches!(options.lto, LtoMode::Off);
     let final_object_files = if is_lto && object_files.len() > 1 {
         lto_merge(&object_files, &obj_dir, &target, &opt_config, options)
@@ -163,22 +169,15 @@ pub(super) struct ModuleCompileContext<'a> {
     pub(super) narrowing_policy: ori_repr::NarrowingPolicy,
 }
 
-/// A compiled module's exported function signature, with the actual types
-/// from type checking (not defaults). The mangled name is pre-computed to
-/// avoid needing the interner later; `source_name` is the exported
-/// (un-mangled) function name, keyed against call-site local/aliased names
-/// during import resolution.
-pub(super) struct ExportedFunctionInfo {
-    pub(super) mangled_name: String,
-    pub(super) source_name: String,
-    pub(super) param_types: Vec<ori_types::Idx>,
-    pub(super) return_type: ori_types::Idx,
-}
+/// Producer export projected from the same closed artifact LLVM consumed.
+pub(super) type ExportedFunctionInfo = crate::commands::codegen_pipeline::RealizedCallableExport;
 
 /// Information about a compiled module, including its function signatures.
 pub(super) struct CompiledModuleInfo {
     /// Path to the source file.
     pub(super) path: PathBuf,
+    /// Whether this module declares the executable `@main` entry point.
+    pub(super) has_cli_entry: bool,
     /// Public function signatures.
     pub(super) public_functions: Vec<ExportedFunctionInfo>,
     /// Exported type metadata (repr attrs + visibility) for cross-module repr
@@ -212,7 +211,7 @@ fn lower_module_to_llvm<'ctx>(
     imported_type_metadata: &[ori_types::ExportedTypeMetadata],
     imported_collection_surfaces: &[u64],
     imported: crate::commands::ImportedSurfaces<'_>,
-) -> Option<ori_llvm::inkwell::module::Module<'ctx>> {
+) -> Option<crate::commands::codegen_pipeline::LlvmCodegenOutput<'ctx>> {
     use crate::commands::compile_common::compile_to_llvm_with_imports;
     use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics, CodegenProblem};
 
@@ -284,14 +283,6 @@ fn compile_single_module(
     let (parse_result, type_result, pool, canon_result) =
         check_source(ctx.db, file, &source_path_str)?;
 
-    let public_functions = extract_public_function_types(
-        &parse_result,
-        &type_result,
-        &module_name,
-        ctx.mangler,
-        ctx.db,
-    );
-
     let resolved_imports = crate::imports::resolve_imports(ctx.db, &parse_result, source_path);
     let imported_functions = {
         use oric::Db;
@@ -317,7 +308,7 @@ fn compile_single_module(
         build_imported_mono_state(ctx.db, source_path, &parse_result, &type_result, &pool);
 
     let context = Context::create();
-    let llvm_module = lower_module_to_llvm(
+    let llvm_output = lower_module_to_llvm(
         &context,
         ctx,
         &source_path_str,
@@ -332,67 +323,23 @@ fn compile_single_module(
         imported_state.surfaces(),
     )?;
 
-    let obj_path = emit_module_artifact(ctx, &llvm_module, &module_name, &source_path_str)?;
+    let obj_path = emit_module_artifact(ctx, &llvm_output.module, &module_name, &source_path_str)?;
 
     let exported_type_metadata = type_result.typed.exported_type_metadata.clone();
     let exported_collection_surfaces = type_result.typed.exported_collection_surfaces.clone();
-    drop(llvm_module);
+    let has_cli_entry = super::module_has_cli_entry(&parse_result, &type_result);
+    let crate::commands::codegen_pipeline::LlvmCodegenOutput {
+        module,
+        exports: public_functions,
+    } = llvm_output;
+    drop(module);
     let module_info = CompiledModuleInfo {
         path: source_path.to_path_buf(),
+        has_cli_entry,
         public_functions,
         exported_type_metadata,
         exported_collection_surfaces,
     };
 
     Some((obj_path, module_info))
-}
-
-/// Extract public function signatures with actual types from a type-checked module.
-///
-/// The mangled name is pre-computed to avoid needing the interner later.
-fn extract_public_function_types(
-    parse_result: &crate::parser::ParseOutput,
-    type_result: &ori_types::TypeCheckResult,
-    module_name: &str,
-    mangler: &ori_llvm::aot::Mangler,
-    db: &oric::CompilerDb,
-) -> Vec<ExportedFunctionInfo> {
-    use oric::Db; // For interner() method
-
-    let interner = db.interner();
-    let mut public_functions = Vec::new();
-
-    // Why: typed.functions is name-sorted (Salsa determinism) while
-    // module.functions is in source order, so match by name.
-    let sig_map: rustc_hash::FxHashMap<oric::ir::Name, &ori_types::FunctionSig> = type_result
-        .typed
-        .functions
-        .iter()
-        .map(|ft| (ft.name, ft))
-        .collect();
-
-    // Why: generic sigs carry scheme-bound BoundVar leaves that are meaningless
-    // across pools — imported generic call sites use the mono-dispatch path.
-    for func in &parse_result.module.functions {
-        if !func.visibility.is_public() {
-            continue;
-        }
-
-        if let Some(func_sig) = sig_map.get(&func.name) {
-            if func_sig.is_generic() {
-                continue;
-            }
-            let func_name_str = interner.lookup(func.name);
-            let mangled_name = mangler.mangle_function(module_name, func_name_str);
-
-            public_functions.push(ExportedFunctionInfo {
-                mangled_name,
-                source_name: func_name_str.to_string(),
-                param_types: func_sig.param_types.clone(),
-                return_type: func_sig.return_type,
-            });
-        }
-    }
-
-    public_functions
 }

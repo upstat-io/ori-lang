@@ -44,10 +44,12 @@ impl ArcLowerer<'_> {
             "lambda: lower"
         );
 
-        // Why: lambda parameter types may carry unresolved type variables
-        // (Tag::Var) or generalized forall types — resolve through the pool's
-        // VarState chain AND any active monomorphization type_subst, or
-        // unresolved Idx values reach the ARC IR and break LLVM codegen.
+        // Expose the outer Function/Scheme shape so its parameter list can be
+        // read. Parameter children themselves retain their nominal identity:
+        // collapsing a Named/Applied child through `resolve_fully` would make
+        // the target signature differ from the PartialApply closure signature.
+        // The shared post-lowering materializer owns deep Var/BoundVar link
+        // substitution before AIMS and executable-artifact closure.
         let resolved_ty = self.pool.resolve_fully(ty);
         // Unwrap Scheme to reach the inner Function type.
         // Polymorphic lambdas (e.g., `a -> b -> a + b`) have type
@@ -59,23 +61,17 @@ impl ArcLowerer<'_> {
         } else {
             resolved_ty
         };
-        let fn_param_types = if self.pool.tag(fn_ty) == Tag::Function {
+        let (fn_param_types, declared_return_type) = if self.pool.tag(fn_ty) == Tag::Function {
             let params = self.pool.function_params(fn_ty);
-            params
-                .into_iter()
-                .map(|p| {
-                    // First: resolve through pool VarState chains (inference links)
-                    let pool_resolved = self.pool.resolve_fully(p);
-                    // Second: apply body_type_map substitution (monomorphization)
-                    if let Some(subst) = self.type_subst {
-                        subst.get(&pool_resolved).copied().unwrap_or(pool_resolved)
-                    } else {
-                        pool_resolved
-                    }
-                })
-                .collect()
+            (
+                params
+                    .into_iter()
+                    .map(|parameter| self.resolve_body_type(parameter))
+                    .collect(),
+                Some(self.resolve_body_type(self.pool.function_return(fn_ty))),
+            )
         } else {
-            vec![Idx::UNIT; param_slice.len()]
+            (vec![Idx::UNIT; param_slice.len()], None)
         };
 
         let mut lambda_builder = ArcIrBuilder::new();
@@ -106,14 +102,18 @@ impl ArcLowerer<'_> {
             });
         }
 
-        let raw_body_ty = self.expr_type(body);
-        // Unwrap Scheme for body type too — the body of `b -> a + b` inside
-        // a polymorphic lambda has type `forall t14` (Scheme) not `int`.
-        let body_ty = if self.pool.tag(raw_body_ty) == Tag::Scheme {
-            self.pool.scheme_body(raw_body_ty)
-        } else {
-            raw_body_ty
-        };
+        // The target's result is the callable's declared result, not the
+        // possibly narrower type inferred for its body expression (for example
+        // `DoubleEndedIterator<T>` under a declared `Iterator<T>` result).
+        // Exact agreement is required by every executable backend's closure ABI.
+        let body_ty = declared_return_type.unwrap_or_else(|| {
+            let raw_body_ty = self.expr_type(body);
+            if self.pool.tag(raw_body_ty) == Tag::Scheme {
+                self.pool.scheme_body(raw_body_ty)
+            } else {
+                raw_body_ty
+            }
+        });
         let entry = lambda_builder.entry_block();
 
         // Lower the lambda body

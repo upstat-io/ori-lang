@@ -5,15 +5,17 @@
 //! Phase-6 elimination/motion/flush + LLVM lowering + execution. Each shape
 //! exercises a distinct Phase-6 interaction (`KnownSafe` pair elimination,
 //! PRE-style RC motion across a barrier, selective barrier flush) while
-//! passing two DISTINCT-type collection params to a function the RL-31
-//! 8-clause rule proves disjoint.
+//! passing two DISTINCT-type collection params whose frozen RL-31 carrier has
+//! a positive type facet and a negative provenance facet.
 //!
 //! Two assertions per shape:
 //! - **IR**: the RL-31-claimed function (`_ori_merge`) carries NO `noalias` on
 //!   its pointer params (Spec: Annex E §AIMS RL-31 (P2) dual-facet). The
 //!   type-level facet (b) proves the distinct-type closures disjoint, but the
 //!   function-attribute `noalias` requires the per-call-site provenance facet
-//!   (a) too, and (a) is unshipped — so `noalias` is conservatively omitted.
+//!   (a) too, and (a) is unshipped. The legacy AOT entry also has no closed
+//!   `ExecutableProgram` binding. Either condition independently requires
+//!   conservative omission; LLVM never re-runs the neutral analysis.
 //!   The Phase-6 passes operate on RC-op placement, never on this gate, so the
 //!   omission is invariant to each interaction.
 //! - **Execution**: the program runs with the correct result and zero leaks
@@ -22,10 +24,9 @@
 use crate::util::{compile_and_capture_ir, compile_and_run_capture, extract_function_ir};
 
 /// Assert `_ori_merge` carries NO `noalias` on its pointer params in `source`'s
-/// emitted IR — the RL-31 (P2) dual-facet gate omits the function-attribute
-/// `noalias` while the per-call-site provenance facet (a) is unshipped, and the
-/// Phase-6 interaction does not change that. If facet (a) ships, this flips to
-/// asserting `noalias` survives on both merge params.
+/// emitted IR. The RL-31 (P2) dual-facet gate omits the function attribute
+/// while provenance is unshipped, and the legacy AOT entry has no shared
+/// executable artifact to consume. The Phase-6 interaction cannot change that.
 fn assert_merge_noalias_omitted(source: &str, shape: &str) {
     let ir = compile_and_capture_ir(source);
     let merge_ir = extract_function_ir(&ir, "_ori_merge");
@@ -36,8 +37,8 @@ fn assert_merge_noalias_omitted(source: &str, shape: &str) {
     let noalias_count = define_line.matches("ptr noalias").count();
     assert_eq!(
         noalias_count, 0,
-        "{shape}: RL-31 noalias must be OMITTED on merge params while facet (a) \
-         is unshipped (found {noalias_count} `ptr noalias` on define line).\nDefine: {define_line}"
+        "{shape}: RL-31 noalias must be omitted without a complete frozen fact \
+         and nounwind projection (found {noalias_count} `ptr noalias` on define line).\nDefine: {define_line}"
     );
 }
 

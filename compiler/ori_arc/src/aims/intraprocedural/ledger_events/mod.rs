@@ -448,10 +448,11 @@ pub(crate) fn sib_read_count(class: NodeIdx, value: ArcVarId, rest: &[ClassInstr
 }
 
 /// The `Let`-alias closure of every Borrowed param this function's own
-/// contract does NOT mark iter-consuming — the classification twin of the
-/// LLVM emitter's `is_var_borrowed_rooted` (an iterator created from such a
-/// var does not own its source; the owner/caller releases it, per
-/// `RL2_borrowed_param_emits_caller_dec`).
+/// contract does NOT mark iter-consuming. This is the backend-neutral
+/// classification every physical projection must consume: an iterator created
+/// from such a var does not own its source; the owner/caller releases it, per
+/// `RL2_borrowed_param_emits_caller_dec`. The LLVM emitter's current
+/// `is_var_borrowed_rooted` recheck is a projection seam, not a second policy.
 fn collect_borrowed_rooted_vars(
     func: &ArcFunction,
     boundary_facts: &FxHashMap<Name, BoundaryFacts>,

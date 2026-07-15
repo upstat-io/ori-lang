@@ -1,7 +1,7 @@
 //! `Size` type definition.
 //!
 //! Size is stored as `i64` bytes (non-negative). Copy type with arithmetic operator support
-//! via `IntInstr`. Has heterogeneous `mul`/`div` operators (take `int`, not
+//! via `SignedInteger`. Has heterogeneous `mul`/`div` operators (take `int`, not
 //! `Self`). No `neg` operator — Size is semantically non-negative.
 //! Includes `format` (explicit Formattable entry). SI units (1000-based).
 
@@ -141,18 +141,18 @@ pub static SIZE: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(0),
     methods: SIZE_METHODS,
     operators: OpDefs {
-        add: OpStrategy::IntInstr,
-        sub: OpStrategy::IntInstr,
-        mul: OpStrategy::IntInstr,
-        div: OpStrategy::IntInstr,
-        rem: OpStrategy::IntInstr,
+        add: OpStrategy::SignedInteger,
+        sub: OpStrategy::SignedInteger,
+        mul: OpStrategy::SignedInteger,
+        div: OpStrategy::SignedInteger,
+        rem: OpStrategy::SignedInteger,
         floor_div: OpStrategy::Unsupported,
-        eq: OpStrategy::IntInstr,
-        neq: OpStrategy::IntInstr,
-        lt: OpStrategy::IntInstr,
-        gt: OpStrategy::IntInstr,
-        lt_eq: OpStrategy::IntInstr,
-        gt_eq: OpStrategy::IntInstr,
+        eq: OpStrategy::SignedInteger,
+        neq: OpStrategy::SignedInteger,
+        lt: OpStrategy::SignedInteger,
+        gt: OpStrategy::SignedInteger,
+        lt_eq: OpStrategy::SignedInteger,
+        gt_eq: OpStrategy::SignedInteger,
         neg: OpStrategy::Unsupported,
         not: OpStrategy::Unsupported,
         bit_and: OpStrategy::Unsupported,

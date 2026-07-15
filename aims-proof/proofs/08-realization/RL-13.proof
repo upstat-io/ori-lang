@@ -1,9 +1,9 @@
-Theorem RL-13: REMOVED — Construct + Once does NOT imply RC == 1 at death (removal confirmation)
+Theorem RL-13: REMOVED — Construct + Once does NOT imply one logical owner at death (removal confirmation)
 
   Preconditions:
     - RL-13 was REMOVED from Annex E §AIMS Allocation Reuse (same root
       cause as the removed DP-10). The former rule claimed
-      `Construct + Cardinality = Once => RC == 1 at death`.
+      `Construct + Cardinality = Once => one logical owner at death`.
     - Signature ArcFunction x AimsStateMap -> ArcFunction per
       the canonical proof notation:264; this is the CONFIRMATION entry
       the sec-01 Realization.proof RL-13 row points at (no theorem skeleton
@@ -11,7 +11,7 @@ Theorem RL-13: REMOVED — Construct + Once does NOT imply RC == 1 at death (rem
     - Root cause of the removal: one use of a Construct + Once value may be
       "store into a data structure", which creates an alias via RcInc — so
       Construct + Once alone does NOT guarantee the value is the sole owner
-      (RC == 1) at death.
+      at death.
     - Subsumed by: the Uniqueness dimension (§AIMS §3.4) as the direct source
       of truth for reuse eligibility, and DP-6 + RL-11 + RL-12 reuse gating
       via Uniqueness.

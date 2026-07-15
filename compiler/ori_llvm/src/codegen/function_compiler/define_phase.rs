@@ -14,10 +14,7 @@ use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
 
 use super::FunctionCompiler;
-use crate::codegen::abi::{
-    compute_param_passing, compute_return_passing, select_call_conv, CallConvSite, FunctionAbi,
-    ParamAbi, ReturnAbi,
-};
+use crate::codegen::abi::{compute_function_abi_from_shape, CallConvSite, FunctionAbi};
 use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::value_id::FunctionId;
 
@@ -173,7 +170,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         func_id: FunctionId,
         abi: &FunctionAbi,
         mut arc_func: ori_arc::ArcFunction,
-        mut lambdas: Vec<ori_arc::ArcFunction>,
+        lambdas: Vec<ori_arc::ArcFunction>,
     ) -> Result<(), VerifyError> {
         // Why: ORI_DUMP_AFTER_ARC's AOT surface (oric finalize) never reaches
         // `compile_module_with_tests`, so the realized ArcFunction fed to LLVM
@@ -192,18 +189,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // declare_and_process_lambda renames each lambda to a globally unique
         // name. We collect the (old → new) mapping so we can update the
         // parent function's PartialApply references.
-        // Resolve BoundVar types in polymorphic lambdas before compilation.
-        // Must resolve ALL lambdas before compiling ANY, because nested lambdas
-        // may reference sibling lambdas' types (e.g., inner lambda's PartialApply
-        // is in outer lambda's body, not the parent function's body).
-        super::lambda_mono::resolve_all_lambda_bound_vars(
-            &mut arc_func,
-            &mut lambdas,
-            self.pool,
-            self.interner,
-            self.arc_classifier as &dyn ori_arc::ArcClassification,
-        );
-
         let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
         for mut lambda in lambdas {
             let original_name = lambda.name;
@@ -217,7 +202,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Remap PartialApply callee references in the parent function to use
         // the globally unique lambda names assigned during compilation.
         if !lambda_renames.is_empty() {
-            super::purity_analysis::remap_partial_apply_names(&mut arc_func, &lambda_renames);
+            super::lambda_rewrite::remap_partial_apply_names(&mut arc_func, &lambda_renames);
         }
 
         // Lambda compilation changes builder.current_function to the last
@@ -301,8 +286,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // duplicate check needed here.
 
         // Shared setup: declare, register, run ARC pipeline.
-        // On PC-2 violation, return early WITHOUT invoking run_arc_pipeline /
-        // ArcIrEmitter — the IR is not safe to process further.
+        // On PC-2 violation, return before ArcIrEmitter consumes the body.
         let (lambda_name, func_id, abi) = self.declare_and_process_lambda(lambda)?;
 
         let is_nounwind = self.is_arc_function_nounwind(lambda);
@@ -348,31 +332,37 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ///
     /// Used for lambda functions where no `FunctionSig` exists.
     pub(super) fn compute_arc_function_abi(&self, func: &ori_arc::ArcFunction) -> FunctionAbi {
-        let params: Vec<ParamAbi> = func
-            .params
-            .iter()
-            .map(|p| ParamAbi {
-                name: self.interner.intern(&format!("v{}", p.var.raw())),
-                ty: p.ty,
-                passing: compute_param_passing(p.ty, self.type_info, self.repr_plan()),
-                readonly: false,
-            })
-            .collect();
-
-        let return_abi = ReturnAbi {
-            ty: func.return_type,
-            passing: compute_return_passing(func.return_type, self.type_info, self.repr_plan()),
-        };
-
-        FunctionAbi {
+        let annotated = self.annotated_sigs.get(&func.name);
+        debug_assert!(annotated.is_none_or(|signature| {
+            signature.return_type == func.return_type
+                && signature.params.len() == func.params.len()
+                && signature
+                    .params
+                    .iter()
+                    .zip(&func.params)
+                    .all(|(fact, parameter)| fact.ty == parameter.ty)
+        }));
+        let params = func.params.iter().enumerate().map(|(index, parameter)| {
+            (
+                self.interner.intern(&format!("v{}", parameter.var.raw())),
+                parameter.ty,
+                annotated
+                    .and_then(|signature| signature.params.get(index))
+                    .map_or(ori_arc::Ownership::Owned, |fact| fact.ownership),
+            )
+        });
+        compute_function_abi_from_shape(
             params,
-            return_abi,
-            call_conv: select_call_conv(CallConvSite::OriFunction),
-        }
+            func.return_type,
+            CallConvSite::OriFunction,
+            self.type_info,
+            annotated.map(|_| self.arc_classifier as &dyn ori_arc::ArcClassification),
+            self.repr_plan(),
+        )
     }
 
     // `process_arc_function`, `report_primary_seam_violation`,
-    // `apply_aims_param_ownership`, and `declare_and_process_lambda` live
+    // `process_arc_function`, and `declare_and_process_lambda` live
     // in the sibling [`super::shared_seam`] module — the shared primary
     // seam between the immediate-emit path (this file) and the two-pass
     // prepare path (`nounwind/prepare.rs`). See `shared_seam.rs` for

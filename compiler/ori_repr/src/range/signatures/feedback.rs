@@ -20,6 +20,7 @@
 //! transfer function runs. This way the narrowed value propagates
 //! naturally through the fixpoint to derived locals.
 
+use ori_arc::graph::call_graph::CallGraph;
 use ori_arc::graph::compute_postorder;
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator};
 use ori_arc::ArcVarId;
@@ -45,13 +46,19 @@ use crate::range::{RangeAnalysisConfig, ValueRange};
 ///
 /// Each iteration pushes return-range information one hop deeper through the
 /// call graph. Bounded by `config.max_feedback_iterations` (default 5).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the feedback pass consumes the shared call graph, analysis state, and exhausted-SCC set"
+)]
 pub(super) fn feed_return_ranges_and_reprocess(
     sccs: &[ori_arc::graph::scc::Scc],
+    call_graph: &CallGraph,
     func_map: &FxHashMap<Name, &ArcFunction>,
     pool: &Pool,
     config: &RangeAnalysisConfig,
     results: &mut FxHashMap<Name, crate::range::fixpoint::RangeFixpointResult>,
     func_infos: &mut FxHashMap<Name, FunctionRangeInfo>,
+    exhausted_functions: &FxHashSet<Name>,
     plan: &crate::plan::ReprPlan,
 ) {
     // Accumulated narrowings across ALL feedback iterations. When Step 2
@@ -66,7 +73,8 @@ pub(super) fn feed_return_ranges_and_reprocess(
     for iteration in 0..config.max_feedback_iterations {
         // Step 1: Narrow caller dst vars from callee return ranges.
         // Returns NEW per-caller narrowings for this iteration only.
-        let new_narrowings = inject_callee_return_ranges(func_map, results, func_infos);
+        let new_narrowings =
+            inject_callee_return_ranges(func_map, results, func_infos, exhausted_functions);
 
         if new_narrowings.is_empty() {
             tracing::debug!(iteration, "feedback converged — no dst vars changed");
@@ -88,7 +96,7 @@ pub(super) fn feed_return_ranges_and_reprocess(
         // Step 1b: Recompute return ranges for functions whose return var
         // was narrowed by Step 1. Without this, the next iteration's Step 1
         // can't propagate the narrowed return range further up the chain.
-        refresh_return_ranges(func_map, results, func_infos);
+        refresh_return_ranges(func_map, results, func_infos, exhausted_functions);
 
         // Step 2: Re-collect params and re-run fixpoint for affected functions.
         // Reverse topological order (callers first) so parameter propagation
@@ -99,6 +107,7 @@ pub(super) fn feed_return_ranges_and_reprocess(
         // (correctness — prevents losing earlier iterations' narrowings).
         let step2_changed = reprocess_changed_functions(
             sccs,
+            call_graph,
             func_map,
             pool,
             config,
@@ -106,6 +115,7 @@ pub(super) fn feed_return_ranges_and_reprocess(
             func_infos,
             &new_narrowed,
             &accumulated_narrowings,
+            exhausted_functions,
             plan,
         );
 
@@ -130,10 +140,14 @@ fn inject_callee_return_ranges(
     func_map: &FxHashMap<Name, &ArcFunction>,
     results: &mut FxHashMap<Name, crate::range::fixpoint::RangeFixpointResult>,
     func_infos: &FxHashMap<Name, FunctionRangeInfo>,
+    exhausted_functions: &FxHashSet<Name>,
 ) -> FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>> {
     let mut caller_narrowings: FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>> =
         FxHashMap::default();
     for caller_func in func_map.values() {
+        if exhausted_functions.contains(&caller_func.name) {
+            continue;
+        }
         let Some(cr) = results.get_mut(&caller_func.name) else {
             continue;
         };
@@ -176,8 +190,12 @@ fn refresh_return_ranges(
     func_map: &FxHashMap<Name, &ArcFunction>,
     results: &FxHashMap<Name, crate::range::fixpoint::RangeFixpointResult>,
     func_infos: &mut FxHashMap<Name, FunctionRangeInfo>,
+    exhausted_functions: &FxHashSet<Name>,
 ) {
     for func in func_map.values() {
+        if exhausted_functions.contains(&func.name) {
+            continue;
+        }
         let Some(result) = results.get(&func.name) else {
             continue;
         };
@@ -227,6 +245,7 @@ fn refresh_return_ranges(
 )]
 fn reprocess_changed_functions(
     sccs: &[ori_arc::graph::scc::Scc],
+    call_graph: &CallGraph,
     func_map: &FxHashMap<Name, &ArcFunction>,
     pool: &Pool,
     config: &RangeAnalysisConfig,
@@ -234,6 +253,7 @@ fn reprocess_changed_functions(
     func_infos: &mut FxHashMap<Name, FunctionRangeInfo>,
     new_narrowed: &FxHashSet<Name>,
     all_narrowings: &FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>>,
+    exhausted_functions: &FxHashSet<Name>,
     plan: &crate::plan::ReprPlan,
 ) -> bool {
     let mut any_changed = false;
@@ -242,10 +262,16 @@ fn reprocess_changed_functions(
     // results are available when callee parameter ranges are collected.
     for scc in sccs.iter().rev() {
         for name in &scc.members {
+            // A recursive SCC that exhausted its convergence limit was
+            // deliberately reset to Top. A later return-feedback iteration
+            // must not resurrect its partially converged summaries.
+            if exhausted_functions.contains(name) {
+                continue;
+            }
             let Some(func) = func_map.get(name) else {
                 continue;
             };
-            let info = collect_param_ranges(func, results, func_infos, func_map, pool, plan);
+            let info = collect_param_ranges(func, results, func_map, call_graph, pool, plan);
             let params_changed = func_infos
                 .get(name)
                 .is_none_or(|old| old.param_ranges != info.param_ranges);

@@ -15,7 +15,7 @@ use ori_types::Idx;
 
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
-    LitValue,
+    LitValue, MethodCallFact, MethodCallForm,
 };
 
 /// Routing metadata for `Invoke`-family terminators: CFG successors plus the
@@ -80,6 +80,8 @@ pub(crate) struct ArcIrBuilder {
     /// that field for the full emission-side contract. `note_checked_op` appends
     /// when a `catch_unwind_target` is active (pairing with that target).
     pub(super) catch_scoped_checked_ops: Vec<(ArcVarId, ArcBlockId)>,
+    /// Exact owner/form facts for direct method calls, keyed by result register.
+    pub(super) method_call_facts: Vec<MethodCallFact>,
 }
 
 impl Default for ArcIrBuilder {
@@ -100,6 +102,7 @@ impl ArcIrBuilder {
             catch_unwind_target: None,
             reassign_deaths: Vec::new(),
             catch_scoped_checked_ops: Vec::new(),
+            method_call_facts: Vec::new(),
         }
     }
 
@@ -182,6 +185,26 @@ impl ArcIrBuilder {
         } else {
             Idx::UNIT
         }
+    }
+
+    /// Preserve the source-selected owner and form of one emitted direct call.
+    pub fn note_method_call(
+        &mut self,
+        destination: ArcVarId,
+        receiver_type: Idx,
+        form: MethodCallForm,
+    ) {
+        assert!(
+            self.method_call_facts
+                .iter()
+                .all(|fact| fact.destination != destination),
+            "a direct call result may carry only one method provenance fact"
+        );
+        self.method_call_facts.push(MethodCallFact {
+            destination,
+            receiver_type,
+            form,
+        });
     }
 
     // Literal queries
@@ -440,15 +463,18 @@ impl ArcIrBuilder {
             var_types: self.var_types,
             var_reprs: Vec::new(),
             var_rc_strategies: Vec::new(),
+            var_metadata_state: crate::ir::VariableMetadataState::Unrealized,
             spans,
             is_fbip,
             num_captures: 0,
             cow_annotations: crate::uniqueness::CowAnnotations::default(),
+            primitive_facts: crate::ir::PrimitiveFacts::default(),
             drop_hints: crate::uniqueness::DropHints::default(),
             tail_calls: Vec::new(),
             burden_emitted: Vec::new(),
             reassign_deaths: self.reassign_deaths,
             catch_scoped_checked_ops: self.catch_scoped_checked_ops,
+            method_call_facts: self.method_call_facts,
             class_ledger_emission: false,
         }
     }

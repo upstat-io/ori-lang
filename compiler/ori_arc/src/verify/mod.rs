@@ -9,8 +9,10 @@
 //! 1. **Structural** — variable scope, block connectivity, terminator presence.
 //!    These must hold after lowering, before any optimization pass.
 //!
-//! 2. **RC properties** — no RC on scalars, no dec on borrowed params.
-//!    These must hold after RC insertion and after RC elimination.
+//! 2. **Ownership-event properties** — scalars carry no owner-credit events,
+//!    and borrowed parameters carry no callee-side release. The current IR
+//!    verifies these through transitional `Rc*` carrier instructions after
+//!    realization and after carrier pair-elision.
 //!
 //! The entry point [`check_function`] runs all applicable checks and returns
 //! a list of [`VerifyError`]s (empty = all invariants hold).
@@ -47,8 +49,8 @@ fn get_span(func: &ArcFunction, block_idx: usize, instr_idx: usize) -> Option<Sp
 /// Returns an empty vec if all invariants hold. Checks are independent
 /// and run unconditionally — a failure in one does not affect others.
 ///
-/// Call after lowering for structural checks, and after RC insertion
-/// for RC property checks.
+/// Call after lowering for structural checks, and after ownership-event
+/// realization for current-carrier property checks.
 pub fn check_function(func: &ArcFunction) -> Vec<VerifyError> {
     let mut errors = Vec::new();
     check_variable_scope(func, &mut errors);
@@ -113,7 +115,12 @@ fn check_block_uses(
     errors: &mut Vec<VerifyError>,
 ) {
     for (instr_idx, instr) in block.body.iter().enumerate() {
+        let destination = instr.defined_var();
         for used in instr.used_vars() {
+            if destination == Some(used) {
+                push_use_before_def(errors, used, block.id, get_span(func, block_idx, instr_idx));
+                continue;
+            }
             if defined.contains(&used) {
                 continue;
             }
@@ -121,7 +128,15 @@ fn check_block_uses(
         }
     }
     // Terminators don't have instruction-level spans.
+    let destination = match &block.terminator {
+        ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } => Some(*dst),
+        _ => None,
+    };
     for used in block.terminator.used_vars() {
+        if destination == Some(used) {
+            push_use_before_def(errors, used, block.id, None);
+            continue;
+        }
         if defined.contains(&used) {
             continue;
         }
@@ -145,17 +160,25 @@ fn check_block_connectivity(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
     }
 }
 
-// RC property checks
+// Logical ownership-event properties, checked through the current Rc* carrier.
 
-/// `RcInc`/`RcDec` must never operate on variables with `ValueRepr::Scalar`.
+/// Scalars carry no logical owner-credit or release events, so the current
+/// `RcInc`/`RcDec` carrier must never target `ValueRepr::Scalar` variables.
 ///
 /// This catches misclassification bugs where a scalar type was incorrectly
-/// given RC operations. Only runs when `var_reprs` has been computed
-/// (non-empty).
+/// given ownership-event carrier operations. It runs whenever representation
+/// readiness says the table has been computed, including for a zero-variable
+/// function.
 fn check_no_rc_on_scalar(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
-    if func.var_reprs.is_empty() {
+    if func.var_metadata_state == crate::ir::VariableMetadataState::Unrealized {
         return;
     }
+
+    assert_eq!(
+        func.var_reprs.len(),
+        func.var_types.len(),
+        "ready var_reprs must be parallel to var_types"
+    );
 
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
@@ -164,7 +187,8 @@ fn check_no_rc_on_scalar(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
     }
 }
 
-/// Inspect a single instruction for `RcInc`/`RcDec` on a scalar variable.
+/// Inspect a current-carrier instruction for a logical ownership event on a
+/// scalar variable.
 fn check_rc_instr_scalar(
     func: &ArcFunction,
     block_id: ArcBlockId,
@@ -175,11 +199,12 @@ fn check_rc_instr_scalar(
 ) {
     let (var, is_inc) = match instr {
         // VF-1 exemption (Spec: Annex E §AIMS RL-DROP; `RLDROP_scalar_lifecycle_sound`):
-        // a `RcDec { UserDrop }` is the balance-neutral user `@drop` CALL, not an RC
-        // dec on a scalar, so it is exempt from `RcOnScalar`. An `RcInc { UserDrop }`
-        // is NOT exempt — a scalar carries no refcount to duplicate, so a surviving
-        // one is a spurious RL-1 dup-inc that SHALL fail loud here rather than
-        // codegen silently-wrong drops.
+        // `RcDec { UserDrop }` is the transitional carrier for the balance-neutral
+        // user `@drop` cleanup call, not consumption of a logical owner credit, so
+        // it is exempt from `RcOnScalar`. `RcInc { UserDrop }` is NOT exempt: a
+        // scalar carries no owner credit to duplicate, so a surviving one is a
+        // spurious RL-1 duplication event that SHALL fail loud here rather than
+        // produce silently wrong cleanup.
         ArcInstr::RcInc { var, .. } => (*var, true),
         ArcInstr::RcDec {
             strategy: crate::ir::RcStrategy::UserDrop,
@@ -200,10 +225,11 @@ fn check_rc_instr_scalar(
     );
 }
 
-/// `RcDec` must never target a borrowed parameter.
+/// A borrowed parameter carries no callee-owned release obligation, so the
+/// current transitional `RcDec` carrier must never target one.
 ///
-/// Borrowed parameters are read-only references — the caller retains
-/// ownership, so the callee must not decrement their reference count.
+/// The source lifetime governs borrowed access and the caller retains the
+/// logical owner credit; the callee therefore has nothing to discharge.
 fn check_no_dec_on_borrowed(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
     let borrowed_params: FxHashSet<ArcVarId> = func
         .params
@@ -235,11 +261,30 @@ fn check_no_dec_on_borrowed(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
 /// `arg_ownership` that doesn't match `args.len()` indicates a pipeline
 /// bug where annotation populated an incorrect number of entries.
 fn check_arg_ownership_len(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
+    check_arg_ownership_len_with_policy(func, true, errors);
+}
+
+/// Require every call-site ownership table to be parallel to its arguments.
+///
+/// The general structural verifier admits an empty table before annotation.
+/// The annotation phase calls this stricter gate before any ownership
+/// consumer can observe the function.
+pub(crate) fn check_total_arg_ownership(func: &ArcFunction) -> Vec<VerifyError> {
+    let mut errors = Vec::new();
+    check_arg_ownership_len_with_policy(func, false, &mut errors);
+    errors
+}
+
+fn check_arg_ownership_len_with_policy(
+    func: &ArcFunction,
+    allow_unannotated: bool,
+    errors: &mut Vec<VerifyError>,
+) {
     for block in &func.blocks {
         for instr in &block.body {
-            check_instr_arg_ownership(block.id, instr, errors);
+            check_instr_arg_ownership(block.id, instr, allow_unannotated, errors);
         }
-        check_terminator_arg_ownership(block.id, &block.terminator, errors);
+        check_terminator_arg_ownership(block.id, &block.terminator, allow_unannotated, errors);
     }
 }
 
@@ -247,6 +292,7 @@ fn check_arg_ownership_len(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
 fn check_instr_arg_ownership(
     block_id: ArcBlockId,
     instr: &ArcInstr,
+    allow_unannotated: bool,
     errors: &mut Vec<VerifyError>,
 ) {
     let (args_len, ownership_len) = match instr {
@@ -262,13 +308,14 @@ fn check_instr_arg_ownership(
         } => (args.len(), arg_ownership.len()),
         _ => return,
     };
-    record_arg_ownership_mismatch(block_id, args_len, ownership_len, errors);
+    record_arg_ownership_mismatch(block_id, args_len, ownership_len, allow_unannotated, errors);
 }
 
 /// Check `arg_ownership` length on `Invoke` / `InvokeIndirect` terminators.
 fn check_terminator_arg_ownership(
     block_id: ArcBlockId,
     term: &ArcTerminator,
+    allow_unannotated: bool,
     errors: &mut Vec<VerifyError>,
 ) {
     let (args_len, ownership_len) = match term {
@@ -284,7 +331,7 @@ fn check_terminator_arg_ownership(
         } => (args.len(), arg_ownership.len()),
         _ => return,
     };
-    record_arg_ownership_mismatch(block_id, args_len, ownership_len, errors);
+    record_arg_ownership_mismatch(block_id, args_len, ownership_len, allow_unannotated, errors);
 }
 
 /// Push an `ArgOwnershipLenMismatch` when `arg_ownership` is non-empty
@@ -293,9 +340,10 @@ fn record_arg_ownership_mismatch(
     block_id: ArcBlockId,
     args_len: usize,
     ownership_len: usize,
+    allow_unannotated: bool,
     errors: &mut Vec<VerifyError>,
 ) {
-    if ownership_len == 0 || ownership_len == args_len {
+    if ownership_len == args_len || (allow_unannotated && ownership_len == 0) {
         return;
     }
     errors.push(VerifyError::ArgOwnershipLenMismatch {

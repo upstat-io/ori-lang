@@ -204,8 +204,9 @@ fn dp3_is_rc_inc_elidable(s: ModeledState) -> bool {
 /// definition combines two conjuncts that are pairwise unsatisfiable on
 /// canonical states (Linear|Affine ∧ DP-2-applicable, where DP-2 requires
 /// Dead or Absent). The intended semantics is the canonical Class A
-/// pattern: Owned ∧ Linear ∧ Once ∧ Unique (the RL-2 + RL-14 candidate per
-/// the §11 coexistence section Per-CH Proof-Status Tracking table CH-3 row). DP-3 fires on
+/// pattern: Owned ∧ Linear ∧ Once ∧ Unique (the RL-2 logical-release class per
+/// the §11 coexistence section Per-CH Proof-Status Tracking table CH-3 row).
+/// RL-14 lifetime facts are orthogonal to this ownership class. DP-3 fires on
 /// this pattern, so the burden registry's elimination decision is a
 /// well-defined pure function on canonical states.
 fn burden_owned(s: ModeledState) -> bool {

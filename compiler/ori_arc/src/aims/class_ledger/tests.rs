@@ -138,11 +138,20 @@ fn analyze_with_registry(
     state_map: &AimsStateMap,
     registry: &ori_types::TypeRegistry,
 ) -> (ClassLedgerAnalysis, BirthSitePartition) {
+    // These unit fixtures enter below the whole-program AIMS pipeline. Route
+    // their synthetic bodies through the same strict primitive-fact producer
+    // before any ledger consumer reads the frozen table.
+    let mut func = func.clone();
+    let pool = ori_types::Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    crate::aims::freeze_primitive_facts(std::slice::from_mut(&mut func), &classifier)
+        .unwrap_or_else(|errors| panic!("class-ledger primitive facts should freeze: {errors:?}"));
     let facts: FxHashMap<Name, BoundaryFacts> = FxHashMap::default();
-    let mut partition = compute_birth_site_partition(func, state_map);
+    let mut partition = compute_birth_site_partition(&func, state_map);
     let interner = test_interner();
-    let classification = classify_function(func, state_map, &mut partition, &facts, &interner);
-    let analysis = analyze_class_ledger(func, &classification, &mut partition, registry, &interner);
+    let classification = classify_function(&func, state_map, &mut partition, &facts, &interner);
+    let analysis =
+        analyze_class_ledger(&func, &classification, &mut partition, registry, &interner);
     (analysis, partition)
 }
 
@@ -2310,7 +2319,7 @@ fn branch_exclusive_full_move_rebooks_aggregate_consume() {
         "MovedPair",
         pair_idx,
         Some(UserBurdenSpec {
-            self_heap_alloc: true,
+            self_owned_identity: true,
             owned_fields: vec![UserOwnedField {
                 field_path: vec![0],
                 field_type: ty(70),
@@ -2545,7 +2554,7 @@ fn shared_edge_source_declines_full_move_arm() {
         "AliasedPair",
         pair_idx,
         Some(UserBurdenSpec {
-            self_heap_alloc: true,
+            self_owned_identity: true,
             owned_fields: vec![UserOwnedField {
                 field_path: vec![0],
                 field_type: ty(70),
@@ -3341,7 +3350,7 @@ fn field_decomposition_cure_replaces_end_to_end_with_registered_burden() {
 /// Negative sibling of `field_decomposition_cure_replaces_end_to_end_with_
 /// registered_burden`: same consume-marked-then-Return shape, but the
 /// container's registered burden names ONLY field 1 as owned
-/// (`registered_struct_value_heap_mixed`) while the extracted member is
+/// (`registered_struct_scalar_owned_mixed`) while the extracted member is
 /// field 0. The cure still computes `DecPartial(skip=[0])` from the
 /// partition's consume marks alone (it never consults the registry); the
 /// skip index then falls OUTSIDE the container's named owned-field surface,
@@ -3350,11 +3359,11 @@ fn field_decomposition_cure_replaces_end_to_end_with_registered_burden() {
 /// whose interior field walk would silently mis-skip at runtime.
 #[test]
 fn field_decomposition_cure_declines_replacement_on_skip_field_mismatch() {
-    use crate::lower::test_utils::registered_struct_value_heap_mixed;
+    use crate::lower::test_utils::registered_struct_scalar_owned_mixed;
 
     let struct_idx = ty(64);
     let mut registry = ori_types::TypeRegistry::new();
-    registered_struct_value_heap_mixed(&mut registry, "Mixed", struct_idx);
+    registered_struct_scalar_owned_mixed(&mut registry, "Mixed", struct_idx);
 
     let mut func = one_block_func(
         5,
@@ -3796,7 +3805,7 @@ fn constructless_invoke_result_tuple_decomposes_release_per_site() {
         "NextPair",
         tuple_idx,
         Some(UserBurdenSpec {
-            self_heap_alloc: false,
+            self_owned_identity: false,
             owned_fields: vec![UserOwnedField {
                 field_path: vec![1],
                 field_type: ty(70),
@@ -4336,12 +4345,12 @@ fn fat_value_seed_fundable_without_burden_entry() {
         ],
     );
     func.var_types[1] = ty(64);
-    func.var_reprs = vec![
+    func.replace_variable_representations(vec![
         crate::ir::ValueRepr::Aggregate,
         crate::ir::ValueRepr::FatValue,
         crate::ir::ValueRepr::Scalar,
         crate::ir::ValueRepr::Scalar,
-    ];
+    ]);
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_permanent_scalar(v(2));
     state_map.set_permanent_scalar(v(3));
@@ -4417,7 +4426,7 @@ fn two_handoff_view_func() -> ArcFunction {
     for var in [1u32, 2, 4, 6, 8] {
         func.var_types[var as usize] = ty(64);
     }
-    func.var_reprs = vec![
+    func.replace_variable_representations(vec![
         crate::ir::ValueRepr::Aggregate,
         crate::ir::ValueRepr::FatValue,
         crate::ir::ValueRepr::FatValue,
@@ -4428,7 +4437,7 @@ fn two_handoff_view_func() -> ArcFunction {
         crate::ir::ValueRepr::Aggregate,
         crate::ir::ValueRepr::FatValue,
         crate::ir::ValueRepr::Scalar,
-    ];
+    ]);
     func
 }
 
@@ -4538,7 +4547,7 @@ fn credited_call_result_payload_view_books_stay_clean() {
         "Wrapper",
         container_idx,
         Some(UserBurdenSpec {
-            self_heap_alloc: false,
+            self_owned_identity: false,
             owned_fields: vec![UserOwnedField {
                 field_path: vec![0],
                 field_type: ty(3),

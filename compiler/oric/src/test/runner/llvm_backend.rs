@@ -12,7 +12,7 @@ use ori_types::TypeCheckResult;
 use rustc_hash::FxHashMap;
 
 use super::super::result::{FileSummary, TestOutcome, TestResult};
-use super::arc_lowering::lower_and_infer_borrows;
+use super::arc_lowering::{lower_jit_arc_program, JitArcLowering};
 use super::TestRunner;
 use super::TestRunnerConfig;
 
@@ -482,12 +482,6 @@ impl TestRunner {
             })
             .collect();
 
-        // Create LLVM evaluator with merged pool for proper compound type resolution
-        // (needed for sret convention on large struct returns like List, Map, etc.)
-        // Must be created AFTER re-interning so all Idx values in the merged pool
-        // are valid when the evaluator resolves types during codegen.
-        let llvm_eval = OwnedLLVMEvaluator::with_pool(&merged_pool);
-
         // Build function signatures aligned with module.functions source order.
         // Delegates to shared implementation in typeck.
         let function_sigs = crate::typeck::build_function_sigs(parse_result, type_result);
@@ -511,40 +505,137 @@ impl TestRunner {
             .flat_map(|tc| tc.typed.exported_collection_surfaces.iter().copied())
             .collect();
 
-        // ARC lowering + borrow inference + compilation, wrapped in catch_unwind
-        // to gracefully handle panics in any phase (ARC classification, LLVM codegen,
-        // etc.) without aborting the entire test runner.
-        let compile_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            // `lower_and_infer_borrows` returns `None` when ARC lowering emits
-            // errors. Proceeding to `compile_module_with_tests`
-            // with empty arc_cache recurses in codegen when tests reference
-            // missing callees, leading to stack overflow. Treat `None` as a
-            // compile failure — the `Err(_)` arm of `compile_result` below
-            // emits `LlvmCompileFail` outcomes for each filtered test.
-            let Some((annotated_sigs, arc_cache)) = lower_and_infer_borrows(
-                &parse_result.module,
+        // Lambda specialization appends canonical compound types to the owned
+        // realization pool. Complete that mutation before the JIT evaluator
+        // takes its immutable lifetime borrow.
+        let lowering_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            lower_jit_arc_program(
+                parse_result,
+                type_result,
+                &filtered_tests,
                 &function_sigs,
                 shared_canon,
                 interner,
-                &merged_pool,
-                &type_result.typed.impl_sigs,
+                &mut merged_pool,
                 // Test runner JIT: imported mono bodies are handled via
                 // `imported_mono_fns` below, not via the import_sigs lookup chain.
                 &[],
                 &imported_for_codegen,
-                &type_result.typed.mono_instances,
-                &type_result.typed.types,
                 &imported_mono_fns,
                 &re_interned_canons,
-            ) else {
-                return Err(ori_llvm::evaluator::LLVMEvalError::new(
-                    "ARC lowering failed — see diagnostics above".to_string(),
-                ));
-            };
+            )
+        }));
+        let lowering = match lowering_result {
+            Ok(Ok(lowering)) => lowering,
+            Ok(Err(error)) => {
+                let message = format!("LLVM JIT ARC preparation failed: {error}");
+                summary.add_error(message.clone());
+                summary.llvm_compile_error = true;
+                Self::add_compile_fail_results(
+                    summary,
+                    &filtered_tests,
+                    &message,
+                    interner,
+                    config,
+                );
+                return;
+            }
+            Err(panic_info) => {
+                let message = format!(
+                    "LLVM backend error during ARC lowering: {}",
+                    super::panic_message(panic_info.as_ref())
+                );
+                summary.add_error(message.clone());
+                summary.llvm_compile_error = true;
+                Self::add_compile_fail_results(
+                    summary,
+                    &filtered_tests,
+                    &message,
+                    interner,
+                    config,
+                );
+                return;
+            }
+        };
 
-            // Strip module indices — codegen only needs the MonoFunctions
-            let imported_mono_for_codegen: Vec<ori_repr::monomorphize::MonoFunction> =
-                imported_mono_fns.into_iter().map(|(mf, _, _)| mf).collect();
+        // The context must outlive the returned JIT engine. The merged pool and
+        // executable artifact now include the exact same materialized Idx set.
+        let llvm_eval = OwnedLLVMEvaluator::new();
+
+        // Shared executable realization + physical compilation, wrapped in
+        // catch_unwind so one LLVM failure cannot abort the test runner.
+        let compile_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let JitArcLowering {
+                prepared_batch,
+                mono_functions,
+                user_drop_bindings: typed_user_drop_bindings,
+                impl_emission_names,
+            } = lowering;
+
+            let mut type_registry = ori_types::TypeRegistry::from_typed_exports(
+                type_result.typed.types.clone(),
+                type_result.typed.collection_burdens.clone(),
+            );
+            ori_types::register_resolved_collection_burdens(&merged_pool, &mut type_registry);
+            let policy = if ori_repr::NarrowingPolicy::env_disabled() {
+                ori_repr::NarrowingPolicy::Disabled
+            } else {
+                ori_repr::NarrowingPolicy::Aggressive
+            };
+            let repr_plan = crate::realization::compute_module_repr_plan(
+                &merged_pool,
+                prepared_batch.functions(),
+                policy,
+                type_result,
+                Some(interner),
+                &imported_type_metadata,
+                &imported_collection_surfaces,
+                type_result
+                    .typed
+                    .impl_sigs
+                    .iter()
+                    .any(|entry| !entry.sig.is_generic()),
+            );
+            let user_drop_bindings = crate::realization::collect_user_drop_bindings(
+                &type_registry,
+                &typed_user_drop_bindings,
+                &merged_pool,
+            )
+            .map_err(|error| {
+                ori_llvm::evaluator::LLVMEvalError::new(format!(
+                    "user-drop callable realization failed: {error}"
+                ))
+            })?;
+            let roots = prepared_batch.parent_roots();
+            // Preserve the semantic entry role even though the test JIT does
+            // not emit the process wrapper. Physical ABI projection still
+            // needs `main` to use the same C calling convention as AOT.
+            let cli_entry = parse_result
+                .module
+                .functions
+                .iter()
+                .zip(&function_sigs)
+                .find_map(|(function, signature)| signature.is_main.then_some(function.name));
+            let executable = crate::realization::realize_arc_program(
+                crate::realization::ArcProgramRealizationInput {
+                    prepared: prepared_batch,
+                    pool: merged_pool.clone(),
+                    symbols: db.shared_interner(),
+                    roots,
+                    cli_entry,
+                    externals: Vec::new(),
+                    user_drop_bindings,
+                    repr_plan,
+                    type_registry,
+                    verify_arc: std::env::var(crate::debug_flags::ORI_VERIFY_ARC)
+                        .is_ok_and(|value| value != "0"),
+                },
+            )
+            .map_err(|error| {
+                ori_llvm::evaluator::LLVMEvalError::new(format!(
+                    "closed JIT executable realization failed: {error}"
+                ))
+            })?;
 
             llvm_eval.compile_module_with_tests(
                 &parse_result.module,
@@ -553,17 +644,11 @@ impl TestRunner {
                 interner,
                 &function_sigs,
                 &type_result.typed.types,
-                &type_result.typed.collection_burdens,
                 &type_result.typed.impl_sigs,
                 &imported_for_codegen,
-                &type_result.typed.mono_instances,
-                &annotated_sigs,
-                arc_cache,
-                None, // JIT: use env var fallback for narrowing policy
-                &imported_type_metadata,
-                &imported_collection_surfaces,
-                &type_result.typed.trait_impl_fn_names,
-                imported_mono_for_codegen,
+                &mono_functions,
+                &executable,
+                &impl_emission_names,
             )
         }));
 

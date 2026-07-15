@@ -169,7 +169,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // non-boxed inner; never an un-guarded field-1 payload read.
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved);
-                if self.classifier.needs_rc(inner) {
+                if self.classifier.has_managed_ownership_obligation(inner) {
                     self.emit_inline_enum_inc(val, resolved, tag, count);
                 }
             }
@@ -271,7 +271,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // an un-guarded field-1 payload read.
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved);
-                if self.classifier.needs_rc(inner) {
+                if self.classifier.has_managed_ownership_obligation(inner) {
                     self.emit_inline_enum_dec(val, resolved, tag);
                 }
             }
@@ -301,7 +301,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         count: u32,
     ) {
         for (i, &field_ty) in field_types.iter().enumerate() {
-            if !self.classifier.needs_rc(field_ty) {
+            if !self.classifier.has_managed_ownership_obligation(field_ty) {
                 continue;
             }
             let mem_i = self.remap_struct_field(owner, i as u32);
@@ -334,7 +334,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // same field-teardown order. `(memory_index, field_type)` per field.
         let mut decl_walk: Vec<(u32, Idx)> = Vec::new();
         for (i, &field_ty) in field_types.iter().enumerate() {
-            if !self.classifier.needs_rc(field_ty) {
+            if !self.classifier.has_managed_ownership_obligation(field_ty) {
                 continue;
             }
             decl_walk.push((self.remap_struct_field(owner, i as u32), field_ty));

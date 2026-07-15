@@ -374,6 +374,22 @@ fn test_str_index_oob_panics() {
 }
 
 #[test]
+fn test_str_negative_index_panics() {
+    let (exit_code, _, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/strings/str_negative_index_panics.ori"
+    ));
+    assert_ne!(
+        exit_code, -1,
+        "negative string index fixture must compile before its runtime panic:\n{stderr}"
+    );
+    assert_ne!(exit_code, 0, "negative string index must panic");
+    assert!(
+        stderr.contains("index out of bounds"),
+        "negative string index must report the bounds failure:\n{stderr}"
+    );
+}
+
+#[test]
 fn test_str_index_multibyte() {
     assert_aot_success(
         include_str!("fixtures/strings/str_index_multibyte.ori"),

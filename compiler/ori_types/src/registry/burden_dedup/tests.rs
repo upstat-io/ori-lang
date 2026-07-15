@@ -56,7 +56,7 @@ fn variant_id(raw: u32) -> VariantId {
 /// Build a `Result<T, E>`-shaped `UserBurdenSpec` with concrete field-types.
 fn result_spec(t: Idx, e: Idx) -> UserBurdenSpec {
     UserBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: vec![],
         borrowed_fields: vec![],
         variant_burdens: vec![
@@ -82,7 +82,7 @@ fn result_spec(t: Idx, e: Idx) -> UserBurdenSpec {
             },
         ],
         element_burden: None,
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     }
 }
@@ -90,7 +90,7 @@ fn result_spec(t: Idx, e: Idx) -> UserBurdenSpec {
 /// Build an `Option<T>`-shaped `UserBurdenSpec` with concrete field-type.
 fn option_spec(t: Idx) -> UserBurdenSpec {
     UserBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: vec![],
         borrowed_fields: vec![],
         variant_burdens: vec![
@@ -111,7 +111,7 @@ fn option_spec(t: Idx) -> UserBurdenSpec {
             },
         ],
         element_burden: None,
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     }
 }
@@ -170,7 +170,7 @@ fn stdlib_stress_42_instantiations_collapse_below_upper_bound() {
 
     // Use the pre-interned primitive Idxs as the 6 stand-in element
     // types. All 6 carry empty burden in the BURDEN_TABLE — meaning
-    // codegen would look them up and find no work — but for the dedup
+    // executable planners find no logical cleanup work — but for the dedup
     // matrix the only thing that matters is that the SPEC built around
     // them differs structurally per concrete T/E.
     let primitives = [
@@ -421,7 +421,7 @@ fn engineered_collision_with_distinct_specs_registers_as_distinct_entries() {
     // simplest way is to swap two fields whose bytes commute through
     // the FNV-1a accumulator. Empirically, no commuting permutation
     // exists in the present input set, so the test uses a different
-    // engineered fixture: two specs differing ONLY in compiled_drop's
+    // engineered fixture: two specs differing ONLY in drop_operation's
     // FnSym ID where the FnSym values happen to share their LSB hash
     // contribution. To keep the test deterministic we instead exercise
     // the EQUIVALENT branch: spec_b distinct from spec_a, with
@@ -467,16 +467,16 @@ fn empty_default_spec_dedup_collapses() {
 
 /// Build a `Channel<T>`-shaped `UserBurdenSpec` matching the
 /// `compose_user_burden(channel_template, [t])` output:
-/// `self_heap_alloc = true`, `element_burden = Some(t)`, all other slots
+/// `self_owned_identity = true`, `element_burden = Some(t)`, all other slots
 /// empty. Mirrors LIST/MAP/SET composition shape.
 fn channel_spec(t: Idx) -> UserBurdenSpec {
     UserBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         owned_fields: vec![],
         borrowed_fields: vec![],
         variant_burdens: vec![],
         element_burden: Some(t),
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     }
 }
@@ -567,7 +567,7 @@ fn channel_nested_map_payload_registers_distinct_from_channel_int() {
 #[test]
 fn negative_pin_channel_empty_element_burden_collides_with_default_spec() {
     // Negative pin: a Channel<T> spec accidentally constructed WITHOUT
-    // self_heap_alloc + element_burden — i.e., `UserBurdenSpec::default()`
+    // self_owned_identity + element_burden — i.e., `UserBurdenSpec::default()`
     // — would collide with every other empty default spec at the
     // signature level. The cure for an accidental composition regression
     // dropping these slots is the positive pin
@@ -584,14 +584,14 @@ fn negative_pin_channel_empty_element_burden_collides_with_default_spec() {
     let canon_empty = registry.register_user_burden(empty_slot, UserBurdenSpec::default());
     let canon_broken = registry.register_user_burden(
         broken_chan_slot,
-        // Broken channel: empty element_burden + no self_heap_alloc — the
+        // Broken channel: empty element_burden + no self_owned_identity — the
         // regression shape composition MUST NOT produce.
         UserBurdenSpec::default(),
     );
 
     assert_eq!(
         canon_broken, canon_empty,
-        "broken Channel<T> spec (default) collides with empty spec — element_burden + self_heap_alloc are the distinguishing slots"
+        "broken Channel<T> spec (default) collides with empty spec — element_burden + self_owned_identity are the distinguishing slots"
     );
     assert_eq!(registry.burden_signature_count(), 1);
 }

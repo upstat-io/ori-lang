@@ -112,7 +112,7 @@ fn build_struct_burden(
         return None;
     }
     Some(UserBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         owned_fields: owned,
         borrowed_fields: Vec::new(),
         ..UserBurdenSpec::default()
@@ -218,7 +218,7 @@ fn build_enum_burden(
         return None;
     }
     Some(UserBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         variant_burdens,
         ..UserBurdenSpec::default()
     })
@@ -278,7 +278,7 @@ pub(crate) fn compute_newtype_burden(
         | Tag::Iterator
         | Tag::DoubleEndedIterator
         | Tag::Function => Some(UserBurdenSpec {
-            self_heap_alloc: true,
+            self_owned_identity: true,
             owned_fields: vec![UserOwnedField {
                 field_path: vec![0],
                 field_type: underlying,
@@ -288,7 +288,7 @@ pub(crate) fn compute_newtype_burden(
         _ => match classify_triviality(underlying, pool) {
             Triviality::Trivial => None,
             Triviality::NonTrivial | Triviality::Unknown => Some(UserBurdenSpec {
-                self_heap_alloc: true,
+                self_owned_identity: true,
                 owned_fields: vec![UserOwnedField {
                     field_path: vec![0],
                     field_type: underlying,

@@ -1,0 +1,32 @@
+@main () -> int = {
+    let base = [
+        [
+            "first original string deliberately exceeds the inline storage threshold",
+            "second original string deliberately exceeds the inline storage threshold",
+        ],
+        ["third original string deliberately exceeds the inline storage threshold"],
+    ];
+    let alias = base;
+    let replaced = base.updated(
+        key: 0,
+        value: ["replacement string deliberately exceeds the inline storage threshold"],
+    );
+    let pushed = alias.push(
+        value: ["pushed string deliberately exceeds the inline storage threshold"],
+    );
+
+    if alias.len() == 2
+    && alias[0][0] == "first original string deliberately exceeds the inline storage threshold"
+    && alias[0][1] == "second original string deliberately exceeds the inline storage threshold"
+    && alias[1][0] == "third original string deliberately exceeds the inline storage threshold"
+    && replaced.len() == 2
+    && replaced[0].len() == 1
+    && replaced[0][0] == "replacement string deliberately exceeds the inline storage threshold"
+    && replaced[1][0] == "third original string deliberately exceeds the inline storage threshold"
+    && pushed.len() == 3
+    && pushed[0][0] == "first original string deliberately exceeds the inline storage threshold"
+    && pushed[1][0] == "third original string deliberately exceeds the inline storage threshold"
+    && pushed[2][0] == "pushed string deliberately exceeds the inline storage threshold" then
+        67
+    else 101
+}

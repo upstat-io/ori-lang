@@ -23,7 +23,7 @@
 use std::sync::LazyLock;
 
 use crate::defs::BUILTIN_TYPES;
-use crate::{MethodDef, TypeDef, TypeTag};
+use crate::{MethodDef, RegisteredMethodId, TypeDef, TypeTag};
 
 /// Finds the [`TypeDef`] for a given [`TypeTag`].
 ///
@@ -82,6 +82,21 @@ pub fn find_method(tag: TypeTag, name: &str) -> Option<&'static MethodDef> {
     td.methods
         .iter()
         .find(|m| m.name == name && (tag != TypeTag::Iterator || !m.dei_only))
+}
+
+/// Resolve a method name once into its exact versioned registry identity.
+///
+/// Downstream artifacts carry this identity rather than repeating textual
+/// dispatch. The ID preserves the original receiver tag while indexing the
+/// receiver's base method table.
+#[must_use]
+pub fn find_method_id(tag: TypeTag, name: &str) -> Option<RegisteredMethodId> {
+    let method = find_method(tag, name)?;
+    let index = methods_for(tag)
+        .iter()
+        .position(|candidate| core::ptr::eq(candidate, method))?;
+    let receiver_arity = usize::from(method.kind == crate::MethodKind::Instance);
+    RegisteredMethodId::new(tag, index, method.params.len() + receiver_arity)
 }
 
 /// Returns `true` if the given type has a method with the specified name.

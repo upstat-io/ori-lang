@@ -82,11 +82,11 @@ Each lowering step eliminates abstraction: HIR removes syntactic sugar, MIR remo
 
 ## What Makes Ori's Architecture Distinctive
 
-Ori combines elements from several of these approaches. The result is a query-based pipeline with progressive lowering and a distinctive fork point where one canonical IR feeds two completely separate backends.
+Ori combines elements from several of these approaches. The result is a query-based pipeline with progressive lowering and a deliberate split between a representation-abstract semantic oracle and physical execution.
 
 ### Canonical IR as the Single Bridge
 
-The central architectural idea is a **sugar-free canonical IR** (`CanExpr`) that sits between type checking and execution. Both backends — the tree-walking interpreter and the LLVM native code generator — consume the same representation:
+The central architectural idea is a **sugar-free canonical IR** (`CanExpr`) that sits between type checking and execution. The tree-walking evaluator consumes it directly. AIMS is the sole logical ownership lowering from canonical meaning to the realized plan consumed by the VM and compiled backends; it is not the sole physical emitter:
 
 ```mermaid
 flowchart TB
@@ -98,8 +98,14 @@ flowchart TB
     (interpreter)"]
     E --> G["ori_arc
     (AIMS analysis)"]
-    G --> H["ori_llvm
-    (native binary)"]
+    G --> H["ExecutableProgram
+    (logical AIMS plan + stable facts)"]
+    H --> VP["VmLayoutPlan"]
+    H --> CP["CompiledLayoutPlan(TargetSpec)"]
+    VP --> I["ori_vm
+    (bytecode interpreter / VM JIT)"]
+    CP --> J["ori_llvm / native / direct WASM
+    (compiled targets)"]
 
     classDef frontend fill:#1e3a5f,stroke:#60a5fa,color:#dbeafe
     classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
@@ -109,30 +115,43 @@ flowchart TB
     class A,B,C,D frontend
     class E canon
     class F interpreter
-    class G,H native
+    class G,H,VP,CP,I,J native
 ```
 
-Canonicalization does three things that neither backend needs to repeat:
+Canonicalization does three things that no downstream consumer needs to repeat:
 
 1. **Desugaring** — Named calls become positional. Template literals become string concatenation. Spreads become method calls. Seven sugar forms eliminated entirely.
-2. **Pattern compilation** — Match expressions compile to decision trees via Maranget's ["Compiling Pattern Matching to Good Decision Trees"](http://moscova.inria.fr/~maranget/papers/ml05e-maranget.pdf) (2008). The interpreter walks the tree; LLVM emits `switch` terminators from it.
+2. **Pattern compilation** — Match expressions compile to decision trees via Maranget's ["Compiling Pattern Matching to Good Decision Trees"](http://moscova.inria.fr/~maranget/papers/ml05e-maranget.pdf) (2008). The evaluator walks the tree; ARC lowering emits its control flow once for every physical executor.
 3. **Constant folding** — Compile-time expressions pre-evaluated into a `ConstantPool`.
 
 Every `CanNode` carries its resolved type from type checking, so downstream passes never re-infer. And because `CanExpr` is a **separate Rust type** from `ExprKind`, sugar variants physically cannot appear in canonical IR — a backend that tries to match on `CallNamed` gets a compile error, not a runtime panic.
 
-This architecture means that adding a new syntactic sugar to Ori requires changes in exactly two places: the parser (to recognize it) and the canonicalizer (to desugar it). Neither backend needs to change. Conversely, adding a new backend requires no changes to the frontend — it simply consumes `CanExpr` like the existing backends do.
+- Adding new syntactic sugar changes the owning frontend transforms, not physical backends.
+- A new physical backend consumes the validated `ExecutableProgram` plus an
+  appropriate physical layout plan; only the representation-abstract evaluator
+  consumes `CanExpr` directly.
+- A backend never repeats type resolution, canonicalization, or AIMS.
 
-### AIMS (Lean 4 / Koka Inspired)
+### AIMS (backend-neutral ownership calculus)
 
-Ori uses automatic reference counting instead of a garbage collector or borrow checker. The `ori_arc` crate implements a research-grade AIMS (ARC Intelligent Memory System) pipeline inspired by [Lean 4](https://leanprover.github.io/)'s LCNF IR and Koka's [FBIP](https://www.microsoft.com/en-us/research/publication/fp2-fully-in-place-functional-programming/) (Functional-But-In-Place) analysis.
+Ori uses deterministic automatic ownership without exposing a source borrow
+checker. The historically named `ori_arc` crate implements AIMS, one
+kernel-governed logical calculus whose algorithmic shapes were influenced by
+[Lean 4](https://leanprover.github.io/)'s LCNF IR and Koka's
+[FBIP](https://www.microsoft.com/en-us/research/publication/fp2-fully-in-place-functional-programming/)
+analysis. The old “ARC Intelligent Memory System” expansion describes its
+first compiled counter realization, not an LLVM-specific or counter-mandatory
+architecture.
 
-**Three-way type classification** drives all RC decisions:
+**Three-way type classification** supplies logical ownership-event evidence.
+Physical layout and cleanup mechanisms are selected later by the VM or compiled
+layout plan:
 
-| Class | Meaning | RC Behavior |
-|-------|---------|-------------|
-| `Scalar` | Never heap-allocated (`int`, `bool`, `Option<int>`) | No RC operations |
-| `DefiniteRef` | Always heap-allocated (`str`, `[T]`, `{K: V}`) | Full RC tracking |
-| `PossibleRef` | Unknown at analysis time (unresolved generics) | Conservative RC |
+| Class | Logical meaning | AIMS behavior |
+|-------|-----------------|---------------|
+| `Scalar` | Carries no shared-identity owner credit (`int`, `bool`, `Option<int>`) | No retain/release events; exactly-once user drop remains independent |
+| `DefiniteRef` | Carries managed logical identity (`str`, `[T]`, `{K: V}`) | Track ownership, cleanup, COW, and reuse events |
+| `PossibleRef` | Identity is unknown at analysis time (unresolved generics) | Conservative logical ownership events |
 
 AIMS replaces traditional sequential analysis passes (borrow inference → liveness → RC insertion → reset/reuse → RC elimination) with a **unified 7-dimensional product lattice**. A single backward dataflow analysis (`analyze_function()`) converges on an `AimsState` per variable at each program point, encoding all memory decisions simultaneously:
 
@@ -170,7 +189,7 @@ flowchart TB
 
 A critical architectural constraint: Phase 2 runs **after** `merge_blocks()` (CFG cleanup), which invalidates position-keyed state maps. Post-merge steps access the `AimsStateMap` via `ArcVarId`-keyed lookups instead — this works because `merge_blocks()` preserves entry block IDs.
 
-The ARC IR is **backend-independent** — `ori_arc` has no LLVM dependency. The `arc_emitter` in `ori_llvm` translates ARC IR instructions to LLVM IR. This separation means the AIMS analysis can be tested, debugged, and evolved without touching codegen.
+The ARC IR is **backend-independent** — `ori_arc` has no LLVM or VM dependency. `ori_vm` compiles the realized artifact to bytecode, while `ori_llvm::arc_emitter` translates it to LLVM IR. Neither consumer may reclassify ownership. This separation lets AIMS be tested, debugged, and evolved independently of physical encoding.
 
 ### Capability-Based Effect System
 
@@ -263,15 +282,22 @@ flowchart TB
     (canonicalization)"]
     oric --> ori_fmt["ori_fmt
     (formatter)"]
+    oric --> ori_arc["ori_arc
+    (AIMS analysis)"]
+    oric --> ori_vm["ori_vm
+    (bytecode backend)"]
+    oric --> ori_llvm["ori_llvm
+    (LLVM backend)"]
 
     ori_eval --> ori_patterns["ori_patterns
     (values)"]
-    ori_canon --> ori_arc["ori_arc
-    (AIMS analysis)"]
     ori_canon --> ori_types["ori_types
     (type system)"]
-    ori_llvm["ori_llvm
-    (LLVM backend)"] --> ori_arc
+    ori_llvm --> ori_arc
+    ori_vm --> ori_arc
+    ori_vm --> ori_repr["ori_repr
+    (executable facts)"]
+    ori_llvm --> ori_repr
     ori_llvm --> ori_rt["ori_rt
     (AOT runtime)"]
     ori_arc --> ori_types
@@ -307,7 +333,7 @@ flowchart TB
 
 - **`ori_patterns` depends only on `ori_ir`** — the Value system is type-agnostic. Runtime values don't need to know about the type pool or inference engine.
 - **`ori_eval` depends on `ori_patterns`, not `ori_types`** — the interpreter doesn't type-check. It trusts that upstream phases have already validated the program.
-- **`ori_arc` has no LLVM dependency** — AIMS analysis is backend-independent. The analysis can be tested and evolved without an LLVM installation.
+- **`ori_arc` has no physical-backend dependency** — AIMS analysis is backend-independent. It can be tested and evolved without LLVM or the VM, and every physical consumer receives the same realized plan.
 - **Pure functions live in library crates; Salsa queries live only in `oric`** — the CLI orchestrator owns the incremental computation framework, keeping library crates independent of the build system.
 
 ## Design Principles

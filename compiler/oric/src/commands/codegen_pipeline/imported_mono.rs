@@ -28,7 +28,7 @@ pub(crate) type ImportedMonoFn = (ori_repr::monomorphize::MonoFunction, usize, o
 ///
 /// Threads as ONE parameter through `compile_to_llvm_with_imported_monos` /
 /// `compile_to_llvm_with_imports` → `run_codegen_pipeline` →
-/// `run_borrow_inference`. The merged pool stays a separate parameter — its
+/// the shared ARC batch lowerer. The merged pool stays a separate parameter — its
 /// `'ctx` lifetime ties to the LLVM context.
 #[cfg(feature = "llvm")]
 #[derive(Clone, Copy)]
@@ -116,6 +116,7 @@ pub(crate) fn build_imported_mono_functions(
                 // Use LOCAL name for call-site dispatch (the host ARC IR
                 // calls e.g. `ae`, not `assert_eq`, when using aliased imports).
                 original_name: instance.fn_name,
+                origin: ori_repr::monomorphize::MonoFunctionOrigin::Source,
                 sig: concrete_sig,
                 body_type_map,
                 instance_ids: vec![instance_id],

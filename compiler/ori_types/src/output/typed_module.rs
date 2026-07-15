@@ -5,6 +5,7 @@
 //! cross-module export sidecars (type descriptors, repr metadata).
 
 use ori_ir::{ExprId, Name, PatternKey, PatternResolution, ReprAttrKind, SparseSideTable};
+use ori_registry::burden::FnSym;
 
 use crate::pool::TypeDescriptor;
 use crate::registry::burden::UserBurdenSpec;
@@ -107,12 +108,58 @@ pub struct FormatSpecTypes {
 /// (e.g. `Box<T>` for `impl<T> Box<T>`); codegen keys mono-collection
 /// dispatch on it rather than on `sig.param_types.first()`, which is the
 /// first VALUE param — not the receiver — for a no-`self` associated function.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
+pub struct ImplMethodId {
+    /// Position of the owning impl block in `Module::impls`.
+    impl_index: usize,
+    /// Canonical source body. The impl index distinguishes one inherited
+    /// default body instantiated for multiple impl blocks.
+    body: ExprId,
+}
+
+impl ImplMethodId {
+    /// Construct the stable identity assigned by the type checker.
+    #[must_use]
+    pub const fn new(impl_index: usize, body: ExprId) -> Self {
+        Self { impl_index, body }
+    }
+
+    /// Owning impl block's module-local position.
+    #[must_use]
+    pub const fn impl_index(self) -> usize {
+        self.impl_index
+    }
+
+    /// Canonical source/default body identity.
+    #[must_use]
+    pub const fn body(self) -> ExprId {
+        self.body
+    }
+}
+
+/// Frontend-owned semantic role of an impl method.
+///
+/// Downstream consumers match this value, never the source spelling of the
+/// trait or method. `UserDrop` is minted only while the type checker has the
+/// exact resolved `Drop` trait identity in hand.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub enum ImplMethodRole {
+    /// Ordinary inherent or trait method.
+    Ordinary,
+    /// Body implementing one logical user-defined destruction operation.
+    UserDrop { logical: FnSym },
+}
+
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ImplSig {
+    /// Exact source/default method identity.
+    pub id: ImplMethodId,
     /// The impl block's receiver type.
     pub receiver: Idx,
     /// The method's name.
     pub name: Name,
+    /// Semantic role assigned by the type-checker authority.
+    pub role: ImplMethodRole,
     /// The method's resolved signature.
     pub sig: FunctionSig,
 }
@@ -181,6 +228,12 @@ pub struct TypedModule {
     /// separately from top-level functions) AND to key mono-collection dispatch
     /// on the owning receiver rather than the first value param.
     pub impl_sigs: Vec<ImplSig>,
+
+    /// Derived implementations accepted by validation and coherence.
+    ///
+    /// This is the only downstream authority for compiler-generated derive
+    /// bodies. Raw source attributes are not an executable inventory.
+    pub accepted_derives: Vec<super::AcceptedDerivedImpl>,
 
     /// Trait impl method identities: `(self_type_idx, method_name)`.
     ///
@@ -346,6 +399,7 @@ impl TypedModule {
             warnings: Vec::new(),
             pattern_resolutions: SparseSideTable::new(),
             impl_sigs: Vec::new(),
+            accepted_derives: Vec::new(),
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
             mono_dispatch_map: SparseSideTable::new(),

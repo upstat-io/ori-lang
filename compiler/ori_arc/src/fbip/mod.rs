@@ -1,17 +1,18 @@
 //! FBIP (Functional But In-Place) diagnostic analysis.
 //!
-//! After the ARC pipeline runs, this pass catalogs which constructor-reuse
-//! opportunities were achieved (`Reset`/`Reuse` pairs) and which were missed
-//! (`RcDec` of a value followed by a `Construct` of the same type, without
-//! reuse). This helps developers understand where heap allocation can be
-//! avoided and why.
+//! After logical ownership/reuse analysis runs, this pass catalogs which
+//! donor/recipient reuse opportunities the current transitional projection
+//! realized (`Reset`/`Reuse` pairs) and which it missed (a logical release
+//! followed by a compatible construction). This helps developers understand
+//! where a selected physical plan may avoid fresh storage and why.
 //!
 //! Historical influence: Koka's `CheckFBIP.hs` SHAPE — a read-only diagnostic pass that
-//! reports on the effectiveness of Perceus reference counting.
+//! reports on the effectiveness of Perceus reuse and ownership analysis.
 //!
 //! # Usage
 //!
-//! Run after the full ARC pipeline (insert → detect → expand → eliminate).
+//! Run after the full ownership pipeline (analyze → realize logical facts →
+//! project the current carrier).
 //! The report is purely informational and does not modify the IR.
 
 use ori_ir::Span;
@@ -24,9 +25,9 @@ use crate::ArcClassification;
 
 /// Summary of FBIP analysis for a single function.
 pub(crate) struct FbipReport {
-    /// Successfully paired Reset/Reuse — allocation is reused in-place.
+    /// Successfully paired donor/recipient in the current Reset/Reuse adapter.
     pub(crate) achieved: Vec<ReuseOpportunity>,
-    /// Unpaired `RcDec` + `Construct` that could have been reuse but weren't.
+    /// Unpaired logical release + `Construct` that could have been reused.
     pub(crate) missed: Vec<MissedReuse>,
     /// `true` if the function achieves full FBIP (all allocations reused).
     #[cfg_attr(not(test), expect(dead_code, reason = "read only in tests"))]
@@ -79,7 +80,7 @@ pub(crate) enum MissedReuseReason {
     IntermediateUse { use_span: Option<Span> },
     /// The `Construct` is not dominated by the `RcDec`.
     NoDominance,
-    /// The variable might be shared (refcount > 1), so reset is unsafe.
+    /// The variable may have competing logical owners, so reuse is unsafe.
     PossiblyShared,
     /// No matching Construct of the same type exists.
     NoMatchingConstruct,
@@ -103,20 +104,22 @@ pub(crate) fn analyze_fbip(
     dom_tree: &DominatorTree,
     refined: &[RefinedLiveness],
 ) -> FbipReport {
-    let mut achieved = Vec::new();
-    let mut missed = Vec::new();
+    let achieved = collect_achieved_reuse(func);
+    let (constructs, unpaired_decs) = collect_reuse_candidates(func, classifier);
+    let missed = classify_missed_reuse(&constructs, &unpaired_decs, dom_tree, refined);
+    let is_fbip = missed.is_empty() && !achieved.is_empty();
 
-    // Phase 1: Collect achieved reuse (expanded Reset/Reuse or IsShared patterns).
-    //
-    // After expand_reset_reuse, Reset/Reuse have been lowered to IsShared
-    // branches. But we can still detect the pattern by looking for Reset/Reuse
-    // in the pre-expansion IR, or for IsShared in the post-expansion IR.
-    //
-    // Since we run AFTER expansion, look for the IsShared pattern:
-    //   IsShared(var) → branch → fast path (reuse) / slow path (alloc)
-    //
-    // Also catch any un-expanded Reset/Reuse (should only happen if expansion
-    // was skipped in testing).
+    FbipReport {
+        achieved,
+        missed,
+        is_fbip,
+    }
+}
+
+type ReuseCandidate = (ArcBlockId, ArcVarId, Idx);
+
+fn collect_achieved_reuse(func: &ArcFunction) -> Vec<ReuseOpportunity> {
+    let mut achieved = Vec::new();
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Reuse { token, dst, ty, .. } = instr {
@@ -129,32 +132,23 @@ pub(crate) fn analyze_fbip(
             }
         }
     }
+    achieved
+}
 
-    // Phase 2: Collect unpaired RcDec instructions (potential missed reuse).
-    //
-    // An RcDec that is NOT part of a Reset/Reuse pattern is a missed
-    // opportunity IF there's a Construct of the same type somewhere
-    // reachable.
-    let mut all_constructs: Vec<(ArcBlockId, ArcVarId, Idx)> = Vec::new();
-    let mut unpaired_decs: Vec<(ArcBlockId, ArcVarId, Idx)> = Vec::new();
-
-    // Collect all Construct instructions.
+fn collect_reuse_candidates(
+    func: &ArcFunction,
+    classifier: &dyn ArcClassification,
+) -> (Vec<ReuseCandidate>, Vec<ReuseCandidate>) {
+    let mut constructs = Vec::new();
+    let mut unpaired_decs = Vec::new();
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Construct { dst, ty, .. } = instr {
-                if classifier.needs_rc(*ty) {
-                    all_constructs.push((block.id, *dst, *ty));
+                if classifier.has_managed_ownership_obligation(*ty) {
+                    constructs.push((block.id, *dst, *ty));
                 }
             }
         }
-    }
-
-    // Collect RcDec that are not preceded by IsShared (i.e., not part of reuse).
-    //
-    // Heuristic: an RcDec is "unpaired" if the variable was never tested
-    // with IsShared in the same block. This isn't perfect but catches the
-    // common case.
-    for block in &func.blocks {
         let is_shared_vars: rustc_hash::FxHashSet<ArcVarId> = block
             .body
             .iter()
@@ -166,17 +160,27 @@ pub(crate) fn analyze_fbip(
 
         for instr in &block.body {
             if let ArcInstr::RcDec { var, .. } = instr {
-                if !is_shared_vars.contains(var) && classifier.needs_rc(func.var_type(*var)) {
+                if !is_shared_vars.contains(var)
+                    && classifier.has_managed_ownership_obligation(func.var_type(*var))
+                {
                     unpaired_decs.push((block.id, *var, func.var_type(*var)));
                 }
             }
         }
     }
+    (constructs, unpaired_decs)
+}
 
-    // Phase 3: Match unpaired RcDec against Constructs.
-    for &(dec_block, dec_var, dec_type) in &unpaired_decs {
+fn classify_missed_reuse(
+    constructs: &[ReuseCandidate],
+    unpaired_decs: &[ReuseCandidate],
+    dom_tree: &DominatorTree,
+    refined: &[RefinedLiveness],
+) -> Vec<MissedReuse> {
+    let mut missed = Vec::new();
+    for &(dec_block, dec_var, dec_type) in unpaired_decs {
         // Find a Construct of the same type in a dominated block.
-        let matching = all_constructs.iter().find(|&&(con_block, _, con_type)| {
+        let matching = constructs.iter().find(|&&(con_block, _, con_type)| {
             con_type == dec_type && dom_tree.dominates(dec_block, con_block)
         });
 
@@ -202,7 +206,7 @@ pub(crate) fn analyze_fbip(
             });
         } else {
             // Check if there's a type mismatch or no Construct at all.
-            let type_mismatch = all_constructs
+            let type_mismatch = constructs
                 .iter()
                 .find(|&&(con_block, _, _)| dom_tree.dominates(dec_block, con_block));
 
@@ -219,7 +223,7 @@ pub(crate) fn analyze_fbip(
                 });
             } else {
                 // No dominated Construct at all — check for non-dominated ones.
-                let any_construct = all_constructs.iter().find(|&&(_, _, t)| t == dec_type);
+                let any_construct = constructs.iter().find(|&&(_, _, t)| t == dec_type);
 
                 let reason = if any_construct.is_some() {
                     MissedReuseReason::NoDominance
@@ -236,14 +240,7 @@ pub(crate) fn analyze_fbip(
             }
         }
     }
-
-    let is_fbip = missed.is_empty() && !achieved.is_empty();
-
-    FbipReport {
-        achieved,
-        missed,
-        is_fbip,
-    }
+    missed
 }
 
 /// Check FBIP enforcement for a post-pipeline ARC function.

@@ -33,10 +33,6 @@ pub(crate) enum ConstructorInfo {
 }
 
 /// Infer the type of an identifier reference.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive identifier resolution: env, constructors, builtins, and prelude functions"
-)]
 pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) -> Idx {
     // 1. Environment lookup (functions, parameters, let bindings)
     if let Some(scheme) = engine.env().lookup(name) {
@@ -52,6 +48,13 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
         if let Some(self_ty) = engine.self_type() {
             return self_ty;
         }
+    }
+
+    // Module constructors shadow universe builtins. In particular, a local
+    // sum-type variant named `Error` must resolve before the builtin
+    // `Error(str) -> Error` constructor below.
+    if let Some(ctor) = resolve_variant_constructor_info(engine, name) {
+        return infer_constructor(engine, ctor);
     }
 
     if let Some(s) = name_str {
@@ -111,66 +114,7 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
     // 6. TypeRegistry: newtype constructors, enum variant constructors
     //    Extract data with immutable borrow, then release before pool_mut
     if let Some(ctor) = resolve_type_constructor_info(engine, name) {
-        return match ctor {
-            ConstructorInfo::Newtype {
-                underlying,
-                type_idx,
-            } => engine.pool_mut().function(&[underlying], type_idx),
-            ConstructorInfo::UnitVariant {
-                enum_idx,
-                enum_name,
-                type_params,
-            } => {
-                if type_params.is_empty() {
-                    // Non-generic enum: return bare idx
-                    enum_idx
-                } else {
-                    // Generic enum unit variant: instantiate fresh vars
-                    // e.g., `MyNone` becomes `MyOption<$fresh>`
-                    let fresh_vars: Vec<Idx> = type_params
-                        .iter()
-                        .map(|_| engine.pool_mut().fresh_var())
-                        .collect();
-                    engine.pool_mut().applied(enum_name, &fresh_vars)
-                }
-            }
-            ConstructorInfo::TupleVariant {
-                field_types,
-                enum_idx,
-                enum_name,
-                type_params,
-            } => {
-                if type_params.is_empty() {
-                    // Non-generic enum: use field types directly
-                    engine.pool_mut().function(&field_types, enum_idx)
-                } else {
-                    // Generic enum: instantiate fresh type variables for type parameters
-                    // Create fresh vars for each type parameter
-                    let fresh_vars: Vec<Idx> = type_params
-                        .iter()
-                        .map(|_| engine.pool_mut().fresh_var())
-                        .collect();
-
-                    // Build substitution map: type_param_name -> fresh_var
-                    let subst_map: Vec<(Name, Idx)> = type_params
-                        .into_iter()
-                        .zip(fresh_vars.iter().copied())
-                        .collect();
-
-                    // Substitute type params in field types
-                    let substituted_fields: Vec<Idx> = field_types
-                        .iter()
-                        .map(|&ft| substitute_type_params_with_map(engine, ft, &subst_map))
-                        .collect();
-
-                    // Build the return type: Applied(enum_name, fresh_vars) for generics
-                    // This creates e.g. MyResult<$0, $1> for a generic MyResult<T, E>
-                    let ret_type = engine.pool_mut().applied(enum_name, &fresh_vars);
-
-                    engine.pool_mut().function(&substituted_fields, ret_type)
-                }
-            }
-        };
+        return infer_constructor(engine, ctor);
     }
 
     // 7. Unknown identifier — find similar names for typo suggestions.
@@ -179,6 +123,87 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
         .find_similar(name, 3, |n| engine.lookup_name(n));
     engine.push_error(TypeCheckError::unknown_ident(span, name, similar));
     Idx::ERROR
+}
+
+fn infer_constructor(engine: &mut InferEngine<'_>, ctor: ConstructorInfo) -> Idx {
+    match ctor {
+        ConstructorInfo::Newtype {
+            underlying,
+            type_idx,
+        } => engine.pool_mut().function(&[underlying], type_idx),
+        ConstructorInfo::UnitVariant {
+            enum_idx,
+            enum_name,
+            type_params,
+        } => {
+            if type_params.is_empty() {
+                return enum_idx;
+            }
+
+            let fresh_vars: Vec<Idx> = type_params
+                .iter()
+                .map(|_| engine.pool_mut().fresh_var())
+                .collect();
+            engine.pool_mut().applied(enum_name, &fresh_vars)
+        }
+        ConstructorInfo::TupleVariant {
+            field_types,
+            enum_idx,
+            enum_name,
+            type_params,
+        } => {
+            if type_params.is_empty() {
+                return engine.pool_mut().function(&field_types, enum_idx);
+            }
+
+            let fresh_vars: Vec<Idx> = type_params
+                .iter()
+                .map(|_| engine.pool_mut().fresh_var())
+                .collect();
+            let subst_map: Vec<(Name, Idx)> = type_params
+                .into_iter()
+                .zip(fresh_vars.iter().copied())
+                .collect();
+            let substituted_fields: Vec<Idx> = field_types
+                .iter()
+                .map(|&field| substitute_type_params_with_map(engine, field, &subst_map))
+                .collect();
+            let return_type = engine.pool_mut().applied(enum_name, &fresh_vars);
+
+            engine.pool_mut().function(&substituted_fields, return_type)
+        }
+    }
+}
+
+fn resolve_variant_constructor_info(
+    engine: &InferEngine<'_>,
+    name: Name,
+) -> Option<ConstructorInfo> {
+    let registry = engine.type_registry()?;
+    let (type_entry, variant_def) = registry.lookup_variant_def(name)?;
+    let enum_idx = type_entry.idx;
+    let enum_name = type_entry.name;
+    let type_params = type_entry.type_params.clone();
+
+    Some(match &variant_def.fields {
+        VariantFields::Unit => ConstructorInfo::UnitVariant {
+            enum_idx,
+            enum_name,
+            type_params,
+        },
+        VariantFields::Tuple(types) => ConstructorInfo::TupleVariant {
+            field_types: types.clone(),
+            enum_idx,
+            enum_name,
+            type_params,
+        },
+        VariantFields::Record(fields) => ConstructorInfo::TupleVariant {
+            field_types: fields.iter().map(|field| field.ty).collect(),
+            enum_idx,
+            enum_name,
+            type_params,
+        },
+    })
 }
 
 /// Look up a name in the `TypeRegistry` to find constructor info.
@@ -213,35 +238,7 @@ pub(crate) fn resolve_type_constructor_info(
         };
     }
 
-    // Check if name is an enum variant constructor
-    let (type_entry, variant_def) = registry.lookup_variant_def(name)?;
-    let enum_idx = type_entry.idx;
-    let enum_name = type_entry.name;
-    let type_params = type_entry.type_params.clone();
-
-    Some(match &variant_def.fields {
-        VariantFields::Unit => ConstructorInfo::UnitVariant {
-            enum_idx,
-            enum_name,
-            type_params,
-        },
-        VariantFields::Tuple(types) => ConstructorInfo::TupleVariant {
-            field_types: types.clone(),
-            enum_idx,
-            enum_name,
-            type_params,
-        },
-        VariantFields::Record(fields) => {
-            // Record variants can be constructed with positional args
-            let field_types: Vec<Idx> = fields.iter().map(|f| f.ty).collect();
-            ConstructorInfo::TupleVariant {
-                field_types,
-                enum_idx,
-                enum_name,
-                type_params,
-            }
-        }
-    })
+    resolve_variant_constructor_info(engine, name)
 }
 
 /// Infer the type of a function reference (@name).

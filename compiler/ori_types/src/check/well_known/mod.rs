@@ -73,6 +73,10 @@ pub(crate) struct WellKnownNames {
     pub hashable: Name,
     pub printable: Name,
     pub formattable: Name,
+    /// Language-defined custom-destruction trait.
+    pub drop_trait: Name,
+    /// Sole operation of the language-defined custom-destruction trait.
+    pub drop_method: Name,
     pub into_method: Name,
 
     // FFI C type names paired with their `CAbiKind`, interned once from the
@@ -195,6 +199,8 @@ impl WellKnownNames {
             hashable,
             printable,
             formattable,
+            drop_trait: interner.intern("Drop"),
+            drop_method: interner.intern("drop"),
             ffi_cabi: ori_ir::CAbiKind::ALL.map(|k| (interner.intern(k.c_name()), k)),
             into_method: interner.intern("into"),
             self_kw: interner.intern("self"),

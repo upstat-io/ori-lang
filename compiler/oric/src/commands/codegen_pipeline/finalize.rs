@@ -15,8 +15,6 @@ use ori_llvm::inkwell::module::Module;
 use ori_llvm::SimpleCx;
 #[cfg(feature = "llvm")]
 use ori_types::Pool;
-#[cfg(feature = "llvm")]
-use rustc_hash::FxHashMap;
 
 /// Emit ARC-IR phase dumps when the corresponding env-var gates are set.
 ///
@@ -25,23 +23,13 @@ use rustc_hash::FxHashMap;
 /// for both so the caller doesn't carry the gating noise inline.
 #[cfg(feature = "llvm")]
 pub(super) fn dump_arc_phases(
-    arc_cache: &FxHashMap<ori_ir::Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
-    classifier: &ori_arc::ArcClassifier,
-    pool: &Pool,
+    executable: &ori_repr::executable::ExecutableProgram,
     interner: &StringInterner,
-    type_registry: &ori_types::TypeRegistry,
     source_path: &str,
 ) {
-    crate::dump_orchestrator::dump_arc(
-        arc_cache,
-        classifier,
-        pool,
-        interner,
-        type_registry,
-        source_path,
-    );
+    crate::dump_orchestrator::dump_arc(executable, interner, source_path);
     crate::dbg_do!(crate::debug_flags::ORI_EMIT_ARC_DOT, {
-        crate::arc_dot::emit_arc_dot(arc_cache, classifier, pool, interner, type_registry);
+        crate::arc_dot::emit_arc_dot(executable.functions(), executable.pool(), interner);
     });
 }
 

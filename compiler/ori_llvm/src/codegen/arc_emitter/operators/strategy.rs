@@ -1,12 +1,21 @@
 //! LLVM instruction-family emitters for shared primitive strategies.
 
 use ori_ir::BinaryOp;
-use ori_registry::TypeTag;
-use ori_types::Idx;
+use ori_registry::RuntimeOperator;
 
 use super::super::builtins;
 use super::super::ArcIrEmitter;
 use crate::codegen::value_id::ValueId;
+
+const fn native_runtime_symbol(runtime: RuntimeOperator) -> Option<&'static str> {
+    match runtime {
+        RuntimeOperator::StringConcat => Some("ori_str_concat"),
+        RuntimeOperator::StringEqual => Some("ori_str_eq"),
+        RuntimeOperator::StringNotEqual => Some("ori_str_ne"),
+        RuntimeOperator::StringCompare => Some("ori_str_compare"),
+        RuntimeOperator::ListConcat => None,
+    }
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a binary op using signed integer LLVM instructions.
@@ -70,7 +79,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::Gt => self.builder.fcmp_ogt(lhs, rhs, "gt"),
             BinaryOp::LtEq => self.builder.fcmp_ole(lhs, rhs, "le"),
             BinaryOp::GtEq => self.builder.fcmp_oge(lhs, rhs, "ge"),
-            // Registry assigns FloatInstr only to the arms above for float;
+            // Registry assigns FloatingPoint only to the arms above for float;
             // every other op is Unsupported or never reaches strategy lookup.
             BinaryOp::FloorDiv
             | BinaryOp::MatMul
@@ -106,8 +115,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::GtEq => self.builder.icmp_uge(lhs, rhs, "ge"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            // UnsignedCmp covers byte/char/bool comparison plus And/Or only;
-            // arithmetic/bitwise on those types uses IntInstr or Unsupported.
+            // UnsignedComparison covers byte/char/bool comparison plus And/Or only;
+            // arithmetic/bitwise on those types uses SignedInteger or Unsupported.
             BinaryOp::Add
             | BinaryOp::Sub
             | BinaryOp::Mul
@@ -129,7 +138,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a binary op using boolean logic instructions.
     ///
     /// Handles `bool` equality and logical operators. Ordering on `bool`
-    /// uses [`OpStrategy::UnsignedCmp`] instead.
+    /// uses [`OpStrategy::UnsignedComparison`] instead.
     pub(in crate::codegen::arc_emitter) fn emit_bool_binary_op(
         &mut self,
         op: BinaryOp,
@@ -141,8 +150,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::NotEq => self.builder.icmp_ne(lhs, rhs, "ne"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            // BoolLogic covers Eq/NotEq/And/Or only; bool ordering routes
-            // through UnsignedCmp and everything else is Unsupported.
+            // BooleanLogic covers Eq/NotEq/And/Or only; bool ordering routes
+            // through UnsignedComparison and everything else is Unsupported.
             BinaryOp::Add
             | BinaryOp::Sub
             | BinaryOp::Mul
@@ -172,51 +181,43 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `Ordering` (i8) and is post-processed into a bool predicate.
     pub(in crate::codegen::arc_emitter) fn emit_runtime_binary_op(
         &mut self,
+        runtime: RuntimeOperator,
         op: BinaryOp,
         lhs: ValueId,
         rhs: ValueId,
     ) -> ValueId {
-        match op {
-            BinaryOp::Add => self.emit_str_runtime_call("ori_str_concat", lhs, rhs, true),
-            BinaryOp::Eq => self.emit_str_runtime_call("ori_str_eq", lhs, rhs, false),
-            BinaryOp::NotEq => self.emit_str_runtime_call("ori_str_ne", lhs, rhs, false),
-            BinaryOp::Lt => self
+        match (runtime, op) {
+            (RuntimeOperator::StringConcat, BinaryOp::Add) => self.emit_str_runtime_call(
+                native_runtime_symbol(runtime)
+                    .expect("string runtime identity has a native ABI symbol"),
+                lhs,
+                rhs,
+                true,
+            ),
+            (RuntimeOperator::StringEqual, BinaryOp::Eq)
+            | (RuntimeOperator::StringNotEqual, BinaryOp::NotEq) => self.emit_str_runtime_call(
+                native_runtime_symbol(runtime)
+                    .expect("string runtime identity has a native ABI symbol"),
+                lhs,
+                rhs,
+                false,
+            ),
+            (RuntimeOperator::StringCompare, BinaryOp::Lt) => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Less)
                 .expect("str Lt comparison should always succeed"),
-            BinaryOp::Gt => self
+            (RuntimeOperator::StringCompare, BinaryOp::Gt) => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Greater)
                 .expect("str Gt comparison should always succeed"),
-            BinaryOp::LtEq => self
+            (RuntimeOperator::StringCompare, BinaryOp::LtEq) => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::LessOrEqual)
                 .expect("str LtEq comparison should always succeed"),
-            BinaryOp::GtEq => self
+            (RuntimeOperator::StringCompare, BinaryOp::GtEq) => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::GreaterOrEqual)
                 .expect("str GtEq comparison should always succeed"),
-            // RuntimeCall exists only for str concat/comparison in the
-            // registry; no other op carries a RuntimeCall strategy.
-            BinaryOp::Sub
-            | BinaryOp::Mul
-            | BinaryOp::Div
-            | BinaryOp::Mod
-            | BinaryOp::FloorDiv
-            | BinaryOp::MatMul
-            | BinaryOp::And
-            | BinaryOp::Or
-            | BinaryOp::BitAnd
-            | BinaryOp::BitOr
-            | BinaryOp::BitXor
-            | BinaryOp::Shl
-            | BinaryOp::Shr
-            | BinaryOp::Range
-            | BinaryOp::RangeInclusive
-            | BinaryOp::Coalesce => unreachable!("unsupported runtime binary op {op:?}"),
+            (RuntimeOperator::ListConcat, BinaryOp::Add) => {
+                unreachable!("list concat is emitted by the ownership-aware operator projection")
+            }
+            _ => unreachable!("runtime operation {runtime:?} does not implement {op:?}"),
         }
-    }
-
-    // Registry bridge
-
-    /// Map a pool type to its shared builtin registry identity.
-    pub(in crate::codegen::arc_emitter) fn idx_to_type_tag(&self, idx: Idx) -> Option<TypeTag> {
-        self.pool.builtin_type_tag(idx)
     }
 }

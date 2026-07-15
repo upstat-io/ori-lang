@@ -59,6 +59,8 @@ related_journeys:
 
 # Journey 4: "I am a struct"
 
+> **Historical architecture note (2026-07-14):** This journey preserves the LLVM IR and scores observed on 2026-03-20. AIMS supplies backend-neutral ownership, access, effect, and disjointness facts. `nounwind`, `memory(...)`, `nonnull`, `dereferenceable`, ABI passing, and byte offsets are LLVM plus `CompiledLayoutPlan` projections. The VM uses `VmLayoutPlan`, and native, compiled-WASM, and JIT projections consume the same executable facts. The LLVM-local scans described below are historical gaps, not AIMS authority.
+
 ## Source
 
 ```ori
@@ -486,8 +488,8 @@ All 16 instructions are justified.
 **Compliance**: 9/9 applicable attributes correct = 100.0%
 
 All applicable attributes are present:
-- `@area`: fastcc (internal function), nounwind (all callees nounwind via fixed-point analysis), uwtable (definition), noundef on return and ptr param, `nonnull dereferenceable(32)` on ptr param (AIMS Section 01 annotations -- guarantees pointer validity and enables LLVM null-check elimination), `memory(argmem: read, inaccessiblemem: read, errnomem: read)` (read-only access)
-- `@_ori_main`: nounwind (fixed-point: area is nounwind), uwtable, noundef on return. Uses C calling convention correctly (entry point).
+- `@area`: fastcc (internal function), nounwind (historically from the LLVM-local fixed point), uwtable (definition), noundef on return and ptr param, `nonnull dereferenceable(32)` on the pointer parameter, and a read-only memory attribute. AIMS can prove neutral access and effect facts; `CompiledLayoutPlan` supplies the 32-byte extent, and LLVM projects both into attributes.
+- `@_ori_main`: nounwind (historically from the local fixed point), uwtable, noundef on return. Uses C calling convention correctly (entry point). Production `nounwind` comes from the bound AIMS effect closure.
 - `@main` wrapper: nounwind, uwtable, noundef on return. Includes `ori_check_leaks` integration for RC leak detection.
 - `@ori_panic_cstr`: cold + noreturn (panic path)
 - `@ori_check_leaks`: nounwind (declared external)
@@ -737,7 +739,7 @@ Point `p` is used in two contexts: field access (`p.x`, `p.y`) and as a field of
 ### NOTE-2: Excellent attribute coverage on @area
 
 **Location**: @area function declaration
-**Impact**: Positive -- `memory(argmem: read, inaccessiblemem: read, errnomem: read)` precisely communicates that @area only reads from its pointer argument. The `nonnull dereferenceable(32)` annotations on the ptr parameter (from AIMS Section 01) guarantee pointer validity and enable LLVM to eliminate null checks and speculate loads. Combined with `nounwind`, `fastcc`, `uwtable`, and `noundef`, this gives LLVM maximum optimization latitude. This is the first journey to exercise struct pointer annotations.
+**Impact**: Historical positive observation -- the captured attributes communicate read-only argument access and a valid 32-byte pointer region. The logical access/disjointness proof belongs to AIMS; the 32-byte extent and pointer ABI belong to `CompiledLayoutPlan`; LLVM combines them mechanically. `nounwind` and memory attributes additionally require complete bound effect facts. This is the first journey to exercise the compiled struct-attribute projection.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ## Codegen Quality Score
@@ -770,4 +772,6 @@ Journey 4 achieves a perfect 10.0/10 score. Struct types are correctly lowered t
 | memory(read) | N/A | J4 | NEW |
 | nonnull + dereferenceable | N/A | J4 | NEW |
 
-Journey 4 introduces struct-specific codegen patterns not seen in J1-J3: aggregate type layout, GEP-based field access, by-reference passing for large structs, and the `memory(read)` function attribute. The `nonnull dereferenceable(32)` annotations on struct pointer parameters (from AIMS Section 01) are first exercised here, enabling LLVM to eliminate null checks and speculate loads. The attribute compliance is 100%, reflecting the compiler's post-hoc nounwind analysis, memory attribute inference, and pointer validity annotations being applied correctly to struct-accessing functions.
+Journey 4 introduces struct-specific LLVM patterns not seen in J1-J3: aggregate layout, GEP-based field access, by-reference passing for large structs, and a `memory(read)` projection. The captured `nonnull dereferenceable(32)` attributes enabled LLVM to eliminate null checks and speculate loads.
+
+The dated attribute score records the output of post-hoc LLVM-local analysis. Production architecture replaces semantic re-analysis with validation of AIMS facts and uses `CompiledLayoutPlan` only for the physical pointer extent and ABI.

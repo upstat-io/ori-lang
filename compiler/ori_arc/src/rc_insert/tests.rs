@@ -33,10 +33,10 @@ fn make_sig(ownerships: &[Ownership]) -> AnnotatedSig {
     }
 }
 
-// Resolver-level tests
+// Residual indirect-call ABI tests
 
 #[test]
-fn test_annotate_apply_indirect_from_partial_apply() {
+fn indirect_call_is_borrowed_even_when_partial_apply_target_is_known() {
     let interner = StringInterner::new();
     let pool = Pool::new();
     let builtins = BuiltinOwnershipSets::empty();
@@ -77,9 +77,9 @@ fn test_annotate_apply_indirect_from_partial_apply() {
 
     super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
-    // ApplyIndirect should have user-arg ownership = [Owned] (from sig param[1]).
+    // Target ownership is adapter-local; the residual caller ABI stays borrowed.
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[0].body[1] {
-        assert_eq!(arg_ownership, &[ArgOwnership::Owned]);
+        assert_eq!(arg_ownership, &[ArgOwnership::Borrowed]);
     } else {
         panic!("expected ApplyIndirect");
     }
@@ -122,7 +122,7 @@ fn test_annotate_apply_indirect_opaque_closure() {
         assert_eq!(
             arg_ownership,
             &[ArgOwnership::Borrowed],
-            "opaque closure must default to all-Borrowed"
+            "opaque closure must use the same all-Borrowed residual ABI"
         );
     } else {
         panic!("expected ApplyIndirect");
@@ -130,7 +130,7 @@ fn test_annotate_apply_indirect_opaque_closure() {
 }
 
 #[test]
-fn test_annotate_invoke_indirect() {
+fn invoke_indirect_uses_borrowed_residual_abi() {
     let interner = StringInterner::new();
     let pool = Pool::new();
     let builtins = BuiltinOwnershipSets::empty();
@@ -166,14 +166,14 @@ fn test_annotate_invoke_indirect() {
     super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcTerminator::InvokeIndirect { arg_ownership, .. } = &func.blocks[0].terminator {
-        assert_eq!(arg_ownership, &[ArgOwnership::Owned]);
+        assert_eq!(arg_ownership, &[ArgOwnership::Borrowed]);
     } else {
         panic!("expected InvokeIndirect");
     }
 }
 
 #[test]
-fn test_annotate_apply_indirect_with_captures_offset() {
+fn indirect_call_does_not_project_target_ownership_through_capture_offset() {
     let interner = StringInterner::new();
     let pool = Pool::new();
     let builtins = BuiltinOwnershipSets::empty();
@@ -181,8 +181,8 @@ fn test_annotate_apply_indirect_with_captures_offset() {
     let target_name = interner.intern("target");
     let func_name = interner.intern("caller");
 
-    // PartialApply with 2 captures, sig has 4 params [Own, Borrow, Own, Borrow]
-    // User args see params[2..4] = [Own, Borrow]
+    // PartialApply with 2 captures, sig has 4 params [Own, Borrow, Own, Borrow].
+    // Target-specific ownership belongs to the adapter, not the caller.
     let blocks = vec![ArcBlock {
         id: ArcBlockId::new(0),
         params: vec![],
@@ -223,8 +223,8 @@ fn test_annotate_apply_indirect_with_captures_offset() {
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[0].body[1] {
         assert_eq!(
             arg_ownership,
-            &[ArgOwnership::Owned, ArgOwnership::Borrowed],
-            "user args should get ownership from sig params [2..4], not [0..2]"
+            &[ArgOwnership::Borrowed, ArgOwnership::Borrowed],
+            "all explicit indirect-call arguments use the borrowed residual ABI"
         );
     } else {
         panic!("expected ApplyIndirect");
@@ -232,7 +232,7 @@ fn test_annotate_apply_indirect_with_captures_offset() {
 }
 
 #[test]
-fn test_annotate_apply_indirect_zero_capture_function_ref() {
+fn zero_capture_function_ref_still_uses_borrowed_residual_abi() {
     let interner = StringInterner::new();
     let pool = Pool::new();
     let builtins = BuiltinOwnershipSets::empty();
@@ -240,8 +240,8 @@ fn test_annotate_apply_indirect_zero_capture_function_ref() {
     let target_name = interner.intern("func_ref");
     let func_name = interner.intern("caller");
 
-    // Zero-capture PartialApply = function reference.
-    // Should annotate exactly like a direct call.
+    // A zero-capture function reference remains an indirect call. Its direct
+    // fast path is legal only when the shared adapter plan needs no retains.
     let blocks = vec![ArcBlock {
         id: ArcBlockId::new(0),
         params: vec![],
@@ -275,17 +275,14 @@ fn test_annotate_apply_indirect_zero_capture_function_ref() {
     super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[0].body[1] {
-        assert_eq!(
-            arg_ownership,
-            &[ArgOwnership::Owned, ArgOwnership::Borrowed]
-        );
+        assert_eq!(arg_ownership, &[ArgOwnership::Borrowed; 2]);
     } else {
         panic!("expected ApplyIndirect");
     }
 }
 
 #[test]
-fn test_annotate_apply_indirect_alias_across_blocks() {
+fn indirect_call_alias_across_blocks_does_not_change_borrowed_abi() {
     let interner = StringInterner::new();
     let pool = Pool::new();
     let builtins = BuiltinOwnershipSets::empty();
@@ -344,8 +341,8 @@ fn test_annotate_apply_indirect_alias_across_blocks() {
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[1].body[0] {
         assert_eq!(
             arg_ownership,
-            &[ArgOwnership::Owned],
-            "should resolve through block param + alias to PartialApply"
+            &[ArgOwnership::Borrowed],
+            "SSA provenance must not change the residual closure-call ABI"
         );
     } else {
         panic!("expected ApplyIndirect");
@@ -430,7 +427,7 @@ fn test_annotate_apply_indirect_merge_conflict_defaults_borrowed() {
 }
 
 #[test]
-fn test_annotate_apply_indirect_loop_carried_block_param() {
+fn loop_carried_indirect_call_uses_borrowed_abi_without_resolution() {
     let interner = StringInterner::new();
     let pool = Pool::new();
     let builtins = BuiltinOwnershipSets::empty();
@@ -480,10 +477,9 @@ fn test_annotate_apply_indirect_loop_carried_block_param() {
 
     super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
-    // Must not hang. The cycle should resolve because both predecessors
-    // point to the same PartialApply target.
+    // No provenance walk is needed, so the cycle cannot affect ownership.
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[1].body[0] {
-        assert_eq!(arg_ownership, &[ArgOwnership::Owned]);
+        assert_eq!(arg_ownership, &[ArgOwnership::Borrowed]);
     } else {
         panic!("expected ApplyIndirect");
     }
@@ -649,8 +645,7 @@ fn test_annotate_apply_indirect_builtin_partial_apply() {
     }
 }
 
-/// Regression: same-name builtins with different-typed captures
-/// must fall back (type-qualified overrides can diverge).
+/// Different capture types do not affect the uniform residual ABI.
 #[test]
 fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
     let interner = StringInterner::new();
@@ -729,17 +724,16 @@ fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
         assert_eq!(
             arg_ownership,
             &[ArgOwnership::Borrowed],
-            "different capture types must fall back to Borrowed"
+            "capture types must not affect the borrowed residual ABI"
         );
     } else {
         panic!("expected ApplyIndirect");
     }
 }
 
-/// Regression: same-name builtins with same-typed captures
-/// must merge successfully (type comparison allows it).
+/// Same-typed capture provenance does not specialize residual ownership.
 #[test]
-fn test_annotate_apply_indirect_same_capture_types_merges() {
+fn same_capture_types_do_not_specialize_indirect_ownership() {
     let interner = StringInterner::new();
     let pool = Pool::new();
     let builtins = BuiltinOwnershipSets::empty();
@@ -802,19 +796,17 @@ fn test_annotate_apply_indirect_same_capture_types_merges() {
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[2].body[0] {
         assert_eq!(
             arg_ownership,
-            &[ArgOwnership::Owned],
-            "same capture types must merge"
+            &[ArgOwnership::Borrowed],
+            "SSA merge facts are devirtualization-only, not ownership policy"
         );
     } else {
         panic!("expected ApplyIndirect");
     }
 }
 
-/// Regression: cross-instantiation merge: `List<int>` vs
-/// `List<str>` both resolve to `Tag::List`, so the consuming override
-/// fires identically → merge must succeed (tag-based comparison).
+/// Cross-instantiation closure provenance does not specialize ownership.
 #[test]
-fn test_annotate_apply_indirect_cross_instantiation_same_tag_merges() {
+fn cross_instantiation_closures_keep_borrowed_indirect_ownership() {
     let interner = StringInterner::new();
     let mut pool = Pool::new();
 
@@ -885,19 +877,17 @@ fn test_annotate_apply_indirect_cross_instantiation_same_tag_merges() {
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[2].body[0] {
         assert_eq!(
             arg_ownership,
-            &[ArgOwnership::Owned],
-            "List<int> vs List<str> share Tag::List → merge must succeed"
+            &[ArgOwnership::Borrowed],
+            "type-tag agreement must not change the borrowed residual ABI"
         );
     } else {
         panic!("expected ApplyIndirect");
     }
 }
 
-/// Regression: diamond CFG where two predecessors reach the
-/// same `PartialApply` through different alias paths must still resolve
-/// (not fall back to opaque due to shared visited set).
+/// Diamond CFG provenance does not participate in ownership policy.
 #[test]
-fn test_annotate_apply_indirect_diamond_cfg_same_origin() {
+fn diamond_cfg_closure_provenance_keeps_borrowed_abi() {
     let interner = StringInterner::new();
     let pool = Pool::new();
     let builtins = BuiltinOwnershipSets::empty();
@@ -984,8 +974,8 @@ fn test_annotate_apply_indirect_diamond_cfg_same_origin() {
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[3].body[0] {
         assert_eq!(
             arg_ownership,
-            &[ArgOwnership::Owned],
-            "diamond CFG must resolve to same origin"
+            &[ArgOwnership::Borrowed],
+            "CFG provenance must not change the residual closure-call ABI"
         );
     } else {
         panic!("expected ApplyIndirect");

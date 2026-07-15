@@ -190,7 +190,7 @@ pub use builtin_type::BuiltinType;
 pub use cabi::CAbiKind;
 pub use comment::{Comment, CommentKind, CommentList};
 pub use derives::strategy::{CombineOp, DeriveStrategy, FieldOp, FormatOpen, StructBody, SumBody};
-pub use derives::{DerivedMethodInfo, DerivedMethodShape, DerivedTrait};
+pub use derives::{DerivedImplId, DerivedMethodInfo, DerivedMethodShape, DerivedTrait};
 pub use expr_id::{
     BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, MatchPatternId,
     MatchPatternRange, ParsedTypeId, ParsedTypeRange, StmtId, StmtRange,

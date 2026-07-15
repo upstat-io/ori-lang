@@ -1,4 +1,4 @@
-//! AIMS RC-pipeline ablation toggles — core release/dedup/funding family.
+//! Current compiled-counter adapter ablations at the AIMS carrier boundary.
 //!
 //! Each `ORI_DISABLE_*`/`ORI_FORCE_*` toggle changes the named behavior at its
 //! documented consumer for bisection. See the crate-level `debug_flags` module
@@ -8,9 +8,10 @@ flags! {
     /// Disable the burden-op emission pass (Step 4b of the AIMS pipeline).
     ///
     /// Consumed in `ori_arc::pipeline::aims_pipeline::run_aims_pipeline`. Burden
-    /// emission is the sole RC-emission input (no fallback emitter exists), so
-    /// setting this aborts compilation via the fail-loud migration gate for any
-    /// function needing RC management — a negative-pin probe, never a build mode.
+    /// emission is the sole ownership-event input to the current compiled-counter
+    /// adapter (no fallback adapter input exists), so setting this aborts
+    /// compilation via the fail-loud migration gate for any function needing
+    /// physical RC management — a negative-pin probe, never a build mode.
     /// Usage: `ORI_DISABLE_BURDEN_OPS=1 ori build file.ori`
     ORI_DISABLE_BURDEN_OPS
 
@@ -35,7 +36,8 @@ flags! {
 
     /// Disable the predicate-stack `RcInc` / `RcDec` realization phases, leaving
     /// the burden path (elimination + mechanical `BurdenInc → RcInc` /
-    /// `BurdenDec → RcDec` lowering) as the sole real-RC emitter.
+    /// `BurdenDec → RcDec` lowering) as the sole real-RC emitter in the current
+    /// compiled-counter adapter.
     ///
     /// Consumed in `ori_arc::aims::realize::emit_unified` to drive the burden-path
     /// self-sufficiency probe. When set, the predicate-stack emission is suppressed
@@ -44,13 +46,14 @@ flags! {
     /// Usage: `ORI_DISABLE_PREDICATE_STACK_RC=1 ori build file.ori`
     ORI_DISABLE_PREDICATE_STACK_RC
 
-    /// Output path for the AIMS RC-survivor remark stream (JSONL).
+    /// Output path for the compiled-counter RC-survivor remark stream (JSONL).
     ///
     /// Consumed in `ori_arc::aims::realize::rc_remark` (which can't depend on
     /// `oric`). Defined here for documentation and `check-debug-flags.sh`
     /// consistency. CLI alternative: `--emit-rc-remarks <path>` (composes the
-    /// burden-sole-path gating so the stream is a valid verdict surface).
-    /// Valid verdict only on the burden-sole path (`ORI_DISABLE_PREDICATE_STACK_RC=1`).
+    /// burden-sole-path gating so the stream is a valid compiled-counter verdict
+    /// surface). Valid only for that adapter on the burden-sole path
+    /// (`ORI_DISABLE_PREDICATE_STACK_RC=1`); it is not an AIMS-wide verdict.
     /// Usage: `ORI_RC_REMARKS=out.jsonl ORI_DISABLE_PREDICATE_STACK_RC=1 ori build file.ori`
     ORI_RC_REMARKS
 

@@ -46,6 +46,23 @@ pub struct MethodCollectionConfig<'a> {
     pub interner: &'a StringInterner,
 }
 
+/// Register the value bindings owned by one module in capture-safe order.
+///
+/// Constructors must exist before top-level function values snapshot their
+/// lexical captures. Otherwise a prelude binding with the same unqualified
+/// name (for example `Alignment.Right`) is frozen into the function and
+/// shadows the module's own `Stream.Right` constructor at runtime.
+pub fn register_module_bindings(
+    module: &Module,
+    arena: &SharedArena,
+    env: &mut Environment,
+    canon: Option<&SharedCanonResult>,
+) {
+    register_variant_constructors(module, env);
+    register_newtype_constructors(module, env);
+    register_module_functions(module, arena, env, canon);
+}
+
 /// Register all functions from a module into the environment.
 ///
 /// Creates function values with proper captures and arena references, ensuring

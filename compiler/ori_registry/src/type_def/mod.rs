@@ -42,8 +42,9 @@ pub struct TypeDef {
     /// All methods defined on this type.
     ///
     /// Includes inherent methods, trait implementations, and associated
-    /// functions. The full method set that the type checker accepts,
-    /// the evaluator dispatches, and the LLVM backend emits.
+    /// functions. This is the full method set accepted by the type checker;
+    /// entries marked [`MethodDef::backend_required`] are obligations for
+    /// every admitted executor.
     pub methods: &'static [MethodDef],
 
     /// Operator lowering strategies for this type.

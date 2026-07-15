@@ -18,6 +18,8 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use ori_registry::PrimitiveResultOwnership;
+
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
 use super::birth_site_partition::{BirthSiteId, BirthSitePartition, FieldPath, NodeIdx};
@@ -45,103 +47,19 @@ pub(crate) fn compute_birth_site_partition_with_admitted(
     state_map: &AimsStateMap,
     admitted: &FxHashSet<ArcVarId>,
 ) -> BirthSitePartition {
-    let excluded = |var: ArcVarId| state_map.is_excluded(var) && !admitted.contains(&var);
     let mut partition = BirthSitePartition::new();
     let mut next_site: u32 = 0;
 
     for block in &func.blocks {
         for instr in &block.body {
-            match instr {
-                ArcInstr::Construct { dst, args, .. } => {
-                    if excluded(*dst) {
-                        continue;
-                    }
-                    let dst_node = whole_node(&mut partition, *dst);
-                    partition.set(dst_node, BirthSiteId::new(next_site));
-                    next_site += 1;
-                    // Field funding: constructor arg positions ARE the field
-                    // indices `Project { field }` reads back.
-                    for (position, &arg) in args.iter().enumerate() {
-                        if excluded(arg) {
-                            continue;
-                        }
-                        let Ok(field) = u32::try_from(position) else {
-                            unreachable!("constructor arg position exceeds u32::MAX");
-                        };
-                        let field_node = partition.register_node(*dst, FieldPath::single(field));
-                        let arg_node = whole_node(&mut partition, arg);
-                        partition.union_tier1(field_node, arg_node);
-                    }
-                }
-                ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Var(src),
-                    ..
-                } => {
-                    if excluded(*dst) || excluded(*src) {
-                        continue;
-                    }
-                    let dst_node = whole_node(&mut partition, *dst);
-                    let src_node = whole_node(&mut partition, *src);
-                    partition.union_tier1(dst_node, src_node);
-                }
-                ArcInstr::Let { dst, value, .. }
-                    if matches!(value, ArcValue::PrimOp { .. })
-                        || matches!(value, ArcValue::Literal(lit)
-                            if matches!(lit, crate::ir::LitValue::String(_))) =>
-                {
-                    // A non-excluded STRING literal (the empty string is
-                    // immortal-excluded) or a heap-producing PrimOp result
-                    // (string concat) is a fresh allocation site, minted
-                    // like a Construct. Non-string literals allocate
-                    // nothing at runtime even under a heap-repr variable.
-                    if excluded(*dst) {
-                        continue;
-                    }
-                    let dst_node = whole_node(&mut partition, *dst);
-                    partition.set(dst_node, BirthSiteId::new(next_site));
-                    next_site += 1;
-                }
-                ArcInstr::Apply { dst, .. } | ArcInstr::ApplyIndirect { dst, .. } => {
-                    mint_call_result_site(
-                        &mut partition,
-                        state_map,
-                        admitted,
-                        *dst,
-                        &mut next_site,
-                    );
-                }
-                ArcInstr::Project {
-                    dst, value, field, ..
-                } => {
-                    if excluded(*dst) {
-                        continue;
-                    }
-                    // Single-hop composition: multi-hop chains compose
-                    // transitively through the union-find, never through
-                    // hand-built multi-hop paths.
-                    let dst_node = whole_node(&mut partition, *dst);
-                    let field_node = partition.register_node(*value, FieldPath::single(*field));
-                    partition.union_tier1(dst_node, field_node);
-                }
-                ArcInstr::Set { base, field, .. } => {
-                    if excluded(*base) {
-                        continue;
-                    }
-                    let base_node = whole_node(&mut partition, *base);
-                    partition.mark_cow_boundary(base_node);
-                    let field_node = partition.register_node(*base, FieldPath::single(*field));
-                    partition.mark_cow_boundary(field_node);
-                }
-                ArcInstr::SetTag { base, .. } => {
-                    if excluded(*base) {
-                        continue;
-                    }
-                    let base_node = whole_node(&mut partition, *base);
-                    partition.mark_cow_boundary(base_node);
-                }
-                _ => {}
-            }
+            admit_instruction(
+                &mut partition,
+                func,
+                state_map,
+                admitted,
+                instr,
+                &mut next_site,
+            );
         }
         match &block.terminator {
             ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } => {
@@ -157,6 +75,145 @@ pub(crate) fn compute_birth_site_partition_with_admitted(
     admit_field_congruence(&mut partition);
 
     partition
+}
+
+fn admit_instruction(
+    partition: &mut BirthSitePartition,
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    admitted: &FxHashSet<ArcVarId>,
+    instr: &ArcInstr,
+    next_site: &mut u32,
+) {
+    match instr {
+        ArcInstr::Construct { dst, args, .. } => {
+            admit_construct(partition, state_map, admitted, *dst, args, next_site);
+        }
+        ArcInstr::Let { dst, value, .. } => {
+            admit_let(partition, func, state_map, admitted, *dst, value, next_site);
+        }
+        ArcInstr::Apply { dst, .. } | ArcInstr::ApplyIndirect { dst, .. } => {
+            mint_call_result_site(partition, state_map, admitted, *dst, next_site);
+        }
+        ArcInstr::Project {
+            dst, value, field, ..
+        } if !is_excluded(state_map, admitted, *dst) => {
+            // Single-hop composition: multi-hop chains compose transitively
+            // through the union-find, never hand-built multi-hop paths.
+            let dst_node = whole_node(partition, *dst);
+            let field_node = partition.register_node(*value, FieldPath::single(*field));
+            partition.union_tier1(dst_node, field_node);
+        }
+        ArcInstr::Set { base, field, .. } if !is_excluded(state_map, admitted, *base) => {
+            let base_node = whole_node(partition, *base);
+            partition.mark_cow_boundary(base_node);
+            let field_node = partition.register_node(*base, FieldPath::single(*field));
+            partition.mark_cow_boundary(field_node);
+        }
+        ArcInstr::SetTag { base, .. } if !is_excluded(state_map, admitted, *base) => {
+            let base_node = whole_node(partition, *base);
+            partition.mark_cow_boundary(base_node);
+        }
+        _ => {}
+    }
+}
+
+fn admit_construct(
+    partition: &mut BirthSitePartition,
+    state_map: &AimsStateMap,
+    admitted: &FxHashSet<ArcVarId>,
+    dst: ArcVarId,
+    args: &[ArcVarId],
+    next_site: &mut u32,
+) {
+    if is_excluded(state_map, admitted, dst) {
+        return;
+    }
+    mint_fresh_site(partition, dst, next_site);
+    // Constructor positions are exactly the field indices Project reads.
+    for (position, &arg) in args.iter().enumerate() {
+        if is_excluded(state_map, admitted, arg) {
+            continue;
+        }
+        let Ok(field) = u32::try_from(position) else {
+            unreachable!("constructor arg position exceeds u32::MAX");
+        };
+        let field_node = partition.register_node(dst, FieldPath::single(field));
+        let arg_node = whole_node(partition, arg);
+        partition.union_tier1(field_node, arg_node);
+    }
+}
+
+fn admit_let(
+    partition: &mut BirthSitePartition,
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    admitted: &FxHashSet<ArcVarId>,
+    dst: ArcVarId,
+    value: &ArcValue,
+    next_site: &mut u32,
+) {
+    if is_excluded(state_map, admitted, dst) {
+        return;
+    }
+    match value {
+        ArcValue::Var(src) if !is_excluded(state_map, admitted, *src) => {
+            let dst_node = whole_node(partition, dst);
+            let src_node = whole_node(partition, *src);
+            partition.union_tier1(dst_node, src_node);
+        }
+        ArcValue::PrimOp { args, .. } => {
+            admit_primitive_result(partition, func, state_map, admitted, dst, args, next_site);
+        }
+        // A non-excluded string literal is a fresh allocation site; the empty
+        // string has already been excluded as immortal.
+        ArcValue::Literal(crate::ir::LitValue::String(_)) => {
+            mint_fresh_site(partition, dst, next_site);
+        }
+        _ => {}
+    }
+}
+
+fn admit_primitive_result(
+    partition: &mut BirthSitePartition,
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    admitted: &FxHashSet<ArcVarId>,
+    dst: ArcVarId,
+    args: &[ArcVarId],
+    next_site: &mut u32,
+) {
+    let fact = func
+        .primitive_facts
+        .get(dst)
+        .unwrap_or_else(|| panic!("validated PrimOp v{} is missing its frozen fact", dst.raw()));
+    match fact.descriptor.result {
+        PrimitiveResultOwnership::Scalar => {}
+        PrimitiveResultOwnership::IndependentOwned
+        | PrimitiveResultOwnership::OwnedFromConsumedOrIndependent { .. } => {
+            mint_fresh_site(partition, dst, next_site);
+        }
+        PrimitiveResultOwnership::Alias { operand } => {
+            let source = args.get(usize::from(operand)).copied().unwrap_or_else(|| {
+                panic!("validated primitive alias operand {operand} is out of bounds")
+            });
+            if !is_excluded(state_map, admitted, source) {
+                let dst_node = whole_node(partition, dst);
+                let source_node = whole_node(partition, source);
+                partition.union_tier1(dst_node, source_node);
+            }
+        }
+    }
+}
+
+fn mint_fresh_site(partition: &mut BirthSitePartition, dst: ArcVarId, next_site: &mut u32) {
+    let dst_node = whole_node(partition, dst);
+    partition.set(dst_node, BirthSiteId::new(*next_site));
+    *next_site += 1;
+}
+
+fn is_excluded(state_map: &AimsStateMap, admitted: &FxHashSet<ArcVarId>, var: ArcVarId) -> bool {
+    state_map.is_excluded(var) && !admitted.contains(&var)
 }
 
 /// Field-congruence closure: two whole-var nodes in ONE class name the SAME

@@ -25,25 +25,33 @@ Language compilers have adopted WebAssembly through several distinct strategies.
 
 **Interpreter-in-WASM** takes the opposite approach. Instead of compiling *programs* to WASM, the compiler compiles *itself* (or its interpreter) to WASM. The resulting WASM module can then interpret programs written in the source language. Browser-based REPLs and playgrounds commonly use this strategy: the language's interpreter, written in a WASM-friendly language like Rust or C, is compiled to a `.wasm` module, loaded into a web page, and fed source code from a text editor. [Pyodide](https://pyodide.org/) (CPython compiled to WASM via Emscripten), the [Elm playground](https://elm-lang.org/try), and the [Gleam playground](https://playground.gleam.run/) all work this way. The advantage is rapid iteration — the entire language works immediately, because the interpreter already handles every language feature. The trade-off is the performance ceiling of interpretation versus native execution.
 
-**Hybrid approaches** combine both strategies. A language might compile its interpreter to WASM for an interactive playground while also supporting direct WASM compilation for production deployment. This is the approach Ori takes.
+**Hybrid approaches** combine both strategies. A language might compile its interpreter to WASM for an interactive playground while also supporting direct WASM compilation for production deployment.
+
+Ori's repository currently contains both surfaces, but its production execution architecture targets compiled WebAssembly only.
 
 ### Compiling TO WebAssembly vs. Running IN WebAssembly
 
-The distinction matters because the two modes face fundamentally different constraints. Compiling *to* WASM means the LLVM backend targets `wasm32-unknown-unknown` or `wasm32-wasi` and produces a `.wasm` binary from Ori source code. The constraints are those of the WASM target architecture: 32-bit address space, linear memory, no threads (without SharedArrayBuffer), a fixed set of value types. Running *in* WASM means the Ori interpreter itself has been compiled to a `.wasm` module and executes Ori source code at runtime inside a WASM sandbox. The constraints are those of the host runtime: stack size limits, no environment variable access, no direct file system, and whatever APIs the host provides through imports.
+The distinction matters because the two modes face fundamentally different constraints. Compiling *to* WASM means projecting the shared post-AIMS executable plan to a complete `.wasm` module.
 
-Ori supports both modes, and the design of each is shaped by these distinct constraint sets.
+The shipped path uses LLVM targets such as `wasm32-unknown-unknown` and `wasm32-wasi`; the direct `ori_backend` target emits the module from the same `ExecutableProgram` and `CompiledLayoutPlan` without LLVM. The constraints are those of the WASM target architecture: 32-bit address space, linear memory, no threads (without SharedArrayBuffer), and a fixed set of value types.
+
+Running *in* WASM means the Ori evaluator itself has been compiled to a `.wasm` module and executes Ori source code at runtime inside a WASM sandbox. The constraints are those of the host runtime: stack size limits, no environment variable access, no direct file system, and whatever APIs the host provides through imports.
+
+Ori's evaluator-in-WASM surface remains useful as a shipped playground and semantic-oracle compatibility path. It is not a second production executor: production WebAssembly must consume the same post-AIMS executable plan as native, VM, and JIT execution.
 
 ## What Makes Ori's WASM Support Distinctive
 
-### Two Modes, One Language
+### One Production Target, One Compatibility Oracle
 
-Ori provides WebAssembly support through two complementary paths:
+Ori currently exposes two WebAssembly-related surfaces with different architectural status:
 
-1. **Compile-to-WASM**: The LLVM backend compiles Ori programs to `.wasm` binaries, producing native WebAssembly that runs in any conforming runtime. This is the production path — the output is a standalone WASM module with no dependency on the Ori compiler at runtime.
+1. **Compile-to-WASM**: A compiled backend projects the shared executable plan to a standalone `.wasm` module with no compiler dependency at runtime. LLVM is the shipped default; the production target architecture also has `ori_backend` directly emit a complete module as it earns promotion.
 
-2. **Interpreter-in-WASM**: The Ori interpreter (`ori_eval` and its dependencies) is compiled to a WASM module for embedding in browsers. This powers the [Ori Playground](https://orilang.dev/playground) and enables Ori evaluation in any JavaScript environment.
+2. **Evaluator-in-WASM compatibility**: The Ori evaluator (`ori_eval` and its dependencies) is compiled to a WASM module for the existing [Ori Playground](https://orilang.dev/playground). This is a representation-abstract oracle and development tool, not the production WASM target.
 
-These are not competing approaches — they serve different use cases. The compile-to-WASM path produces fast, small binaries for deployment. The interpreter-in-WASM path provides an instant development experience with zero installation. A program that works in the playground will compile to a native WASM binary with the same semantics, because both paths share the same front end (lexer, parser, type checker).
+The compile-to-WASM path is the production architecture. It lowers canonical meaning through AIMS and the shared executable carrier before target projection, preserving the same ownership calculus as VM, native, and JIT execution.
+
+The compatibility evaluator provides instant development feedback and a parity oracle, but no production design may depend on maintaining a separate interpreted-WASM execution path.
 
 ### Structured Configuration
 
@@ -69,7 +77,7 @@ The defaults reflect a pragmatic assessment: bulk memory and multi-value are sup
 
 ### Target Triples
 
-The LLVM backend supports two WebAssembly targets:
+The current LLVM projection supports two WebAssembly targets; the direct backend must preserve the same target-level contracts when each target is promoted:
 
 | Target | Description |
 |--------|-------------|
@@ -108,7 +116,9 @@ The configuration generates `wasm-ld` arguments: `--initial-memory`, `--max-memo
 
 WebAssembly stack size is a linker argument, not a runtime parameter. The `WasmStackConfig` type captures this with a `size` field in bytes, defaulting to 1 MB. This value becomes the `--stack-size` argument to `wasm-ld`.
 
-The default is conservative. Browser runtimes typically enforce a stack limit around 1 MB, and WASM's stack cannot grow dynamically — once exhausted, execution traps. Because each Ori function call expands into multiple WASM stack frames (interpreter dispatch, pattern matching, method resolution), the effective Ori call depth is a fraction of the raw WASM frame limit. The relationship between WASM stack bytes and Ori recursion depth is discussed in the [WASM Constraints](#wasm-constraints) section.
+The default is conservative. Browser runtimes typically enforce a stack limit around 1 MB, and WASM's stack cannot grow dynamically — once exhausted, execution traps.
+
+Compiled Ori calls, runtime helpers, and lowered cleanup paths all consume this fixed stack. The separate evaluator-in-WASM compatibility surface has additional interpreter-frame costs described in [WASM Constraints](#wasm-constraints).
 
 ### WASI Configuration
 
@@ -143,11 +153,13 @@ At link time, `WasiConfig::undefined_symbols()` generates the list of WASI impor
 
 A third post-compilation step, **wasm-opt post-processing**, runs outside `WasmOutputOptions`: the `--wasm-opt` CLI flag maps to `BuildOptions.wasm_opt`, and `wasm_opt_runner()` builds a `WasmOptRunner` from it (level mirrors `--opt`) whenever the target is WASM. The [Binaryen](https://github.com/WebAssembly/binaryen) `wasm-opt` tool applies WASM-specific optimizations that LLVM's general-purpose passes miss. Optimization levels range from `O0` (no optimization) through `O4` (super-aggressive), plus `Os` and `Oz` for size optimization. `WasmOptRunner` manages tool discovery, argument construction, and in-place optimization with atomic file replacement. When `wasm-opt` is not installed, the compiler produces a clear error message with installation instructions rather than silently skipping the step.
 
-## Interpreter in WebAssembly
+## Current Evaluator-in-WASM Compatibility Surface
 
 ### Architecture
 
-The Ori playground compiles the interpreter itself to WebAssembly. The `playground-wasm` crate is a thin `wasm_bindgen` wrapper around `ori_compiler`, which provides a Salsa-free, IO-free compilation pipeline. When a user types code in the browser and clicks "Run," JavaScript calls `run_ori(source)`, which invokes the full Ori pipeline — lexing, parsing, type checking, and evaluation — inside the WASM sandbox, returning the result as serialized JSON.
+The shipped Ori playground compiles the evaluator itself to WebAssembly. The `playground-wasm` crate is a thin `wasm_bindgen` wrapper around `ori_compiler`, which provides a Salsa-free, IO-free compilation pipeline.
+
+When a user types code in the browser and clicks "Run," JavaScript calls `run_ori(source)`, which invokes lexing, parsing, type checking, canonicalization, and evaluation inside the WASM sandbox, returning the result as serialized JSON. This section records that current tooling surface; it does not define the production WASM execution architecture.
 
 ```mermaid
 flowchart TB
@@ -283,9 +295,9 @@ Ori's approach to WebAssembly draws on established patterns from several languag
 
 **[Rust](https://www.rust-lang.org/)** provides the most mature WASM toolchain among systems languages. [wasm-pack](https://rustwasm.github.io/wasm-pack/) orchestrates compilation, binding generation (via [wasm-bindgen](https://rustwasm.github.io/docs/wasm-bindgen/)), and npm package publishing. The `wasm32-unknown-unknown` and `wasm32-wasi` targets are first-class `rustc` targets. Ori's `WasmConfig` structure and JS binding generation draw directly from patterns established by `wasm-pack` and `wasm-bindgen`.
 
-**[Go](https://go.dev/wiki/WebAssembly)** supports WASM via `GOOS=js GOARCH=wasm`, producing modules that require a JavaScript runtime shim (`wasm_exec.js`). Go's WASM output includes the entire Go runtime — garbage collector, goroutine scheduler, channels — resulting in larger binaries than languages with lighter runtimes. Ori avoids this by compiling to WASM through LLVM rather than bundling an interpreter runtime, producing smaller output for the compile-to-WASM path.
+**[Go](https://go.dev/wiki/WebAssembly)** supports WASM via `GOOS=js GOARCH=wasm`, producing modules that require a JavaScript runtime shim (`wasm_exec.js`). Go's WASM output includes the entire Go runtime — garbage collector, goroutine scheduler, channels — resulting in larger binaries than languages with lighter runtimes. Ori instead projects a post-AIMS program to compiled WASM—through the shipped LLVM path or the direct backend target—rather than bundling the evaluator runtime.
 
-**[Zig](https://ziglang.org/)** has native WASM target support in its self-hosted compiler, without requiring LLVM for WASM output. Zig's approach is notable for its minimal runtime overhead and direct control over memory layout. Ori uses LLVM for WASM codegen rather than a custom backend, trading some control for access to LLVM's mature optimization pipeline.
+**[Zig](https://ziglang.org/)** has native WASM target support in its self-hosted compiler, without requiring LLVM for WASM output. Zig's approach is notable for its minimal runtime overhead and direct control over memory layout. Ori's shipped projection uses LLVM's mature optimization pipeline; its direct `ori_backend` projection targets comparable control while consuming the same backend-neutral AIMS policy and compiled-layout contract.
 
 **[Emscripten](https://emscripten.org/)** was the pioneer of compiling C and C++ to WebAssembly (and before that, to asm.js). It provides a complete POSIX emulation layer that maps system calls to browser APIs. Ori's WASI support serves a similar purpose — providing system interfaces to WASM modules — but uses the standardized WASI API rather than a custom emulation layer.
 
@@ -297,9 +309,11 @@ Ori's approach to WebAssembly draws on established patterns from several languag
 
 The `wasm32-unknown-unknown` target produces a hermetically sealed module with no host API assumptions. The `wasm32-wasi` target produces a module that depends on a WASI-compatible runtime. The standalone target maximizes portability — the module runs anywhere that supports the WebAssembly spec — but limits functionality to pure computation and explicitly imported host functions. The WASI target provides rich system access (files, clocks, randomness) but restricts deployment to WASI-compatible runtimes. Ori supports both because neither is universally appropriate: browser embedding favors standalone, server-side deployment favors WASI.
 
-### Interpreter-in-WASM vs. Compile-to-WASM
+### Compatibility Evaluator vs. Compile-to-WASM
 
-The interpreter path compiles the Ori evaluator itself to WASM. The compilation path uses LLVM to compile Ori programs to WASM. The interpreter path provides instant availability — every language feature works as soon as the interpreter supports it, with no codegen work required — but carries the performance overhead of tree-walking interpretation inside a WASM sandbox. The compilation path produces fast, compact output but requires every language feature to be implemented in the LLVM backend. Ori maintains both because they serve complementary use cases: rapid experimentation (playground) versus production deployment (compiled binaries).
+The compatibility path compiles the Ori evaluator itself to WASM. The production path projects the shared post-AIMS executable plan to compiled WebAssembly.
+
+The evaluator gives the playground immediate semantic coverage but carries tree-walking overhead and does not exercise physical ownership behavior. It may remain as tooling while useful; production support, optimization commitments, and behavior/resource gates belong to compiled WebAssembly.
 
 ### Fixed Recursion Limit vs. Dynamic Detection
 

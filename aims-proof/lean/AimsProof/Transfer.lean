@@ -8,8 +8,10 @@ Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean)
   spec: annex-e §AIMS §4 + Appendix A |
   .proof: aims-proof/proofs/04-transfers/TF-*.proof + IA-5-step-1.proof + Composition.proof |
   map: aims-proof/scripts/proof-lean-map.json (theorem -> rule/spec/proof/lean).
-  Note: SCALAR-sentinel rows (TF-1/2a/10/10a) are not modeled — SCALAR is the L-9
-  absence-of-inhabitant sentinel; no AimsState-valued forward image exists.
+  Note: SCALAR-sentinel rows (TF-1/10/10a) are not modeled as `AimsState`
+  images — SCALAR is the L-9 absence-of-inhabitant sentinel. TF-2a is modeled
+  through `PrimitiveTransferResult`, whose `scalar` case stays outside
+  `AimsState`; TF-2b is the typed owned-result primitive case.
 
 Correspondence: `docs/ori_lang/v2026/spec/annex-e-system-considerations.md §AIMS §4`
 (Transfer Functions TF-1..TF-15a, forward + backward) + Appendix A
@@ -19,7 +21,8 @@ Correspondence: `docs/ori_lang/v2026/spec/annex-e-system-considerations.md §AIM
 The rule IDs index the §4 obligations:
   TF-1   Let { Literal }      → SCALAR        (forward, constant)
   TF-2   Let { Var(v) }       → state(v)      (forward, identity)
-  TF-2a  Let { PrimOp }       → SCALAR        (forward, constant)
+  TF-2a  scalar PrimOp        → SCALAR        (forward, constant)
+  TF-2b  owned-result PrimOp  → FRESH(shape)  (forward, descriptor-directed)
   TF-3   Construct            → FRESH(shape)  (forward, per-ctor constant)
   TF-4   Project              → Borrowed view of source (forward)
   TF-5   Apply (no contract)  → CONSERVATIVE  (forward, constant)
@@ -39,20 +42,19 @@ The rule IDs index the §4 obligations:
   L-6    layer (b)            → per-TF-N monotonicity `a ≤ b ⟹ f a ≤ f b`
 
 The model SCALAR exclusion is L-9 (see `Lattice.lean` §L-9): SCALAR is not an
-`AimsState` inhabitant, so TF-1 / TF-2a / TF-10 / TF-10a (whose Appendix-A row is
-the SCALAR sentinel) have no `AimsState`-valued forward image to model — they are
-the L-9-excluded rows and are NOT modeled here (their faithful encoding is the
-absence of a SCALAR `AimsState`, per `Lattice.lean` §L-9). The forward rules that
-DO produce an `AimsState` (TF-3..TF-9a) plus the backward-accumulation operators
-(TF-11, TF-14) plus the L-6 layer-(b) monotonicity theorems are the finite-domain
+`AimsState` inhabitant. `PrimitiveTransferResult` makes that exclusion explicit:
+TF-2a returns its `scalar` case while TF-2b returns a tracked `AimsState`. TF-1 /
+TF-10 / TF-10a remain L-9-excluded rows without an `AimsState`-valued image. The
+forward rules that produce an `AimsState`, the backward-accumulation operators
+(TF-11, TF-14), and the L-6 layer-(b) monotonicity theorems are the finite-domain
 propositions modeled and proven here.
 
-TF-N/A side-effect-only rows (`RcInc` / `RcDec` / `BurdenInc` / `BurdenDec`) are
-likewise NOT modeled here: each is a side-effect-only op with no `dst`, no
-forward `AimsState` image, and no TF-11 backward demand (Appendix A "—" across
-every dimension). BurdenInc / BurdenDec carry the identical side-effect-only
-shape to RcInc / RcDec — this is a doc_encoded matrix-row classification (the
-TF-N-A.proof row), NOT a new transfer theorem. Burden-op ELIMINATION soundness
+TF-N/A first classifies the neutral logical effects `ownerCredit`, `release`,
+and `cleanup`: none has a destination, forward `AimsState` image, or TF-11
+backward demand (Appendix A "—" across every dimension). The current MIR
+carriers (`RcInc` / `RcDec` / `BurdenInc` / `BurdenDec`) are enumerated
+separately and refine that classification; they are not calculus vocabulary.
+Burden-op ELIMINATION soundness
 is the §11 coexistence family (`Coexistence.lean` `CH1_burden_emitted_is_bridge`
 `burden_emitted = burden_owned`; `CH2_single_elimination` = lattice DP-2/DP-3
 verdict), and the lowered (BurdenInc → RcInc / BurdenDec → RcDec) form's
@@ -71,6 +73,49 @@ set_option maxHeartbeats 1000000
 
 namespace AimsProof
 
+/-! ## §TF-N/A — destination-free logical ownership effects
+
+    This is the calculus-level classification. Transitional MIR carrier names
+    are modeled separately below so adding or replacing a carrier cannot change
+    the logical transfer rule. -/
+
+/-- Neutral ownership effects that do not define an SSA destination. -/
+inductive LogicalOwnershipEffect
+  | ownerCredit
+  | release
+  | cleanup
+deriving Repr, DecidableEq
+
+def logicalEffectHasDestination (_ : LogicalOwnershipEffect) : Bool := false
+def logicalEffectCreatesBackwardDemand (_ : LogicalOwnershipEffect) : Bool := false
+
+/-- TF-N/A: logical ownership effects have neither a destination nor backward
+    lattice demand. -/
+theorem TFNA_logical_events_no_destination_or_demand
+    (event : LogicalOwnershipEffect) :
+    logicalEffectHasDestination event = false
+      ∧ logicalEffectCreatesBackwardDemand event = false := by
+  cases event <;> constructor <;> rfl
+
+/-- Current transitional instruction carriers. This enumeration establishes
+    coverage only; it does not promote carrier names into the calculus. -/
+inductive TransitionalOwnershipCarrier
+  | rcInc
+  | rcDec
+  | burdenInc
+  | burdenDec
+deriving Repr, DecidableEq
+
+def carrierHasDestination (_ : TransitionalOwnershipCarrier) : Bool := false
+def carrierCreatesBackwardDemand (_ : TransitionalOwnershipCarrier) : Bool := false
+
+/-- Every current carrier refines the destination-free TF-N/A shape. -/
+theorem TFNA_transitional_carriers_refine_logical_shape
+    (carrier : TransitionalOwnershipCarrier) :
+    carrierHasDestination carrier = false
+      ∧ carrierCreatesBackwardDemand carrier = false := by
+  cases carrier <;> constructor <;> rfl
+
 /-! ## §1 Forward transfer-function images (annex-e §AIMS §4 + Appendix A)
 
     The forward transfers that produce an `AimsState` post-state. TF-3 / TF-7 /
@@ -88,6 +133,185 @@ def fresh (shape : Shape) : AimsState :=
   , locality := .BlockLocal
   , shape := shape
   , effect := { may_alloc := true, may_share := false, may_throw := false } }
+
+/-! ## §1.1 Typed primitive transfer descriptors (TF-2a / TF-2b)
+
+    A primitive's ownership interface is semantic and backend-neutral. Result
+    ownership is separate from physical allocation: a logically independent
+    owned result may take over storage from a consumed input or allocate new
+    storage. This distinction permits COW realization without claiming that a
+    `FRESH` lattice result always performs a physical allocation. -/
+
+/-- How a primitive uses one operand's ownership obligation. -/
+inductive PrimitiveOperandUse
+  | borrow
+  | consume
+deriving Repr, DecidableEq
+
+/-- The semantic ownership origin of a primitive result.
+
+    `ownedFromConsumedOrIndependent` means the result has one independent
+    ownership obligation. A physical realization may source its storage from
+    one of the named consumed inputs or allocate independently. -/
+inductive PrimitiveResultOwnership
+  | scalar
+  | independentOwned
+  | ownedFromConsumedOrIndependent (eligibleInputs : List Nat)
+  | alias (operand : Nat)
+deriving Repr, DecidableEq
+
+/-- Physical allocation possibility, kept separate from result ownership. -/
+inductive AllocationEffect
+  | none
+  | mayAllocate
+  | strategyDependent
+deriving Repr, DecidableEq
+
+/-- Typed ownership descriptor attached to a primitive operation. -/
+structure PrimitiveDescriptor where
+  result : PrimitiveResultOwnership
+  operandUses : List PrimitiveOperandUse
+  allocation : AllocationEffect
+deriving Repr, DecidableEq
+
+/-- A descriptor is well formed for an arity when every operand has one use,
+    aliases are in range, and every eligible storage-takeover source is both in
+    range and consumed. Empty takeover sets are rejected. -/
+def primitiveDescriptorValid (arity : Nat) (descriptor : PrimitiveDescriptor) : Bool :=
+  descriptor.operandUses.length == arity &&
+    match descriptor.result, descriptor.allocation with
+    | .scalar, .none => true
+    | .independentOwned, .mayAllocate => true
+    | .alias operand, .none => operand < arity
+    | .ownedFromConsumedOrIndependent eligible, .strategyDependent =>
+        !eligible.isEmpty && eligible.all fun operand =>
+          operand < arity && descriptor.operandUses[operand]? == some .consume
+    | _, _ => false
+
+/-- TF-2's result carrier extended with the L-9 SCALAR sentinel. -/
+inductive PrimitiveTransferResult
+  | scalar
+  | tracked (state : AimsState)
+deriving Repr, DecidableEq
+
+/-- Descriptor-directed primitive transfer. `none` is the fail-closed image for
+    missing/malformed ownership metadata. Owned-result primitives receive the
+    canonical `FRESH(shape)` lattice state; `may_alloc` means may allocate and
+    does not require every physical realization row to allocate. -/
+def transferPrimitive
+    (shape : Shape)
+    (operandStates : List AimsState)
+    (descriptor : PrimitiveDescriptor) : Option PrimitiveTransferResult :=
+  if !primitiveDescriptorValid operandStates.length descriptor then none
+  else match descriptor.result with
+    | .scalar => some .scalar
+    | .independentOwned | .ownedFromConsumedOrIndependent _ =>
+        some (.tracked (fresh shape))
+    | .alias operand => operandStates[operand]?.map .tracked
+
+/-- Abstract physical strategies for a two-input ownership operation. These
+    names describe storage provenance only; they carry no operator or backend
+    identity. -/
+inductive PrimitiveStrategy
+  | takeOperandZero
+  | takeOperandOne
+  | allocateIndependent
+deriving Repr, DecidableEq
+
+inductive StorageSource
+  | consumedOperand (operand : Nat)
+  | independent
+deriving Repr, DecidableEq
+
+structure PrimitiveStrategyRow where
+  consumedInputs : List Nat
+  producedOwnerCount : Nat
+  storageSource : StorageSource
+  allocated : Bool
+deriving Repr, DecidableEq
+
+/-- The three physical realization rows admitted by a dual-consuming,
+    one-owned-result primitive interface. -/
+def realizeDualConsume : PrimitiveStrategy → PrimitiveStrategyRow
+  | .takeOperandZero =>
+      { consumedInputs := [0, 1]
+      , producedOwnerCount := 1
+      , storageSource := .consumedOperand 0
+      , allocated := false }
+  | .takeOperandOne =>
+      { consumedInputs := [0, 1]
+      , producedOwnerCount := 1
+      , storageSource := .consumedOperand 1
+      , allocated := false }
+  | .allocateIndependent =>
+      { consumedInputs := [0, 1]
+      , producedOwnerCount := 1
+      , storageSource := .independent
+      , allocated := true }
+
+/-- A realized storage source is funded either by a consumed input obligation
+    or by the row's independent allocation. -/
+def primitiveSourceIsFunded (row : PrimitiveStrategyRow) : Bool :=
+  match row.storageSource with
+  | .consumedOperand operand => operand ∈ row.consumedInputs
+  | .independent => row.allocated
+
+def dualConsumeDescriptor : PrimitiveDescriptor :=
+  { result := .ownedFromConsumedOrIndependent [0, 1]
+  , operandUses := [.consume, .consume]
+  , allocation := .strategyDependent }
+
+/-- TF-2a: a well-formed scalar primitive has the SCALAR sentinel image, not an
+    `AimsState` inhabitant. -/
+theorem TF2a_scalar_primitive_transfer
+    (shape : Shape)
+    (operandStates : List AimsState)
+    (operandUses : List PrimitiveOperandUse)
+    (arity : operandUses.length = operandStates.length) :
+    transferPrimitive shape operandStates
+      { result := .scalar
+      , operandUses := operandUses
+      , allocation := .none } = some .scalar := by
+  simp [transferPrimitive, primitiveDescriptorValid, arity]
+
+/-- TF-2b: the generic dual-consuming owned-result descriptor is valid. -/
+theorem TF2b_dual_consume_descriptor_valid :
+    primitiveDescriptorValid 2 dualConsumeDescriptor = true := by decide
+
+/-- TF-2b: the generic dual-consuming primitive produces one logically owned
+    `FRESH(shape)` result. The theorem states no physical allocation choice. -/
+theorem TF2b_dual_consume_transfer_is_logically_owned
+    (shape : Shape) (left right : AimsState) :
+    transferPrimitive shape [left, right] dualConsumeDescriptor =
+      some (.tracked (fresh shape)) := by
+  rfl
+
+/-- TF-2b: every admitted physical strategy consumes both input obligations,
+    produces exactly one output obligation, and funds its storage source. This
+    is the no-duplicate-obligation interface theorem. -/
+theorem TF2b_dual_consume_rows_preserve_one_result_owner
+    (strategy : PrimitiveStrategy) :
+    let row := realizeDualConsume strategy
+    row.consumedInputs = [0, 1] ∧
+      row.producedOwnerCount = 1 ∧
+      primitiveSourceIsFunded row = true := by
+  cases strategy <;> decide
+
+/-- TF-2b: storage takeover is not a physical allocation; only the independent
+    row necessarily allocates in this abstract realization table. -/
+theorem TF2b_storage_takeover_does_not_imply_allocation :
+    (realizeDualConsume .takeOperandZero).allocated = false ∧
+    (realizeDualConsume .takeOperandOne).allocated = false ∧
+    (realizeDualConsume .allocateIndependent).allocated = true := by decide
+
+/-- TF-2b fail-closed pin: an out-of-range takeover candidate that is not
+    consumed has no transfer image. -/
+theorem TF2b_malformed_descriptor_fails_closed (shape : Shape) (state : AimsState) :
+    transferPrimitive shape [state]
+      { result := .ownedFromConsumedOrIndependent [1]
+      , operandUses := [.borrow]
+      , allocation := .strategyDependent } = none := by
+  rfl
 
 /-- `shape_from_ctor` (§4 TF-3 + Appendix A): the seven constructor kinds map to
     four distinct shapes. Encoded over the `Shape` carrier directly (Struct ↦
@@ -193,8 +417,8 @@ theorem TF3_shape_mapping :
     shapeFromCtor .Tuple = .NonReusable ∧
     shapeFromCtor .Closure = .NonReusable := by decide
 
-/-- TF-3: every FRESH allocation is `Unique` with RC = 1 (the FRESH uniqueness
-    invariant the reuse/COW layer relies on). -/
+/-- TF-3: every FRESH logical allocation is `Unique` with one owner credit (the
+    FRESH uniqueness invariant the reuse/COW layer relies on). -/
 theorem TF3_fresh_unique (c : Ctor) : (tfConstruct c).uniqueness = .Unique := by
   cases c <;> rfl
 
@@ -300,6 +524,13 @@ theorem TF11_seq_add_consumption_comm (a b : Consumption) :
     Consumption.seqAdd a b = Consumption.seqAdd b a := by
   cases a <;> cases b <;> rfl
 
+/-- TF-11 part (b): `seq_add` over Consumption is associative. Sequential
+    demand may therefore be accumulated independently of fold grouping. -/
+theorem TF11_seq_add_consumption_assoc (a b c : Consumption) :
+    Consumption.seqAdd (Consumption.seqAdd a b) c =
+      Consumption.seqAdd a (Consumption.seqAdd b c) := by
+  cases a <;> cases b <;> cases c <;> rfl
+
 /-! ### TF-11 part (c) — Cardinality seq_add matrix rows -/
 
 theorem TF11_seq_add_cardinality_absent_left (x : Cardinality) :
@@ -323,6 +554,239 @@ theorem TF11_seq_add_cardinality_comm (a b : Cardinality) :
     Cardinality.seqAdd a b = Cardinality.seqAdd b a := by
   cases a <;> cases b <;> rfl
 
+/-- TF-11 part (c): `seq_add` over Cardinality is associative. -/
+theorem TF11_seq_add_cardinality_assoc (a b c : Cardinality) :
+    Cardinality.seqAdd (Cardinality.seqAdd a b) c =
+      Cardinality.seqAdd a (Cardinality.seqAdd b c) := by
+  cases a <;> cases b <;> cases c <;> rfl
+
+/-! ### TF-11 part (e) -- raw demand accumulation before CN-1 observation
+
+    Cardinality and Consumption are independent evidence while the backward
+    walk accumulates demand. `RawDemand.seqAdd` never canonicalizes either
+    dimension. `RawDemand.observe` applies the existing product
+    canonicalization exactly once at the observation boundary.
+
+    Delaying observation is load-bearing. A dead projection contributes
+    `(Absent, Affine)`: it observes as `(Absent, Dead)` when it is the only
+    demand, but its Affine evidence must survive long enough to compose with a
+    separate `(Once, Linear)` demand, yielding `(Once, Unrestricted)`. -/
+
+/-- Backend-neutral, pre-canonicalization demand evidence. -/
+structure RawDemand where
+  cardinality : Cardinality
+  consumption : Consumption
+deriving Repr, DecidableEq
+
+namespace RawDemand
+
+/-- Identity demand for a block-entry backward fold. -/
+def zero : RawDemand :=
+  { cardinality := .Absent, consumption := .Dead }
+
+/-- Independent componentwise sequential composition. Canonicalization is not
+    part of this algebra. -/
+def seqAdd (left right : RawDemand) : RawDemand :=
+  { cardinality := Cardinality.seqAdd left.cardinality right.cardinality
+  , consumption := Consumption.seqAdd left.consumption right.consumption }
+
+/-- Extract the two demand dimensions from a product state without observing
+    or canonicalizing them. -/
+def ofState (state : AimsState) : RawDemand :=
+  { cardinality := state.cardinality, consumption := state.consumption }
+
+/-- Embed raw demand in a neutral product state so the single existing
+    `canonicalize` definition remains the observation authority. -/
+def toObservationState (demand : RawDemand) : AimsState :=
+  { access := .Owned
+  , consumption := demand.consumption
+  , cardinality := demand.cardinality
+  , uniqueness := .Unique
+  , locality := .BlockLocal
+  , shape := .NonReusable
+  , effect := {} }
+
+/-- Observe accumulated demand once through the canonical product rules. The
+    neutral dimensions make CN-1 the only rule able to change this projection. -/
+def observe (demand : RawDemand) : RawDemand :=
+  ofState (canonicalize (toObservationState demand))
+
+/-- Right-associated raw sum, used as the declarative fold. -/
+def sum : List RawDemand -> RawDemand
+  | [] => zero
+  | demand :: demands => seqAdd demand (sum demands)
+
+theorem seqAdd_left_zero (demand : RawDemand) :
+    seqAdd zero demand = demand := by
+  cases demand <;> rfl
+
+theorem seqAdd_right_zero (demand : RawDemand) :
+    seqAdd demand zero = demand := by
+  cases demand
+  simp [seqAdd, zero, TF11_seq_add_cardinality_absent_right,
+    TF11_seq_add_consumption_dead_right]
+
+theorem seqAdd_comm (left right : RawDemand) :
+    seqAdd left right = seqAdd right left := by
+  cases left
+  cases right
+  simp [seqAdd, TF11_seq_add_cardinality_comm,
+    TF11_seq_add_consumption_comm]
+
+theorem seqAdd_assoc (first second third : RawDemand) :
+    seqAdd (seqAdd first second) third =
+      seqAdd first (seqAdd second third) := by
+  cases first
+  cases second
+  cases third
+  simp [seqAdd, TF11_seq_add_cardinality_assoc,
+    TF11_seq_add_consumption_assoc]
+
+/-- Imperative left-fold accumulation equals the declarative raw sum for every
+    initial demand; observation is absent from both sides. -/
+theorem foldl_seqAdd_eq (initial : RawDemand) (demands : List RawDemand) :
+    demands.foldl seqAdd initial = seqAdd initial (sum demands) := by
+  induction demands generalizing initial with
+  | nil =>
+      exact (seqAdd_right_zero initial).symm
+  | cons demand demands ih =>
+      rw [List.foldl_cons, ih]
+      exact seqAdd_assoc initial demand (sum demands)
+
+theorem foldl_zero_eq_sum (demands : List RawDemand) :
+    demands.foldl seqAdd zero = sum demands := by
+  rw [foldl_seqAdd_eq, seqAdd_left_zero]
+
+/-- Raw demand sum is invariant under every permutation before observation. -/
+theorem sum_perm {left right : List RawDemand} (permutation : left.Perm right) :
+    sum left = sum right := by
+  induction permutation with
+  | nil => rfl
+  | cons demand permutation ih =>
+      simp only [sum]
+      rw [ih]
+  | swap first second demands =>
+      simp only [sum]
+      calc
+        seqAdd second (seqAdd first (sum demands)) =
+            seqAdd (seqAdd second first) (sum demands) :=
+          (seqAdd_assoc second first (sum demands)).symm
+        _ = seqAdd (seqAdd first second) (sum demands) := by
+          rw [seqAdd_comm second first]
+        _ = seqAdd first (seqAdd second (sum demands)) :=
+          seqAdd_assoc first second (sum demands)
+  | trans _ _ leftToMiddle middleToRight =>
+      exact leftToMiddle.trans middleToRight
+
+/-- Observing after a permutation-invariant raw fold preserves that equality. -/
+theorem observe_sum_perm {left right : List RawDemand}
+    (permutation : left.Perm right) :
+    observe (sum left) = observe (sum right) := by
+  exact congrArg observe (sum_perm permutation)
+
+/-- IA-5 Project's fixed Affine contribution, kept independent of destination
+    cardinality until the block fold is observed. -/
+def projectContribution (destination : AimsState) : RawDemand :=
+  { cardinality := destination.cardinality, consumption := .Affine }
+
+def deadProjection : RawDemand :=
+  { cardinality := .Absent, consumption := .Affine }
+
+/-- A scalar Project has no destination `AimsState`. Its source contribution is
+    therefore selected only by whether the scalar copy-out is live: one live
+    copy-out contributes one Affine occurrence, while a dead copy-out retains
+    the ordinary dead-projection evidence until observation. -/
+def scalarProjectContribution (live : Bool) : RawDemand :=
+  if live then
+    { cardinality := .One, consumption := .Affine }
+  else
+    deadProjection
+
+/-- A live scalar Project contributes exactly one Affine source occurrence. -/
+theorem scalarProjectContribution_live_eq_once_affine :
+    scalarProjectContribution true =
+      { cardinality := .One, consumption := .Affine } := by
+  rfl
+
+/-- A live scalar copy-out agrees with ordinary Project propagation whenever
+    the managed destination has exactly one accumulated use. -/
+theorem scalarProjectContribution_live_eq_projectContribution
+    (destination : AimsState) (once : destination.cardinality = .One) :
+    scalarProjectContribution true = projectContribution destination := by
+  simp [scalarProjectContribution, projectContribution, once]
+
+/-- A dead scalar Project is the same pending Affine evidence as every other
+    dead projection; CN-1 may erase it only at the observation boundary. -/
+theorem scalarProjectContribution_dead_eq_deadProjection :
+    scalarProjectContribution false = deadProjection := by
+  rfl
+
+/-- Copy-out caps a live scalar Project at one source occurrence. Replacing any
+    downstream scalar demand with the one-copy managed witness yields the same
+    contribution, so downstream scalar reuse cannot promote it to `Many`. -/
+theorem scalarProjectContribution_live_copy_out_cap
+    (downstream : AimsState) :
+    scalarProjectContribution true =
+      projectContribution { downstream with cardinality := .One } := by
+  rfl
+
+def directLinearUse : RawDemand :=
+  { cardinality := .One, consumption := .Linear }
+
+/-- The eager, incorrect timing loses the pending Affine obligation. -/
+theorem eager_observation_yields_once_linear :
+    observe (seqAdd (observe deadProjection) directLinearUse) =
+      { cardinality := .One, consumption := .Linear } := by
+  decide
+
+/-- Concrete non-commutation witness: observing CN-1 between contributions
+    erases the Affine evidence and differs from observing once after the sum. -/
+theorem eager_CN1_observation_does_not_commute_with_seqAdd :
+    observe (seqAdd (observe deadProjection) directLinearUse) !=
+      observe (seqAdd deadProjection directLinearUse) := by
+  decide
+
+/-- The correct block timing: fold raw evidence, then observe once. -/
+theorem raw_fold_then_observe_once_unrestricted :
+    observe (sum [deadProjection, directLinearUse]) =
+      { cardinality := .One, consumption := .Unrestricted } := by
+  decide
+
+/-- A lone dead projection retains no live demand after the one observation. -/
+theorem lone_dead_projection_observes_dead :
+    observe (sum [deadProjection]) = zero := by
+  decide
+
+/-- TF-11 timing theorem: the raw algebra is associative and commutative,
+    left- and right-associated folds agree, permutations are irrelevant before
+    observation, and the concrete CN-1 timing witnesses have the required
+    outcomes. -/
+theorem TF11_raw_demand_timing_sound :
+    (forall first second third : RawDemand,
+      seqAdd (seqAdd first second) third =
+        seqAdd first (seqAdd second third)) /\
+    (forall left right : RawDemand, seqAdd left right = seqAdd right left) /\
+    (forall (initial : RawDemand) (demands : List RawDemand),
+      demands.foldl seqAdd initial = seqAdd initial (sum demands)) /\
+    (forall (left right : List RawDemand), left.Perm right ->
+      sum left = sum right) /\
+    observe (seqAdd (observe deadProjection) directLinearUse) =
+      { cardinality := .One, consumption := .Linear } /\
+    observe (seqAdd (observe deadProjection) directLinearUse) !=
+      observe (seqAdd deadProjection directLinearUse) /\
+    observe (sum [deadProjection, directLinearUse]) =
+      { cardinality := .One, consumption := .Unrestricted } /\
+    observe (sum [deadProjection]) = zero := by
+  refine ⟨seqAdd_assoc, seqAdd_comm, foldl_seqAdd_eq, ?_,
+    eager_observation_yields_once_linear,
+    eager_CN1_observation_does_not_commute_with_seqAdd,
+    raw_fold_then_observe_once_unrestricted,
+    lone_dead_projection_observes_dead⟩
+  intro left right permutation
+  exact sum_perm permutation
+
+end RawDemand
+
 /-! ### TF-11 part (d) — `seq_add` monotonicity (L-6 layer (b))
 
     `a1 ≤ a2 ⟹ seq_add(a1, c) ≤ seq_add(a2, c)` for fixed `c`, over the
@@ -339,6 +803,315 @@ theorem TF11_seq_add_cardinality_monotone (a1 a2 c : Cardinality)
     (Cardinality.seqAdd a1 c).rank ≤ (Cardinality.seqAdd a2 c).rank := by
   cases a1 <;> cases a2 <;> cases c <;> simp_all [Cardinality.seqAdd, Cardinality.rank]
 
+/-! ### TF-14 scalar-liveness producer domain
+
+    The sparse scalar-liveness side table represents one Boolean coordinate per
+    L-9-excluded scalar SSA value. This carrier is not an `AimsState` dimension:
+    `dead < live`, alternative paths join by Boolean OR, and the only output
+    consumed by TF-14 is the final dead/live choice passed to
+    `RawDemand.scalarProjectContribution`.
+
+    A reverse transfer first joins destination liveness into its source and
+    then kills the destination definition. A Jump edge applies the same rule
+    positionally from each live successor parameter to its predecessor
+    argument, then removes the successor parameter. -/
+
+inductive ScalarLiveness
+  | dead
+  | live
+deriving Repr, DecidableEq
+
+namespace ScalarLiveness
+
+def toBool : ScalarLiveness → Bool
+  | .dead => false
+  | .live => true
+
+def ofBool : Bool → ScalarLiveness
+  | false => .dead
+  | true => .live
+
+def rank : ScalarLiveness → Nat
+  | .dead => 0
+  | .live => 1
+
+def below (left right : ScalarLiveness) : Prop :=
+  rank left ≤ rank right
+
+def strictBelow (left right : ScalarLiveness) : Prop :=
+  below left right ∧ left ≠ right
+
+/-- Alternative-path join for one sparse-set membership coordinate. -/
+def join : ScalarLiveness → ScalarLiveness → ScalarLiveness
+  | .live, _ => .live
+  | _, .live => .live
+  | .dead, .dead => .dead
+
+/-- Removing an SSA definition from the predecessor-visible environment. -/
+def kill (_ : ScalarLiveness) : ScalarLiveness := .dead
+
+structure ReverseStep where
+  source : ScalarLiveness
+  destination : ScalarLiveness
+deriving Repr, DecidableEq
+
+/-- Transfer destination liveness to its source before killing the definition. -/
+def reverseTransfer (source destination : ScalarLiveness) : ReverseStep :=
+  { source := join source destination
+  , destination := kill destination }
+
+structure JumpEdgeState where
+  argument : ScalarLiveness
+  parameter : ScalarLiveness
+deriving Repr, DecidableEq
+
+/-- One positional pair from `Jump(args)` to the target block's parameters. -/
+def jumpParamSubstitution
+    (argument parameter : ScalarLiveness) : JumpEdgeState :=
+  { argument := join argument parameter
+  , parameter := kill parameter }
+
+def Monotone (function : ScalarLiveness → ScalarLiveness) : Prop :=
+  ∀ {left right}, below left right → below (function left) (function right)
+
+/-- Iteration of one producer coordinate from the sparse-set bottom. -/
+def iterateFromDead
+    (function : ScalarLiveness → ScalarLiveness) : Nat → ScalarLiveness
+  | 0 => .dead
+  | step + 1 => function (iterateFromDead function step)
+
+/-- The sole seam from scalar liveness into TF-14 raw demand. -/
+def projectContribution (liveness : ScalarLiveness) : RawDemand :=
+  RawDemand.scalarProjectContribution (toBool liveness)
+
+theorem toBool_ofBool (value : Bool) :
+    toBool (ofBool value) = value := by
+  cases value <;> rfl
+
+theorem ofBool_toBool (liveness : ScalarLiveness) :
+    ofBool (toBool liveness) = liveness := by
+  cases liveness <;> rfl
+
+/-- Sparse-set union is exactly Boolean OR on each coordinate. -/
+theorem join_is_bool_or (left right : ScalarLiveness) :
+    toBool (join left right) = (toBool left || toBool right) := by
+  cases left <;> cases right <;> rfl
+
+theorem join_comm (left right : ScalarLiveness) :
+    join left right = join right left := by
+  cases left <;> cases right <;> rfl
+
+theorem join_assoc (first second third : ScalarLiveness) :
+    join (join first second) third = join first (join second third) := by
+  cases first <;> cases second <;> cases third <;> rfl
+
+theorem join_idem (liveness : ScalarLiveness) :
+    join liveness liveness = liveness := by
+  cases liveness <;> rfl
+
+theorem join_dead_left (liveness : ScalarLiveness) :
+    join .dead liveness = liveness := by
+  cases liveness <;> rfl
+
+theorem below_iff_join_eq_right {left right : ScalarLiveness} :
+    below left right ↔ join left right = right := by
+  cases left <;> cases right <;> simp [below, rank, join]
+
+theorem dead_below (liveness : ScalarLiveness) :
+    below .dead liveness := by
+  cases liveness <;> simp [below, rank]
+
+theorem below_live (liveness : ScalarLiveness) :
+    below liveness .live := by
+  cases liveness <;> simp [below, rank]
+
+theorem dead_strictly_below_live :
+    strictBelow .dead .live := by
+  simp [strictBelow, below, rank]
+
+theorem strictBelow_iff_dead_live {left right : ScalarLiveness} :
+    strictBelow left right ↔ left = .dead ∧ right = .live := by
+  cases left <;> cases right <;> simp [strictBelow, below, rank]
+
+/-- The carrier has height one: two consecutive strict rises are impossible. -/
+theorem no_two_strict_rises
+    (first second third : ScalarLiveness)
+    (firstRise : strictBelow first second)
+    (secondRise : strictBelow second third) : False := by
+  cases first <;> cases second <;> cases third <;>
+    simp_all [strictBelow, below, rank]
+
+theorem join_monotone
+    {left1 left2 right1 right2 : ScalarLiveness}
+    (leftBelow : below left1 left2)
+    (rightBelow : below right1 right2) :
+    below (join left1 right1) (join left2 right2) := by
+  cases left1 <;> cases left2 <;> cases right1 <;> cases right2 <;>
+    simp_all [below, rank, join]
+
+theorem reverseTransfer_dead_destination (source : ScalarLiveness) :
+    reverseTransfer source .dead =
+      { source := source, destination := .dead } := by
+  cases source <;> rfl
+
+theorem reverseTransfer_live_destination (source : ScalarLiveness) :
+    reverseTransfer source .live =
+      { source := .live, destination := .dead } := by
+  cases source <;> rfl
+
+theorem reverseTransfer_monotone
+    {source1 source2 destination1 destination2 : ScalarLiveness}
+    (sourceBelow : below source1 source2)
+    (destinationBelow : below destination1 destination2) :
+    below (reverseTransfer source1 destination1).source
+        (reverseTransfer source2 destination2).source ∧
+      below (reverseTransfer source1 destination1).destination
+        (reverseTransfer source2 destination2).destination := by
+  constructor
+  · exact join_monotone sourceBelow destinationBelow
+  · simp [reverseTransfer, kill, below, rank]
+
+/-- Jump substitution is the same transfer-before-kill rule under edge names. -/
+theorem jumpParamSubstitution_matches_reverseTransfer
+    (argument parameter : ScalarLiveness) :
+    (jumpParamSubstitution argument parameter).argument =
+        (reverseTransfer argument parameter).source ∧
+      (jumpParamSubstitution argument parameter).parameter =
+        (reverseTransfer argument parameter).destination := by
+  exact ⟨rfl, rfl⟩
+
+theorem jumpParamSubstitution_dead_parameter (argument : ScalarLiveness) :
+    jumpParamSubstitution argument .dead =
+      { argument := argument, parameter := .dead } := by
+  cases argument <;> rfl
+
+theorem jumpParamSubstitution_live_parameter (argument : ScalarLiveness) :
+    jumpParamSubstitution argument .live =
+      { argument := .live, parameter := .dead } := by
+  cases argument <;> rfl
+
+theorem jumpParamSubstitution_monotone
+    {argument1 argument2 parameter1 parameter2 : ScalarLiveness}
+    (argumentBelow : below argument1 argument2)
+    (parameterBelow : below parameter1 parameter2) :
+    below (jumpParamSubstitution argument1 parameter1).argument
+        (jumpParamSubstitution argument2 parameter2).argument ∧
+      below (jumpParamSubstitution argument1 parameter1).parameter
+        (jumpParamSubstitution argument2 parameter2).parameter := by
+  constructor
+  · exact join_monotone argumentBelow parameterBelow
+  · simp [jumpParamSubstitution, kill, below, rank]
+
+/-- Every monotone producer, seeded at dead, reaches a fixed point after its
+    only possible strict rise. -/
+theorem monotone_from_dead_reaches_fixed_point
+    (function : ScalarLiveness → ScalarLiveness)
+    (monotone : Monotone function) :
+    function (function .dead) = function .dead := by
+  have ordered : below (function .dead) (function .live) :=
+    monotone (dead_below .live)
+  cases deadImage : function .dead <;>
+    cases liveImage : function .live <;>
+    simp_all [below, rank]
+
+/-- Every positive iteration is the same fixed point. This is the pointwise
+    convergence theorem for the sparse scalar-liveness set. -/
+theorem height_one_convergence
+    (function : ScalarLiveness → ScalarLiveness)
+    (monotone : Monotone function)
+    (step : Nat) :
+    iterateFromDead function (Nat.succ step) = function .dead := by
+  have fixed := monotone_from_dead_reaches_fixed_point function monotone
+  induction step with
+  | zero => rfl
+  | succ step inductionHypothesis =>
+      change function (iterateFromDead function (Nat.succ step)) = function .dead
+      rw [inductionHypothesis]
+      exact fixed
+
+theorem projectContribution_exact_seam (liveness : ScalarLiveness) :
+    projectContribution liveness =
+      RawDemand.scalarProjectContribution (toBool liveness) := by
+  rfl
+
+theorem projectContribution_dead :
+    projectContribution .dead = RawDemand.deadProjection := by
+  rfl
+
+theorem projectContribution_live :
+    projectContribution .live =
+      { cardinality := .One, consumption := .Affine } := by
+  rfl
+
+/-- Complete laws for the pointwise producer domain consumed by TF-14. -/
+structure ProducerDomainLaws : Prop where
+  joinIsBoolOr : ∀ left right, toBool (join left right) =
+    (toBool left || toBool right)
+  joinCommutative : ∀ left right, join left right = join right left
+  joinAssociative : ∀ first second third,
+    join (join first second) third = join first (join second third)
+  joinIdempotent : ∀ liveness, join liveness liveness = liveness
+  deadIsBottom : ∀ liveness, join .dead liveness = liveness
+  orderInducedByJoin : ∀ {left right},
+    below left right ↔ join left right = right
+  deadBelowLive : strictBelow .dead .live
+  heightOne : ∀ first second third,
+    strictBelow first second → strictBelow second third → False
+  reverseDead : ∀ source, reverseTransfer source .dead =
+    { source := source, destination := .dead }
+  reverseLive : ∀ source, reverseTransfer source .live =
+    { source := .live, destination := .dead }
+  reverseMonotone : ∀ {source1 source2 destination1 destination2},
+    below source1 source2 → below destination1 destination2 →
+      below (reverseTransfer source1 destination1).source
+          (reverseTransfer source2 destination2).source ∧
+        below (reverseTransfer source1 destination1).destination
+          (reverseTransfer source2 destination2).destination
+  jumpMatchesReverse : ∀ argument parameter,
+    (jumpParamSubstitution argument parameter).argument =
+        (reverseTransfer argument parameter).source ∧
+      (jumpParamSubstitution argument parameter).parameter =
+        (reverseTransfer argument parameter).destination
+  jumpDead : ∀ argument, jumpParamSubstitution argument .dead =
+    { argument := argument, parameter := .dead }
+  jumpLive : ∀ argument, jumpParamSubstitution argument .live =
+    { argument := .live, parameter := .dead }
+  jumpMonotone : ∀ {argument1 argument2 parameter1 parameter2},
+    below argument1 argument2 → below parameter1 parameter2 →
+      below (jumpParamSubstitution argument1 parameter1).argument
+          (jumpParamSubstitution argument2 parameter2).argument ∧
+        below (jumpParamSubstitution argument1 parameter1).parameter
+          (jumpParamSubstitution argument2 parameter2).parameter
+  reachesFixedPoint : ∀ function, Monotone function →
+    function (function .dead) = function .dead
+  converges : ∀ function, Monotone function → ∀ step,
+    iterateFromDead function (Nat.succ step) = function .dead
+  exactProjectSeam : ∀ liveness,
+    projectContribution liveness =
+      RawDemand.scalarProjectContribution (toBool liveness)
+
+theorem producer_domain_sound : ProducerDomainLaws where
+  joinIsBoolOr := join_is_bool_or
+  joinCommutative := join_comm
+  joinAssociative := join_assoc
+  joinIdempotent := join_idem
+  deadIsBottom := join_dead_left
+  orderInducedByJoin := below_iff_join_eq_right
+  deadBelowLive := dead_strictly_below_live
+  heightOne := no_two_strict_rises
+  reverseDead := reverseTransfer_dead_destination
+  reverseLive := reverseTransfer_live_destination
+  reverseMonotone := reverseTransfer_monotone
+  jumpMatchesReverse := jumpParamSubstitution_matches_reverseTransfer
+  jumpDead := jumpParamSubstitution_dead_parameter
+  jumpLive := jumpParamSubstitution_live_parameter
+  jumpMonotone := jumpParamSubstitution_monotone
+  reachesFixedPoint := monotone_from_dead_reaches_fixed_point
+  converges := height_one_convergence
+  exactProjectSeam := projectContribution_exact_seam
+
+end ScalarLiveness
+
 /-! ## §7 TF-14 Project backward-demand propagation (annex-e §AIMS §4 TF-14)
 
     `propagate_project_source_demand(src, dst)` mutates the source:
@@ -352,6 +1125,14 @@ def propagateProjectSourceDemand (src dst : AimsState) : AimsState :=
     locality := src.locality.join dst.locality
   , cardinality := Cardinality.seqAdd src.cardinality dst.cardinality
   , consumption := Consumption.seqAdd src.consumption .Affine }
+
+/-- TF-14 contributes its two demand dimensions through the raw algebra. The
+    full product state is not canonicalized inside the Project transfer. -/
+theorem TF14_uses_raw_demand_composition (src dst : AimsState) :
+    RawDemand.ofState (propagateProjectSourceDemand src dst) =
+      RawDemand.seqAdd (RawDemand.ofState src)
+        (RawDemand.projectContribution dst) := by
+  rfl
 
 /-- TF-14 part (a): the three mutations exactly per §4 TF-14, and the
     no-propagation dimensions (access / uniqueness / shape / effect) unchanged. -/
@@ -367,6 +1148,56 @@ theorem TF14_propagation_spec (src dst : AimsState) :
     (propagateProjectSourceDemand src dst).shape = src.shape ∧
     (propagateProjectSourceDemand src dst).effect = src.effect := by
   refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+/-- TF-14's scalar-destination case. L-9 excludes a scalar destination from
+    `AimsState`, so liveness supplies its complete source-demand contribution:
+    dead preserves the existing dead-projection evidence, live agrees with an
+    ordinary Once destination, and the live copy-out remains capped at Once
+    for every downstream scalar demand. -/
+theorem TF14_scalar_project_copy_out_sound :
+    RawDemand.scalarProjectContribution true =
+      { cardinality := .One, consumption := .Affine } /\
+    RawDemand.scalarProjectContribution false = RawDemand.deadProjection /\
+    (forall destination : AimsState, destination.cardinality = .One ->
+      RawDemand.scalarProjectContribution true =
+        RawDemand.projectContribution destination) /\
+    (forall downstream : AimsState,
+      RawDemand.scalarProjectContribution true =
+        RawDemand.projectContribution
+          { downstream with cardinality := .One }) := by
+  exact ⟨RawDemand.scalarProjectContribution_live_eq_once_affine,
+    RawDemand.scalarProjectContribution_dead_eq_deadProjection,
+    RawDemand.scalarProjectContribution_live_eq_projectContribution,
+    RawDemand.scalarProjectContribution_live_copy_out_cap⟩
+
+/-- Complete TF-14 theorem surface: the scalar-liveness producer, managed
+    Project propagation, and the L-9-excluded scalar copy-out rule are
+    discharged together. -/
+theorem TF14_project_demand_sound (src dst : AimsState) :
+    ScalarLiveness.ProducerDomainLaws /\
+    (((propagateProjectSourceDemand src dst).locality
+        = src.locality.join dst.locality /\
+      (propagateProjectSourceDemand src dst).cardinality
+        = Cardinality.seqAdd src.cardinality dst.cardinality /\
+      (propagateProjectSourceDemand src dst).consumption
+        = Consumption.seqAdd src.consumption .Affine /\
+      (propagateProjectSourceDemand src dst).access = src.access /\
+      (propagateProjectSourceDemand src dst).uniqueness = src.uniqueness /\
+      (propagateProjectSourceDemand src dst).shape = src.shape /\
+      (propagateProjectSourceDemand src dst).effect = src.effect) /\
+    (RawDemand.scalarProjectContribution true =
+        { cardinality := .One, consumption := .Affine } /\
+      RawDemand.scalarProjectContribution false = RawDemand.deadProjection /\
+      (forall destination : AimsState, destination.cardinality = .One ->
+        RawDemand.scalarProjectContribution true =
+          RawDemand.projectContribution destination) /\
+      (forall downstream : AimsState,
+        RawDemand.scalarProjectContribution true =
+          RawDemand.projectContribution
+            { downstream with cardinality := .One }))) := by
+  exact ⟨ScalarLiveness.producer_domain_sound,
+    TF14_propagation_spec src dst,
+    TF14_scalar_project_copy_out_sound⟩
 
 /-- TF-14 part (c): NO Access promotion — `out.access = src.access` regardless of
     `src.access` or `dst.access` (the negative witness in TF-14.proof part (c)). -/
@@ -398,6 +1229,379 @@ theorem TF14_cardinality_monotone (src : AimsState) (k1 k2 : Cardinality)
   have := TF11_seq_add_cardinality_monotone k1 k2 src.cardinality h
   rwa [TF11_seq_add_cardinality_comm src.cardinality k1,
        TF11_seq_add_cardinality_comm src.cardinality k2]
+
+/-! ## §7a IA-5 step (1): backward transfer of forward definitions
+
+    IA-5 step (1) is the instruction-sensitive bridge between accumulated
+    destination demand and source-side state. It is backend-neutral: the
+    carrier below contains only AIMS lattice states and logical instruction
+    shapes. Operational TF-11 demand is intentionally excluded and remains
+    step (2).
+
+    `primary` is the alias source, projection source, first Select arm,
+    aggregate argument, or Set value. `secondary` is the second Select arm or
+    Set base. Aggregate transfer is per argument; applying the same case to
+    every argument gives the n-ary rule. -/
+
+/-- Whether Select's two syntactic arms name distinct variables or the same
+    variable. The same-variable case must compose both arm transfers
+    sequentially rather than collapse them with an alternative-path join. -/
+inductive IA5SelectOperands
+  | distinct
+  | same
+deriving Repr, DecidableEq
+
+/-- Aggregate-building instruction families governed by one IA-5 rule. -/
+inductive IA5AggregateKind
+  | construct
+  | reuse
+  | collectionReuse
+deriving Repr, DecidableEq
+
+/-- Non-aliasing definitions whose IA-5 step (1) image is the identity.
+    Their separate TF-11, TF-12, or TF-13 demand remains step (2). -/
+inductive IA5NonAliasKind
+  | apply
+  | applyIndirect
+  | invoke
+  | invokeIndirect
+  | partialApply
+  | rcInc
+  | rcDec
+  | isShared
+  | reset
+deriving Repr, DecidableEq
+
+/-- Exhaustive logical instruction shapes for IA-5 step (1). -/
+inductive IA5Step1Instr
+  | letVar
+  | project
+  | select (operands : IA5SelectOperands)
+  | aggregate (kind : IA5AggregateKind)
+  | set
+  | setTag
+  | nonAlias (kind : IA5NonAliasKind)
+deriving Repr, DecidableEq
+
+/-- The two state slots an IA-5 instruction shape can update. -/
+structure IA5Step1Operands where
+  primary : AimsState
+  secondary : AimsState
+deriving Repr, DecidableEq
+
+/-- Transparent-alias demand transfer: cardinality and consumption compose
+    sequentially; locality widens; all other dimensions stay on the source. -/
+def ia5FullAliasDemand (source destination : AimsState) : AimsState :=
+  { source with
+    consumption := Consumption.seqAdd source.consumption destination.consumption
+  , cardinality := Cardinality.seqAdd source.cardinality destination.cardinality
+  , locality := source.locality.join destination.locality }
+
+/-- IA-5 transparent/conditional aliases compose their demand dimensions in
+    the same raw algebra; locality remains the independent max component. -/
+theorem IA5_full_alias_uses_raw_demand_composition
+    (source destination : AimsState) :
+    RawDemand.ofState (ia5FullAliasDemand source destination) =
+      RawDemand.seqAdd (RawDemand.ofState source)
+        (RawDemand.ofState destination) := by
+  rfl
+
+/-- A block walk may use its imperative left fold without observing between
+    instruction contributions. Permuting contributions cannot change the raw
+    block-entry demand. -/
+theorem IA5_block_walk_raw_fold_permutation
+    {left right : List RawDemand} (permutation : left.Perm right) :
+    left.foldl RawDemand.seqAdd RawDemand.zero =
+      right.foldl RawDemand.seqAdd RawDemand.zero := by
+  rw [RawDemand.foldl_zero_eq_sum, RawDemand.foldl_zero_eq_sum]
+  exact RawDemand.sum_perm permutation
+
+/-- An aggregate takes ownership of each argument and inherits the aggregate
+    destination's locality. Destination multiplicity is not transferred. -/
+def ia5AggregateArgument (argument destination : AimsState) : AimsState :=
+  { argument with
+    access := .Owned
+  , locality := argument.locality.join destination.locality }
+
+/-- Set takes ownership of its value and widens that value to the base's
+    locality. The base itself receives only its direct TF-11 demand in step (2). -/
+def ia5SetValue (value base : AimsState) : AimsState :=
+  { value with
+    access := .Owned
+  , locality := value.locality.join base.locality }
+
+/-- IA-5 step (1), independent of any physical executor. -/
+def ia5Step1
+    (instruction : IA5Step1Instr)
+    (operands : IA5Step1Operands)
+    (destination : AimsState) : IA5Step1Operands :=
+  match instruction with
+  | .letVar =>
+      { operands with primary := ia5FullAliasDemand operands.primary destination }
+  | .project =>
+      { operands with
+        primary := propagateProjectSourceDemand operands.primary destination }
+  | .select .distinct =>
+      { primary := ia5FullAliasDemand operands.primary destination
+      , secondary := ia5FullAliasDemand operands.secondary destination }
+  | .select .same =>
+      { operands with
+        primary := ia5FullAliasDemand
+          (ia5FullAliasDemand operands.primary destination) destination }
+  | .aggregate _ =>
+      { operands with
+        primary := ia5AggregateArgument operands.primary destination }
+  | .set =>
+      { operands with primary := ia5SetValue operands.primary operands.secondary }
+  | .setTag | .nonAlias _ => operands
+
+/-- Independent semantic relation for transparent and conditional aliases. -/
+def ia5FullAliasConforms
+    (source destination result : AimsState) : Prop :=
+  result.consumption
+      = Consumption.seqAdd source.consumption destination.consumption ∧
+    result.cardinality
+      = Cardinality.seqAdd source.cardinality destination.cardinality ∧
+    result.locality = source.locality.join destination.locality ∧
+    result.access = source.access ∧
+    result.uniqueness = source.uniqueness ∧
+    result.shape = source.shape ∧
+    result.effect = source.effect
+
+/-- Independent semantic relation for one aggregate argument. The unchanged
+    cardinality and consumption clauses reject destination-demand transfer. -/
+def ia5AggregateArgumentConforms
+    (argument destination result : AimsState) : Prop :=
+  result.access = .Owned ∧
+    result.locality = argument.locality.join destination.locality ∧
+    result.consumption = argument.consumption ∧
+    result.cardinality = argument.cardinality ∧
+    result.uniqueness = argument.uniqueness ∧
+    result.shape = argument.shape ∧
+    result.effect = argument.effect
+
+/-- Independent semantic relation for Set's value-side transfer. -/
+def ia5SetValueConforms (value base result : AimsState) : Prop :=
+  result.access = .Owned ∧
+    result.locality = value.locality.join base.locality ∧
+    result.consumption = value.consumption ∧
+    result.cardinality = value.cardinality ∧
+    result.uniqueness = value.uniqueness ∧
+    result.shape = value.shape ∧
+    result.effect = value.effect
+
+/-- The complete IA-5 step (1) relation. Select with the same variable in both
+    arms applies the full destination demand twice to that one source state. -/
+def ia5Step1Conforms
+    (instruction : IA5Step1Instr)
+    (before : IA5Step1Operands)
+    (destination : AimsState)
+    (after : IA5Step1Operands) : Prop :=
+  match instruction with
+  | .letVar =>
+      ia5FullAliasConforms before.primary destination after.primary ∧
+        after.secondary = before.secondary
+  | .project =>
+      after.primary = propagateProjectSourceDemand before.primary destination ∧
+        after.secondary = before.secondary
+  | .select .distinct =>
+      ia5FullAliasConforms before.primary destination after.primary ∧
+        ia5FullAliasConforms before.secondary destination after.secondary
+  | .select .same =>
+      let once := ia5FullAliasDemand before.primary destination
+      ia5FullAliasConforms before.primary destination once ∧
+        ia5FullAliasConforms once destination after.primary ∧
+        after.secondary = before.secondary
+  | .aggregate _ =>
+      ia5AggregateArgumentConforms before.primary destination after.primary ∧
+        after.secondary = before.secondary
+  | .set =>
+      ia5SetValueConforms before.primary before.secondary after.primary ∧
+        after.secondary = before.secondary
+  | .setTag | .nonAlias _ => after = before
+
+/-- IA-5 step (1): the backend-neutral function satisfies every instruction
+    case in the independent semantic relation. -/
+theorem IA5_step1_sound
+    (instruction : IA5Step1Instr)
+    (operands : IA5Step1Operands)
+    (destination : AimsState) :
+    ia5Step1Conforms instruction operands destination
+      (ia5Step1 instruction operands destination) := by
+  cases instruction with
+  | letVar =>
+      simp [ia5Step1Conforms, ia5Step1, ia5FullAliasConforms,
+        ia5FullAliasDemand]
+  | project => simp [ia5Step1Conforms, ia5Step1]
+  | select mode =>
+      cases mode <;>
+        simp [ia5Step1Conforms, ia5Step1, ia5FullAliasConforms,
+          ia5FullAliasDemand]
+  | aggregate kind =>
+      cases kind <;>
+        simp [ia5Step1Conforms, ia5Step1, ia5AggregateArgumentConforms,
+          ia5AggregateArgument]
+  | set =>
+      simp [ia5Step1Conforms, ia5Step1, ia5SetValueConforms, ia5SetValue]
+  | setTag => simp [ia5Step1Conforms, ia5Step1]
+  | nonAlias kind =>
+      cases kind <;> simp [ia5Step1Conforms, ia5Step1]
+
+/-- IA-5 composition theorem: the exhaustive instruction relation and the raw
+    block-walk timing obligation hold together. This is the kernel-checked
+    bridge from instruction transfer to observe-once block accumulation. -/
+theorem IA5_step1_and_raw_block_walk_sound :
+    (forall (instruction : IA5Step1Instr)
+      (operands : IA5Step1Operands) (destination : AimsState),
+      ia5Step1Conforms instruction operands destination
+        (ia5Step1 instruction operands destination)) /\
+    (forall source destination : AimsState,
+      RawDemand.ofState (ia5FullAliasDemand source destination) =
+        RawDemand.seqAdd (RawDemand.ofState source)
+          (RawDemand.ofState destination)) /\
+    (forall source destination : AimsState,
+      RawDemand.ofState (propagateProjectSourceDemand source destination) =
+        RawDemand.seqAdd (RawDemand.ofState source)
+          (RawDemand.projectContribution destination)) /\
+    (RawDemand.scalarProjectContribution true =
+        { cardinality := .One, consumption := .Affine } /\
+      RawDemand.scalarProjectContribution false = RawDemand.deadProjection /\
+      (forall destination : AimsState, destination.cardinality = .One ->
+        RawDemand.scalarProjectContribution true =
+          RawDemand.projectContribution destination) /\
+      (forall downstream : AimsState,
+        RawDemand.scalarProjectContribution true =
+          RawDemand.projectContribution
+            { downstream with cardinality := .One })) /\
+    (forall (left right : List RawDemand), left.Perm right ->
+      left.foldl RawDemand.seqAdd RawDemand.zero =
+        right.foldl RawDemand.seqAdd RawDemand.zero) := by
+  refine ⟨IA5_step1_sound, IA5_full_alias_uses_raw_demand_composition,
+    TF14_uses_raw_demand_composition, TF14_scalar_project_copy_out_sound, ?_⟩
+  intro left right permutation
+  exact IA5_block_walk_raw_fold_permutation permutation
+
+/-- Let Var transfers the full accumulated destination demand to its source. -/
+theorem IA5_let_var_transfers_full_demand
+    (operands : IA5Step1Operands) (destination : AimsState) :
+    ia5FullAliasConforms operands.primary destination
+      (ia5Step1 .letVar operands destination).primary := by
+  have sound := IA5_step1_sound .letVar operands destination
+  exact sound.1
+
+/-- Project step (1) is exactly TF-14 and emits no independent TF-11 demand. -/
+theorem IA5_project_composes_TF14
+    (operands : IA5Step1Operands) (destination : AimsState) :
+    (ia5Step1 .project operands destination).primary
+      = propagateProjectSourceDemand operands.primary destination := by
+  have sound := IA5_step1_sound .project operands destination
+  exact sound.1
+
+/-- Select with distinct variables transfers full demand to both arms. -/
+theorem IA5_select_distinct_transfers_both_arms
+    (operands : IA5Step1Operands) (destination : AimsState) :
+    ia5FullAliasConforms operands.primary destination
+        (ia5Step1 (.select .distinct) operands destination).primary ∧
+      ia5FullAliasConforms operands.secondary destination
+        (ia5Step1 (.select .distinct) operands destination).secondary := by
+  simpa [ia5Step1Conforms] using
+    IA5_step1_sound (.select .distinct) operands destination
+
+/-- Every aggregate family uses the same per-argument Owned/locality rule and
+    does not transfer destination cardinality or consumption. -/
+theorem IA5_aggregate_argument_rule
+    (kind : IA5AggregateKind)
+    (operands : IA5Step1Operands)
+    (destination : AimsState) :
+    ia5AggregateArgumentConforms operands.primary destination
+      (ia5Step1 (.aggregate kind) operands destination).primary := by
+  have sound := IA5_step1_sound (.aggregate kind) operands destination
+  exact sound.1
+
+/-- Set promotes its value to Owned at the base's locality. -/
+theorem IA5_set_value_rule
+    (operands : IA5Step1Operands) (destination : AimsState) :
+    ia5SetValueConforms operands.primary operands.secondary
+      (ia5Step1 .set operands destination).primary := by
+  have sound := IA5_step1_sound .set operands destination
+  exact sound.1
+
+/-- SetTag and every enumerated non-aliasing definition are step-(1) no-ops. -/
+theorem IA5_no_alias_definitions_are_noops
+    (kind : IA5NonAliasKind)
+    (operands : IA5Step1Operands)
+    (destination : AimsState) :
+    ia5Step1 .setTag operands destination = operands ∧
+      ia5Step1 (.nonAlias kind) operands destination = operands := by
+  exact ⟨rfl, rfl⟩
+
+/-! ### IA-5 executable witnesses and negative pins -/
+
+def ia5WitnessSource : AimsState :=
+  { access := .Borrowed
+  , consumption := .Dead
+  , cardinality := .Absent
+  , uniqueness := .Unique
+  , locality := .BlockLocal
+  , shape := .ReusableStruct
+  , effect := {} }
+
+def ia5WitnessDemand : AimsState :=
+  { access := .Owned
+  , consumption := .Linear
+  , cardinality := .One
+  , uniqueness := .MaybeShared
+  , locality := .HeapEscaping
+  , shape := .NonReusable
+  , effect := {} }
+
+def ia5WitnessOperands : IA5Step1Operands :=
+  { primary := ia5WitnessSource, secondary := ia5WitnessSource }
+
+/-- Same-variable Select is two sequential uses: Once + Once becomes Many and
+    Linear + Linear becomes Unrestricted. -/
+theorem IA5_select_same_operand_sequential_witness :
+    let result := ia5Step1 (.select .same) ia5WitnessOperands ia5WitnessDemand
+    result.primary.cardinality = .Many ∧
+      result.primary.consumption = .Unrestricted := by
+  decide
+
+/-- Negative pin: alternative-path join would leave the same-variable Select at
+    Once/Linear and therefore undercount the two syntactic arm transfers. -/
+theorem IA5_select_same_operand_rejects_alternative_join :
+    let result := ia5Step1 (.select .same) ia5WitnessOperands ia5WitnessDemand
+    result.primary.cardinality ≠
+        ia5WitnessSource.cardinality.join ia5WitnessDemand.cardinality ∧
+      result.primary.consumption ≠
+        ia5WitnessSource.consumption.join ia5WitnessDemand.consumption := by
+  decide
+
+/-- Negative pin: even a Many/Unrestricted destination does not transfer those
+    dimensions into an aggregate argument; only Owned and locality transfer. -/
+theorem IA5_aggregate_does_not_transfer_destination_demand
+    (kind : IA5AggregateKind) :
+    let result := ia5Step1 (.aggregate kind) ia5WitnessOperands
+      { ia5WitnessDemand with
+        consumption := .Unrestricted
+      , cardinality := .Many }
+    result.primary.access = .Owned ∧
+      result.primary.locality = .HeapEscaping ∧
+      result.primary.consumption = .Dead ∧
+      result.primary.cardinality = .Absent := by
+  cases kind <;> decide
+
+/-- Set follows the same no-multiplicity-transfer boundary while using the
+    base's locality rather than a destination state. -/
+theorem IA5_set_uses_base_locality_without_demand_transfer :
+    let operands : IA5Step1Operands :=
+      { primary := ia5WitnessSource
+      , secondary := { ia5WitnessSource with locality := .HeapEscaping } }
+    let result := ia5Step1 .set operands ia5WitnessDemand
+    result.primary.access = .Owned ∧
+      result.primary.locality = .HeapEscaping ∧
+      result.primary.consumption = .Dead ∧
+      result.primary.cardinality = .Absent := by
+  decide
 
 /-! ## §8 TF-8 Select uniqueness downgrade (annex-e §AIMS §4 TF-8)
 

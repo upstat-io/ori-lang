@@ -255,9 +255,10 @@ impl ArcIrBuilder {
     /// Record that a may-panic inline checked-op `PrimOp` with result `dst` was
     /// lowered. When a catch target is active (i.e. lowering lexically inside a
     /// `catch(expr:)` body) maps `dst` to that catch's handler block so the
-    /// LLVM emitter materializes a landing pad and routes only this checked-op's
-    /// panic to ITS handler (the active `catch_unwind_target` is always the
-    /// innermost enclosing catch). No-op outside a catch. Spec: Clause 14.3.
+    /// physical projection routes only this checked-op's panic to its handler;
+    /// LLVM currently materializes a landing pad for the edge. The active
+    /// `catch_unwind_target` is always the innermost enclosing catch. No-op
+    /// outside a catch. Spec: Clause 14.3.
     pub fn note_checked_op(&mut self, dst: ArcVarId) {
         if let Some(handler) = self.catch_unwind_target {
             // `dst` is a fresh SSA var (defined exactly once), so no dedup is

@@ -43,8 +43,9 @@
 //! `extract_rc_data_ptrs` remains in `mod.rs` for non-RC uses (closure env
 //! drop, drop function generation, builtin clone).
 //!
-//! Pool queries are still used for type tags and field enumeration. These will
-//! be eliminated once `ValueRepr` propagation makes layouts fully explicit.
+//! Pool queries for physical tags and field enumeration are a migration gap.
+//! `ValueRepr` remains a logical ownership carrier; `CompiledLayoutPlan` must
+//! make extraction width, offsets, and encoding explicit for this projection.
 
 use ori_arc::ir::{ArcFunction, ArcVarId, RcStrategy};
 use ori_ir::{CLOSURE_FIELD_ENV, FIELD_CAP, FIELD_DATA};
@@ -174,13 +175,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // silently dropping the op (no invisible gaps) — mirrors the
         // use-before-def handler in `emit_rc_dec`.
         if self.user_drop_method(resolved).is_none() {
+            let mut registered: Vec<_> = self
+                .ctx
+                .user_drop_functions
+                .keys()
+                .map(|candidate| candidate.raw())
+                .collect();
+            registered.sort_unstable();
             tracing::error!(
                 var = var.raw(),
+                ty = ty.raw(),
+                resolved = resolved.raw(),
+                registered = ?registered,
                 "RcDec UserDrop on a type with no user @drop — realized ARC IR invariant violation"
             );
             self.builder.record_codegen_error_with_msg(format!(
-                "RcDec UserDrop on v{} whose type has no user @drop — realized ARC IR invariant violation",
-                var.raw()
+                "RcDec UserDrop on v{} whose type v{} resolves to v{}, but the executable user-drop table contains {:?} — realized ARC IR invariant violation",
+                var.raw(),
+                ty.raw(),
+                resolved.raw(),
+                registered,
             ));
             return;
         }

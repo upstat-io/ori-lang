@@ -38,5 +38,4 @@ mod emit;
 mod prepare;
 mod types;
 
-pub(crate) use prepare::pre_lower_monos_to_arc_cache;
 pub use types::PreparedFunction;

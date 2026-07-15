@@ -565,12 +565,12 @@ fn non_builtin_tag_returns_none_for_ops() {
     assert_eq!(is_binary_op_supported(Tag::Named, BinaryOp::Sub), None);
 }
 
-/// Int add strategy is `IntInstr` (specific variant check).
+/// Int add strategy is `SignedInteger` (specific variant check).
 #[test]
 fn int_add_strategy_is_int_instr() {
     assert_eq!(
         binary_op_strategy(Tag::Int, BinaryOp::Add),
-        Some(OpStrategy::IntInstr)
+        Some(OpStrategy::SignedInteger)
     );
 }
 
@@ -578,8 +578,8 @@ fn int_add_strategy_is_int_instr() {
 #[test]
 fn str_add_strategy_is_runtime_call() {
     match binary_op_strategy(Tag::Str, BinaryOp::Add) {
-        Some(OpStrategy::RuntimeCall { fn_name, .. }) => {
-            assert_eq!(fn_name, "ori_str_concat");
+        Some(OpStrategy::RuntimeCall(runtime)) => {
+            assert_eq!(runtime, ori_registry::RuntimeOperator::StringConcat);
         }
         other => panic!("expected RuntimeCall, got {other:?}"),
     }

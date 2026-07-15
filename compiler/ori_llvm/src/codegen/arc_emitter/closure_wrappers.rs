@@ -5,8 +5,10 @@
 //! calling convention `(captures..., user_args...)`.
 
 use ori_arc::ownership::Ownership;
+use ori_arc::{ClosureAdapterAction, ClosureAdapterPlan, RetainPlanId, RetainPlanKind};
 use ori_types::Idx;
 
+use super::context::is_boxed_enum_field;
 use super::ArcIrEmitter;
 use crate::codegen::abi::{FunctionAbi, ParamAbi, ParamPassing, ReturnPassing};
 use crate::codegen::value_id::{FunctionId, ValueId};
@@ -34,8 +36,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         callee_func_id: FunctionId,
         callee_abi: &FunctionAbi,
         capture_types: &[Idx],
+        frozen_adapter: Option<&ClosureAdapterPlan>,
         capture_ownership: &[Ownership],
         remaining_params: &[ParamAbi],
+        target_has_phantom_env: bool,
         target_is_nounwind: bool,
     ) -> ValueId {
         let partial_id = self.partial_apply_counter;
@@ -141,12 +145,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let env_struct_ty_id = self.builder.register_type(env_struct.into());
 
         // Unpack captures from env struct (fields 1..N)
-        let mut callee_args = Vec::with_capacity(callee_abi.params.len());
+        let mut callee_args = Vec::with_capacity(
+            usize::from(has_sret) + usize::from(target_has_phantom_env) + callee_abi.params.len(),
+        );
 
         // Handle sret: pass the wrapper's sret parameter through to the callee.
         if has_sret {
             let sret_out = self.builder.get_param(wrapper_func_id, 0);
             callee_args.push(sret_out);
+        }
+
+        // Non-capturing lambdas use the closure-compatible physical ABI and
+        // therefore have one phantom environment pointer that is deliberately
+        // absent from the backend-neutral FunctionAbi. A wrapper is still
+        // required when its frozen adapter retains a residual argument; pass
+        // the wrapper's environment value (null for this closure shape) before
+        // the user arguments so the physical call matches the declaration.
+        if target_has_phantom_env {
+            debug_assert!(
+                capture_types.is_empty(),
+                "a non-capturing lambda cannot have closure capture fields"
+            );
+            callee_args.push(env_ptr_val);
         }
 
         #[expect(
@@ -172,27 +192,39 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // will eventually dec the passed copy. Without this inc, nested
             // closures cause double-free: both the outer env drop and the
             // inner env drop dec the same refcount.
-            let ownership = capture_ownership
-                .get(i)
-                .copied()
-                .unwrap_or(Ownership::Owned);
-            let needs_inc = ownership == Ownership::Owned && self.classifier.needs_rc(cap_ty);
+            let frozen_action = frozen_adapter.map(|adapter| adapter.slots()[i].action);
+            let needs_legacy_inc = frozen_action.is_none()
+                && capture_ownership
+                    .get(i)
+                    .copied()
+                    .unwrap_or(Ownership::Owned)
+                    == Ownership::Owned
+                && self.classifier.has_managed_ownership_obligation(cap_ty);
 
             if matches!(
                 param_passing,
                 Some(ParamPassing::Indirect { .. } | ParamPassing::Reference)
             ) {
                 // Reference passing: load value for RcInc, then pass pointer.
-                if needs_inc {
+                if frozen_action
+                    .is_some_and(|action| matches!(action, ClosureAdapterAction::Retain(_)))
+                    || needs_legacy_inc
+                {
                     let loaded = self
                         .builder
                         .load(field_ty, field_ptr, &format!("cap.{i}.inc"));
-                    self.inc_value_rc(loaded, cap_ty, 1);
+                    if let Some(ClosureAdapterAction::Retain(plan)) = frozen_action {
+                        self.emit_frozen_closure_retain_plan(loaded, plan);
+                    } else {
+                        self.inc_value_rc(loaded, cap_ty, 1);
+                    }
                 }
                 callee_args.push(field_ptr);
             } else {
                 let cap_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
-                if needs_inc {
+                if let Some(ClosureAdapterAction::Retain(plan)) = frozen_action {
+                    self.emit_frozen_closure_retain_plan(cap_val, plan);
+                } else if needs_legacy_inc {
                     self.inc_value_rc(cap_val, cap_ty, 1);
                 }
                 callee_args.push(cap_val);
@@ -203,9 +235,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // When has_sret: params start at 2 (0=sret, 1=env)
         // Otherwise: params start at 1 (0=env)
         let mut wrapper_param_idx: u32 = env_param_idx + 1;
-        for param in remaining_params {
+        for (residual_index, param) in remaining_params.iter().enumerate() {
             if param.passing != ParamPassing::Void {
                 let user_val = self.builder.get_param(wrapper_func_id, wrapper_param_idx);
+                if let Some(adapter) = frozen_adapter {
+                    let slot = &adapter.slots()[capture_types.len() + residual_index];
+                    if let ClosureAdapterAction::Retain(plan) = slot.action {
+                        let retained = if matches!(
+                            param.passing,
+                            ParamPassing::Indirect { .. } | ParamPassing::Reference
+                        ) {
+                            let value_ty = self.resolve_type(slot.ty);
+                            self.builder.load(
+                                value_ty,
+                                user_val,
+                                &format!("arg.{residual_index}.inc"),
+                            )
+                        } else {
+                            user_val
+                        };
+                        self.emit_frozen_closure_retain_plan(retained, plan);
+                    }
+                }
                 callee_args.push(user_val);
                 wrapper_param_idx += 1;
             }
@@ -247,5 +298,65 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         self.builder.get_function_ptr(wrapper_func_id)
+    }
+
+    /// Project one frozen logical retain action through LLVM's physical layout.
+    /// Product edges are followed exactly so projected-field demands cannot
+    /// accidentally retain unrelated siblings. Whole-value sum plans delegate
+    /// active-variant selection to the existing layout-aware enum emitter.
+    fn emit_frozen_closure_retain_plan(&mut self, value: ValueId, root: RetainPlanId) {
+        let mut work = vec![(value, root)];
+        while let Some((value, plan)) = work.pop() {
+            let Some(node) = self.ctx.retain_plans.get(plan).cloned() else {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "closure adapter references missing retain plan {}",
+                    plan.index()
+                ));
+                return;
+            };
+            match node.kind {
+                RetainPlanKind::SelfOwnedIdentity => {
+                    let resolved = self.pool.resolve_fully(node.ty);
+                    if matches!(
+                        self.pool.tag(resolved),
+                        ori_types::Tag::Struct | ori_types::Tag::Enum
+                    ) && self.pool.aggregate_type_is_recursive(resolved)
+                    {
+                        self.call_rc_inc_all(&[value], 1);
+                    } else {
+                        self.inc_value_rc(value, node.ty, 1);
+                    }
+                }
+                RetainPlanKind::OwnedFields(edges) => {
+                    let owner = self.pool.resolve_fully(node.ty);
+                    for edge in edges.iter().rev() {
+                        let Some(child) = self.ctx.retain_plans.get(edge.child).cloned() else {
+                            self.builder.record_codegen_error_with_msg(format!(
+                                "closure retain plan {} references missing child {}",
+                                plan.index(),
+                                edge.child.index()
+                            ));
+                            return;
+                        };
+                        let memory_field = self.remap_struct_field(owner, edge.field);
+                        let Some(field_value) = self.builder.extract_value(
+                            value,
+                            memory_field,
+                            &format!("closure.retain.f.{}", edge.field),
+                        ) else {
+                            return;
+                        };
+                        if is_boxed_enum_field(self.pool, owner, child.ty) {
+                            self.call_rc_inc_all(&[field_value], 1);
+                        } else {
+                            work.push((field_value, edge.child));
+                        }
+                    }
+                }
+                RetainPlanKind::OwnedVariants(_) => {
+                    self.inc_value_rc(value, node.ty, 1);
+                }
+            }
+        }
     }
 }

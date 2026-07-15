@@ -93,8 +93,9 @@ impl ArcLowerer<'_> {
         // Use INT for the result type to suppress ARC RC management on the
         // `{tag, elem}` wrapper struct.  The actual element (accessed via
         // Project at index 1) carries elem_ty and gets correct RC.
-        // Pass a zero marker of elem_ty as args[1] so the LLVM emitter can
-        // recover the element type for scratch buffer sizing.
+        // Pass a zero marker of elem_ty as args[1] so physical projections
+        // retain the logical element identity for scratch-buffer sizing. The
+        // marker does not prescribe a byte layout.
         let elem_ty_marker =
             self.builder
                 .emit_let(elem_ty, ArcValue::Literal(LitValue::Int(0)), None);

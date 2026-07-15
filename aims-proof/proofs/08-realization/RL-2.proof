@@ -1,8 +1,11 @@
 Theorem RL-2: RC dec at last use / scope exit; ownership-transfer exclusion; unused-owned cleanup
 
   Preconditions:
-    - RL-2 governs RcDec emission per Annex E §AIMS RC Emission:
-      "RC dec SHALL be emitted at last use of an owned value or scope exit,
+    - RcInc/RcDec and refcount are historical carrier terms for logical
+      owner-credit/release events and their running balance; this theorem does
+      not prescribe a physical counter
+    - RL-2 governs logical release realization per Annex E §AIMS:
+      "A release SHALL be realized at last use of an owned value or scope exit,
       UNLESS the last use is ownership-transferring (Return, Construct /
       Reuse / CollectionReuse arg, Set value, PartialApply capture, Apply /
       Invoke to an Owned param, Jump arg per the RL-4 exemption, Apply /
@@ -42,11 +45,12 @@ Theorem RL-2: RC dec at last use / scope exit; ownership-transfer exclusion; unu
       realize/mod.rs::realize_rc_reuse Sub-step B (line 140).
     - SetTag is NOT in the exclusion list — it has no value operand
       (Annex E §AIMS RL-2).
-    - RL-2 applies only to HEAP-allocated values or stack-with-RC-header
-      values (RL-15a Owned / MaybeShared). Headerless stack (RL-14 Unique,
-      RL-15a Borrowed+Unique) gets no RC ops; cleanup is via stack-frame
-      deallocation (Annex E §AIMS RL-2). This proof reasons over the
-      heap / RC-header case.
+    - RL-2 states logical ownership-transfer and release obligations
+      independently of physical placement or metadata. A validated target
+      may omit or coalesce physical operations only when RL-18 Satisfies and
+      RL-18a trace parity preserve the exact OwnershipObservationFacts and
+      CleanupObligation identities. This proof reasons over that logical
+      release contract.
     - DP-2 (is_rc_dec_unnecessary, Appendix C) gates SUPPLEMENTARY decs only
       (Cardinality = Absent OR Consumption = Dead); the terminal RL-2 /
       RL-4 / RL-5 emissions and the definitional cleanup dec own their own
@@ -54,7 +58,8 @@ Theorem RL-2: RC dec at last use / scope exit; ownership-transfer exclusion; unu
       sec-8 RL-1 "DP-2 does NOT suppress definitional cleanup dec").
 
   Soundness property:
-    Forall owned non-scalar heap value v allocated with RC = 1:
+    Forall owned non-scalar value v created with one logical ownership
+    credit:
 
       (P1) Emission decision: at v's terminal use, RL-2 emits an RcDec iff
            the use is NOT ownership-transferring (per
@@ -64,15 +69,15 @@ Theorem RL-2: RC dec at last use / scope exit; ownership-transfer exclusion; unu
            owned non-scalar (Dead / Absent) receives an immediate cleanup
            dec at definition.
 
-      (P2) RC-count preservation: every owned non-scalar heap value is
-           released exactly once — by an RL-2 last-use dec, an RL-2
-           definitional cleanup dec, an RL-4 edge dec, OR an ownership
-           handoff to a consumer. The net reference count returns to 0.
+      (P2) Count-event preservation: every owned non-scalar value's initial
+           logical credit is discharged exactly once — by an RL-2 last-use
+           dec, an RL-2 definitional cleanup dec, an RL-4 edge dec, OR an
+           ownership handoff to a consumer. The net logical count returns
+           to 0. Physical counting and reclamation are projection choices.
 
-    RL-2 refines plain ARC by suppressing the dec on ownership-transferring
-    uses (where plain ARC would dec-then-the-consumer-incs, a redundant
-    pair) while preserving the same balance: the single reference moves to
-    the consumer rather than being released and re-created.
+    RL-2 preserves canonical evaluator behavior and exact event balance: an
+    ownership-transferring use hands off the existing credit rather than
+    releasing and recreating it.
 
   Proof obligation:
     Constructive discharge by the rc_counting engine.

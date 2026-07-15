@@ -197,11 +197,13 @@ pub fn lower_function_can(
     // repr from the moment it exists. `run_arc_pipeline` will re-compute
     // (same values) as a consistency check.
     let classifier = ArcClassifier::new(pool);
-    func.var_reprs = ir::compute_var_reprs(&func, &classifier, pool);
+    let representations = ir::compute_var_reprs(&func, &classifier, pool);
+    func.replace_variable_representations(representations);
 
     // Lambda bodies also get pre-populated reprs.
     for lambda in &mut lambdas {
-        lambda.var_reprs = ir::compute_var_reprs(lambda, &classifier, pool);
+        let representations = ir::compute_var_reprs(lambda, &classifier, pool);
+        lambda.replace_variable_representations(representations);
     }
 
     tracing::debug!(

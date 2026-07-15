@@ -26,6 +26,44 @@ Theorem IC-T4: Contract-boundary composition over the CFG ledger
       (the returned/view reference re-entering the caller's scope; ret is
       tier-1-unified with arg - the same allocation flows back / the view
       shares it).
+    - Invoke successor selection occurs after the argument boundary event. The
+      same computed argument event therefore prefixes BOTH normal and unwind
+      paths. Only successful normal return binds the result and may append the
+      passthrough/sharing-view credit.
+    - Indirect-call explicit operands use one caller-borrowed logical contract.
+      Each backend projects that contract into its own calling convention. The caller
+      therefore contributes READ for every explicit operand and retains its
+      ownership obligation. The closed target identity supplies frozen
+      per-parameter ownership facts projected exactly from the final
+      IC-2/IC-3/IC-8a ParamContract. The normalized demand is Borrow,
+      WholeValue, or ProjectedField(f): Owned, borrowed iter-consume without
+      return transfer, and borrowed COW-consume demand WholeValue; an exact
+      projected iter-consume demands only that field; plain Borrow demands no
+      owner. WholeValue and ProjectedField together are contradictory. A
+      WholeValue/ProjectedField fact requires exactly one logical adapter
+      CREDIT before target entry, which the target discharges on every normal
+      and unwind exit; Borrow requires neither.
+    - Target-parameter facts carry stable (function, parameter) identity; result
+      facts carry stable (function, normal-return-site) identity. Every related
+      result must name the same function and parameter. EntryCredit additionally
+      requires exact demand/relation topology: WholeValue may transfer only to
+      Direct/Contained, and ProjectedField(f) only to the same field f. This
+      topology rule is source-sensitive: a TargetFunded result may legitimately
+      reshape after consuming the entry owner while preserving function and
+      parameter identity. Independent results require no synthetic entry fact,
+      so zero-parameter functions may return a fresh owned value; related
+      results require an entry fact.
+    - The verified CFG supplies one authoritative exit inventory. Normal exits
+      carry their computed ownership requirement; unwind exits carry no result
+      requirement. Function-plan freezing derives the canonical normal-site
+      list from that inventory, rejects duplicate exit/proof identities, and
+      requires exact one-for-one evidence coverage. Owned rows are recomputed by
+      the per-site source freezer and compared with the claimed fact, preventing
+      a correct-key forged source. Ownerless rows carry a nonzero stable proof
+      identity, semantic reason, and proposition tying the proof to the
+      CFG-owned ownerless requirement. No result evidence constructor exists for
+      unwind. These are logical ledger obligations, not selections of a counter,
+      object layout, retain opcode, ABI layout, or discharge mechanism.
     - The callee side consumes the SAME committed table lookup: the callee's
       per-param-class ledger opens with the transferred-in reference (a
       construct of the param - BIRTH) exactly when the boundary use kind
@@ -57,7 +95,20 @@ Theorem IC-T4: Contract-boundary composition over the CFG ledger
     double-release shape). The live-at-call side condition (running count
     >= 1 at a transfer-in handoff) is honest and NECESSARY: a CONSUME
     summary carries no floor, and dropping the condition admits a composed
-    use-after-free.
+    use-after-free. On Invoke, omitting an Owned argument consume from the
+    unwind path is rejected; treating result credit as common to unwind is also
+    rejected because no result exists there. For indirect calls, the exact
+    adapter rows are caller-Borrowed/target-WholeValue =
+    [READ, CREDIT, CONSUME], caller-Borrowed/target-ProjectedField(f) =
+    [READ, CREDIT_f, CONSUME_f], and caller-Borrowed/target-Borrow = [READ] on
+    both exits. All preserve the caller's incoming obligation. Missing the
+    owner-demand credit consumes the caller's obligation; missing its unwind
+    discharge leaks the adapter credit. The CFG-total result plan proves every
+    normal site exactly once: an explicit Ownerless row adds net zero, while an
+    Owned row adds exactly one owner sourced by an independent target birth, an
+    exact-topology entry-credit transfer, target funding, or a normal-only
+    result credit. No row exists on unwind, no owned source receives double
+    credit, and an entry-derived result has exactly one unwind discharge.
 
   Proof obligation:
     (P1) Classification grounding. Each table row is a COMPUTED fact: the
@@ -77,6 +128,9 @@ Theorem IC-T4: Contract-boundary composition over the CFG ledger
          verdict that RL-34's transferOwnership action reflects. The
          callee-side owned-param row: the callee ledger opens with BIRTH
          exactly when the boundary use kind transfers ownership in.
+         Invoke path row: argument event precedes both exits; Owned consumes on
+         both; result credit is normal-only. The negative witness proves an
+         empty Owned-unwind event stream contradicts the boundary model.
     (P2) The interface-complement extraction. A conforming callee's body
          ledger nets EXACTLY what the caller-side summary event nets
          (transfer-in: -1, the handed-off obligation discharged inside;
@@ -110,16 +164,92 @@ Theorem IC-T4: Contract-boundary composition over the CFG ledger
          yet the inlined composition reads at count 0 - the operational
          machine observes the use-after-free; the side condition cannot be
          dropped.
+    (P5) Borrowed indirect-adapter composition. The frozen target fact is the
+         exact inward-owner demand derived once from the full final parameter
+         contract: Owned, borrowed iter-consume without return transfer, and
+         borrowed COW-consume demand one whole-value owner; projected-field
+         iter-consume demands exactly that field; plain Borrow demands none.
+         Whole + projected is contradictory and fails closed. The adapter
+         contributes one CREDIT iff the frozen demand is WholeValue or
+         ProjectedField. A target body is consumed only through the existing
+         calleeConforms interface: owner-demand body net -1 is paired with the
+         adapter credit; Borrow body net 0 receives no credit. In either case
+         the composed local segment nets zero and its floors hold from the
+         caller-borrowed entry count 1. Separate normal and unwind target
+         conformance hypotheses establish both paths. IC-8a's CONSERVATIVE seed
+         freezes WholeValue, so non-enumerable closure targets necessarily use
+         the [READ, CREDIT, CONSUME] row rather than guessing ownership from a
+         physical representation.
+    (P6) Function-total result provenance and callable composition. Result facts
+         are keyed by (function, normal-return-site); entry facts by (function,
+         parameter). Independent ownership requires no entry and an explicit
+         complete target birth. Every related relation requires the same entry
+         function/parameter. EntryCredit additionally requires exact topology:
+         WholeValue -> Direct/Contained, ProjectedField(f) -> the same field f;
+         mismatched fields and Direct/Projected cross-shapes fail closed.
+         TargetFunded reshaping remains admitted when its complete root/payload
+         certificate is valid. The CFG exit inventory computes the canonical
+         normal requirements. Duplicate identities, missing/extra/duplicate
+         rows, cross-function/site replay, Owned/Ownerless category swaps,
+         zero/wrong ownerless proof identities, wrong reasons, forged owned
+         sources, and evidence for unwind all fail closed. A universal theorem
+         ties every accepted plan back to that exact CFG inventory and proves
+         row-count coverage. Appending an Ownerless row to the P5 zero-net
+         segment preserves net zero; appending an Owned row yields net +1 and
+         preserves floors. Both append nothing on unwind. EntryCredit is
+         discharged exactly once there; target birth/funding and normal-only
+         result credit mint nothing there.
 
     Machine-checked in the compiled Lean at
     aims-proof/lean/AimsProof/ContractBoundary.lean:
       boundaryUseKind, boundaryTransfersIn, boundaryInstrs,
-        boundaryResultInstrs, boundaryArgEvent (the computed carrier),
+        boundaryResultInstrs, boundaryResultEvents, boundaryArgEvent,
+        BoundaryExit, invokeBoundaryEvents (the computed carriers),
         BoundaryContract.ofParamContract (IC-2/IC-3 grounding),
         boundary_arg_event_derived, boundaryArgEvent_net,
         T4_owned_arg_consumes, T4_iter_consume_arg_consumes,
         T4_borrowed_arg_reads, T4_passthrough_consume_credit_nets_zero,
-        T4_sharing_view_credits_source, T4_boundary_places_no_release,
+        T4_sharing_view_credits_source, boundary_result_events_derived,
+        T4_invoke_arg_event_precedes_both_exits,
+        T4_invoke_owned_arg_consumes_on_both_exits,
+        T4_invoke_unwind_transfer_omission_rejected,
+        T4_invoke_result_credit_is_normal_only,
+        CalleeOwnerDemand, CalleeOwnerDemand.requiresCredit,
+        CalleeOwnerDemand.acceptsReturnRelation,
+        TargetOwnershipFactIdentity, FrozenTargetOwnershipFact,
+        FrozenTargetOwnershipFact.freeze,
+        FrozenTargetOwnershipFact.ofParamContract,
+        FrozenTargetOwnershipFact.boundaryContract,
+        FrozenTargetOwnershipFact.matchesResultIdentity,
+        indirectAdapterCreditEvents, indirectTargetDischargeEvents,
+        borrowedIndirectOperandEvents,
+        T4_PV4_borrowed_indirect_exact_adapter_rows,
+        T4_PV4_borrowed_indirect_adapter_paths_conform,
+        T4_PV4_owner_demand_missing_credit_rejected,
+        T4_PV4_owner_demand_missing_unwind_discharge_rejected,
+        IC8a_borrowed_indirect_adapter_uses_whole_value_target_fact,
+        ReturnOwnerRelation, ReturnOwnerRelation.referencesParameter,
+        ResultFactIdentity, ResultOwnerSource,
+        ReturnSiteFundingEvidence,
+        ReturnSiteFundingEvidence.targetFullyFunds,
+        FrozenResultOwnerFact, FrozenResultOwnerFact.freeze,
+        OwnerlessResultReason, NormalReturnRequirementKind,
+        OwnerlessResultProof, NormalReturnRequirement,
+        NormalReturnEvidence, FrozenNormalReturnResult,
+        FunctionExit, FunctionExitInventory,
+        FunctionExitInventory.normalReturnRequirements,
+        freezeNormalReturnRows, freezeNormalReturnRows_length,
+        FrozenFunctionResultPlan, FrozenFunctionResultPlan.freeze,
+        FrozenFunctionResultPlan.freeze_preserves_inventory,
+        FrozenFunctionResultPlan.results,
+        T4_PV4_function_result_plan_has_no_unwind_result,
+        LogicalResultOwnerAction, ResultOwnerSource.logicalAction,
+        T4_PV4_result_owner_sources_are_exact,
+        T4_PV4_result_relation_topology_and_identity_are_exact,
+        T4_PV4_function_result_plan_is_total_and_exact,
+        T4_PV4_result_owner_source_accounting_is_exact,
+        T4_contract_boundary_invoke_composition_sound,
+        T4_boundary_places_no_release,
         T4_owned_boundary_matches_rl34,
         T4_owned_param_births_callee_ledger (P1)
       calleeOpening, calleeLedger, calleeConforms, calleeLedger_borrowed,
@@ -128,10 +258,19 @@ Theorem IC-T4: Contract-boundary composition over the CFG ledger
         threeClauses_substitute_segment,
         T4_contract_boundary_composition_sound (P3 - the load-bearing
         theorem), T4_contract_boundary_composition_safe (P3)
+      borrowedIndirectComposedEvents, borrowedIndirectSegmentConforms,
+        T4_PV4_borrowed_indirect_adapter_composition_sound,
+        T4_PV4_borrowed_indirect_adapter_composes_normal_and_unwind (P5)
+      resultOwnerArrivalEvents, normalReturnResultArrivalEvents,
+        borrowedIndirectCallableEvents, borrowedIndirectCallableRowEvents,
+        T4_PV4_normal_return_row_arrival_is_exact,
+        T4_PV4_normal_return_row_callable_composition_sound,
+        T4_PV4_borrowed_indirect_callable_composition_sound (P6)
       t4UF, t4ClassOf, t4BcOwned, t4BcMis, t4CalleeBody, t4PreI, t4PostMis,
         T4_owned_arg_misclassified_borrowed_rejected,
         T4_live_at_call_side_condition_necessary (P4)
-      T4_contract_boundary_bundle (conclusion bundle)
+      T4_contract_boundary_and_result_plan_sound,
+        T4_contract_boundary_bundle (conclusion bundles)
     Bridged committed theorems and carriers consumed: TerminalUse,
       rl2_use_transfers_ownership, rl34_action, TailCallAction
       (AimsProof.Realization); AccessClass (AimsProof.Model); ParamContract
@@ -154,4 +293,4 @@ Theorem IC-T4: Contract-boundary composition over the CFG ledger
 
   Expected:
     status: unimplemented_engine_shape
-    reason: IC contract-boundary-composition shape outside the rule-numbered IC verifier inventory (the IC dischargers serve the numbered IC-1..IC-8a suffixes only). The authoritative machine-check is the compiled Lean AimsProof.ContractBoundary (lake build clean): T4_contract_boundary_composition_sound discharges the contract-classified boundary composition - caller three-clause ledger with the computed summary plus callee conformance under the contract-mandated BIRTH/borrow opening compose into a three-clause inlined ledger without callee re-derivation - over the committed RL-2 twelve-kind table and the T1 partition representatives, with the owned-arg-misclassified-borrowed double-release and the dead-call-site use-after-free rejections.
+    reason: IC contract-boundary-composition shape outside the rule-numbered IC verifier inventory (the IC dischargers serve the numbered IC-1..IC-8a suffixes only). The authoritative compiled Lean theorem T4_contract_boundary_and_result_plan_sound composes direct Invoke boundaries, preserves the exact CFG-derived function result inventory, and proves callable Ownerless/Owned rows add normal net 0/1 and no unwind result. EntryCredit is bound to exact function/parameter/topology identity; TargetFunded reshaping is source-sensitive; independent results need no synthetic entry. The Lean/checker matrices reject field/cross-shape entry funding, cross-function/site replay, missing/extra/duplicate rows, category swaps, invalid ownerless identities/reasons, forged owned sources, double/incomplete funding, unwind evidence, missing credit/discharge, owned-as-borrowed double release, and dead-call-site handoff.

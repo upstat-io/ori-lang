@@ -1,117 +1,61 @@
-Theorem TF-N-A: RcInc + RcDec + BurdenInc + BurdenDec side-effect-only confirmation (no dst, no demand)
+Theorem TF-N-A: logical ownership effects are destination-free and demand-free
 
   Preconditions:
-    - Instructions are `RcInc { var }`, `RcDec { var }`,
-      `BurdenInc { var }`, and `BurdenDec { var }` per Annex E §AIMS
-      TF-N/A + Appendix A rows 16 + 17 (RcInc/RcDec) + the BurdenInc/
-      BurdenDec side-effect-only rows.
-    - Per Annex E §AIMS TF-N/A: "Side-effect-only: `RcInc`/`RcDec`/
-      `BurdenInc`/`BurdenDec` (no `dst`, no forward AimsState image)."
-    - Per Annex E §AIMS TF-11 backward-demand table row for
-      `RcInc`/`RcDec`: "none (RC operation, not a use)". BurdenInc/
-      BurdenDec carry the same backward shape (RC-shaped op, not a use).
-    - Appendix A rows for RcInc/RcDec/BurdenInc/BurdenDec carry "—"
-      across every per-dimension column.
-    - The side-effect-only ArcInstr set is RcInc + RcDec + BurdenInc +
-      BurdenDec per Annex E §AIMS TF-N/A. BurdenInc / BurdenDec are
-      side-effect-only ops listed in the matrix alongside RcInc / RcDec;
-      this is a doc_encoded matrix-row classification, NOT a new
-      BurdenInc/BurdenDec transfer theorem. Burden-op ELIMINATION
-      soundness is the proven §11 coexistence family (CH-1
-      `burden_emitted = burden_owned`; CH-2 single-elimination = lattice
-      DP-2/DP-3 verdict), and the lowered (BurdenInc → RcInc /
-      BurdenDec → RcDec) form's RC-balance is the proven RL-comp
-      net-preservation (RL3_elision_net_preserving) per Annex E §AIMS §8.
+    - The canonical logical effect set is
+      {OwnerCredit, Release, Cleanup}.
+    - Logical effects are calculus terms. They do not name a reference
+      counter, storage layout, or instruction encoding.
+    - The current transitional carrier set is enumerated separately as
+      {RcInc, RcDec, BurdenInc, BurdenDec}. Carrier membership establishes
+      coverage only; it does not promote those names into the calculus.
+    - Burden-op elimination soundness remains the §11 CH-1/CH-2 obligation.
+      TF-N/A classifies only the transfer shape.
 
   Soundness property:
-    Forall arc_instr in {RcInc { var }, RcDec { var },
-                         BurdenInc { var }, BurdenDec { var }}.
-      transfer_tf_n_a(arc_instr) = NoDst (no AimsState emitted)
-      AND backward_demand_tf_n_a(arc_instr) = empty (no TF-11 demand)
-    AND L-6 layer (b) monotonicity holds vacuously — no output state to
-    monotone over, no demand to accumulate via TF-11 seq_add.
+    Forall event in {OwnerCredit, Release, Cleanup}.
+      transfer_tf_n_a(event) = NoDst
+      AND backward_demand_tf_n_a(event) = empty
+      AND L-6 layer (b) monotonicity holds vacuously.
+
+    Forall carrier in {RcInc, RcDec, BurdenInc, BurdenDec}.
+      refines_tf_n_a_shape(carrier)
+      AND transfer_tf_n_a(carrier) = NoDst
+      AND backward_demand_tf_n_a(carrier) = empty.
 
   Proof obligation:
     Four-part discharge:
-      (a) RcInc no-dst confirmation — verify TF-N/A for RcInc emits
-          NoDst per Appendix A row 16. The state map MUST NOT acquire
-          a new entry.
-      (b) RcDec no-dst confirmation — verify TF-N/A for RcDec emits
-          NoDst per Appendix A row 17.
-      (c) No backward TF-11 demand confirmation — per Annex E §AIMS
-          TF-11 table: "RcInc/RcDec { var }: none (RC operation, not a
-          use)." Verified: backward_demand_tf_n_a() returns empty for
-          both variants.
-      (d) Burden-op membership confirmation — verify BurdenInc and
-          BurdenDec are side-effect-only ops in the TF-N/A set
-          alongside RcInc + RcDec: each emits NoDst, no forward
-          AimsState image, no TF-11 demand. This is a doc_encoded
-          matrix-row classification per Annex E §AIMS TF-N/A, NOT a new
-          transfer theorem. Burden-op elimination soundness remains the
-          proven §11 CH-1/CH-2 coexistence family; the lowered-form
-          RC-balance remains RL-comp net-preservation
-          (RL3_elision_net_preserving) per Annex E §AIMS §8.
+      (a) Logical classification — enumerate OwnerCredit, Release, Cleanup and
+          prove each has no SSA destination and creates no TF-11 demand.
+      (b) Transitional coverage — enumerate RcInc, RcDec, BurdenInc, BurdenDec
+          and prove each refines the same no-destination/no-demand shape.
+      (c) Separation — assert the logical event names and transitional carrier
+          names are disjoint sets. Changing a carrier cannot change TF-N/A.
+      (d) Coverage gate — exactly 3 logical rows + 4 carrier-refinement rows =
+          7 checked cases; no row may be dropped.
 
-    Part (a) — RcInc no-dst confirmation:
-      Per Annex E §AIMS TF-N/A + Appendix A row 16:
-        RcInc | TF-N/A | — | — | — | — | — | — | —
-      Verified: transfer_tf_n_a("RcInc") returns NoDst marker.
-      Semantics: RcInc { var } physically increments `var`'s reference
-      count by 1 (writes to the RC header memory cell). The AIMS-level
-      transfer is empty because (i) no new SSA value is defined, and
-      (ii) the operation reads `var` for its address but does NOT
-      consume `var`'s value as a TF-11-style "use" — `var` retains its
-      AimsState unchanged.
+    Logical-event semantics:
+      OwnerCredit records one additional logical owner.
+      Release discharges one logical owner credit.
+      Cleanup records terminal discharge and cleanup obligations.
+      None defines a value, and none is an operand use for backward demand.
 
-    Part (b) — RcDec no-dst confirmation:
-      Per Annex E §AIMS TF-N/A + Appendix A row 17:
-        RcDec | TF-N/A | — | — | — | — | — | — | —
-      Verified: transfer_tf_n_a("RcDec") returns NoDst marker.
-      Semantics: RcDec { var } physically decrements `var`'s reference
-      count by 1 (potentially triggers deallocation if count hits 0).
-      Same forward-transfer rationale as RcInc: no new SSA value;
-      `var`'s AimsState unchanged at AIMS layer.
+    Transitional-carrier interpretation:
+      RcInc / RcDec and BurdenInc / BurdenDec are current MIR spellings that
+      project or defer the logical events. Appendix A's side-effect-only rows
+      carry "—" across every dimension. Physical counter motion and
+      reclamation remain projection concerns.
 
-    Part (c) — no backward TF-11 demand:
-      Per Annex E §AIMS TF-11 table:
-        RcInc/RcDec { var } | none (RC operation, not a use)
-      Verified: backward_demand_tf_n_a("RcInc") = empty list;
-      backward_demand_tf_n_a("RcDec") = empty list.
-      Rationale: TF-11 emits backward demand on operands that REPRESENT
-      A USE of a runtime value. RC operations manipulate the RC header
-      directly (a memory-management side-effect, not a value-consuming
-      use); demand-tracking does NOT see them as uses. Note this is
-      consistent with RL-22 (RC-motion safety) — RcInc/RcDec are NOT
-      RC-observable barriers FOR `v` themselves in the demand sense;
-      the barrier semantics live at RL-22 + RL-26, separate from TF-11
-      demand emission.
-
-    Part (d) — Burden-op membership:
-      Per Annex E §AIMS TF-N/A: "Side-effect-only: `RcInc`/`RcDec`/
-      `BurdenInc`/`BurdenDec` (no `dst`, no forward AimsState image)."
-      The side-effect-only ArcInstr SET (the cardinality of the TF-N/A
-      row in Appendix A) is RcInc + RcDec + BurdenInc + BurdenDec.
-      Verified: each carries "—" across every per-dimension column,
-      emits NoDst, and contributes no TF-11 demand — identical
-      forward/backward shape to RcInc/RcDec. This is a doc_encoded
-      matrix-row classification, NOT a new BurdenInc/BurdenDec transfer
-      theorem. Burden-op ELIMINATION soundness lives at the §11
-      coexistence family (CH-1 `burden_emitted = burden_owned`; CH-2
-      single-elimination = lattice DP-2/DP-3 verdict); the lowered
-      (BurdenInc → RcInc / BurdenDec → RcDec) form's RC-balance lives at
-      RL-comp net-preservation (RL3_elision_net_preserving) per Annex E
-      §AIMS §8. TF-N/A classifies the op shape only.
+    Negative-direction witness:
+      Treating BurdenInc or BurdenDec as a different logical transfer class, or
+      treating RcInc/RcDec as the canonical calculus vocabulary, violates the
+      required logical/carrier separation and is rejected.
 
     Engines dispatched:
-      monotonicity (PRIMARY — vacuous L-6 layer (b) discharge for
-        side-effect-only instructions per
-        section_04::verify_tf_n_a_side_effect_only)
-      case_analysis (PRIMARY — Appendix A "—" enumeration + RcInc /
-        RcDec / BurdenInc / BurdenDec side-effect-only set verification
-        per section_04::verify_tf_n_a_side_effect_only)
+      monotonicity (PRIMARY — vacuous L-6 layer (b) discharge)
+      case_analysis (PRIMARY — 3 logical effects + 4 transitional carriers)
       lattice (SECONDARY — accepts gracefully; no codomain element)
-      refinement (SECONDARY — accepts gracefully; no dst, no refine())
+      refinement (SECONDARY — accepts gracefully; no destination)
 
   Expected:
     status: valid
-    reason: section_04 monotonicity + case_analysis engines discharge TF-N/A via RcInc + RcDec + BurdenInc + BurdenDec no-dst confirmation + no-TF-11-demand confirmation + Appendix A "—" enumeration + Burden-op membership confirmation
+    reason: section_04 verifies three destination-free logical ownership effects separately from four transitional carrier refinements, with seven-case coverage and no TF-11 demand

@@ -153,24 +153,23 @@ fn ori_trace_idx_attributes_drop_glue_to_generic_leaf_chain_on_wrap_nested() {
         "the Wrap<Wrap<int>> root must carry >=1 consumer edge:\n{traced}"
     );
 
-    // North-star: the generic-leaf divergence's drop glue
-    // `_ori_drop$<param-idx>` is attributed back through its provenance chain
-    // (the `#217{T#141}`-class Wrap body) to the traced outer body. The
-    // attributed type IS the divergence's generic leaf — the RC-on-scalar
-    // emission's provenance is legible in the DAG.
+    // North-star: the generic leaf's logical drop plan is attributed through
+    // its provenance chain to the traced outer body.
     let leaf = divergence_generic_idx(&traced);
-    let symbol = format!("_ori_drop${leaf}");
     let edge_line = traced
         .lines()
-        .find(|l| l.contains(&symbol) && l.contains("<=consumes="))
+        .find(|line| {
+            line.contains("drop-plan")
+                && line.contains(&format!("#{leaf}"))
+                && line.contains("<=consumes=")
+        })
         .unwrap_or_else(|| {
-            panic!("no consumer edge attributing the generic-leaf drop glue `{symbol}`:\n{traced}")
+            panic!("no consumer edge attributes the generic-leaf drop plan #{leaf}:\n{traced}")
         });
-    // Multi-hop walked chain: the leaf's drop glue descends from a parent Wrap
-    // body (not a bare leaf) — the provenance the diagnostic must surface.
+    // The leaf plan descends from a parent Wrap body, not a bare leaf.
     assert!(
         edge_line.contains(" -> "),
-        "the generic-leaf drop glue must attribute via a multi-hop walked chain:\n{edge_line}"
+        "the generic-leaf drop plan must have a multi-hop walked chain:\n{edge_line}"
     );
     // The chain reaches the generic leaf and roots at the traced outer body.
     assert!(

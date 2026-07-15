@@ -514,7 +514,7 @@ fn immortal_literal_let_mints_no_birth_site() {
 /// allocation site with its own known birth site.
 #[test]
 fn heap_primop_dst_mints_birth_site() {
-    let func = one_block_func(
+    let mut func = one_block_func(
         3,
         vec![
             construct(0, vec![]),
@@ -529,6 +529,13 @@ fn heap_primop_dst_mints_birth_site() {
             },
         ],
     );
+    let Some(fact) = crate::ir::PrimitiveFact::resolve(
+        ori_registry::OpStrategy::RuntimeCall(ori_registry::RuntimeOperator::StringConcat),
+        2,
+    ) else {
+        panic!("expected a valid string-concat descriptor");
+    };
+    func.primitive_facts.insert(v(2), fact);
     let mut partition = compute(&func);
 
     let result = whole(&mut partition, 2);

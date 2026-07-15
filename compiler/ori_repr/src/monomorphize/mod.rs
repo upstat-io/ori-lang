@@ -8,8 +8,12 @@
 use rustc_hash::{FxBuildHasher, FxHashMap};
 
 use ori_ir::canon::{CanId, CanonResult, MonoInstanceId};
-use ori_ir::{Name, StringInterner};
-use ori_types::{FunctionSig, Idx, ImplSig, MonoInstance, Pool, Tag};
+use ori_ir::{DerivedImplId, Name, StringInterner};
+use ori_types::{AcceptedDerivedImpl, FunctionSig, Idx, ImplSig, MonoInstance, Pool, Tag};
+
+use crate::executable::{
+    validate_external_callables, ExternalCallable, ExternalCallableMetadata, RealizationError,
+};
 
 mod mangle;
 mod targets;
@@ -28,9 +32,57 @@ pub struct ImportSig {
     pub name: Name,
     pub symbol: String,
     pub sig: FunctionSig,
+    /// Required final producer facts for ownership/effect realization.
+    ///
+    /// There is deliberately no absent or default state: an imported callable
+    /// cannot participate in AIMS until its producer artifact has supplied
+    /// this carrier.
+    pub metadata: ExternalCallableMetadata,
+}
+
+impl ImportSig {
+    fn external_callable(&self) -> ExternalCallable {
+        ExternalCallable::from_imported_metadata(
+            self.name,
+            self.symbol.clone(),
+            self.sig.param_types.clone(),
+            self.sig.return_type,
+            self.metadata.clone(),
+        )
+    }
+}
+
+/// Reconstruct and validate every imported callable before AIMS consumes its
+/// contract.
+///
+/// The importer-pool signature is checked against the producer's stable
+/// identity, including the exact link symbol. Duplicate aliases and aliases
+/// that disagree about one producer symbol are rejected as one batch.
+pub fn realize_imported_callables(
+    imports: &[ImportSig],
+    pool: &Pool,
+) -> Result<Vec<ExternalCallable>, RealizationError> {
+    let callables: Vec<_> = imports.iter().map(ImportSig::external_callable).collect();
+    validate_external_callables(&callables, pool)?;
+    Ok(callables)
 }
 
 // MonoFunction
+
+/// Semantic source of a monomorphized function body.
+///
+/// Imported and local source declarations both remain [`Self::Source`];
+/// [`MonoFunction::is_imported`] retains that transport distinction. Generated
+/// derived methods carry the accepted type-checker identity so later phases can
+/// join the specialization to its generated Canon root without rediscovering a
+/// derive from source attributes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MonoFunctionOrigin {
+    /// An ordinary source declaration, whether local or imported.
+    Source,
+    /// A compiler-generated method accepted by type checking and coherence.
+    Derived(DerivedImplId),
+}
 
 /// A monomorphized function ready for LLVM codegen.
 ///
@@ -42,6 +94,8 @@ pub struct MonoFunction {
     pub mangled_name: Name,
     /// Original generic function name (for canonical IR body lookup).
     pub original_name: Name,
+    /// Semantic body provenance used to resolve the canonical body owner.
+    pub origin: MonoFunctionOrigin,
     /// Concrete function signature (non-generic: empty `type_params`).
     pub sig: FunctionSig,
     /// Generic `Idx` → concrete `Idx` map for ARC lowering.
@@ -103,25 +157,193 @@ fn nominal_type_name(pool: &Pool, idx: Idx) -> Option<Name> {
 
 // Collection
 
+#[derive(Clone, Copy)]
+struct ResolvedMonoSignature<'a> {
+    signature: &'a FunctionSig,
+    is_imported: bool,
+    origin: MonoFunctionOrigin,
+}
+
+struct MonoSignatureLookup<'a> {
+    shell_pool: Pool,
+    functions: FxHashMap<Name, &'a FunctionSig>,
+    methods: FxHashMap<(Name, Option<Idx>), &'a FunctionSig>,
+    derived_methods: FxHashMap<(Name, Option<Idx>), &'a AcceptedDerivedImpl>,
+    imports: FxHashMap<Name, &'a FunctionSig>,
+}
+
+impl<'a> MonoSignatureLookup<'a> {
+    fn new(
+        function_sigs: &'a [FunctionSig],
+        impl_sigs: &'a [ImplSig],
+        accepted_derives: &'a [AcceptedDerivedImpl],
+        import_sigs: &'a [ImportSig],
+        pool: &Pool,
+    ) -> Self {
+        let functions = function_sigs.iter().map(|sig| (sig.name, sig)).collect();
+        let mut shell_pool = Pool::new();
+        let mut methods = FxHashMap::with_capacity_and_hasher(impl_sigs.len(), FxBuildHasher);
+        for ImplSig {
+            receiver,
+            name,
+            sig,
+            ..
+        } in impl_sigs
+        {
+            let shell = Some(shell_pool.generic_shell(pool, *receiver));
+            methods.entry((*name, shell)).or_insert(sig);
+        }
+        let mut derived_methods =
+            FxHashMap::with_capacity_and_hasher(accepted_derives.len(), FxBuildHasher);
+        for accepted in accepted_derives {
+            let shell = Some(shell_pool.generic_shell(pool, accepted.owner_type));
+            derived_methods
+                .entry((accepted.method_name, shell))
+                .or_insert(accepted);
+        }
+        let mut imports = FxHashMap::with_capacity_and_hasher(import_sigs.len(), FxBuildHasher);
+        for ImportSig { name, sig, .. } in import_sigs {
+            imports.entry(*name).or_insert(sig);
+        }
+        Self {
+            shell_pool,
+            functions,
+            methods,
+            derived_methods,
+            imports,
+        }
+    }
+
+    fn receiver_shell(&mut self, instance: &MonoInstance, pool: &Pool) -> Option<Idx> {
+        instance
+            .receiver_type
+            .map(|receiver| self.shell_pool.generic_shell(pool, receiver))
+    }
+
+    fn resolve(
+        &mut self,
+        instance: &MonoInstance,
+        pool: &Pool,
+    ) -> Option<ResolvedMonoSignature<'a>> {
+        if instance.receiver_type.is_some() {
+            let key = (instance.fn_name, self.receiver_shell(instance, pool));
+            if let Some(&signature) = self.methods.get(&key) {
+                return Some(ResolvedMonoSignature {
+                    signature,
+                    is_imported: false,
+                    origin: MonoFunctionOrigin::Source,
+                });
+            }
+            self.derived_methods
+                .get(&key)
+                .map(|accepted| ResolvedMonoSignature {
+                    signature: &accepted.signature,
+                    is_imported: false,
+                    origin: MonoFunctionOrigin::Derived(accepted.id),
+                })
+        } else if let Some(&signature) = self.functions.get(&instance.fn_name) {
+            Some(ResolvedMonoSignature {
+                signature,
+                is_imported: false,
+                origin: MonoFunctionOrigin::Source,
+            })
+        } else {
+            self.imports
+                .get(&instance.fn_name)
+                .copied()
+                .map(|signature| ResolvedMonoSignature {
+                    signature,
+                    is_imported: true,
+                    origin: MonoFunctionOrigin::Source,
+                })
+        }
+    }
+}
+
+fn log_unknown_mono_instance(
+    signatures: &mut MonoSignatureLookup<'_>,
+    instance: &MonoInstance,
+    interner: &StringInterner,
+    pool: &Pool,
+) {
+    let name_str = interner.lookup(instance.fn_name);
+    let lookup_shell = signatures.receiver_shell(instance, pool);
+    tracing::debug!(
+        target: "ori_llvm::mono",
+        fn_name = ?instance.fn_name,
+        name = name_str,
+        is_method = instance.receiver_type.is_some(),
+        ?lookup_shell,
+        impl_sig_keys = signatures.methods.len(),
+        impl_shells = ?signatures.methods.keys().collect::<Vec<_>>(),
+        "mono instance for unknown function — skipping"
+    );
+}
+
+fn build_mono_function(
+    instance: &MonoInstance,
+    instance_id: MonoInstanceId,
+    resolved: ResolvedMonoSignature<'_>,
+    mangled_name: Name,
+    pool: &Pool,
+) -> MonoFunction {
+    let concrete_sig = concrete_sig_for_instance(instance, resolved.signature, pool, mangled_name);
+
+    let receiver_type_name = instance
+        .receiver_type
+        .and_then(|receiver| nominal_type_name(pool, receiver));
+    let mut body_type_map: FxHashMap<Idx, Idx> = instance.body_type_map.iter().copied().collect();
+    // For a method WITH `self`, the body references the generic receiver
+    // type (`Box<T>`) via `self`-projections; map it to the concrete
+    // receiver (`Box<int>`) so those projections resolve to the
+    // monomorphized layout. The generic sig keeps `self` as `param_types[0]`
+    // exactly when it has one MORE param than the instance's non-`self`
+    // concrete params (the same signal `concrete_sig_for_instance` uses for
+    // `receiver_self`). A no-`self` associated function has NO self
+    // projection — `param_types.first()` is a VALUE param, not the receiver —
+    // so this mapping is skipped (its body types come from
+    // `instance.body_type_map` alone).
+    let has_self_receiver =
+        instance.concrete_param_types.len() + 1 == resolved.signature.param_types.len();
+    if let (Some(receiver), true, Some(&self_generic)) = (
+        instance.receiver_type,
+        has_self_receiver,
+        resolved.signature.param_types.first(),
+    ) {
+        body_type_map.entry(self_generic).or_insert(receiver);
+    }
+
+    MonoFunction {
+        mangled_name,
+        original_name: instance.fn_name,
+        origin: resolved.origin,
+        sig: concrete_sig,
+        body_type_map,
+        instance_ids: vec![instance_id],
+        is_imported: resolved.is_imported,
+        receiver_type_name,
+    }
+}
+
 /// Collect monomorphized functions from type-checker `MonoInstance` records.
 ///
 /// Builds one deduped `MonoFunction` (mangled name + concrete sig) per
 /// unique instance. Lookup chain by instance shape: top-level instances
 /// (`receiver_type = None`) consult `function_sigs`, then `import_sigs`;
-/// method instances consult `impl_sigs` only (imported methods are out of
-/// scope for this chain). Instances whose generic function is in no list
-/// are silently skipped (it may live in an uncompiled module).
+/// method instances consult ordinary `impl_sigs`, then type-checker accepted
+/// derived signatures (imported methods are out of scope for this chain).
+/// Instances whose generic function is in no list are silently skipped (it may
+/// live in an uncompiled module).
 pub fn collect_mono_functions(
     mono_instances: &[MonoInstance],
     function_sigs: &[FunctionSig],
     impl_sigs: &[ImplSig],
+    accepted_derives: &[AcceptedDerivedImpl],
     import_sigs: &[ImportSig],
     interner: &StringInterner,
     pool: &Pool,
 ) -> Vec<MonoFunction> {
     // INVARIANT: receiver-type discrimination is enforced upstream by MonoInstance dedup.
-    let fn_sig_by_name: FxHashMap<Name, &FunctionSig> =
-        function_sigs.iter().map(|s| (s.name, s)).collect();
     // Inherent-method sigs are keyed by (method_name, receiver generic shell).
     // The shell (`Box<_>`) discriminates per-receiver impl blocks so
     // `Box<int>.unwrap` and `Box<str>.unwrap` resolve to distinct mono
@@ -134,24 +356,13 @@ pub fn collect_mono_functions(
     // receiver's shell at lookup. Keying on the receiver — NOT
     // `sig.param_types.first()` — is load-bearing for a no-`self` associated
     // function, whose first param is a VALUE param, not the receiver.
-    let mut shell_pool = Pool::new();
-    let mut impl_sig_by_name: FxHashMap<(Name, Option<Idx>), &FunctionSig> =
-        FxHashMap::with_capacity_and_hasher(impl_sigs.len(), FxBuildHasher);
-    for ImplSig {
-        receiver,
-        name,
-        sig,
-    } in impl_sigs
-    {
-        let shell = Some(shell_pool.generic_shell(pool, *receiver));
-        impl_sig_by_name.entry((*name, shell)).or_insert(sig);
-    }
-    // Consulted after `function_sigs` misses on the top-level path; first registration wins.
-    let mut import_sig_by_name: FxHashMap<Name, &FunctionSig> =
-        FxHashMap::with_capacity_and_hasher(import_sigs.len(), FxBuildHasher);
-    for ImportSig { name, sig, .. } in import_sigs {
-        import_sig_by_name.entry(*name).or_insert(sig);
-    }
+    let mut signatures = MonoSignatureLookup::new(
+        function_sigs,
+        impl_sigs,
+        accepted_derives,
+        import_sigs,
+        pool,
+    );
 
     let mut result: Vec<MonoFunction> = Vec::with_capacity(mono_instances.len());
     let mut name_to_index: FxHashMap<Name, usize> = FxHashMap::default();
@@ -172,28 +383,8 @@ pub fn collect_mono_functions(
     )]
     for (idx, instance) in mono_instances.iter().enumerate() {
         let instance_id = MonoInstanceId::new(idx as u32);
-        let (lookup, is_imported) = if instance.receiver_type.is_some() {
-            let shell = instance
-                .receiver_type
-                .map(|r| shell_pool.generic_shell(pool, r));
-            (impl_sig_by_name.get(&(instance.fn_name, shell)), false)
-        } else if let Some(sig) = fn_sig_by_name.get(&instance.fn_name) {
-            (Some(sig), false)
-        } else {
-            (import_sig_by_name.get(&instance.fn_name), true)
-        };
-        let Some(generic_sig) = lookup else {
-            let name_str = interner.lookup(instance.fn_name);
-            tracing::debug!(
-                target: "ori_llvm::mono",
-                fn_name = ?instance.fn_name,
-                name = name_str,
-                is_method = instance.receiver_type.is_some(),
-                lookup_shell = ?instance.receiver_type.map(|r| shell_pool.generic_shell(pool, r)),
-                impl_sig_keys = impl_sig_by_name.len(),
-                impl_shells = ?impl_sig_by_name.keys().collect::<Vec<_>>(),
-                "mono instance for unknown function — skipping"
-            );
+        let Some(resolved) = signatures.resolve(instance, pool) else {
+            log_unknown_mono_instance(&mut signatures, instance, interner, pool);
             continue;
         };
 
@@ -214,42 +405,10 @@ pub fn collect_mono_functions(
             continue;
         }
 
-        let concrete_sig = concrete_sig_for_instance(instance, generic_sig, pool, mangled_name);
-
-        let receiver_type_name = instance
-            .receiver_type
-            .and_then(|r| nominal_type_name(pool, r));
-        let mut body_type_map: FxHashMap<Idx, Idx> =
-            instance.body_type_map.iter().copied().collect();
-        // For a method WITH `self`, the body references the generic receiver
-        // type (`Box<T>`) via `self`-projections; map it to the concrete
-        // receiver (`Box<int>`) so those projections resolve to the
-        // monomorphized layout. The generic sig keeps `self` as `param_types[0]`
-        // exactly when it has one MORE param than the instance's non-`self`
-        // concrete params (the same signal `concrete_sig_for_instance` uses for
-        // `receiver_self`). A no-`self` associated function has NO self
-        // projection — `param_types.first()` is a VALUE param, not the receiver —
-        // so this mapping is skipped (its body types come from
-        // `instance.body_type_map` alone).
-        let has_self_receiver =
-            instance.concrete_param_types.len() + 1 == generic_sig.param_types.len();
-        if let (Some(recv), true, Some(&self_generic)) = (
-            instance.receiver_type,
-            has_self_receiver,
-            generic_sig.param_types.first(),
-        ) {
-            body_type_map.entry(self_generic).or_insert(recv);
-        }
+        let mono_function =
+            build_mono_function(instance, instance_id, resolved, mangled_name, pool);
         name_to_index.insert(mangled_name, result.len());
-        result.push(MonoFunction {
-            mangled_name,
-            original_name: instance.fn_name,
-            sig: concrete_sig,
-            body_type_map,
-            instance_ids: vec![instance_id],
-            is_imported,
-            receiver_type_name,
-        });
+        result.push(mono_function);
     }
 
     result

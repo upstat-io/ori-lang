@@ -24,23 +24,19 @@ use crate::engine::{EngineResult, EngineVerdict};
 /// coverage-manifest routing (`case_analysis` PRIMARY; `lattice` +
 /// `monotonicity` SECONDARY accept gracefully); `None` otherwise.
 pub fn discharge_for_engine(engine_name: &str, theorem: &Theorem) -> Option<EngineResult> {
-    let id = format!(
-        "{}-{}",
-        theorem.id.category.prefix(),
-        theorem.id.suffix
-    );
+    let id = format!("{}-{}", theorem.id.category.prefix(), theorem.id.suffix);
     match (engine_name, id.as_str()) {
         // PRIMARY engine — case_analysis discharges Appendix C truth-table
         // per-DP-N row enumeration. §05.1 pure-state subset:
-        ("case_analysis", "DP-1") => Some(verify_dp1_rc_needed()),
+        ("case_analysis", "DP-1") => Some(verify_dp1_needs_ownership_events()),
         ("case_analysis", "DP-2") => Some(verify_dp2_rc_dec_unnecessary()),
         ("case_analysis", "DP-3") => Some(verify_dp3_rc_inc_elidable()),
-        ("case_analysis", "DP-4") => Some(verify_dp4_cow_check()),
+        ("case_analysis", "DP-4") => Some(verify_dp4_sharing_observation()),
         ("case_analysis", "DP-5") => Some(verify_dp5_can_mutate_in_place_with_settag()),
         ("case_analysis", "DP-6") => Some(verify_dp6_reuse_candidate()),
-        ("case_analysis", "DP-7") => Some(verify_dp7_rc_skip_eligible()),
+        ("case_analysis", "DP-7") => Some(verify_dp7_event_pair_elision_eligible()),
         ("case_analysis", "DP-8") => Some(verify_dp8_is_local()),
-        ("case_analysis", "DP-9") => Some(verify_dp9_cow_mode_classification()),
+        ("case_analysis", "DP-9") => Some(verify_dp9_mutation_obligation_classification()),
         ("case_analysis", "DP-10-REMOVED") => Some(verify_dp10_removed()),
 
         // SECONDARY engine routing: the DP-shape coverage manifest only lists
@@ -50,7 +46,6 @@ pub fn discharge_for_engine(engine_name: &str, theorem: &Theorem) -> Option<Engi
         // Category::DecisionPredicate in their `served` matchers, so they
         // return `UnimplementedShape` BEFORE reaching this dispatch — no
         // gracious-accept clause needed for §05.
-
         _ => None,
     }
 }
@@ -96,8 +91,13 @@ const CARDINALITY_CARRIER: &[&str] = &["Absent", "Once", "Many"];
 const UNIQUENESS_CARRIER: &[&str] = &["Unique", "MaybeShared", "Shared"];
 // Locality carrier per Annex E §AIMS; 5-value carrier with partial
 // order BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping < Unknown.
-const LOCALITY_CARRIER: &[&str] =
-    &["BlockLocal", "FunctionLocal", "ArgEscaping", "HeapEscaping", "Unknown"];
+const LOCALITY_CARRIER: &[&str] = &[
+    "BlockLocal",
+    "FunctionLocal",
+    "ArgEscaping",
+    "HeapEscaping",
+    "Unknown",
+];
 // Shape carrier per Annex E §AIMS; 5-value flat lattice.
 // CN-3 collapse: Shared + ReusableCtor/CollectionBuffer/ContextHole canonicalize
 // to NonReusable.
@@ -114,7 +114,8 @@ const SHAPE_CARRIER: &[&str] = &[
 const IS_SCALAR_CARRIER: &[bool] = &[false, true];
 
 // ============================================================================
-// DP-1: is_rc_needed(s) iff s.access = Owned ∧ s.consumption ≠ Dead ∧ ¬is_scalar
+// DP-1: needs_ownership_events(s) iff
+// s.access = Owned ∧ s.consumption ≠ Dead ∧ ¬is_scalar
 // ============================================================================
 //
 // Per Annex E §AIMS DP-1 + Appendix C truth table:
@@ -126,7 +127,7 @@ const IS_SCALAR_CARRIER: &[bool] = &[false, true];
 // Engines: case_analysis (PRIMARY — 16-state enumeration over the
 // Access × Consumption × is_scalar product).
 
-fn verify_dp1_rc_needed() -> EngineResult {
+fn verify_dp1_needs_ownership_events() -> EngineResult {
     // Finite enumeration over 2 Access × 4 Consumption × 2 is_scalar = 16
     // input states. Verify the boolean equation matches the Appendix C row
     // partition exhaustively.
@@ -134,11 +135,11 @@ fn verify_dp1_rc_needed() -> EngineResult {
     for &access in ACCESS_CARRIER.iter() {
         for &consumption in CONSUMPTION_CARRIER.iter() {
             for &is_scalar in IS_SCALAR_CARRIER.iter() {
-                let actual = dp1_predicate(access, consumption, is_scalar);
+                let actual = needs_ownership_events(access, consumption, is_scalar);
                 let expected = dp1_appendix_c_row(access, consumption, is_scalar);
                 if actual != expected {
                     return fail(format!(
-                        "DP-1 violation: is_rc_needed(access={}, consumption={}, is_scalar={}) = {}; \
+                        "DP-1 violation: needs_ownership_events(access={}, consumption={}, is_scalar={}) = {}; \
 expected {} per Appendix C truth table",
                         access, consumption, is_scalar, actual, expected
                     ));
@@ -148,18 +149,23 @@ expected {} per Appendix C truth table",
         }
     }
     // Coverage gate per success_criterion §05.1 DP-1: 2 × 4 × 2 = 16 states.
-    require_count("DP-1", 16, checked, "(Access, Consumption, is_scalar) tuples")
+    require_count(
+        "DP-1",
+        16,
+        checked,
+        "(Access, Consumption, is_scalar) tuples",
+    )
 }
 
 /// DP-1 predicate per `Annex E §AIMS`:
-/// `is_rc_needed(s) ⟺ s.access = Owned ∧ s.consumption ≠ Dead ∧ ¬s.is_scalar`.
-fn dp1_predicate(access: &str, consumption: &str, is_scalar: bool) -> bool {
+/// `needs_ownership_events(s) ⟺ Owned ∧ live ∧ non-scalar`.
+fn needs_ownership_events(access: &str, consumption: &str, is_scalar: bool) -> bool {
     access == "Owned" && consumption != "Dead" && !is_scalar
 }
 
 /// Appendix C DP-1 truth-table row partition — explicit per-row truth
 /// computed from the four cases in the table, independent of the
-/// `dp1_predicate` formula. Equality between the two is the soundness
+/// `needs_ownership_events` formula. Equality between the two is the soundness
 /// witness.
 fn dp1_appendix_c_row(access: &str, consumption: &str, is_scalar: bool) -> bool {
     // Row 1: Borrowed / any / any → false.
@@ -354,26 +360,26 @@ fn dp3_appendix_c_row(cardinality: &str, consumption: &str) -> bool {
 }
 
 // ============================================================================
-// DP-4: needs_cow_check(s) iff s.uniqueness = MaybeShared
+// DP-4: needs_sharing_observation(s) iff s.uniqueness = MaybeShared
 // ============================================================================
 //
 // Per Annex E §AIMS DP-4 + Appendix C truth table:
-// Unique → false (static unique fast path)
-// MaybeShared → true (runtime IsShared check)
-// Shared → false (static shared slow path)
+// Unique → false (same-identity outcome is statically admissible)
+// MaybeShared → true (sharing must be observed before choosing an outcome)
+// Shared → false (mutation isolation is statically required)
 //
 // Engines: case_analysis (PRIMARY — 3-state enumeration over Uniqueness
 // carrier; exhaustive).
 
-fn verify_dp4_cow_check() -> EngineResult {
+fn verify_dp4_sharing_observation() -> EngineResult {
     let mut checked: u64 = 0;
     let mut true_count: u64 = 0;
     for &uniqueness in UNIQUENESS_CARRIER.iter() {
-        let actual = dp4_predicate(uniqueness);
+        let actual = needs_sharing_observation(uniqueness);
         let expected = dp4_appendix_c_row(uniqueness);
         if actual != expected {
             return fail(format!(
-                "DP-4 violation: needs_cow_check(uniqueness={}) = {}; \
+                "DP-4 violation: needs_sharing_observation(uniqueness={}) = {}; \
 expected {} per Appendix C truth table",
                 uniqueness, actual, expected
             ));
@@ -384,11 +390,11 @@ expected {} per Appendix C truth table",
         checked += 1;
     }
     // Negative-direction witness: DP-4 must be true on EXACTLY the
-    // MaybeShared row; Unique and Shared are static (no runtime check).
+    // MaybeShared row; Unique and Shared already determine the obligation.
     if true_count != 1 {
         return fail(format!(
             "DP-4 truth-table violation: expected exactly 1 Uniqueness value to require \
-COW check (MaybeShared); got {}",
+sharing observation (MaybeShared); got {}",
             true_count
         ));
     }
@@ -396,8 +402,8 @@ COW check (MaybeShared); got {}",
 }
 
 /// DP-4 predicate per `Annex E §AIMS`:
-/// `needs_cow_check(s) ⟺ s.uniqueness = MaybeShared`.
-fn dp4_predicate(uniqueness: &str) -> bool {
+/// `needs_sharing_observation(s) ⟺ s.uniqueness = MaybeShared`.
+fn needs_sharing_observation(uniqueness: &str) -> bool {
     uniqueness == "MaybeShared"
 }
 
@@ -408,7 +414,7 @@ fn dp4_appendix_c_row(uniqueness: &str) -> bool {
         "MaybeShared" => true,
         "Shared" => false,
         // Defensive: SCALAR / unknown values do not appear in canonical
-        // Uniqueness; treat as false (no COW path applicable).
+        // Uniqueness; treat as false (no mutation-isolation path applicable).
         _ => false,
     }
 }
@@ -518,7 +524,7 @@ fn dp6_appendix_c_row(access: &str, uniqueness: &str, shape: &str) -> bool {
 }
 
 // ============================================================================
-// DP-7: is_rc_skip_eligible(s) iff
+// DP-7: is_event_pair_elision_eligible(s) iff
 // is_local(s) ∧ s.access = Owned ∧ s.consumption = Linear ∧
 // s.cardinality = Once ∧ s.uniqueness = Unique ∧ ¬is_scalar(s)
 // ============================================================================
@@ -542,7 +548,7 @@ fn dp6_appendix_c_row(access: &str, uniqueness: &str, shape: &str) -> bool {
 // Engines: case_analysis (PRIMARY — finite enumeration with CN-1 + CN-6 + CN-8
 // canonical filter).
 
-fn verify_dp7_rc_skip_eligible() -> EngineResult {
+fn verify_dp7_event_pair_elision_eligible() -> EngineResult {
     let mut total: u64 = 0;
     let mut canonical_checked: u64 = 0;
     let mut true_count: u64 = 0;
@@ -554,11 +560,9 @@ fn verify_dp7_rc_skip_eligible() -> EngineResult {
                         for &is_scalar in IS_SCALAR_CARRIER.iter() {
                             total += 1;
                             // CN-1: Dead ⟺ Absent bidirectional.
-                            let cn1_ok =
-                                (consumption == "Dead") == (cardinality == "Absent");
+                            let cn1_ok = (consumption == "Dead") == (cardinality == "Absent");
                             // CN-6: wide-locality + Unique infeasible.
-                            let cn6_ok = !((locality == "HeapEscaping"
-                                || locality == "Unknown")
+                            let cn6_ok = !((locality == "HeapEscaping" || locality == "Unknown")
                                 && uniqueness == "Unique");
                             // CN-8: Borrowed + wide locality infeasible.
                             let cn8_ok = !(access == "Borrowed"
@@ -569,7 +573,7 @@ fn verify_dp7_rc_skip_eligible() -> EngineResult {
                                 continue;
                             }
                             canonical_checked += 1;
-                            let actual = dp7_predicate(
+                            let actual = is_event_pair_elision_eligible(
                                 locality,
                                 access,
                                 consumption,
@@ -587,7 +591,7 @@ fn verify_dp7_rc_skip_eligible() -> EngineResult {
                             );
                             if actual != expected {
                                 return fail(format!(
-                                    "DP-7 violation: is_rc_skip_eligible(locality={}, access={}, \
+                                    "DP-7 violation: is_event_pair_elision_eligible(locality={}, access={}, \
 consumption={}, cardinality={}, uniqueness={}, is_scalar={}) = {}; expected {} per Appendix C \
 truth table",
                                     locality,
@@ -640,8 +644,8 @@ truth table",
 }
 
 /// DP-7 predicate per `Annex E §AIMS`:
-/// `is_rc_skip_eligible(s) ⟺ is_local(s) ∧ Owned ∧ Linear ∧ Once ∧ Unique ∧ ¬scalar`.
-fn dp7_predicate(
+/// `is_event_pair_elision_eligible(s) ⟺ local ∧ Owned ∧ Linear ∧ Once ∧ Unique ∧ ¬scalar`.
+fn is_event_pair_elision_eligible(
     locality: &str,
     access: &str,
     consumption: &str,
@@ -766,10 +770,10 @@ fn dp8_appendix_c_row(locality: &str) -> bool {
 // ============================================================================
 //
 // Per Annex E §AIMS DP-10 REMOVED note: prior DP-10 claimed
-// Owned ∧ Linear ∧ Once ⟹ RC == 1
+// Owned ∧ Linear ∧ Once ⟹ exactly one logical owner credit
 // which was REMOVED as unsound. Backward analysis proves "no future
 // duplication" (Linear + Once) but NOT "no existing aliases". Uniqueness
-// is the SSOT for RC == 1 claims per §1.4.
+// is the SSOT for one-owner claims per §1.4.
 //
 // Removal soundness proof obligation:
 // (a) Exhibit a constructive counterexample: state s satisfying former
@@ -814,9 +818,8 @@ fn verify_dp10_removed() -> EngineResult {
         let locality = "BlockLocal";
 
         // Verify the antecedent holds.
-        let antecedent_holds = access == "Owned"
-            && consumption == "Linear"
-            && cardinality == "Once";
+        let antecedent_holds =
+            access == "Owned" && consumption == "Linear" && cardinality == "Once";
         if !antecedent_holds {
             return fail(format!(
                 "DP-10-REMOVED counterexample mis-construction: antecedent did not hold for \
@@ -840,9 +843,7 @@ former DP-10 consequent (Uniqueness = Unique); expected counterexample where con
         let cn6_ok =
             !((locality == "HeapEscaping" || locality == "Unknown") && uniqueness == "Unique");
         let cn8_ok = !(access == "Borrowed"
-            && (locality == "ArgEscaping"
-                || locality == "HeapEscaping"
-                || locality == "Unknown"));
+            && (locality == "ArgEscaping" || locality == "HeapEscaping" || locality == "Unknown"));
         if !(cn1_ok && cn3_ok && cn6_ok && cn8_ok) {
             return fail(format!(
                 "DP-10-REMOVED counterexample non-canonical for uniqueness={}, shape={}: \
@@ -865,14 +866,17 @@ CN-1={}, CN-3={}, CN-6={}, CN-8={}",
     // Part (b) — 3-alternative-paths enumeration + subsumption witness.
     //
     // Per Annex E §AIMS DP-10 REMOVED note:
-    // Path 1: Uniqueness = Unique direct (§1.4) → DP-7 RC-skip-eligible
+    // Path 1: Uniqueness = Unique direct (§1.4) -> DP-7 event-pair elision
     // Path 2: TF-3 FRESH allocation → Uniqueness = Unique → DP-7
     // Path 3: IC-3 ParamContract.uniqueness = Unique → DP-9 row (c)
-    // StaticUnique
+    // SameIdentityAdmissible
     let paths: &[(&str, &str)] = &[
         ("Path-1-Uniqueness-direct", "DP-7"),
         ("Path-2-TF-3-FRESH-allocation", "DP-7"),
-        ("Path-3-IC-3-ParamContract-Unique", "DP-9-row-c-StaticUnique"),
+        (
+            "Path-3-IC-3-ParamContract-Unique",
+            "DP-9-row-c-SameIdentityAdmissible",
+        ),
     ];
     if paths.len() != 3 {
         return fail(format!(
@@ -891,7 +895,7 @@ CN-1={}, CN-3={}, CN-6={}, CN-8={}",
         match (*path_name, *downstream) {
             ("Path-1-Uniqueness-direct", "DP-7") => path1_seen = true,
             ("Path-2-TF-3-FRESH-allocation", "DP-7") => path2_seen = true,
-            ("Path-3-IC-3-ParamContract-Unique", "DP-9-row-c-StaticUnique") => {
+            ("Path-3-IC-3-ParamContract-Unique", "DP-9-row-c-SameIdentityAdmissible") => {
                 path3_seen = true
             }
             (p, d) => {
@@ -1102,17 +1106,17 @@ fn dp5_appendix_c_row(
 }
 
 // ============================================================================
-// DP-9: cow_mode(s, var, field, point) ∈ {StaticUnique, StaticShared, Dynamic}
+// DP-9: neutral mutation outcome / obligation classification
 // ============================================================================
 //
 // Per Annex E §AIMS DP-9 + Appendix C truth table + §05.2 row (c)
 // joint-DP-5 refinement (agy blind-spot 6 cure):
-// row (a): Unique ∧ DP-5 = true -> StaticUnique
-// row (b): Unique ∧ DP-5 = false -> StaticShared
-// row (c): MaybeShared ∧ DP-5 = true ∧ IC-3.uniq = Unique -> StaticUnique
-// row (c'): MaybeShared ∧ DP-5 = false ∧ IC-3.uniq = Unique -> Dynamic
-// row (d): MaybeShared ∧ IC-3.uniq != Unique -> Dynamic
-// row (e): Shared -> StaticShared
+// row (a): Unique ∧ DP-5 = true -> SameIdentityAdmissible
+// row (b): Unique ∧ DP-5 = false -> IsolationRequired
+// row (c): MaybeShared ∧ DP-5 = true ∧ IC-3.uniq = Unique -> SameIdentityAdmissible
+// row (c'): MaybeShared ∧ DP-5 = false ∧ IC-3.uniq = Unique -> SharingObservationRequired
+// row (d): MaybeShared ∧ IC-3.uniq != Unique -> SharingObservationRequired
+// row (e): Shared -> IsolationRequired
 //
 // Coverage product:
 // Uniqueness (3) x DP-5-result (2) x IC-3.uniqueness (3) = 18 cases.
@@ -1120,19 +1124,19 @@ fn dp5_appendix_c_row(
 // Engines: case_analysis (PRIMARY — 18-case enumeration).
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CowMode {
-    StaticUnique,
-    StaticShared,
-    Dynamic,
+enum MutationObligation {
+    SameIdentityAdmissible,
+    IsolationRequired,
+    SharingObservationRequired,
 }
 
 const DP5_RESULT_CARRIER: &[bool] = &[false, true];
 
-fn verify_dp9_cow_mode_classification() -> EngineResult {
+fn verify_dp9_mutation_obligation_classification() -> EngineResult {
     let mut checked: u64 = 0;
-    let mut static_unique_count: u64 = 0;
-    let mut static_shared_count: u64 = 0;
-    let mut dynamic_count: u64 = 0;
+    let mut same_identity_count: u64 = 0;
+    let mut isolation_required_count: u64 = 0;
+    let mut sharing_observation_count: u64 = 0;
     for &uniqueness in UNIQUENESS_CARRIER.iter() {
         for &dp5_result in DP5_RESULT_CARRIER.iter() {
             for &ic3_uniqueness in UNIQUENESS_CARRIER.iter() {
@@ -1140,48 +1144,50 @@ fn verify_dp9_cow_mode_classification() -> EngineResult {
                 let expected = dp9_appendix_c_row(uniqueness, dp5_result, ic3_uniqueness);
                 if actual != expected {
                     return fail(format!(
-                        "DP-9 violation: cow_mode(uniqueness={}, dp5={}, ic3.uniq={}) = {:?}; \
+                        "DP-9 violation: mutation_obligation(uniqueness={}, dp5={}, ic3.uniq={}) = {:?}; \
 expected {:?} per Appendix C truth table + §05.2 row (c) joint-DP-5 refinement",
                         uniqueness, dp5_result, ic3_uniqueness, actual, expected
                     ));
                 }
                 match actual {
-                    CowMode::StaticUnique => static_unique_count += 1,
-                    CowMode::StaticShared => static_shared_count += 1,
-                    CowMode::Dynamic => dynamic_count += 1,
+                    MutationObligation::SameIdentityAdmissible => same_identity_count += 1,
+                    MutationObligation::IsolationRequired => isolation_required_count += 1,
+                    MutationObligation::SharingObservationRequired => {
+                        sharing_observation_count += 1;
+                    }
                 }
                 checked += 1;
             }
         }
     }
-    // CowMode outcome partition (canonical):
-    // StaticUnique: row (a) [Unique x true x 3 IC-3] = 3 cases
+    // MutationObligation outcome partition (canonical):
+    // SameIdentityAdmissible: row (a) [Unique x true x 3 IC-3] = 3 cases
     // + row (c) [MaybeShared x true x Unique] = 1 case
     // = 4 cases
-    // StaticShared: row (b) [Unique x false x 3 IC-3] = 3 cases
+    // IsolationRequired: row (b) [Unique x false x 3 IC-3] = 3 cases
     // + row (e) [Shared x 2 dp5 x 3 IC-3] = 6 cases
     // = 9 cases
-    // Dynamic: row (c') [MaybeShared x false x Unique] = 1 case
+    // SharingObservationRequired: row (c') [MaybeShared x false x Unique] = 1 case
     // + row (d) [MaybeShared x 2 dp5 x 2 non-Unique IC-3]
     // = 4 cases
     // = 5 cases
     // Total: 4 + 9 + 5 = 18 cases.
-    if static_unique_count != 4 {
+    if same_identity_count != 4 {
         return fail(format!(
-            "DP-9 outcome partition: expected 4 StaticUnique cases; got {}",
-            static_unique_count
+            "DP-9 outcome partition: expected 4 SameIdentityAdmissible cases; got {}",
+            same_identity_count
         ));
     }
-    if static_shared_count != 9 {
+    if isolation_required_count != 9 {
         return fail(format!(
-            "DP-9 outcome partition: expected 9 StaticShared cases; got {}",
-            static_shared_count
+            "DP-9 outcome partition: expected 9 IsolationRequired cases; got {}",
+            isolation_required_count
         ));
     }
-    if dynamic_count != 5 {
+    if sharing_observation_count != 5 {
         return fail(format!(
-            "DP-9 outcome partition: expected 5 Dynamic cases; got {}",
-            dynamic_count
+            "DP-9 outcome partition: expected 5 SharingObservationRequired cases; got {}",
+            sharing_observation_count
         ));
     }
     require_count(
@@ -1194,54 +1200,58 @@ expected {:?} per Appendix C truth table + §05.2 row (c) joint-DP-5 refinement"
 
 /// DP-9 classifier per `Annex E §AIMS DP-9` + §05.2 row (c) joint
 /// DP-5 refinement: composes Uniqueness with DP-5 outcome and IC-3
-/// ParamContract.uniqueness to select the CowMode.
-fn dp9_classify(uniqueness: &str, dp5_result: bool, ic3_uniqueness: &str) -> CowMode {
+/// ParamContract.uniqueness to select the neutral mutation obligation.
+fn dp9_classify(uniqueness: &str, dp5_result: bool, ic3_uniqueness: &str) -> MutationObligation {
     match (uniqueness, dp5_result, ic3_uniqueness) {
-        // Row (a): Unique + DP-5 true -> StaticUnique (any IC-3).
-        ("Unique", true, _) => CowMode::StaticUnique,
-        // Row (b): Unique + DP-5 false -> StaticShared (any IC-3).
-        ("Unique", false, _) => CowMode::StaticShared,
-        // Row (c): MaybeShared + DP-5 true + IC-3.uniq = Unique -> StaticUnique.
-        ("MaybeShared", true, "Unique") => CowMode::StaticUnique,
-        // Row (c'): MaybeShared + DP-5 false + IC-3.uniq = Unique -> Dynamic.
-        ("MaybeShared", false, "Unique") => CowMode::Dynamic,
-        // Row (d): MaybeShared + IC-3.uniq != Unique -> Dynamic (any DP-5).
-        ("MaybeShared", _, _) => CowMode::Dynamic,
-        // Row (e): Shared -> StaticShared (any DP-5, any IC-3).
-        ("Shared", _, _) => CowMode::StaticShared,
-        // Defensive: out-of-carrier Uniqueness values -> Dynamic
+        // Row (a): Unique + DP-5 true -> SameIdentityAdmissible.
+        ("Unique", true, _) => MutationObligation::SameIdentityAdmissible,
+        // Row (b): Unique + DP-5 false -> IsolationRequired.
+        ("Unique", false, _) => MutationObligation::IsolationRequired,
+        // Row (c): MaybeShared + DP-5 true + IC-3.uniq = Unique.
+        ("MaybeShared", true, "Unique") => MutationObligation::SameIdentityAdmissible,
+        // Row (c'): MaybeShared + DP-5 false + IC-3.uniq = Unique.
+        ("MaybeShared", false, "Unique") => MutationObligation::SharingObservationRequired,
+        // Row (d): MaybeShared + IC-3.uniq != Unique.
+        ("MaybeShared", _, _) => MutationObligation::SharingObservationRequired,
+        // Row (e): Shared -> IsolationRequired.
+        ("Shared", _, _) => MutationObligation::IsolationRequired,
+        // Defensive: out-of-carrier values require an observation.
         // (conservative; canonical Uniqueness is closed under the 3-value carrier).
-        _ => CowMode::Dynamic,
+        _ => MutationObligation::SharingObservationRequired,
     }
 }
 
 /// Appendix C DP-9 truth-table row partition — explicit per-row.
-fn dp9_appendix_c_row(uniqueness: &str, dp5_result: bool, ic3_uniqueness: &str) -> CowMode {
+fn dp9_appendix_c_row(
+    uniqueness: &str,
+    dp5_result: bool,
+    ic3_uniqueness: &str,
+) -> MutationObligation {
     if uniqueness == "Unique" {
         if dp5_result {
             // Row (a).
-            return CowMode::StaticUnique;
+            return MutationObligation::SameIdentityAdmissible;
         } else {
             // Row (b).
-            return CowMode::StaticShared;
+            return MutationObligation::IsolationRequired;
         }
     }
     if uniqueness == "Shared" {
         // Row (e).
-        return CowMode::StaticShared;
+        return MutationObligation::IsolationRequired;
     }
     // uniqueness == "MaybeShared".
     if ic3_uniqueness == "Unique" {
         if dp5_result {
             // Row (c).
-            return CowMode::StaticUnique;
+            return MutationObligation::SameIdentityAdmissible;
         } else {
             // Row (c').
-            return CowMode::Dynamic;
+            return MutationObligation::SharingObservationRequired;
         }
     }
     // Row (d): MaybeShared with non-Unique IC-3.
-    CowMode::Dynamic
+    MutationObligation::SharingObservationRequired
 }
 
 // ============================================================================
@@ -1309,7 +1319,7 @@ mod tests {
 
     #[test]
     fn dp1_rc_needed_passes() {
-        let r = verify_dp1_rc_needed();
+        let r = verify_dp1_needs_ownership_events();
         assert_eq!(r.verdict, EngineVerdict::Valid, "DP-1 failed: {}", r.reason);
     }
 
@@ -1327,7 +1337,7 @@ mod tests {
 
     #[test]
     fn dp4_cow_check_passes() {
-        let r = verify_dp4_cow_check();
+        let r = verify_dp4_sharing_observation();
         assert_eq!(r.verdict, EngineVerdict::Valid, "DP-4 failed: {}", r.reason);
     }
 
@@ -1339,7 +1349,7 @@ mod tests {
 
     #[test]
     fn dp7_rc_skip_eligible_passes() {
-        let r = verify_dp7_rc_skip_eligible();
+        let r = verify_dp7_event_pair_elision_eligible();
         assert_eq!(r.verdict, EngineVerdict::Valid, "DP-7 failed: {}", r.reason);
     }
 
@@ -1372,7 +1382,7 @@ mod tests {
 
     #[test]
     fn dp9_cow_mode_classification_passes() {
-        let r = verify_dp9_cow_mode_classification();
+        let r = verify_dp9_mutation_obligation_classification();
         assert_eq!(r.verdict, EngineVerdict::Valid, "DP-9 failed: {}", r.reason);
     }
 
@@ -1435,7 +1445,7 @@ lists only case_analysis)",
         for &access in ACCESS_CARRIER.iter() {
             for &consumption in CONSUMPTION_CARRIER.iter() {
                 for &is_scalar in IS_SCALAR_CARRIER.iter() {
-                    if dp1_predicate(access, consumption, is_scalar) {
+                    if needs_ownership_events(access, consumption, is_scalar) {
                         true_count += 1;
                         // The 3 Owned/non-Dead/non-scalar rows: Linear,
                         // Affine, Unrestricted × is_scalar=false.
@@ -1496,7 +1506,7 @@ lists only case_analysis)",
     #[test]
     fn dp4_only_maybeshared_requires_runtime_check() {
         for &uniqueness in UNIQUENESS_CARRIER.iter() {
-            let actual = dp4_predicate(uniqueness);
+            let actual = needs_sharing_observation(uniqueness);
             if uniqueness == "MaybeShared" {
                 assert!(actual, "DP-4 must return true on MaybeShared");
             } else {
@@ -1511,25 +1521,14 @@ lists only case_analysis)",
     #[test]
     fn dp5_settag_invalidates_disjoint_borrows() {
         // Set + live-disjoint borrow: in-place safe.
-        let set_disjoint = dp5_predicate(
-            "Owned",
-            "Unique",
-            "Set",
-            "live-disjoint",
-            "none-live",
-        );
+        let set_disjoint = dp5_predicate("Owned", "Unique", "Set", "live-disjoint", "none-live");
         assert!(
             set_disjoint,
             "DP-5 must return true for Set + live-disjoint borrow (RL-10 exemption)"
         );
         // SetTag + live-disjoint borrow: RL-10 invalidation blocks.
-        let settag_disjoint = dp5_predicate(
-            "Owned",
-            "Unique",
-            "SetTag",
-            "live-disjoint",
-            "none-live",
-        );
+        let settag_disjoint =
+            dp5_predicate("Owned", "Unique", "SetTag", "live-disjoint", "none-live");
         assert!(
             !settag_disjoint,
             "DP-5 must return false for SetTag + live-disjoint borrow (RL-10 whole-payload invalidation)"
@@ -1553,35 +1552,37 @@ lists only case_analysis)",
     }
 
     // DP-9 row (c) joint-DP-5 refinement witness: MaybeShared + IC-3
-    // Unique splits on DP-5 result (StaticUnique vs Dynamic).
+    // Unique splits between same-identity and observation obligations.
     #[test]
     fn dp9_row_c_joint_dp5_refinement_splits_outcomes() {
-        // Row (c): MaybeShared + DP-5 true + IC-3 Unique -> StaticUnique.
+        // Row (c): local safety admits same-identity mutation.
         let row_c = dp9_classify("MaybeShared", true, "Unique");
-        assert_eq!(row_c, CowMode::StaticUnique, "DP-9 row (c) must yield StaticUnique");
-        // Row (c'): MaybeShared + DP-5 false + IC-3 Unique -> Dynamic.
+        assert_eq!(
+            row_c,
+            MutationObligation::SameIdentityAdmissible,
+            "DP-9 row (c) must admit same-identity mutation"
+        );
+        // Row (c'): local uncertainty retains a sharing observation.
         let row_c_prime = dp9_classify("MaybeShared", false, "Unique");
         assert_eq!(
             row_c_prime,
-            CowMode::Dynamic,
-            "DP-9 row (c') must yield Dynamic (agy blind-spot 6 cure)"
+            MutationObligation::SharingObservationRequired,
+            "DP-9 row (c') must retain a sharing-observation obligation"
         );
     }
 
-    // DP-9 row (b) negative witness: Unique + DP-5 false -> StaticShared.
-    // Runtime IsShared on Unique always returns false; the in-place arm
-    // would be unsound with active borrows.
+    // DP-9 row (b) negative witness: an active borrow requires isolation.
     #[test]
-    fn dp9_unique_with_dp5_false_yields_static_shared() {
+    fn dp9_unique_with_dp5_false_requires_isolation() {
         let result = dp9_classify("Unique", false, "Shared");
         assert_eq!(
             result,
-            CowMode::StaticShared,
-            "DP-9 row (b) must yield StaticShared regardless of IC-3 (active borrow forbids in-place)"
+            MutationObligation::IsolationRequired,
+            "DP-9 row (b) must require isolation regardless of IC-3"
         );
     }
 
-    // DP-9 row (e): Shared overrides DP-5 + IC-3 -> StaticShared.
+    // DP-9 row (e): Shared overrides DP-5 + IC-3 and requires isolation.
     #[test]
     fn dp9_shared_dominates_subpredicates() {
         for &dp5 in DP5_RESULT_CARRIER.iter() {
@@ -1589,9 +1590,10 @@ lists only case_analysis)",
                 let result = dp9_classify("Shared", dp5, ic3);
                 assert_eq!(
                     result,
-                    CowMode::StaticShared,
+                    MutationObligation::IsolationRequired,
                     "DP-9 row (e) Shared must dominate (dp5={}, ic3={})",
-                    dp5, ic3
+                    dp5,
+                    ic3
                 );
             }
         }

@@ -51,6 +51,13 @@ pub(crate) fn verify_and_merge(
         crate::block_merge::merge_blocks(func);
     }
     super::trace_pipeline_checkpoint(func, "merge_blocks", config.interner, config.observer);
+    crate::aims::validate_primitive_facts(func, config.classifier)?;
+    super::trace_pipeline_checkpoint(
+        func,
+        "validate_primitive_facts_post_merge",
+        config.interner,
+        config.observer,
+    );
     Ok(())
 }
 

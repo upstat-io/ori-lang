@@ -1,5 +1,6 @@
 //! Recursive SCC processing for interprocedural range propagation.
 
+use ori_arc::graph::call_graph::CallGraph;
 use ori_arc::ir::ArcFunction;
 use ori_ir::Name;
 use ori_types::Pool;
@@ -9,6 +10,15 @@ use super::{collect_param_ranges, FunctionRangeInfo};
 use crate::plan::ReprPlan;
 use crate::range::fixpoint::range_fixpoint;
 use crate::range::{RangeAnalysisConfig, ValueRange};
+
+/// Result of solving one genuinely recursive call-graph component.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RecursiveSccOutcome {
+    /// Number of fixpoint iterations performed.
+    pub iterations: usize,
+    /// Whether the per-component convergence limit forced a conservative fallback.
+    pub exhausted: bool,
+}
 
 /// Build a seed map from `FunctionRangeInfo::param_ranges` for `range_fixpoint()`.
 ///
@@ -28,27 +38,26 @@ pub(super) fn build_param_seed_map(
     seeds
 }
 
-/// Process a recursive SCC: iterate fixpoint until parameter + return ranges stabilize.
+/// Process a recursive SCC until its parameter summaries stabilize.
 ///
-/// Returns the number of SCC iterations consumed.
+/// A component that does not converge within its per-component limit is
+/// replaced with conservative `Top` summaries. Non-recursive components never
+/// enter this routine and therefore never consume a recursive convergence
+/// budget.
 #[expect(
     clippy::too_many_arguments,
     reason = "plan parameter required for unconstrained function detection in collect_param_ranges"
 )]
 pub(super) fn process_recursive_scc(
     scc: &ori_arc::graph::scc::Scc,
+    call_graph: &CallGraph,
     func_map: &FxHashMap<Name, &ArcFunction>,
     pool: &Pool,
     config: &RangeAnalysisConfig,
     results: &mut FxHashMap<Name, crate::range::fixpoint::RangeFixpointResult>,
     func_infos: &mut FxHashMap<Name, FunctionRangeInfo>,
-    remaining_budget: usize,
     plan: &ReprPlan,
-) -> usize {
-    // Use the minimum of the per-SCC cap and the remaining total
-    // budget. Without this, one recursive SCC can overshoot max_total_scc_iterations.
-    let effective_cap = config.max_scc_iterations.min(remaining_budget);
-
+) -> RecursiveSccOutcome {
     // Initialize all members with Bottom params.
     for name in &scc.members {
         if let Some(func) = func_map.get(name) {
@@ -58,11 +67,12 @@ pub(super) fn process_recursive_scc(
 
     let mut iteration = 0;
     loop {
-        if iteration >= effective_cap {
-            tracing::warn!(
+        if iteration >= config.max_scc_iterations {
+            tracing::debug!(
                 scc_size = scc.members.len(),
                 iterations = iteration,
-                "SCC fixpoint did not converge — widening to Top"
+                members = ?scc.members,
+                "recursive range SCC did not converge; replacing its summaries with Top"
             );
             // Widen all parameter ranges to Top AND clear stale intermediate
             // results. Without clearing `results`, Phase 4 would
@@ -82,7 +92,10 @@ pub(super) fn process_recursive_scc(
                     },
                 );
             }
-            break;
+            return RecursiveSccOutcome {
+                iterations: iteration,
+                exhausted: true,
+            };
         }
 
         let mut changed = false;
@@ -93,7 +106,7 @@ pub(super) fn process_recursive_scc(
             };
 
             // Collect parameter ranges from all call sites (including within the SCC).
-            let new_info = collect_param_ranges(func, results, func_infos, func_map, pool, plan);
+            let new_info = collect_param_ranges(func, results, func_map, call_graph, pool, plan);
 
             // Check if parameter ranges changed.
             if let Some(old_info) = func_infos.get(name) {
@@ -122,9 +135,10 @@ pub(super) fn process_recursive_scc(
                 iterations = iteration,
                 "SCC fixpoint converged"
             );
-            break;
+            return RecursiveSccOutcome {
+                iterations: iteration,
+                exhausted: false,
+            };
         }
     }
-
-    iteration
 }

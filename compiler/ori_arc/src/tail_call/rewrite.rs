@@ -71,11 +71,11 @@ pub(crate) fn rewrite_tail_calls(func: &mut ArcFunction) {
     //
     // With fresh IDs, Phase 7 sees distinct vars from both predecessors and
     // correctly identifies the params as non-invariant.
-    let param_types: Vec<_> = func.params.iter().map(|p| p.ty).collect();
-    let block_params: Vec<_> = param_types
+    let params: Vec<_> = func.params.iter().map(|p| (p.var, p.ty)).collect();
+    let block_params: Vec<_> = params
         .iter()
-        .map(|&ty| {
-            let fresh = func.fresh_var(ty);
+        .map(|&(source, ty)| {
+            let fresh = func.fresh_var_like_typed(source, ty);
             (fresh, ty)
         })
         .collect();

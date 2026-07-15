@@ -243,8 +243,9 @@ impl ArcLowerer<'_> {
         // body unwind here. An `Invoke` wires `catch_handler` via its unwind
         // edge; an inline checked-op PrimOp instead records its result var →
         // `catch_handler` (via `note_checked_op` → `catch_scoped_checked_ops`)
-        // so the LLVM emitter materializes a landing pad and routes the
-        // checked-op panic here (`Spec: Annex E §AIMS` cleanup is unaffected;
+        // so every physical projection routes the checked-op panic here. LLVM
+        // currently materializes the edge as a landing pad (`Spec: Annex E
+        // §AIMS` cleanup is unaffected;
         // Spec: Clause 14.3 for the panic conditions). `catch_unwind_target`
         // is always the innermost enclosing catch, so a nested checked-op maps
         // to its own (inner) handler.

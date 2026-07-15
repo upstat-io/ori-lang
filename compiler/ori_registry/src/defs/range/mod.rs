@@ -9,8 +9,8 @@
 //! are rejected for `Range<float>` by the type checker).
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag,
+    MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef,
+    TypeParamArity, TypeProjection, TypeTag,
 };
 
 // Parameter arrays
@@ -69,7 +69,8 @@ static RANGE_METHODS: &[MethodDef] = &[
         Ownership::Borrow,
         false,
     ),
-    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
+    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Length),
     MethodDef::compound(
         "step_by",
         &STEP_PARAM,

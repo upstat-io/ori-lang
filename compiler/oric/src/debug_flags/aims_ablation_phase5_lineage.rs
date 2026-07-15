@@ -1,4 +1,4 @@
-//! AIMS RC-pipeline ablation toggles — lineage/borrow-view/closure family.
+//! Current compiled-counter adapter ablations at the AIMS carrier boundary.
 //!
 //! Each `ORI_DISABLE_*` toggle disables the named behavior at its documented
 //! consumer for bisection. See the crate-level `debug_flags` module doc for the
@@ -14,15 +14,6 @@ flags! {
     /// panic-message leak / double-free to the transfer seed.
     /// Usage: `ORI_DISABLE_PANIC_MSG_TRANSFER=1 ori build file.ori`
     ORI_DISABLE_PANIC_MSG_TRANSFER
-
-    /// Disable the as-compiled impl-method contract pre-pass + per-caller
-    /// Phase-5 binding; impl-method call sites revert to the conservative
-    /// no-contract treatment.
-    ///
-    /// Consumed in `oric::commands::codegen_pipeline`. Bisects an
-    /// impl-method-caller RC change to contract visibility.
-    /// Usage: `ORI_DISABLE_IMPL_METHOD_CONTRACTS=1 ori build file.ori`
-    ORI_DISABLE_IMPL_METHOD_CONTRACTS
 
     /// Keep each elided fresh-site `BurdenInc` as a codegen-no-op marker
     /// instead of removing it during Phase-7 lowering.
@@ -48,8 +39,9 @@ flags! {
     ///
     /// Consumed in `ori_llvm::codegen::function_compiler` (which cannot depend
     /// on `oric`; raw `var_os`). Defined here for documentation and
-    /// `check-debug-flags.sh` consistency. Bisects a miscompile to the
-    /// AIMS-exported `noalias` attribute vs the rest of codegen.
+    /// `check-debug-flags.sh` consistency. Bisects a miscompile to LLVM's
+    /// `noalias` projection of the backend-neutral AIMS fact vs the rest of
+    /// codegen.
     /// Usage: `ORI_DISABLE_RL31_NOALIAS=1 ori build file.ori`
     ORI_DISABLE_RL31_NOALIAS
 

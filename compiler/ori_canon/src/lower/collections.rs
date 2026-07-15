@@ -48,9 +48,10 @@ impl Lowerer<'_> {
     /// the receiver does not have natively), synthesize `recv.iter()` and return
     /// it as the new receiver paired with the materialized iterator type, so both
     /// method-call lowering paths thread it identically. Making the iterator a
-    /// real `MethodCall` IR node lets AIMS realize its RC correctly (vs a
-    /// backend-hidden materialization that double-frees element-extracting
-    /// consumers like `find`). Returns `None` when the call was not routed.
+    /// real `MethodCall` IR node lets AIMS freeze its ownership and cleanup
+    /// obligations correctly (vs a backend-hidden materialization that makes a
+    /// counter projection double-free element-extracting consumers like
+    /// `find`). Returns `None` when the call was not routed.
     pub(crate) fn lower_iter_routed_receiver(
         &mut self,
         receiver: ExprId,

@@ -158,6 +158,19 @@ def boundaryResultInstrs (ret : Nat) (bc : BoundaryContract) : List LedgerInstr 
   else
     []
 
+/-- §T4 the two exits of an unwind-capable call. The argument boundary event
+    happens before either exit is selected; a result binding exists only on the
+    normal exit. -/
+inductive BoundaryExit
+  | normal
+  | unwind
+deriving Repr, DecidableEq
+
+/-- §T4 the event image of the result binding. A passthrough or sharing view
+    credits the source class; every other result has no event on that class. -/
+def boundaryResultEvents (bc : BoundaryContract) : List LedgerEvent :=
+  if bc.transfersThroughReturn || bc.sharingViewProducer then [.credit] else []
+
 /-- §T4 the COMPUTED call-site expansion: the argument's terminal use (the
     contract-selected RL-2 kind) followed by the result binding. This is the
     instruction-shaped input the caller's ledger derives through the
@@ -170,6 +183,12 @@ def boundaryInstrs (arg ret : Nat) (bc : BoundaryContract) : List LedgerInstr :=
     verdict), READ otherwise. -/
 def boundaryArgEvent (bc : BoundaryContract) : LedgerEvent :=
   if boundaryTransfersIn bc then .consume else .read
+
+/-- §T4 the boundary events visible on one Invoke successor. The argument
+    event is common to both successors. Only normal return binds a result. -/
+def invokeBoundaryEvents (bc : BoundaryContract) : BoundaryExit → List LedgerEvent
+  | .normal => boundaryArgEvent bc :: boundaryResultEvents bc
+  | .unwind => [boundaryArgEvent bc]
 
 /-- §T4 the derived caller-side argument event IS the summary event — through
     the committed RL-2 bridge (`terminal_event_matches_rl2`). -/
@@ -289,6 +308,7 @@ theorem T4_sharing_view_credits_source (classOf : Nat → Nat)
           else deriveLedger classOf c []) = _
     rw [hret]
     rfl
+
   · show deriveLedger classOf c
         (.escapeUse arg .ApplyToBorrowedParam :: [.dup ret]) = _
     show (if classOf arg == c then
@@ -301,6 +321,872 @@ theorem T4_sharing_view_credits_source (classOf : Nat → Nat)
          else deriveLedger classOf c []) = _
     rw [hret]
     rfl
+
+/-- §T4 the result-event abstraction is derived from the same instruction
+    expansion as `boundaryResultInstrs`, not stipulated independently. -/
+theorem boundary_result_events_derived (classOf : Nat → Nat) (c ret : Nat)
+    (bc : BoundaryContract) (hret : (classOf ret == c) = true) :
+    deriveLedger classOf c (boundaryResultInstrs ret bc) = boundaryResultEvents bc := by
+  unfold boundaryResultInstrs boundaryResultEvents
+  split <;> simp_all [deriveLedger]
+
+/-- §T4 Invoke argument classification precedes successor selection: both
+    the normal and unwind event streams begin with the same computed argument
+    event. -/
+theorem T4_invoke_arg_event_precedes_both_exits (bc : BoundaryContract) :
+    (invokeBoundaryEvents bc .normal).head? = some (boundaryArgEvent bc)
+    ∧ (invokeBoundaryEvents bc .unwind).head? = some (boundaryArgEvent bc) := by
+  constructor <;> rfl
+
+/-- §T4 an Owned Invoke argument transfers on both exits. Treating the
+    consume as normal-only omits the handoff from the unwind path. -/
+theorem T4_invoke_owned_arg_consumes_on_both_exits :
+    (invokeBoundaryEvents ⟨.Owned, false, false, false⟩ .normal).head?
+        = some .consume
+    ∧ (invokeBoundaryEvents ⟨.Owned, false, false, false⟩ .unwind).head?
+        = some .consume := by
+  decide
+
+/-- §T4 negative witness: the unwind stream of an Owned argument is not
+    empty, so a normal-only argument transfer contradicts the boundary model. -/
+theorem T4_invoke_unwind_transfer_omission_rejected :
+    invokeBoundaryEvents ⟨.Owned, false, false, false⟩ .unwind ≠ [] := by
+  decide
+
+/-- §T4 result credit is path-asymmetric: a sharing-view result credits the
+    source only on normal return, while the argument read precedes both exits. -/
+theorem T4_invoke_result_credit_is_normal_only :
+    invokeBoundaryEvents ⟨.Borrowed, false, false, true⟩ .normal
+        = [.read, .credit]
+    ∧ invokeBoundaryEvents ⟨.Borrowed, false, false, true⟩ .unwind
+        = [.read] := by
+  decide
+
+/-! ### §T4 / PV-4 borrowed indirect-call adapter
+
+    Indirect-call explicit operands use one caller-borrowed logical contract:
+    the caller keeps its ownership obligation, so each explicit operand
+    contributes a READ on its partition class. Each backend projects that
+    contract into its own calling convention. The closed target identity freezes the exact
+    inward-owner demand derived from the final parameter contract. Ordinary
+    Owned access, borrowed iterator consumption, and borrowed COW consumption
+    demand a whole-value owner; projected-field iterator consumption demands
+    only that field's owner. A plain borrow demands none. Contradictory whole-
+    value plus projected-field demands fail closed. CREDIT/CONSUME are logical
+    AIMS events; this model selects no physical retain instruction, counter,
+    object layout, or discharge mechanism. -/
+
+/-- Exact topology of the independent owner demanded by one target parameter.
+    This is a logical AIMS carrier: `projectedField` identifies a semantic
+    partition, not a physical byte offset or representation. -/
+inductive CalleeOwnerDemand
+  | borrow
+  | wholeValue
+  | projectedField (field : Nat)
+deriving Repr, DecidableEq
+
+/-- Whether the normalized demand needs one logical owner on the selected
+    partition class. -/
+def CalleeOwnerDemand.requiresCredit : CalleeOwnerDemand → Bool
+  | .borrow => false
+  | .wholeValue | .projectedField _ => true
+
+/-- Stable semantic identity of one target parameter. Function and parameter
+    identities are part of the frozen fact so result-side evidence cannot be
+    replayed across callables or parameter slots. -/
+structure TargetOwnershipFactIdentity where
+  function : Nat
+  parameter : Nat
+deriving Repr, DecidableEq
+
+/-- Frozen ownership for one explicit target parameter. `identity` binds the
+    fact to its callable and parameter slot, `contract` preserves the exact
+    final semantic input, and `demand` is computed once at freeze time and is
+    the sole adapter oracle thereafter. -/
+structure FrozenTargetOwnershipFact where
+  identity : TargetOwnershipFactIdentity
+  contract : BoundaryContract
+  demand : CalleeOwnerDemand
+deriving Repr, DecidableEq
+
+/-- Freeze the production `ParamContract::callee_owner_demand` rule. The
+    existing RL-2 table supplies ordinary Owned / borrowed-iterator transfer;
+    borrowed COW consumption adds the other whole-value case; a projected field
+    is admitted only when no whole-value demand is present. `none` is the
+    fail-closed contradictory row. -/
+def FrozenTargetOwnershipFact.freeze (identity : TargetOwnershipFactIdentity)
+    (contract : BoundaryContract)
+    (borrowedCowConsumed : Bool) (iterConsumesProjectedField : Option Nat) :
+    Option FrozenTargetOwnershipFact :=
+  match boundaryTransfersIn contract || borrowedCowConsumed,
+      iterConsumesProjectedField with
+  | true, some _ => none
+  | true, none => some ⟨identity, contract, .wholeValue⟩
+  | false, some field => some ⟨identity, contract, .projectedField field⟩
+  | false, none => some ⟨identity, contract, .borrow⟩
+
+/-- Ground the freeze operation in the final IC parameter contract plus its
+    committed exceptional-transfer facets. Return aliases and sharing-view
+    facts remain result-side accounting and do not add pre-entry owner credit. -/
+def FrozenTargetOwnershipFact.ofParamContract
+    (identity : TargetOwnershipFactIdentity) (pc : ParamContract)
+    (iter transfersThroughReturn sharingViewProducer borrowedCowConsumed : Bool)
+    (iterConsumesProjectedField : Option Nat) :
+    Option FrozenTargetOwnershipFact :=
+  FrozenTargetOwnershipFact.freeze identity
+    (BoundaryContract.ofParamContract pc iter transfersThroughReturn
+      sharingViewProducer)
+    borrowedCowConsumed iterConsumesProjectedField
+
+/-- The per-partition callee interface induced by the already-frozen demand.
+    Whole-value and exact projected-field owners both transfer one credit on the
+    partition currently being checked; a borrow transfers none. This mapping is
+    logical normalization, not backend ABI or representation selection. -/
+def FrozenTargetOwnershipFact.boundaryContract
+    (fact : FrozenTargetOwnershipFact) : BoundaryContract :=
+  if fact.demand.requiresCredit then
+    ⟨.Owned, false, false, false⟩
+  else
+    ⟨.Borrowed, false, false, false⟩
+
+/-- One logical adapter credit exactly when the frozen target demand requires
+    an independent owner on the selected partition. This is a semantic owner
+    obligation, not a physical opcode. -/
+def indirectAdapterCreditEvents
+    (fact : FrozenTargetOwnershipFact) : List LedgerEvent :=
+  if fact.demand.requiresCredit then [.credit] else []
+
+/-- Target-side ownership discharge is path-total: every demanded owner is
+    consumed or transferred onward on both normal and unwind; a borrow
+    discharges nothing. -/
+def indirectTargetDischargeEvents
+    (fact : FrozenTargetOwnershipFact) : BoundaryExit → List LedgerEvent
+  | .normal | .unwind =>
+      if fact.demand.requiresCredit then [.consume] else []
+
+/-- Complete per-class summary for one caller-borrowed explicit operand. -/
+def borrowedIndirectOperandEvents
+    (fact : FrozenTargetOwnershipFact) (exit : BoundaryExit) : List LedgerEvent :=
+  [.read] ++ indirectAdapterCreditEvents fact
+    ++ indirectTargetDischargeEvents fact exit
+
+/-- The exact full-contract freeze and adapter tables. Ordinary Owned,
+    borrowed iter-consume, and borrowed COW-consume freeze to `wholeValue`;
+    an exact projected-field consume freezes to that field; plain Borrowed and
+    iter-through-return remain borrows; whole + projected conflict fails closed.
+    Both owner-demand shapes receive one credit paired with one discharge on both
+    exits, while Borrow remains a read. -/
+theorem T4_PV4_borrowed_indirect_exact_adapter_rows :
+    let identity : TargetOwnershipFactIdentity := ⟨100, 0⟩
+    let owned : BoundaryContract := ⟨.Owned, false, false, false⟩
+    let borrowed : BoundaryContract := ⟨.Borrowed, false, false, false⟩
+    let iterConsume : BoundaryContract := ⟨.Borrowed, true, false, false⟩
+    let iterThroughReturn : BoundaryContract := ⟨.Borrowed, true, true, false⟩
+    FrozenTargetOwnershipFact.freeze identity owned false none =
+        some ⟨identity, owned, .wholeValue⟩
+    ∧ FrozenTargetOwnershipFact.freeze identity borrowed false none =
+        some ⟨identity, borrowed, .borrow⟩
+    ∧ FrozenTargetOwnershipFact.freeze identity iterConsume false none =
+        some ⟨identity, iterConsume, .wholeValue⟩
+    ∧ FrozenTargetOwnershipFact.freeze identity iterThroughReturn false none =
+        some ⟨identity, iterThroughReturn, .borrow⟩
+    ∧ FrozenTargetOwnershipFact.freeze identity borrowed true none =
+        some ⟨identity, borrowed, .wholeValue⟩
+    ∧ FrozenTargetOwnershipFact.freeze identity borrowed false (some 3) =
+        some ⟨identity, borrowed, .projectedField 3⟩
+    ∧ FrozenTargetOwnershipFact.freeze identity owned false (some 3) = none
+    ∧ borrowedIndirectOperandEvents ⟨identity, owned, .wholeValue⟩ .normal =
+        [.read, .credit, .consume]
+    ∧ borrowedIndirectOperandEvents ⟨identity, owned, .wholeValue⟩ .unwind =
+        [.read, .credit, .consume]
+    ∧ borrowedIndirectOperandEvents
+        ⟨identity, borrowed, .projectedField 3⟩ .normal =
+        [.read, .credit, .consume]
+    ∧ borrowedIndirectOperandEvents
+        ⟨identity, borrowed, .projectedField 3⟩ .unwind =
+        [.read, .credit, .consume]
+    ∧ borrowedIndirectOperandEvents ⟨identity, borrowed, .borrow⟩ .normal = [.read]
+    ∧ borrowedIndirectOperandEvents ⟨identity, borrowed, .borrow⟩ .unwind = [.read] := by
+  decide
+
+/-- Each exact adapter row preserves the caller's retained obligation and its
+    read floor on both target exits. -/
+theorem T4_PV4_borrowed_indirect_adapter_paths_conform
+    (fact : FrozenTargetOwnershipFact) (exit : BoundaryExit) :
+    clauseNetZero (borrowedIndirectOperandEvents fact exit) = true
+      ∧ clauseFloors 1 (borrowedIndirectOperandEvents fact exit) = true := by
+  cases fact with
+  | mk identity contract demand =>
+      cases demand <;> cases exit <;>
+        simp [borrowedIndirectOperandEvents, indirectAdapterCreditEvents,
+          indirectTargetDischargeEvents, CalleeOwnerDemand.requiresCredit] <;> decide
+
+/-- Negative witness: target ownership discharge without the exact preceding
+    adapter credit consumes the caller's retained obligation. -/
+theorem T4_PV4_owner_demand_missing_credit_rejected :
+    clauseNetZero [.read, .consume] = false := by
+  decide
+
+/-- Negative witness: omitting target discharge on the unwind path leaks the
+    adapter credit even though the operand itself was only borrowed. -/
+theorem T4_PV4_owner_demand_missing_unwind_discharge_rejected :
+    clauseNetZero [.read, .credit] = false := by
+  decide
+
+/-- IC-8a integration: a non-enumerable target's CONSERVATIVE access freezes to
+    whole-value owner demand, therefore the borrowed indirect adapter must take
+    the exact credit/discharge row on normal and unwind. -/
+theorem IC8a_borrowed_indirect_adapter_uses_whole_value_target_fact :
+    let identity : TargetOwnershipFactIdentity := ⟨200, 0⟩
+    let contract := BoundaryContract.ofParamContract
+      ParamContract.CONSERVATIVE false false false
+    let fact : FrozenTargetOwnershipFact := ⟨identity, contract, .wholeValue⟩
+    FrozenTargetOwnershipFact.ofParamContract identity ParamContract.CONSERVATIVE
+        false false false false none = some fact
+      ∧ fact.demand = .wholeValue
+      ∧ borrowedIndirectOperandEvents fact .normal = [.read, .credit, .consume]
+      ∧ borrowedIndirectOperandEvents fact .unwind = [.read, .credit, .consume] := by
+  decide
+
+/-! ### §T4 / PV-4 per-return-site owner provenance
+
+    Entry adaptation and result ownership are separate questions. A closed
+    target freezes one result relation per normal return site, together with an
+    exact proof of where the returned owner comes from. `EntryCredit` transfers
+    the already-created entry owner; `TargetFunded` is certified by the target's
+    logical class ledger at that return site; `NeedsResultCredit` asks the
+    adapter to create the returned owner on the normal edge only. No result
+    owner exists on unwind. These are logical sources and actions, not a choice
+    of counter, layout, instruction, or calling convention. -/
+
+/-- Relationship between one normal return site and a target parameter. The
+    parameter slot and semantic field index are stable contract identities, not
+    physical offsets. -/
+inductive ReturnOwnerRelation
+  | independent
+  | direct (parameter : Nat)
+  | projectedField (parameter field : Nat)
+  | contained (parameter : Nat)
+deriving Repr, DecidableEq
+
+/-- Whether a related-result relation names this exact target parameter.
+    Independent results name no parameter and therefore pass this check. -/
+def ReturnOwnerRelation.referencesParameter
+    (relation : ReturnOwnerRelation) (parameter : Nat) : Bool :=
+  match relation with
+  | .independent => true
+  | .direct relatedParameter
+  | .contained relatedParameter => relatedParameter == parameter
+  | .projectedField relatedParameter _ => relatedParameter == parameter
+
+/-- Result topology that one normalized target demand may fund. A whole-value
+    owner may fund a direct or contained result, while a projected owner may
+    fund only the same semantic field. Borrow has no entry owner to transfer,
+    so its related result may be funded independently in any supported shape. -/
+def CalleeOwnerDemand.acceptsReturnRelation
+    (demand : CalleeOwnerDemand) (relation : ReturnOwnerRelation) : Bool :=
+  match demand, relation with
+  | _, .independent => true
+  | .borrow, .direct _
+  | .borrow, .projectedField _ _
+  | .borrow, .contained _ => true
+  | .wholeValue, .direct _
+  | .wholeValue, .contained _ => true
+  | .projectedField demandedField, .projectedField _ returnedField =>
+      demandedField == returnedField
+  | _, _ => false
+
+/-- Stable semantic identity of one result fact. Both function and normal
+    return site are in the identity, making cross-function and cross-site fact
+    replay structurally visible to every consumer. -/
+structure ResultFactIdentity where
+  function : Nat
+  returnSite : Nat
+deriving Repr, DecidableEq
+
+/-- Function and related-parameter compatibility between a frozen entry fact
+    and one result relation. Topology equality is checked specifically when the
+    result claims `EntryCredit`: a target-funded result may legitimately reshape
+    after consuming the entry owner. -/
+def FrozenTargetOwnershipFact.matchesResultIdentity
+    (entry : FrozenTargetOwnershipFact) (identity : ResultFactIdentity)
+    (relation : ReturnOwnerRelation) : Bool :=
+  (entry.identity.function == identity.function)
+    && relation.referencesParameter entry.identity.parameter
+
+/-- Exclusive logical source of one owned normal result. Target-backed variants
+    carry the stable fact identity that funds the result. -/
+inductive ResultOwnerSource
+  | independentTargetBirth (fact : Nat)
+  | entryCredit
+  | targetFunded (fact : Nat)
+  | needsResultCredit
+deriving Repr, DecidableEq
+
+/-- Exact normal-site certificate projected from verified target facts. The two
+    optional identities distinguish a fresh target birth from class-ledger
+    funding of a result related to an input.
+    `targetOwnedRoot` and `targetOwnedPayloadEdges` jointly certify the complete
+    returned ownership topology. `entryCreditTransfers` identifies a transfer
+    of the adapter-created owner into the result. Entry credit must close exactly
+    once on unwind; result absence there is structural in `FunctionExit`. -/
+structure ReturnSiteFundingEvidence where
+  independentTargetBirthFact : Option Nat
+  targetFundingFact : Option Nat
+  entryCreditTransfers : Bool
+  targetOwnedRoot : Bool
+  targetOwnedPayloadEdges : Bool
+  entryCreditDischargedOnUnwind : Bool
+deriving Repr, DecidableEq
+
+def ReturnSiteFundingEvidence.targetFullyFunds
+    (evidence : ReturnSiteFundingEvidence) : Bool :=
+  evidence.targetFundingFact.isSome
+    && evidence.targetOwnedRoot
+    && evidence.targetOwnedPayloadEdges
+
+/-- One normalized result-owner fact keyed by stable function + return-site
+    identity. -/
+structure FrozenResultOwnerFact where
+  identity : ResultFactIdentity
+  relation : ReturnOwnerRelation
+  source : ResultOwnerSource
+deriving Repr, DecidableEq
+
+/-- Freeze one return site's exclusive owner source. Independent target births
+    require no entry fact (supporting zero-parameter functions); every related
+    result requires exactly one function/parameter-bound entry fact. Multiple
+    simultaneous source proofs fail closed rather than minting two owners. -/
+def FrozenResultOwnerFact.freeze (identity : ResultFactIdentity)
+    (entry : Option FrozenTargetOwnershipFact) (relation : ReturnOwnerRelation)
+    (evidence : ReturnSiteFundingEvidence) : Option FrozenResultOwnerFact :=
+  match relation, entry with
+  | .independent, none =>
+      match evidence.independentTargetBirthFact with
+      | some fact =>
+          if evidence.targetFundingFact.isNone
+              && evidence.targetOwnedRoot
+              && evidence.targetOwnedPayloadEdges
+              && !evidence.entryCreditTransfers
+              && !evidence.entryCreditDischargedOnUnwind then
+            some ⟨identity, relation, .independentTargetBirth fact⟩
+          else
+            none
+      | none => none
+  | .independent, some _ => none
+  | _, none => none
+  | relation, some entry =>
+      if !entry.matchesResultIdentity identity relation then
+        none
+      else if evidence.independentTargetBirthFact.isSome then
+        none
+      else
+        let entryClaim := evidence.entryCreditTransfers
+          || evidence.entryCreditDischargedOnUnwind
+        let entrySource := entry.demand.requiresCredit
+          && entry.demand.acceptsReturnRelation relation
+          && evidence.entryCreditTransfers
+          && evidence.entryCreditDischargedOnUnwind
+        let targetClaim := evidence.targetFundingFact.isSome
+          || evidence.targetOwnedRoot || evidence.targetOwnedPayloadEdges
+        let targetSource := evidence.targetFullyFunds
+        if entryClaim && !entrySource then
+          none
+        else if targetClaim && !targetSource then
+          none
+        else if entrySource && targetSource then
+          none
+        else if entrySource then
+          some ⟨identity, relation, .entryCredit⟩
+        else if targetSource then
+          match evidence.targetFundingFact with
+          | some fact => some ⟨identity, relation, .targetFunded fact⟩
+          | none => none
+        else
+          match relation, entry.demand with
+          | .direct _, .borrow
+          | .projectedField _ _, .borrow =>
+              some ⟨identity, relation, .needsResultCredit⟩
+          | _, _ => none
+
+/-! #### Function-total result plans
+
+    A result-owner plan is frozen against an authoritative projection of the
+    function CFG's exits and return-ownership analysis. Every normal site has
+    exactly one row: either a fact produced by `FrozenResultOwnerFact.freeze`
+    or an explicit ownerless proof carrying its stable proof identity and
+    reason. Unwind exits have no result-evidence constructor. -/
+
+/-- Stable semantic reason that one normal result requires no owner. -/
+inductive OwnerlessResultReason
+  | scalarValue
+  | borrowedView
+  | uninhabited
+deriving Repr, DecidableEq
+
+/-- The authoritative requirement for one normal return site. Ownerless rows
+    carry the exact proof identity and reason expected from semantic analysis. -/
+inductive NormalReturnRequirementKind
+  | ownerless (proofIdentity : Nat) (reason : OwnerlessResultReason)
+  | owned (relation : ReturnOwnerRelation)
+deriving Repr, DecidableEq
+
+def NormalReturnRequirementKind.requiresOwner :
+    NormalReturnRequirementKind → Bool
+  | .ownerless _ _ => false
+  | .owned _ => true
+
+/-- Explicit proof row for a normal result that requires no owner. The proof is
+    tied to the analyzed requirement itself rather than a caller-written Bool;
+    plan freezing then matches that requirement to the CFG-owned site row. -/
+structure OwnerlessResultProof where
+  identity : ResultFactIdentity
+  requirement : NormalReturnRequirementKind
+  proofIdentity : Nat
+  reason : OwnerlessResultReason
+  requirementIsOwnerless : requirement = .ownerless proofIdentity reason
+  provenOwnerless : requirement.requiresOwner = false
+
+structure NormalReturnRequirement where
+  identity : ResultFactIdentity
+  kind : NormalReturnRequirementKind
+deriving Repr, DecidableEq
+
+/-- One frozen normal-return row. The sum makes an Owned/Ownerless category
+    mismatch explicit and rejectable rather than encoding absence as a null
+    owner fact. -/
+inductive FrozenNormalReturnResult
+  | ownerless (proof : OwnerlessResultProof)
+  | owned (fact : FrozenResultOwnerFact)
+
+/-- Raw per-normal-site evidence consumed by the function-plan freezer. Owned
+    evidence cannot inject a preconstructed fact: it must pass the per-site
+    source freezer before entering the plan. -/
+inductive NormalReturnEvidence
+  | ownerless (proof : OwnerlessResultProof)
+  | owned (entry : Option FrozenTargetOwnershipFact)
+      (relation : ReturnOwnerRelation) (funding : ReturnSiteFundingEvidence)
+      (claimed : FrozenResultOwnerFact)
+
+def NormalReturnRequirementKind.isValid :
+    NormalReturnRequirementKind → Bool
+  | .ownerless proofIdentity _ => !(proofIdentity == 0)
+  | .owned _ => true
+
+def NormalReturnRequirementKind.ownerlessProofIdentity? :
+    NormalReturnRequirementKind → Option Nat
+  | .ownerless proofIdentity _ => some proofIdentity
+  | .owned _ => none
+
+/-- Freeze one raw evidence row against its authoritative normal-return
+    requirement. Owned rows are certified only through the per-site freezer. -/
+def NormalReturnRequirement.freezeEvidence
+    (requirement : NormalReturnRequirement)
+    (evidence : NormalReturnEvidence) : Option FrozenNormalReturnResult :=
+  match requirement.kind, evidence with
+  | .ownerless proofIdentity reason, .ownerless proof =>
+      if (requirement.identity == proof.identity)
+          && (proof.requirement == requirement.kind)
+          && (proof.proofIdentity == proofIdentity)
+          && !(proofIdentity == 0)
+          && (proof.reason == reason) then
+        some (.ownerless proof)
+      else
+        none
+  | .owned relation, .owned entry evidenceRelation funding claimed =>
+      if relation == evidenceRelation then
+        match FrozenResultOwnerFact.freeze requirement.identity entry relation funding with
+        | some certified =>
+            if certified == claimed then some (.owned certified) else none
+        | none => none
+      else
+        none
+  | _, _ => none
+
+/-- Duplicate-free site/proof-identity check used by the frozen plan. -/
+def identifiersUnique : List Nat → Bool
+  | [] => true
+  | identifier :: rest =>
+      !(rest.contains identifier) && identifiersUnique rest
+
+/-- The canonical exit projection supplied by the verified function CFG.
+    Normal exits carry the authoritative ownership requirement; unwind exits
+    deliberately carry no result requirement. -/
+inductive FunctionExit
+  | normalReturn (site : Nat) (requirement : NormalReturnRequirementKind)
+  | unwind (site : Nat)
+deriving Repr, DecidableEq
+
+def FunctionExit.site : FunctionExit → Nat
+  | .normalReturn site _ | .unwind site => site
+
+structure FunctionExitInventory where
+  function : Nat
+  exits : List FunctionExit
+deriving Repr, DecidableEq
+
+def FunctionExitInventory.exitSites
+    (inventory : FunctionExitInventory) : List Nat :=
+  inventory.exits.map FunctionExit.site
+
+def FunctionExitInventory.normalReturnRequirements
+    (inventory : FunctionExitInventory) : List NormalReturnRequirement :=
+  inventory.exits.filterMap fun
+    | .normalReturn site requirement =>
+        some ⟨⟨inventory.function, site⟩, requirement⟩
+    | .unwind _ => none
+
+def FunctionExitInventory.normalReturnSites
+    (inventory : FunctionExitInventory) : List Nat :=
+  inventory.normalReturnRequirements.map
+    (fun requirement => requirement.identity.returnSite)
+
+/-- Freeze every normal row one-for-one. Missing, extra, wrong-kind, and
+    forged-owned-source evidence all fail closed. -/
+def freezeNormalReturnRows :
+    List NormalReturnRequirement → List NormalReturnEvidence →
+      Option (List FrozenNormalReturnResult)
+  | [], [] => some []
+  | requirement :: requirements, evidence :: evidences =>
+      match requirement.freezeEvidence evidence,
+          freezeNormalReturnRows requirements evidences with
+      | some row, some rows => some (row :: rows)
+      | _, _ => none
+  | _, _ => none
+
+/-- Successful row freezing is exact coverage: the frozen row count equals the
+    CFG-derived normal-return requirement count. -/
+theorem freezeNormalReturnRows_length
+    (requirements : List NormalReturnRequirement)
+    (evidences : List NormalReturnEvidence)
+    (rows : List FrozenNormalReturnResult)
+    (hfreeze : freezeNormalReturnRows requirements evidences = some rows) :
+    rows.length = requirements.length := by
+  induction requirements generalizing evidences rows with
+  | nil =>
+      cases evidences <;> simp [freezeNormalReturnRows] at hfreeze
+      simp_all
+  | cons requirement requirements ih =>
+      cases evidences with
+      | nil => simp [freezeNormalReturnRows] at hfreeze
+      | cons evidence evidences =>
+          simp only [freezeNormalReturnRows] at hfreeze
+          split at hfreeze <;> simp_all
+          rename_i row frozenRows hrow hrows
+          subst rows
+          rw [List.length_cons, ih evidences frozenRows hrows]
+
+/-- One complete result plan for the CFG-owned exit inventory. -/
+structure FrozenFunctionResultPlan where
+  function : Nat
+  normalReturnSites : List Nat
+  requirements : List NormalReturnRequirement
+  rows : List FrozenNormalReturnResult
+
+/-- Freeze only an exact, duplicate-free, function-bound normal-return plan.
+    Normal sites and requirements are computed from the CFG exit inventory;
+    unwind result evidence is unrepresentable. -/
+def FrozenFunctionResultPlan.freeze (inventory : FunctionExitInventory)
+    (evidences : List NormalReturnEvidence) :
+    Option FrozenFunctionResultPlan :=
+  let requirements := inventory.normalReturnRequirements
+  let proofIdentities := requirements.filterMap
+    (fun requirement => requirement.kind.ownerlessProofIdentity?)
+  if identifiersUnique inventory.exitSites
+      && identifiersUnique proofIdentities
+      && requirements.all (fun requirement => requirement.kind.isValid) then
+    match freezeNormalReturnRows requirements evidences with
+    | some rows =>
+        some ⟨inventory.function, inventory.normalReturnSites, requirements, rows⟩
+    | none => none
+  else
+    none
+
+/-- Universal totality barrier: every accepted plan is tied to the exact
+    function, canonical normal-site list, and requirements computed from the
+    authoritative CFG exit inventory; exit identities are duplicate-free and
+    the certified row count covers every normal requirement exactly. -/
+theorem FrozenFunctionResultPlan.freeze_preserves_inventory
+    (inventory : FunctionExitInventory) (evidences : List NormalReturnEvidence)
+    (plan : FrozenFunctionResultPlan)
+    (hfreeze : FrozenFunctionResultPlan.freeze inventory evidences = some plan) :
+    plan.function = inventory.function
+      ∧ plan.normalReturnSites = inventory.normalReturnSites
+      ∧ plan.requirements = inventory.normalReturnRequirements
+      ∧ identifiersUnique inventory.exitSites = true
+      ∧ plan.rows.length = inventory.normalReturnRequirements.length := by
+  unfold FrozenFunctionResultPlan.freeze at hfreeze
+  dsimp only at hfreeze
+  split at hfreeze
+  · rename_i hvalid
+    split at hfreeze
+    · rename_i rows hrows
+      simp only [Option.some.injEq] at hfreeze
+      subst plan
+      have hlength := freezeNormalReturnRows_length
+        inventory.normalReturnRequirements evidences rows hrows
+      simp_all
+    · simp at hfreeze
+  · simp at hfreeze
+
+/-- A frozen function plan exposes rows only on normal return. -/
+def FrozenFunctionResultPlan.results
+    (plan : FrozenFunctionResultPlan) : BoundaryExit → List FrozenNormalReturnResult
+  | .normal => plan.rows
+  | .unwind => []
+
+theorem T4_PV4_function_result_plan_has_no_unwind_result
+    (plan : FrozenFunctionResultPlan) : plan.results .unwind = [] := by
+  rfl
+
+/-- The only adapter-owned result action is a logical normal-edge credit when
+    neither entry nor target facts fund a Direct/Projected result. -/
+inductive LogicalResultOwnerAction
+  | none
+  | creditReturnedValue
+deriving Repr, DecidableEq
+
+def ResultOwnerSource.logicalAction :
+    ResultOwnerSource → BoundaryExit → LogicalResultOwnerAction
+  | .needsResultCredit, .normal => .creditReturnedValue
+  | _, _ => .none
+
+/-- Source accounting for the returned owner itself. Exactly one of these four
+    mutually exclusive counts is one for every owned normal result. -/
+def ResultOwnerSource.entryTransferCount : ResultOwnerSource → Nat
+  | .entryCredit => 1
+  | _ => 0
+
+def ResultOwnerSource.independentTargetBirthCount : ResultOwnerSource → Nat
+  | .independentTargetBirth _ => 1
+  | _ => 0
+
+def ResultOwnerSource.targetFundingCount : ResultOwnerSource → Nat
+  | .targetFunded _ => 1
+  | _ => 0
+
+def ResultOwnerSource.resultAdapterCreditCount : ResultOwnerSource → BoundaryExit → Nat
+  | .needsResultCredit, .normal => 1
+  | _, _ => 0
+
+/-- Entry credits exist before the path split and therefore require an exact
+    unwind discharge. Target and result-adapter funding are normal-site facts
+    and mint nothing on unwind. -/
+def ResultOwnerSource.unwindEntryDischargeCount : ResultOwnerSource → Nat
+  | .entryCredit => 1
+  | _ => 0
+
+/-- Exact freeze rows and exclusive-source arithmetic for Direct, Project, and
+    containment. In particular, Project/containment target funding requires
+    both the owned root and every owned payload edge; ambiguous double-source
+    evidence and unfunded containment fail closed. -/
+theorem T4_PV4_result_owner_sources_are_exact :
+    let borrowed : FrozenTargetOwnershipFact :=
+      ⟨⟨100, 0⟩, ⟨.Borrowed, false, false, false⟩, .borrow⟩
+    let whole : FrozenTargetOwnershipFact :=
+      ⟨⟨100, 0⟩, ⟨.Owned, false, false, false⟩, .wholeValue⟩
+    let noFunding : ReturnSiteFundingEvidence :=
+      ⟨none, none, false, false, false, false⟩
+    let entryFunding : ReturnSiteFundingEvidence :=
+      ⟨none, none, true, false, false, true⟩
+    let projectFunding : ReturnSiteFundingEvidence :=
+      ⟨none, some 1200, false, true, true, false⟩
+    let containmentFunding : ReturnSiteFundingEvidence :=
+      ⟨none, some 1400, false, true, true, false⟩
+    let doubleFunding : ReturnSiteFundingEvidence :=
+      ⟨none, some 1700, true, true, true, true⟩
+    let independentFunding : ReturnSiteFundingEvidence :=
+      ⟨some 1900, none, false, true, true, false⟩
+    FrozenResultOwnerFact.freeze ⟨100, 10⟩ (some whole) (.direct 0) entryFunding =
+        some ⟨⟨100, 10⟩, .direct 0, .entryCredit⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 11⟩ (some borrowed) (.direct 0) noFunding =
+        some ⟨⟨100, 11⟩, .direct 0, .needsResultCredit⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 12⟩ (some borrowed) (.projectedField 0 3)
+        projectFunding = some ⟨⟨100, 12⟩, .projectedField 0 3, .targetFunded 1200⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 13⟩ (some borrowed) (.projectedField 0 3)
+        noFunding = some ⟨⟨100, 13⟩, .projectedField 0 3, .needsResultCredit⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 14⟩ (some borrowed) (.contained 0)
+        containmentFunding = some ⟨⟨100, 14⟩, .contained 0, .targetFunded 1400⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 15⟩ (some borrowed) (.contained 0) noFunding = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 16⟩ (some whole) (.contained 0) entryFunding =
+        some ⟨⟨100, 16⟩, .contained 0, .entryCredit⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 17⟩ (some whole) (.direct 0) doubleFunding = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 18⟩ (some whole) (.direct 0)
+        ⟨none, none, false, false, false, true⟩ = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 19⟩ none .independent independentFunding =
+        some ⟨⟨100, 19⟩, .independent, .independentTargetBirth 1900⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 20⟩ none .independent noFunding = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 21⟩ none .independent
+        ⟨some 2100, none, false, true, false, false⟩ = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 22⟩ (some borrowed) (.direct 0)
+        independentFunding = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 23⟩ (some borrowed) (.projectedField 0 3)
+        ⟨none, some 2300, false, true, false, false⟩ = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 24⟩ (some borrowed) (.direct 0)
+        ⟨none, none, true, false, false, true⟩ = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 25⟩ (some whole) (.direct 0)
+        ⟨none, none, true, false, false, false⟩ = none := by
+  decide
+
+/-- Entry-credit funding is tied to the exact target demand topology and to
+    stable function/parameter identities. Projected fields cannot fund another
+    field or a direct result, whole-value owners cannot masquerade as projected
+    owners, and facts cannot cross parameter, site, or function identities. -/
+theorem T4_PV4_result_relation_topology_and_identity_are_exact :
+    let whole : FrozenTargetOwnershipFact :=
+      ⟨⟨100, 0⟩, ⟨.Owned, false, false, false⟩, .wholeValue⟩
+    let projected : FrozenTargetOwnershipFact :=
+      ⟨⟨100, 0⟩, ⟨.Borrowed, false, false, false⟩,
+        .projectedField 3⟩
+    let entryFunding : ReturnSiteFundingEvidence :=
+      ⟨none, none, true, false, false, true⟩
+    let targetFunding : ReturnSiteFundingEvidence :=
+      ⟨none, some 4100, false, true, true, false⟩
+    let independentFunding : ReturnSiteFundingEvidence :=
+      ⟨some 4200, none, false, true, true, false⟩
+    FrozenResultOwnerFact.freeze ⟨100, 30⟩ (some whole) (.direct 0) entryFunding =
+        some ⟨⟨100, 30⟩, .direct 0, .entryCredit⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 31⟩ (some whole) (.contained 0)
+        entryFunding = some ⟨⟨100, 31⟩, .contained 0, .entryCredit⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 32⟩ (some projected)
+        (.projectedField 0 3) entryFunding =
+          some ⟨⟨100, 32⟩, .projectedField 0 3, .entryCredit⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 33⟩ (some projected)
+        (.projectedField 0 4) entryFunding = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 34⟩ (some projected) (.direct 0)
+        entryFunding = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 35⟩ (some whole)
+        (.projectedField 0 3) entryFunding = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 36⟩ (some whole) (.direct 1)
+        entryFunding = none
+    ∧ FrozenResultOwnerFact.freeze ⟨101, 37⟩ (some whole) (.direct 0)
+        entryFunding = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 38⟩ (some whole) (.direct 0)
+        entryFunding ≠ FrozenResultOwnerFact.freeze ⟨100, 39⟩ (some whole)
+          (.direct 0) entryFunding
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 40⟩ (some whole)
+        (.projectedField 0 3) targetFunding =
+          some ⟨⟨100, 40⟩, .projectedField 0 3, .targetFunded 4100⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 41⟩ (some projected)
+        (.direct 0) targetFunding =
+          some ⟨⟨100, 41⟩, .direct 0, .targetFunded 4100⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 42⟩ (some projected)
+        (.projectedField 0 4) targetFunding =
+          some ⟨⟨100, 42⟩, .projectedField 0 4, .targetFunded 4100⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 43⟩ none .independent
+        independentFunding =
+          some ⟨⟨100, 43⟩, .independent, .independentTargetBirth 4200⟩
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 44⟩ (some whole) .independent
+        independentFunding = none
+    ∧ FrozenResultOwnerFact.freeze ⟨100, 45⟩ none (.direct 0)
+        entryFunding = none := by
+  decide
+
+/-- A production-shaped two-return function (one ownerless scalar and one
+    owned related result) freezes exactly. Every malformed coverage, identity,
+    category, proof, or unwind row fails closed. This matrix pins the plan's
+    totality rather than proving only an isolated owned site. -/
+theorem T4_PV4_function_result_plan_is_total_and_exact :
+    let ownerlessKind : NormalReturnRequirementKind :=
+      .ownerless 7001 .scalarValue
+    let ownedKind : NormalReturnRequirementKind := .owned (.direct 0)
+    let inventory : FunctionExitInventory :=
+      ⟨100, [.normalReturn 10 ownerlessKind, .normalReturn 11 ownedKind,
+        .unwind 12]⟩
+    let duplicateInventory : FunctionExitInventory :=
+      ⟨100, [.normalReturn 10 ownerlessKind, .normalReturn 10 ownerlessKind]⟩
+    let zeroProofInventory : FunctionExitInventory :=
+      ⟨100, [.normalReturn 10 (.ownerless 0 .scalarValue)]⟩
+    let borrowed : FrozenTargetOwnershipFact :=
+      ⟨⟨100, 0⟩, ⟨.Borrowed, false, false, false⟩, .borrow⟩
+    let targetFunding : ReturnSiteFundingEvidence :=
+      ⟨none, some 9000, false, true, true, false⟩
+    let ownerlessProof : OwnerlessResultProof :=
+      ⟨⟨100, 10⟩, ownerlessKind, 7001, .scalarValue, rfl, rfl⟩
+    let ownerlessEvidence : NormalReturnEvidence := .ownerless ownerlessProof
+    let ownedFact : FrozenResultOwnerFact :=
+      ⟨⟨100, 11⟩, .direct 0, .targetFunded 9000⟩
+    let ownedEvidence : NormalReturnEvidence :=
+      .owned (some borrowed) (.direct 0) targetFunding ownedFact
+    let extraNormalEvidence : NormalReturnEvidence :=
+      .ownerless ⟨⟨100, 13⟩, .ownerless 7003 .scalarValue, 7003,
+        .scalarValue, rfl, rfl⟩
+    let unwindEvidence : NormalReturnEvidence :=
+      .ownerless ⟨⟨100, 12⟩, .ownerless 7004 .scalarValue, 7004,
+        .scalarValue, rfl, rfl⟩
+    let wrongFunctionOwned : NormalReturnEvidence :=
+      .owned (some borrowed) (.direct 0) targetFunding
+        ⟨⟨101, 11⟩, .direct 0, .targetFunded 9000⟩
+    let wrongSiteOwned : NormalReturnEvidence :=
+      .owned (some borrowed) (.direct 0) targetFunding
+        ⟨⟨100, 12⟩, .direct 0, .targetFunded 9000⟩
+    let ownerlessAtOwnedSite : NormalReturnEvidence :=
+      .ownerless ⟨⟨100, 11⟩, .ownerless 7002 .borrowedView, 7002,
+        .borrowedView, rfl, rfl⟩
+    let ownedAtOwnerlessSite : NormalReturnEvidence :=
+      .owned (some borrowed) (.direct 0) targetFunding
+        ⟨⟨100, 10⟩, .direct 0, .targetFunded 9000⟩
+    let zeroProofEvidence : NormalReturnEvidence :=
+      .ownerless ⟨⟨100, 10⟩, .ownerless 0 .scalarValue, 0,
+        .scalarValue, rfl, rfl⟩
+    let wrongProofIdentityEvidence : NormalReturnEvidence :=
+      .ownerless ⟨⟨100, 10⟩, .ownerless 7002 .scalarValue, 7002,
+        .scalarValue, rfl, rfl⟩
+    let wrongReasonEvidence : NormalReturnEvidence :=
+      .ownerless ⟨⟨100, 10⟩, .ownerless 7001 .borrowedView, 7001,
+        .borrowedView, rfl, rfl⟩
+    let forgedSourceEvidence : NormalReturnEvidence :=
+      .owned (some borrowed) (.direct 0) targetFunding
+        ⟨⟨100, 11⟩, .direct 0, .entryCredit⟩
+    (FrozenFunctionResultPlan.freeze inventory
+        [ownerlessEvidence, ownedEvidence]).isSome = true
+    ∧ (FrozenFunctionResultPlan.freeze inventory
+        [ownerlessEvidence]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze inventory
+        [ownerlessEvidence, ownedEvidence, extraNormalEvidence]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze duplicateInventory
+        [ownerlessEvidence, ownerlessEvidence]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze inventory
+        [ownerlessEvidence, ownerlessEvidence]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze inventory
+        [ownerlessEvidence, wrongFunctionOwned]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze inventory
+        [ownerlessEvidence, wrongSiteOwned]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze inventory
+        [ownerlessEvidence, ownerlessAtOwnedSite]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze inventory
+        [ownedAtOwnerlessSite, ownedEvidence]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze zeroProofInventory
+        [zeroProofEvidence]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze inventory
+        [wrongProofIdentityEvidence, ownedEvidence]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze inventory
+        [wrongReasonEvidence, ownedEvidence]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze inventory
+        [ownerlessEvidence, ownedEvidence, unwindEvidence]).isSome = false
+    ∧ (FrozenFunctionResultPlan.freeze inventory
+        [ownerlessEvidence, forgedSourceEvidence]).isSome = false := by
+  decide
+
+/-- Every owned result has exactly one logical normal-path owner source, no
+    result-adapter credit on unwind, and an unwind discharge exactly when the
+    source was the entry credit. -/
+theorem T4_PV4_result_owner_source_accounting_is_exact
+    (source : ResultOwnerSource) :
+    source.independentTargetBirthCount + source.entryTransferCount
+          + source.targetFundingCount
+          + source.resultAdapterCreditCount .normal = 1
+      ∧ source.resultAdapterCreditCount .unwind = 0
+      ∧ (source.logicalAction .normal = .creditReturnedValue ↔
+          source.resultAdapterCreditCount .normal = 1)
+      ∧ source.logicalAction .unwind = .none
+      ∧ source.unwindEntryDischargeCount = source.entryTransferCount := by
+  cases source <;> simp [ResultOwnerSource.independentTargetBirthCount,
+    ResultOwnerSource.entryTransferCount,
+    ResultOwnerSource.targetFundingCount,
+    ResultOwnerSource.resultAdapterCreditCount,
+    ResultOwnerSource.logicalAction,
+    ResultOwnerSource.unwindEntryDischargeCount]
 
 /-- §T4 (P1) the boundary expansion never places a release: no
     `burdenDec` appears in `boundaryInstrs` for ANY contract — the RL-34
@@ -439,14 +1325,15 @@ theorem calleeConforms_interface (cc : Nat → Nat) (p : Nat)
         rw [hnete]
       · exact hfloors
 
-/-! ## §T4 Part C — floor monotonicity, the summary split, and THE
-    composition theorem -/
+/-! ## §T4 floor monotonicity
+
+    This is declared before both direct and indirect adapter composition so
+    each boundary can lift a target's entry-count-1 floor proof to the actual
+    caller-side count. -/
 
 /-- §T4 the floor clauses are monotone in the start count: every floor an
     event demands (`1 ≤ n` at a READ, `1 + sibs ≤ n` at a MUTATE) is upward-
-    closed, and the running count shifts uniformly — so floors holding from
-    `m` hold from any `n ≥ m`. The lemma that carries the callee's entry-
-    count-1 floors to the caller's actual call-site count. -/
+    closed, and the running count shifts uniformly. -/
 theorem clauseFloors_mono :
     ∀ (es : List LedgerEvent) (m n : Int), m ≤ n →
       clauseFloors m es = true → clauseFloors n es = true := by
@@ -471,6 +1358,299 @@ theorem clauseFloors_mono :
       | birth => rfl
       | credit => rfl
       | consume => rfl
+
+/-! ### §T4 / PV-4 borrowed indirect-call composition
+
+    The exact adapter row above is also a genuine contract boundary. The
+    target body is consumed through `calleeConforms` using the boundary
+    carrier normalized from the frozen owner demand. The caller-side READ stays
+    live; a whole-value or exact projected-field demand receives one adapter
+    CREDIT before its body, while a borrow executes directly. -/
+
+/-- Caller-visible events for one borrowed explicit operand composed with the
+    target's realized per-param body ledger. -/
+def borrowedIndirectComposedEvents
+    (cc : Nat → Nat) (p : Nat) (fact : FrozenTargetOwnershipFact)
+    (body : List LedgerInstr) : List LedgerEvent :=
+  [.read] ++ indirectAdapterCreditEvents fact
+    ++ deriveLedger cc (cc p) body
+
+/-- The local adapter segment preserves the caller's incoming reference: net
+    zero and every read/mutate floor holds from the borrowed-entry count 1. -/
+def borrowedIndirectSegmentConforms (events : List LedgerEvent) : Bool :=
+  clauseNetZero events && clauseFloors 1 events
+
+/-- PV-4 adapter composition over frozen IC ownership facts. The target body
+    is never re-derived: `calleeConforms_interface` supplies its exact net and
+    floors. The adapter adds exactly the complementary credit for either
+    whole-value or exact projected-field owner demand and no credit for Borrow,
+    preserving the caller-borrowed segment. -/
+theorem T4_PV4_borrowed_indirect_adapter_composition_sound
+    (fact : FrozenTargetOwnershipFact) (cc : Nat → Nat) (p : Nat)
+    (body : List LedgerInstr)
+    (hcallee : calleeConforms cc p
+      fact.boundaryContract body = true) :
+    borrowedIndirectSegmentConforms
+      (borrowedIndirectComposedEvents cc p fact body) = true := by
+  have hinterface := calleeConforms_interface cc p
+    fact.boundaryContract body hcallee
+  obtain ⟨hnet, hfloors⟩ := hinterface
+  obtain ⟨identity, contract, demand⟩ := fact
+  cases demand with
+  | borrow =>
+      have hnet0 : ledgerNet (deriveLedger cc (cc p) body) = 0 := by
+        simpa [FrozenTargetOwnershipFact.boundaryContract,
+          CalleeOwnerDemand.requiresCredit, boundaryArgEvent,
+          boundaryTransfersIn, boundaryUseKind,
+          rl2_use_transfers_ownership, ledgerNet] using hnet
+      unfold borrowedIndirectSegmentConforms
+      rw [Bool.and_eq_true]
+      constructor
+      · apply beq_iff_eq.mpr
+        change eventDelta .read + ledgerNet (deriveLedger cc (cc p) body) = 0
+        rw [hnet0]
+        rfl
+      · change (eventFloor 1 .read
+          && clauseFloors (1 + eventDelta .read)
+            (deriveLedger cc (cc p) body)) = true
+        rw [Bool.and_eq_true]
+        exact ⟨by decide, by simpa using hfloors⟩
+  | wholeValue =>
+      have hnetNeg : ledgerNet (deriveLedger cc (cc p) body) = -1 := by
+        simpa [FrozenTargetOwnershipFact.boundaryContract,
+          CalleeOwnerDemand.requiresCredit, boundaryArgEvent,
+          boundaryTransfersIn, boundaryUseKind,
+          rl2_use_transfers_ownership, ledgerNet] using hnet
+      unfold borrowedIndirectSegmentConforms
+      rw [Bool.and_eq_true]
+      constructor
+      · apply beq_iff_eq.mpr
+        change eventDelta .read +
+          (eventDelta .credit + ledgerNet (deriveLedger cc (cc p) body)) = 0
+        rw [hnetNeg]
+        rfl
+      · have hfloors2 := clauseFloors_mono
+          (deriveLedger cc (cc p) body) 1 2 (by omega) hfloors
+        change (eventFloor 1 .read
+          && (eventFloor (1 + eventDelta .read) .credit
+          && clauseFloors (1 + eventDelta .read + eventDelta .credit)
+            (deriveLedger cc (cc p) body))) = true
+        rw [Bool.and_eq_true, Bool.and_eq_true]
+        exact ⟨by decide, by decide, by simpa using hfloors2⟩
+  | projectedField field =>
+      have hnetNeg : ledgerNet (deriveLedger cc (cc p) body) = -1 := by
+        simpa [FrozenTargetOwnershipFact.boundaryContract,
+          CalleeOwnerDemand.requiresCredit, boundaryArgEvent,
+          boundaryTransfersIn, boundaryUseKind,
+          rl2_use_transfers_ownership, ledgerNet] using hnet
+      unfold borrowedIndirectSegmentConforms
+      rw [Bool.and_eq_true]
+      constructor
+      · apply beq_iff_eq.mpr
+        change eventDelta .read +
+          (eventDelta .credit + ledgerNet (deriveLedger cc (cc p) body)) = 0
+        rw [hnetNeg]
+        rfl
+      · have hfloors2 := clauseFloors_mono
+          (deriveLedger cc (cc p) body) 1 2 (by omega) hfloors
+        change (eventFloor 1 .read
+          && (eventFloor (1 + eventDelta .read) .credit
+          && clauseFloors (1 + eventDelta .read + eventDelta .credit)
+            (deriveLedger cc (cc p) body))) = true
+        rw [Bool.and_eq_true, Bool.and_eq_true]
+        exact ⟨by decide, by decide, by simpa using hfloors2⟩
+
+/-- The same frozen target fact and composition theorem govern both exit
+    paths. Each path supplies its own target conformance proof; no normal-only
+    ownership assumption can discharge the unwind obligation. -/
+theorem T4_PV4_borrowed_indirect_adapter_composes_normal_and_unwind
+    (fact : FrozenTargetOwnershipFact) (cc : Nat → Nat) (p : Nat)
+    (normalBody unwindBody : List LedgerInstr)
+    (hnormal : calleeConforms cc p
+      fact.boundaryContract normalBody = true)
+    (hunwind : calleeConforms cc p
+      fact.boundaryContract unwindBody = true) :
+    borrowedIndirectSegmentConforms
+      (borrowedIndirectComposedEvents cc p fact normalBody) = true
+    ∧ borrowedIndirectSegmentConforms
+      (borrowedIndirectComposedEvents cc p fact unwindBody) = true :=
+  ⟨T4_PV4_borrowed_indirect_adapter_composition_sound fact cc p normalBody hnormal,
+   T4_PV4_borrowed_indirect_adapter_composition_sound fact cc p unwindBody hunwind⟩
+
+/-- Every frozen owner source presents one owned result at a normal return and
+    no result at unwind. For `NeedsResultCredit` this credit is the adapter's
+    logical action; for the other rows it records the certified owner crossing
+    the boundary rather than minting another owner. -/
+def resultOwnerArrivalEvents
+    (_source : ResultOwnerSource) : BoundaryExit → List LedgerEvent
+  | .normal => [.credit]
+  | .unwind => []
+
+/-- Result arrival for the complete normal-row sum. Ownerless rows add no
+    logical owner; owned rows add exactly the certified result owner. Neither
+    row kind can produce an unwind result. -/
+def normalReturnResultArrivalEvents
+    (row : FrozenNormalReturnResult) (exit : BoundaryExit) : List LedgerEvent :=
+  match row with
+  | .ownerless _ => []
+  | .owned fact => resultOwnerArrivalEvents fact.source exit
+
+def FrozenNormalReturnResult.ownerCount : FrozenNormalReturnResult → Nat
+  | .ownerless _ => 0
+  | .owned _ => 1
+
+theorem T4_PV4_normal_return_row_arrival_is_exact
+    (row : FrozenNormalReturnResult) :
+    ledgerNet (normalReturnResultArrivalEvents row .normal) = row.ownerCount
+      ∧ normalReturnResultArrivalEvents row .unwind = [] := by
+  cases row <;> constructor <;> rfl
+
+/-- Full borrowed indirect-call path: entry adaptation, the target's verified
+    body ledger, and the frozen return site's owner arrival. This semantic event
+    stream is independent of any backend instruction or counter realization. -/
+def borrowedIndirectCallableEvents
+    (cc : Nat → Nat) (p : Nat) (entry : FrozenTargetOwnershipFact)
+    (result : FrozenResultOwnerFact) (body : List LedgerInstr)
+    (exit : BoundaryExit) : List LedgerEvent :=
+  borrowedIndirectComposedEvents cc p entry body
+    ++ resultOwnerArrivalEvents result.source exit
+
+/-- Callable composition over the complete Ownerless/Owned result-row sum. -/
+def borrowedIndirectCallableRowEvents
+    (cc : Nat → Nat) (p : Nat) (entry : FrozenTargetOwnershipFact)
+    (row : FrozenNormalReturnResult) (body : List LedgerInstr)
+    (exit : BoundaryExit) : List LedgerEvent :=
+  borrowedIndirectComposedEvents cc p entry body
+    ++ normalReturnResultArrivalEvents row exit
+
+/-- Every certified row composes with the balanced borrowed-indirect segment:
+    ownerless normal results add net zero, owned normal results add net one,
+    and unwind always adds zero. Floor safety is preserved on both exits. -/
+theorem T4_PV4_normal_return_row_callable_composition_sound
+    (entry : FrozenTargetOwnershipFact) (row : FrozenNormalReturnResult)
+    (cc : Nat → Nat) (p : Nat) (normalBody unwindBody : List LedgerInstr)
+    (hnormal : calleeConforms cc p entry.boundaryContract normalBody = true)
+    (hunwind : calleeConforms cc p entry.boundaryContract unwindBody = true) :
+    ledgerNet (borrowedIndirectCallableRowEvents cc p entry row
+        normalBody .normal) = row.ownerCount
+      ∧ clauseFloors 1 (borrowedIndirectCallableRowEvents cc p entry row
+          normalBody .normal) = true
+      ∧ ledgerNet (borrowedIndirectCallableRowEvents cc p entry row
+          unwindBody .unwind) = 0
+      ∧ clauseFloors 1 (borrowedIndirectCallableRowEvents cc p entry row
+          unwindBody .unwind) = true := by
+  have hnormalSegment :=
+    T4_PV4_borrowed_indirect_adapter_composition_sound
+      entry cc p normalBody hnormal
+  have hunwindSegment :=
+    T4_PV4_borrowed_indirect_adapter_composition_sound
+      entry cc p unwindBody hunwind
+  unfold borrowedIndirectSegmentConforms at hnormalSegment hunwindSegment
+  rw [Bool.and_eq_true] at hnormalSegment hunwindSegment
+  obtain ⟨hnormalNetBool, hnormalFloors⟩ := hnormalSegment
+  obtain ⟨hunwindNetBool, hunwindFloors⟩ := hunwindSegment
+  have hnormalNet : ledgerNet
+      (borrowedIndirectComposedEvents cc p entry normalBody) = 0 :=
+    beq_iff_eq.mp hnormalNetBool
+  have hunwindNet : ledgerNet
+      (borrowedIndirectComposedEvents cc p entry unwindBody) = 0 :=
+    beq_iff_eq.mp hunwindNetBool
+  cases row with
+  | ownerless proof =>
+      simpa [borrowedIndirectCallableRowEvents,
+        normalReturnResultArrivalEvents, FrozenNormalReturnResult.ownerCount]
+        using And.intro hnormalNet
+          (And.intro hnormalFloors (And.intro hunwindNet hunwindFloors))
+  | owned fact =>
+      refine ⟨?_, ?_, ?_, ?_⟩
+      · unfold borrowedIndirectCallableRowEvents normalReturnResultArrivalEvents
+          resultOwnerArrivalEvents FrozenNormalReturnResult.ownerCount
+        rw [ledgerNet_append, hnormalNet]
+        rfl
+      · unfold borrowedIndirectCallableRowEvents normalReturnResultArrivalEvents
+          resultOwnerArrivalEvents
+        rw [clauseFloors_append, Bool.and_eq_true]
+        refine ⟨hnormalFloors, ?_⟩
+        rw [hnormalNet]
+        rfl
+      · simpa [borrowedIndirectCallableRowEvents,
+          normalReturnResultArrivalEvents, resultOwnerArrivalEvents]
+          using hunwindNet
+      · simpa [borrowedIndirectCallableRowEvents,
+          normalReturnResultArrivalEvents, resultOwnerArrivalEvents]
+          using hunwindFloors
+
+/-- PV-4 end-to-end callable composition from one complete frozen contract.
+    A valid return-site freeze preserves its stable identity, every normal path
+    exports exactly one owned result, and every unwind path exports none. Entry,
+    target, fresh-target-birth, and adapter funding stay mutually exclusive;
+    only the entry-funded row carries an unwind discharge obligation. -/
+theorem T4_PV4_borrowed_indirect_callable_composition_sound
+    (entry : FrozenTargetOwnershipFact) (identity : ResultFactIdentity)
+    (relation : ReturnOwnerRelation) (evidence : ReturnSiteFundingEvidence)
+    (result : FrozenResultOwnerFact) (cc : Nat → Nat) (p : Nat)
+    (normalBody unwindBody : List LedgerInstr)
+    (hresult : FrozenResultOwnerFact.freeze identity (some entry) relation evidence =
+      some result)
+    (hnormal : calleeConforms cc p
+      entry.boundaryContract normalBody = true)
+    (hunwind : calleeConforms cc p
+      entry.boundaryContract unwindBody = true) :
+    FrozenResultOwnerFact.freeze identity (some entry) relation evidence = some result
+      ∧ ledgerNet (borrowedIndirectCallableEvents cc p entry result
+          normalBody .normal) = 1
+      ∧ clauseFloors 1 (borrowedIndirectCallableEvents cc p entry result
+          normalBody .normal) = true
+      ∧ ledgerNet (borrowedIndirectCallableEvents cc p entry result
+          unwindBody .unwind) = 0
+      ∧ clauseFloors 1 (borrowedIndirectCallableEvents cc p entry result
+          unwindBody .unwind) = true
+      ∧ result.source.independentTargetBirthCount
+          + result.source.entryTransferCount
+          + result.source.targetFundingCount
+          + result.source.resultAdapterCreditCount .normal = 1
+      ∧ result.source.resultAdapterCreditCount .unwind = 0
+      ∧ (result.source.logicalAction .normal = .creditReturnedValue ↔
+          result.source.resultAdapterCreditCount .normal = 1)
+      ∧ result.source.logicalAction .unwind = .none
+      ∧ result.source.unwindEntryDischargeCount =
+          result.source.entryTransferCount := by
+  have hnormalSegment :=
+    T4_PV4_borrowed_indirect_adapter_composition_sound
+      entry cc p normalBody hnormal
+  have hunwindSegment :=
+    T4_PV4_borrowed_indirect_adapter_composition_sound
+      entry cc p unwindBody hunwind
+  unfold borrowedIndirectSegmentConforms at hnormalSegment hunwindSegment
+  rw [Bool.and_eq_true] at hnormalSegment hunwindSegment
+  obtain ⟨hnormalNetBool, hnormalFloors⟩ := hnormalSegment
+  obtain ⟨hunwindNetBool, hunwindFloors⟩ := hunwindSegment
+  have hnormalNet : ledgerNet
+      (borrowedIndirectComposedEvents cc p entry normalBody) = 0 :=
+    beq_iff_eq.mp hnormalNetBool
+  have hunwindNet : ledgerNet
+      (borrowedIndirectComposedEvents cc p entry unwindBody) = 0 :=
+    beq_iff_eq.mp hunwindNetBool
+  obtain ⟨hsource, hnoUnwindCredit, hnormalAction, hnoUnwindAction,
+      hentryDischarge⟩ :=
+    T4_PV4_result_owner_source_accounting_is_exact result.source
+  refine ⟨hresult, ?_, ?_, ?_, ?_, hsource, hnoUnwindCredit,
+    hnormalAction, hnoUnwindAction, hentryDischarge⟩
+  · unfold borrowedIndirectCallableEvents
+    rw [ledgerNet_append, hnormalNet]
+    rfl
+  · unfold borrowedIndirectCallableEvents
+    rw [clauseFloors_append, Bool.and_eq_true]
+    refine ⟨hnormalFloors, ?_⟩
+    rw [hnormalNet]
+    rfl
+  · simpa [borrowedIndirectCallableEvents, resultOwnerArrivalEvents]
+      using hunwindNet
+  · simpa [borrowedIndirectCallableEvents, resultOwnerArrivalEvents]
+      using hunwindFloors
+
+/-! ## §T4 Part C — the summary split and THE
+    composition theorem -/
 
 /-- §T4 the boundary expansion is dynamic-COW-mutate-free (an escape use and
     an optional result dup) — the left-segment condition the committed
@@ -586,6 +1766,31 @@ theorem T4_contract_boundary_composition_sound
   obtain ⟨hnet, hfl1⟩ := calleeConforms_interface cc p bc body hcallee
   exact threeClauses_substitute_segment _ _ _ _ _ hcaller hnet
     (clauseFloors_mono _ 1 _ hlive hfl1)
+
+/-- §T4 primary composition statement including Invoke path semantics. The
+    callee-summary substitution is sound, the argument event precedes both
+    successors, and only normal return carries result-binding events. -/
+theorem T4_contract_boundary_invoke_composition_sound
+    (classOf cc : Nat → Nat) (c arg ret p : Nat) (bc : BoundaryContract)
+    (preI postI body : List LedgerInstr)
+    (harg : (classOf arg == c) = true)
+    (hpremutfree : preI.all (fun i => !(LedgerInstr.isMutate i)) = true)
+    (hcaller : threeClauses (deriveLedger classOf c
+        (preI ++ boundaryInstrs arg ret bc ++ postI)) = true)
+    (hcallee : calleeConforms cc p bc body = true)
+    (hlive : 1 ≤ ledgerNet (deriveLedger classOf c preI)) :
+    threeClauses
+      (deriveLedger classOf c preI
+        ++ (deriveLedger cc (cc p) body
+        ++ (deriveLedger classOf c (boundaryResultInstrs ret bc)
+        ++ deriveLedger classOf c postI))) = true
+      ∧ invokeBoundaryEvents bc .normal
+          = boundaryArgEvent bc :: boundaryResultEvents bc
+      ∧ invokeBoundaryEvents bc .unwind = [boundaryArgEvent bc] := by
+  refine ⟨T4_contract_boundary_composition_sound classOf cc c arg ret p bc
+      preI postI body harg hpremutfree hcaller hcallee hlive, ?_, ?_⟩
+  · rfl
+  · rfl
 
 /-- §T4 (P3) the operational corollary: the composed inlined ledger is
     balanced-and-safe — no leak, no use-after-free, no COW corruption — via
@@ -1738,6 +2943,57 @@ theorem T5_distant_class_untouched_on_witness (instrs : List LedgerInstr) :
     (by decide) (by decide) instrs
 
 /-! ## §T4 / §T5 conclusion bundles -/
+
+/-- §T4 full boundary/result-plan bundle. Direct Invoke composition, CFG-bound
+    result-plan totality, and Ownerless/Owned callable accounting are one
+    backend-neutral theorem surface; VM and LLVM projections consume the same
+    semantic facts rather than forking ownership calculus. -/
+theorem T4_contract_boundary_and_result_plan_sound :
+    (∀ (classOf cc : Nat → Nat) (c arg ret p : Nat) (bc : BoundaryContract)
+        (preI postI body : List LedgerInstr),
+      (classOf arg == c) = true →
+      preI.all (fun i => !(LedgerInstr.isMutate i)) = true →
+      threeClauses (deriveLedger classOf c
+          (preI ++ boundaryInstrs arg ret bc ++ postI)) = true →
+      calleeConforms cc p bc body = true →
+      1 ≤ ledgerNet (deriveLedger classOf c preI) →
+      threeClauses
+          (deriveLedger classOf c preI
+            ++ (deriveLedger cc (cc p) body
+            ++ (deriveLedger classOf c (boundaryResultInstrs ret bc)
+            ++ deriveLedger classOf c postI))) = true
+        ∧ invokeBoundaryEvents bc .normal
+            = boundaryArgEvent bc :: boundaryResultEvents bc
+        ∧ invokeBoundaryEvents bc .unwind = [boundaryArgEvent bc])
+    ∧ (∀ (inventory : FunctionExitInventory)
+        (evidences : List NormalReturnEvidence) (plan : FrozenFunctionResultPlan),
+      FrozenFunctionResultPlan.freeze inventory evidences = some plan →
+      plan.function = inventory.function
+        ∧ plan.normalReturnSites = inventory.normalReturnSites
+        ∧ plan.requirements = inventory.normalReturnRequirements
+        ∧ identifiersUnique inventory.exitSites = true
+        ∧ plan.rows.length = inventory.normalReturnRequirements.length)
+    ∧ (∀ (entry : FrozenTargetOwnershipFact)
+        (row : FrozenNormalReturnResult) (cc : Nat → Nat) (p : Nat)
+        (normalBody unwindBody : List LedgerInstr),
+      calleeConforms cc p entry.boundaryContract normalBody = true →
+      calleeConforms cc p entry.boundaryContract unwindBody = true →
+      ledgerNet (borrowedIndirectCallableRowEvents cc p entry row
+          normalBody .normal) = row.ownerCount
+        ∧ clauseFloors 1 (borrowedIndirectCallableRowEvents cc p entry row
+            normalBody .normal) = true
+        ∧ ledgerNet (borrowedIndirectCallableRowEvents cc p entry row
+            unwindBody .unwind) = 0
+        ∧ clauseFloors 1 (borrowedIndirectCallableRowEvents cc p entry row
+            unwindBody .unwind) = true) := by
+  refine ⟨?_, FrozenFunctionResultPlan.freeze_preserves_inventory, ?_⟩
+  · intro classOf cc c arg ret p bc preI postI body harg hpre hcaller
+      hcallee hlive
+    exact T4_contract_boundary_invoke_composition_sound classOf cc c arg ret p
+      bc preI postI body harg hpre hcaller hcallee hlive
+  · intro entry row cc p normalBody unwindBody hnormal hunwind
+    exact T4_PV4_normal_return_row_callable_composition_sound entry row cc p
+      normalBody unwindBody hnormal hunwind
 
 /-- §T4 the contract-boundary bundle: the composition theorem's operational
     corollary, the classification-table rows (owned-arg consume, iter-consume

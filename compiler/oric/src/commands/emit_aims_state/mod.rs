@@ -8,8 +8,8 @@
 //! per-variable lattice values to one JSONL record. The enum serialization runs
 //! through explicit snake-case match tables in [`record`], never a derive.
 //!
-//! This is a READ-ONLY projection of compile-time AIMS analysis results: it
-//! emits no RC, mutates no realization, and does not gate on the burden path
+//! This is a READ-ONLY projection of compile-time AIMS results: it realizes a
+//! private clone of the closed program and never changes compilation output
 //! (Spec: Annex E §AIMS). Each record carries the producer-emitted identity
 //! `(repo, qualified_name, file, line, scip_moniker)`; a downstream
 //! code-intelligence consumer owns its own symbol join key and bridges to it
@@ -29,7 +29,7 @@ use ori_arc::{
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 use ori_ir::canon::CanonResult;
 use ori_ir::{Name, StringInterner};
-use ori_types::{FunctionSig, Pool};
+use ori_types::{FunctionSig, Pool, TypeRegistry};
 use oric::{CompilerDb, Db, SourceFile};
 use rustc_hash::FxHashMap;
 use serde_json::Value;
@@ -198,6 +198,103 @@ fn lower_module_to_arc(
     Ok(all_funcs)
 }
 
+fn function_source_metadata(
+    path: &str,
+    source: &str,
+    parse_result: &ParseOutput,
+    interner: &StringInterner,
+) -> (String, FxHashMap<Name, (String, u32)>) {
+    let project_root = match std::env::current_dir() {
+        Ok(dir) => dir.display().to_string(),
+        Err(e) => {
+            eprintln!("error: cannot determine project root for AIMS state: {e}");
+            std::process::exit(1);
+        }
+    };
+    let relative_path = project_relative_path(path, &project_root);
+    let minter = ModuleMinter::new(module_identity(&relative_path));
+    let mut fn_meta = FxHashMap::default();
+    for func in &parse_result.module.functions {
+        let def = minter.function(interner.lookup(func.name), func.span);
+        let line = line_of(source, func.span.start);
+        fn_meta.insert(func.name, (def.symbol, line));
+    }
+    (relative_path, fn_meta)
+}
+
+fn realize_closed_contracts(
+    all_funcs: &[ArcFunction],
+    classifier: &ArcClassifier<'_>,
+    interner: &StringInterner,
+    pool: &Pool,
+    builtins: &BuiltinOwnershipSets,
+) -> Result<FxHashMap<Name, MemoryContract>, String> {
+    let mut realized_funcs = all_funcs.to_vec();
+    let type_registry = TypeRegistry::default();
+    let external_contracts = FxHashMap::default();
+    let callable_boundaries = ori_arc::CallableBoundaryFacts::default();
+    let realization = ori_arc::realize_closed_program(
+        &mut realized_funcs,
+        &ori_arc::ArcPipelineContext {
+            classifier,
+            interner,
+            pool,
+            builtins,
+            type_registry: &type_registry,
+            callable_boundaries: &callable_boundaries,
+            verify_arc: false,
+            external_contracts: &external_contracts,
+        },
+    )
+    .map_err(|errors| {
+        let details = errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ");
+        format!("error: closed AIMS realization failed: {details}")
+    })?;
+    Ok(realization.contracts)
+}
+
+fn project_function_records(
+    all_funcs: &[ArcFunction],
+    fn_meta: &FxHashMap<Name, (String, u32)>,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    classifier: &ArcClassifier<'_>,
+    interner: &StringInterner,
+    relative_path: &str,
+) -> Vec<(String, Value)> {
+    let mut records = Vec::new();
+    for func in all_funcs {
+        let Some((scip_moniker, line)) = fn_meta.get(&func.name) else {
+            continue;
+        };
+        let Some(contract) = contracts.get(&func.name) else {
+            continue;
+        };
+        let state_map = analyze_function(func, classifier, contracts, &[], Vec::new());
+        let lattice_values = project_lattice_values(&state_map);
+        let qualified_name = interner.lookup(func.name);
+        let id = record::RecordIdentity {
+            qualified_name,
+            file: relative_path,
+            line: *line,
+            scip_moniker,
+        };
+        let value = record::build_record(
+            &id,
+            contract,
+            state_map.fip_construct_count(),
+            state_map.fip_consumed_count(),
+            lattice_values,
+        );
+        records.push((scip_moniker.clone(), value));
+    }
+    records.sort_by(|a, b| a.0.cmp(&b.0));
+    records
+}
+
 /// Returns `Err` with a diagnostic message on a frontend error (diagnostics are
 /// already emitted to stderr by then) so the caller controls process exit; this
 /// keeps the projection testable without `std::process::exit`.
@@ -243,66 +340,23 @@ fn build_records(path: &str) -> Result<Vec<(String, Value)>, String> {
         pool,
     )?;
 
-    // Source identity for the named top-level functions: the SCIP moniker (same
-    // `ModuleMinter` the SCIP index uses) + source line.
-    let project_root = match std::env::current_dir() {
-        Ok(dir) => dir.display().to_string(),
-        Err(e) => {
-            eprintln!("error: cannot determine project root for AIMS state: {e}");
-            std::process::exit(1);
-        }
-    };
-    let relative_path = project_relative_path(path, &project_root);
-    let minter = ModuleMinter::new(module_identity(&relative_path));
     let source = file.text(&db);
-    let mut fn_meta: FxHashMap<Name, (String, u32)> = FxHashMap::default();
-    for func in &frontend.parse_result.module.functions {
-        let def = minter.function(interner.lookup(func.name), func.span);
-        let line = line_of(source.as_str(), func.span.start);
-        fn_meta.insert(func.name, (def.symbol, line));
-    }
+    let (relative_path, fn_meta) =
+        function_source_metadata(path, source.as_str(), &frontend.parse_result, interner);
 
     let classifier = ArcClassifier::new(pool);
     let builtins = BuiltinOwnershipSets::new(interner);
 
-    // Compute contracts on a clone so `all_funcs` stays in the pre-ownership
-    // shape `analyze_program` extracted contracts from; re-running
-    // `analyze_function` on it with the converged contracts reproduces the same
-    // `AimsStateMap` (the empty context-regions / immortals match
-    // `analyze_scc_single`).
-    let mut funcs_for_contracts = all_funcs.clone();
-    let contracts: FxHashMap<Name, MemoryContract> =
-        ori_arc::compute_aims_contracts(&mut funcs_for_contracts, &classifier, interner, &builtins);
-
-    let mut records: Vec<(String, Value)> = Vec::new();
-    for func in &all_funcs {
-        let Some((scip_moniker, line)) = fn_meta.get(&func.name) else {
-            continue;
-        };
-        let Some(contract) = contracts.get(&func.name) else {
-            continue;
-        };
-        let state_map = analyze_function(func, &classifier, &contracts, &[], Vec::new());
-        let lattice_values = project_lattice_values(&state_map);
-        let qualified_name = interner.lookup(func.name);
-        let id = record::RecordIdentity {
-            qualified_name,
-            file: &relative_path,
-            line: *line,
-            scip_moniker,
-        };
-        let value = record::build_record(
-            &id,
-            contract,
-            state_map.fip_construct_count(),
-            state_map.fip_consumed_count(),
-            lattice_values,
-        );
-        records.push((scip_moniker.clone(), value));
-    }
-
-    // Deterministic emission order: by SCIP moniker (a globally-stable key).
-    records.sort_by(|a, b| a.0.cmp(&b.0));
-
-    Ok(records)
+    // Realize a closed clone so the diagnostic consumes the same final
+    // whole-program contracts as every executable backend. `all_funcs` stays
+    // in its pre-realization shape for the per-variable lattice projection.
+    let contracts = realize_closed_contracts(&all_funcs, &classifier, interner, pool, &builtins)?;
+    Ok(project_function_records(
+        &all_funcs,
+        &fn_meta,
+        &contracts,
+        &classifier,
+        interner,
+        &relative_path,
+    ))
 }

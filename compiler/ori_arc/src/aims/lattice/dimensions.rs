@@ -5,15 +5,18 @@
 
 // Access dimension (aliasing)
 
-/// Whether a value is an owned allocation or a borrowed view.
+/// Whether a value carries its own logical owner credit or is a borrowed view.
 ///
-/// RC emission depends on access: only `Owned` values carry RC obligations.
+/// Only `Owned` values carry independent transfer and discharge obligations;
+/// a `Borrowed` value is governed by its source lifetime. The current `Rc*`
+/// instructions are one transitional physical carrier for those obligations,
+/// not part of this lattice dimension.
 /// Join: `Owned` if either side is `Owned`. Chain height: 1.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum AccessClass {
-    /// Temporary view of another value. No RC operations.
+    /// Temporary view of another value. Carries no independent owner credit.
     Borrowed,
-    /// The value owns its allocation. RC operations may be needed.
+    /// Carries one logical owner credit that must be transferred or discharged.
     Owned,
 }
 
@@ -30,17 +33,19 @@ impl AccessClass {
 /// Substructural consumption mode. `Borrowed` is NOT here — see [`AccessClass`].
 ///
 /// Ordered: `Dead < Linear < Affine < Unrestricted`. Chain height: 3.
-/// Based on Chirimar et al.: `rc_inc` = contraction, `rc_dec` = weakening.
+/// Historical influence: Chirimar et al.'s contraction/weakening shape. The
+/// current carrier spells those logical events `RcInc`/`RcDec`; the calculus
+/// does not require reference counters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Consumption {
-    /// Not live at this point. No RC operations needed.
+    /// Not live at this point. No future ownership event or cleanup obligation.
     Dead,
-    /// Consumed exactly once (moved). No RC inc/dec needed.
+    /// Consumed exactly once by transfer or discharge, without duplication.
     Linear,
-    /// May be dropped without use (e.g., in an else branch).
-    /// RC dec may be needed, but no RC inc.
+    /// May be discharged without transfer (for example, in an `else` branch),
+    /// but is never duplicated.
     Affine,
-    /// May be freely copied and dropped. Full RC required.
+    /// May be duplicated and dropped; every logical credit must be discharged.
     Unrestricted,
 }
 
@@ -138,18 +143,19 @@ impl Cardinality {
 
 // Uniqueness dimension
 
-/// Runtime reference count knowledge.
+/// Logical owner-multiplicity knowledge.
 ///
 /// Ordered: `Unique < MaybeShared < Shared`. Chain height: 2.
 /// Uniqueness is a PAST guarantee ("not duplicated"), distinct from linearity
 /// which is FUTURE ("consumed once") — Marshall et al., ESOP 2022.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Uniqueness {
-    /// Provably RC == 1. COW fast path, reset/reuse candidate.
+    /// Provably exactly one logical owner. COW fast path, reset/reuse candidate.
     Unique,
-    /// Unknown RC. Runtime check needed for COW.
+    /// Owner multiplicity is unknown. A physical sharing probe is needed for COW.
     MaybeShared,
-    /// Provably RC > 1. COW always takes slow path.
+    /// Provably multiple logical owners or an outstanding sharing obligation.
+    /// COW always takes the slow path.
     Shared,
 }
 
@@ -184,7 +190,8 @@ pub enum Locality {
     BlockLocal,
     /// Does not escape its defining function.
     FunctionLocal,
-    /// May escape to the heap.
+    /// May escape beyond the function into longer-lived storage. The variant
+    /// name is a legacy carrier label and does not require heap placement.
     HeapEscaping,
     /// Unknown — conservative default.
     Unknown,
@@ -262,9 +269,9 @@ impl ShapeClass {
 /// identical. No separate methods are needed; use `join` for both operations.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EffectClass {
-    /// May allocate heap memory (blocks FIP certification).
+    /// May create dynamic owned storage (blocks FIP certification).
     pub may_alloc: bool,
-    /// May share references (refcount > 1).
+    /// May introduce or observe multiple logical owners.
     pub may_share: bool,
     /// May throw exceptions/panics.
     pub may_throw: bool,

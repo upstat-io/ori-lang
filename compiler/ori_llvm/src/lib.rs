@@ -58,6 +58,8 @@ pub mod context;
 // Evaluator (JIT)
 pub mod evaluator;
 
+mod drop_symbol;
+
 // Runtime bindings
 pub mod runtime;
 
@@ -74,6 +76,7 @@ mod init;
 
 // Re-exports
 pub use context::SimpleCx;
+pub use drop_symbol::{drop_glue_symbol, DROP_GLUE_PREFIX};
 pub use init::install_fatal_error_handler;
 pub use inkwell;
 

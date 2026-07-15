@@ -21,7 +21,7 @@ Theorem VF-8: stack applies to ALL rules including unimplemented sec-8 and targe
       function — VF-8 is the coverage invariant the verification stack asserts
       across all rules. conformance: target-only.
     - depends-on sec-08: the unimplemented RL-22..RL-26 + the target-only
-      RL-29/RL-30/RL-31 LLVM-fact-export rules whose planned layers VF-8
+      RL-29/RL-30/RL-31 backend-neutral fact rules whose planned layers VF-8
       requires.
 
   Soundness property:

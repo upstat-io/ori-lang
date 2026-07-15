@@ -33,11 +33,43 @@ pub(in crate::aims::interprocedural::extract) fn find_iter_consume_params(
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
     interner: &ori_ir::StringInterner,
 ) -> FxHashSet<usize> {
+    let call_args = find_iter_consume_call_args(func, sigs, interner, None);
+    let mut iter_consumed = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            let ArcInstr::Apply { dst, args, .. } = instr else {
+                continue;
+            };
+            absorb_iter_call_params(*dst, args, &call_args, alias_to_param, &mut iter_consumed);
+        }
+        if let ArcTerminator::Invoke { dst, args, .. } = &block.terminator {
+            absorb_iter_call_params(*dst, args, &call_args, alias_to_param, &mut iter_consumed);
+        }
+    }
+
+    tracing::debug!(
+        target: "ori_arc::aims::interprocedural",
+        fn_name = interner.lookup(func.name),
+        ?iter_consumed,
+        "find_iter_consume_params verdict"
+    );
+
+    iter_consumed
+}
+
+/// Return call-destination to iter-consuming argument positions. Direct
+/// `@iter` evidence requires the matching dropped handle; transitive evidence
+/// comes from another callee's parameter contract. `excluded_callee` lets the
+/// oracle suppress the subject contract while extraction retains SCC behavior.
+pub(crate) fn find_iter_consume_call_args(
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
+    excluded_callee: Option<Name>,
+) -> FxHashMap<ArcVarId, FxHashSet<usize>> {
     use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
     let iter_name = interner.intern(ProtocolBuiltin::Iter.name());
     let iter_drop_name = interner.intern(ProtocolBuiltin::IterDrop.name());
-
-    let mut iter_consumed: FxHashSet<usize> = FxHashSet::default();
 
     // Pass 1: collect iterator handles that are `ori_iter_drop`'d (freed).
     let mut dropped_handles: FxHashSet<ArcVarId> = FxHashSet::default();
@@ -53,9 +85,9 @@ pub(in crate::aims::interprocedural::extract) fn find_iter_consume_params(
         }
     }
 
-    // Pass 2 (DIRECT): an `@iter` whose dst handle is dropped AND whose source
-    // (arg 0, the collection being iterated) aliases a param marks that param
-    // iter-consumed.
+    let mut call_args: FxHashMap<ArcVarId, FxHashSet<usize>> = FxHashMap::default();
+
+    // Pass 2 (DIRECT): an `@iter` whose dst handle is dropped consumes arg 0.
     if !dropped_handles.is_empty() {
         for block in &func.blocks {
             for instr in &block.body {
@@ -63,14 +95,8 @@ pub(in crate::aims::interprocedural::extract) fn find_iter_consume_params(
                     dst, func: f, args, ..
                 } = instr
                 {
-                    if *f == iter_name && dropped_handles.contains(dst) {
-                        if let Some(&src) = args.first() {
-                            if let Some(param_indices) = alias_to_param.get(&src) {
-                                for &i in param_indices {
-                                    iter_consumed.insert(i);
-                                }
-                            }
-                        }
+                    if *f == iter_name && dropped_handles.contains(dst) && !args.is_empty() {
+                        call_args.entry(*dst).or_default().insert(0);
                     }
                 }
             }
@@ -90,11 +116,14 @@ pub(in crate::aims::interprocedural::extract) fn find_iter_consume_params(
     // `iter_consumes` (it borrows, no `@iter`->`ori_iter_drop`), so the
     // forwarder's param stays non-iter-consuming (the borrow-read over-fire
     // boundary). Spec: Annex E §AIMS RL-2.
-    let scan_forward = |callee: Name, args: &[ArcVarId], iter_consumed: &mut FxHashSet<usize>| {
+    let mut scan_forward = |dst: ArcVarId, callee: Name, args: &[ArcVarId]| {
+        if excluded_callee == Some(callee) {
+            return;
+        }
         let Some(callee_contract) = sigs.get(&callee) else {
             return;
         };
-        for (pos, &arg) in args.iter().enumerate() {
+        for (pos, _) in args.iter().enumerate() {
             if !callee_contract
                 .params
                 .get(pos)
@@ -102,39 +131,52 @@ pub(in crate::aims::interprocedural::extract) fn find_iter_consume_params(
             {
                 continue;
             }
-            if let Some(param_indices) = alias_to_param.get(&arg) {
-                for &i in param_indices {
-                    iter_consumed.insert(i);
-                }
-            }
+            call_args.entry(dst).or_default().insert(pos);
         }
     };
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Apply {
-                func: callee, args, ..
+                dst,
+                func: callee,
+                args,
+                ..
             } = instr
             {
-                scan_forward(*callee, args, &mut iter_consumed);
+                scan_forward(*dst, *callee, args);
             }
         }
         if let ArcTerminator::Invoke {
-            func: callee, args, ..
+            dst,
+            func: callee,
+            args,
+            ..
         } = &block.terminator
         {
-            scan_forward(*callee, args, &mut iter_consumed);
+            scan_forward(*dst, *callee, args);
         }
     }
+    call_args
+}
 
-    tracing::debug!(
-        target: "ori_arc::aims::interprocedural",
-        fn_name = interner.lookup(func.name),
-        ?iter_consumed,
-        dropped_handle_count = dropped_handles.len(),
-        "find_iter_consume_params verdict"
-    );
-
-    iter_consumed
+fn absorb_iter_call_params(
+    dst: ArcVarId,
+    args: &[ArcVarId],
+    call_args: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    iter_consumed: &mut FxHashSet<usize>,
+) {
+    let Some(positions) = call_args.get(&dst) else {
+        return;
+    };
+    for &position in positions {
+        let Some(arg) = args.get(position) else {
+            continue;
+        };
+        if let Some(param_indices) = alias_to_param.get(arg) {
+            iter_consumed.extend(param_indices);
+        }
+    }
 }
 
 /// Find the field-grained iter-consume record per param (RL-2 iter-consume

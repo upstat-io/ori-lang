@@ -172,7 +172,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // arm is unreached for a live None (a None's field-1 payload is
                 // uninitialized).
                 let inner = self.pool.option_inner(resolved);
-                if self.classifier.needs_rc(inner) {
+                if self.classifier.has_managed_ownership_obligation(inner) {
                     if let Some(field) = self.builder.extract_value(val, 1, "rc.opt_inner") {
                         if is_boxed_enum_field(self.pool, resolved, inner) {
                             // Boxed recursive inner: payload is the RC box
@@ -225,7 +225,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             reason = "field count bounded by struct definition, well within u32 range"
         )]
         for (i, (_, field_ty)) in fields.into_iter().enumerate() {
-            if self.classifier.needs_rc(field_ty) {
+            if self.classifier.has_managed_ownership_obligation(field_ty) {
                 let mem_i = self.remap_struct_field(ty, i as u32);
                 if let Some(field_val) =
                     self.builder
@@ -254,7 +254,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             reason = "element count bounded by tuple arity, well within u32 range"
         )]
         for (i, elem_ty) in elems.into_iter().enumerate() {
-            if self.classifier.needs_rc(elem_ty) {
+            if self.classifier.has_managed_ownership_obligation(elem_ty) {
                 let mem_i = self.remap_struct_field(ty, i as u32);
                 if let Some(elem_val) =
                     self.builder
@@ -282,7 +282,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// is RC-bearing, OR the position is a boxed recursive back-edge (a heap
     /// RC box that must be dropped regardless of the inline classification).
     pub(super) fn payload_needs_rc(&self, owner_ty: Idx, field_ty: Idx) -> bool {
-        self.classifier.needs_rc(field_ty) || is_boxed_enum_field(self.pool, owner_ty, field_ty)
+        self.classifier.has_managed_ownership_obligation(field_ty)
+            || is_boxed_enum_field(self.pool, owner_ty, field_ty)
     }
 
     fn collect_variant_rc_fields(&self, resolved_ty: Idx, pool_tag: Tag) -> Vec<Vec<(u32, Idx)>> {

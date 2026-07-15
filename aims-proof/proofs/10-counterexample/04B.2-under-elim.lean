@@ -5,8 +5,9 @@
 -- path-sensitive control flow + jump-arg merges + generic forwarders.
 -- Cross-validation question (mirrors SMT goal §3):
 -- Under the proven calculus (RL-1, RL-2, RL-4, RL-5, IA-3, RL-1-RL-2
--- composition P2), can a heap-allocated owned non-scalar leak (net RC > 0
--- at scope exit) on ONE arm of a CFG merge while the other arm balances?
+-- composition P2), can an owned non-scalar allocation identity leak (net
+-- logical count > 0 at scope exit) on ONE arm of a CFG merge while the other
+-- arm balances?
 
 namespace AimsUnderEliminationLeaks
 

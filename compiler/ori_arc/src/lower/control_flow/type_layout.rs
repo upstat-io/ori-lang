@@ -1,9 +1,14 @@
-//! Pool-based type store-size computation.
+//! Transitional physical store-size compatibility for collection lowering.
 //!
-//! Computes type sizes with trailing alignment padding. Must stay in sync with
-//! `TypeLayoutResolver::type_store_size` in `ori_llvm` — both compute the
-//! same logical size for every type, just at different abstraction levels
-//! (Pool indices here vs LLVM `BasicTypeEnum` there).
+//! This helper computes the byte size required by the shipped LLVM/runtime
+//! ABI and must stay in sync with `TypeLayoutResolver::type_store_size` in
+//! `ori_llvm`. The result is a physical compiled-layout fact, not a logical
+//! type size and not an AIMS ownership-policy fact.
+//!
+//! Its location in `ori_arc` is transitional. The production seam carries
+//! logical type/storage-site identity through AIMS, then derives byte sizes in
+//! `VmLayoutPlan` or the shared `CompiledLayoutPlan`. Do not use this helper as
+//! authority for a VM-private layout or another backend's physical encoding.
 //!
 //! See `compiler/ori_llvm/src/codegen/type_info/mod.rs`.
 
@@ -11,10 +16,10 @@ use ori_types::{Idx, Tag};
 
 /// Recursive store-size computation from Pool type information.
 ///
-/// **Sync point**: Must agree with `type_store_size` in `ori_llvm`
-/// (`compiler/ori_llvm/src/codegen/type_info/type_size.rs`). Both compute the
-/// same logical size for every type; the agreement is pinned by the
-/// Tag-matrix cross-check test in `ori_llvm`'s `type_info/tests.rs`
+/// **Transitional sync point**: Must agree with `type_store_size` in
+/// `ori_llvm` (`compiler/ori_llvm/src/codegen/type_info/type_size.rs`). Both
+/// compute the current LLVM/runtime ABI byte size; the agreement is pinned by
+/// the Tag-matrix cross-check test in `ori_llvm`'s `type_info/tests.rs`
 /// (`pool_store_size_matches_llvm_store_size_across_tag_matrix`). `pub`
 /// solely so that cross-crate test can consume this side of the contract.
 pub fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 {

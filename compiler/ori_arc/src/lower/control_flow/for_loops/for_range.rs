@@ -10,7 +10,8 @@ use crate::lower::expr::{ArcLowerer, LoopContext};
 impl ArcLowerer<'_> {
     /// Lower `for i in <range> do body` using direct start/end projection.
     ///
-    /// Range layout: `{i64 start, i64 end, i64 step, i64 inclusive}`.
+    /// Logical Range fields: `start`, `end`, `step`, and `inclusive`.
+    /// Physical width, offsets, and packing belong to each compiled layout.
     /// The loop condition uses sign-aware comparison to avoid overflow:
     /// - Ascending (step > 0): `i < end` (exclusive) or `i <= end` (inclusive)
     /// - Descending (step < 0): `i > end` (exclusive) or `i >= end` (inclusive)

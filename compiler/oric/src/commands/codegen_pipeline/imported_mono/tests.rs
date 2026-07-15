@@ -52,6 +52,7 @@ fn carrier_is_reachable_via_crate_commands_export() {
     let mono_fn = ori_repr::monomorphize::MonoFunction {
         mangled_name: imp_name,
         original_name: imp_name,
+        origin: ori_repr::monomorphize::MonoFunctionOrigin::Source,
         sig: make_generic_sig(&interner),
         body_type_map: FxHashMap::default(),
         instance_ids: vec![],

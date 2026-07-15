@@ -1,57 +1,37 @@
-Theorem RL-19: thread-local values use non-atomic RC
+Theorem RL-19: ThreadReachability derives from Locality and the call graph
 
   Preconditions:
-    - RL-19 governs thread-local non-atomic RC per Annex E §AIMS
-      Non-Atomic RC: "Thread-local values (no cross-thread escape) SHALL use
-      non-atomic RC (plain load/store, not atomic CAS). Thread-locality
-      derived from Locality + call-graph: no escape path crosses a thread
-      boundary (spawn, channel, FFI) -> thread-local."
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - Thread-locality is the RL-18a-derived property (Locality + call-graph),
-      NOT a separate per-variable escape dimension.
-    - Shipped: target-system rule (ori_repr apply_thread_local_arc stubbed per
-      repr.md); realize/decide.rs consumes Locality.
-    - depends-on RL-18a (Locality as escape SSOT for the thread-locality
-      derivation).
+    - Locality is the converged escape dimension.
+    - The call graph supplies a thread-boundary reachability signal.
 
   Soundness property:
-    Forall value v whose escape paths never cross a thread boundary
-    (thread-local):
+    Forall value v:
 
-      (P1) Atomicity decision: RL-19 emits non-atomic RC (plain load/store)
-           for v.
+      (P1) known Locality with no crossing yields ThreadReachability.confined.
 
-      (P2) Soundness: a thread-local value's reference count is only ever
-           mutated by the owning thread, so no data race on the count is
-           possible — plain (non-atomic) load/store is correct, and avoids
-           the atomic-CAS overhead.
+      (P2) a proven crossing yields potentiallyShared.
 
-    RL-19 refines plain ARC (which would use atomic RC everywhere) by using
-    non-atomic RC whenever the value provably never crosses a thread boundary.
+      (P3) Unknown Locality yields potentiallyShared even without a crossing.
+
+    The fact constrains physical safety capability without selecting an opcode,
+    synchronization primitive, or memory ordering.
 
   Proof obligation:
-    Constructive discharge by the case_analysis engine.
+    Constructive Locality x call-graph enumeration with Unknown fail-closed.
 
-    Part (P1/P2) — thread-local atomicity:
-      The verifier confirms a FunctionLocal value and a HeapEscaping value
-      that does NOT cross a thread boundary are both classified thread-local
-      (derives_thread_shared = false) and both receive non-atomic RC.
-      Coverage gate: 2 thread-local cases (local + heap-escaping-but-not-
-      thread-crossing — the latter shows thread-locality is derived from the
-      call-graph signal, not from heap-escape alone).
+    Part (P1/P2/P3) - reachability grid:
+      function local + no crossing -> confined
+      escaping + no crossing -> confined
+      escaping + crossing -> potentiallyShared
+      unknown + no crossing -> potentiallyShared
+      Coverage gate: 4 reachability cases.
 
     Engines dispatched:
-      case_analysis (PRIMARY —
-        section_08::verify_rl19_thread_local_nonatomic; thread-local
-        atomicity enumeration; emits Fail on a misclassification or an atomic
-        selection for a thread-local value)
-      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      case_analysis (PRIMARY - section_08::verify_rl19_thread_reachability;
+        threadReachabilityFrom derivation)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
 
   Expected:
     status: valid
-    reason: section_08 case_analysis engine discharges RL-19 via thread-local atomicity (a value whose escape paths never cross a thread boundary -> non-atomic RC), confirming thread-locality is derived from Locality + call-graph (a HeapEscaping value not crossing a thread boundary is still thread-local), grounded in RL-18a Locality-SSOT + realize/decide.rs Locality consumption
+    reason: section_08 case_analysis engine discharges RL-19 by deriving ThreadReachability from Locality and call-graph boundary evidence with Unknown mapped to potentiallyShared

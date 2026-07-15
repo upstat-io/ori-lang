@@ -3,8 +3,11 @@ Theorem TF-10: IsShared transfer produces SCALAR sentinel
   Preconditions:
     - Instruction is `IsShared { var }` per Annex E §AIMS TF-10 +
       Appendix A row 11
-    - `IsShared` returns a boolean indicating whether `var`'s physical
-      RC is > 1; the boolean is a pure scalar with no RC consequence
+    - `IsShared` returns the boolean outcome of AIMS's logical sharing
+      observation: whether `var` has more than one logical owner credit.
+      The boolean is a pure scalar with no ownership-credit consequence.
+      A counter, handle flag, tag, side table, or other probe encoding is a
+      satisfying physical-plan choice, not part of TF-10.
     - SCALAR is the L-9 sentinel — NOT a lattice element per
       Annex E §AIMS L-9; SCALAR-valued destinations have no
       reference-counting representation
@@ -32,10 +35,11 @@ Theorem TF-10: IsShared transfer produces SCALAR sentinel
       SCALAR sentinel — no RC, no lattice-element representation.
       Verified: transfer_tf10() emits Tagged::Scalar regardless of
       input. The boolean is consumed by downstream `Branch` /
-      `Select` / `Set` operations which read it as a runtime u8 flag
-      with zero RC interaction.
+      `Select` / `Set` operations which read it as a scalar boolean with
+      zero ownership-credit interaction. Its physical encoding is
+      projection-owned.
       Note: IsShared is the canonical L-9 sentinel emission site for
-      runtime uniqueness probes; the SCALAR result is downstream-
+      dynamic sharing observations; the SCALAR result is downstream-
       compatible with DP-4 dynamic-COW decision logic.
 
     Part (b) — constant-function monotonicity:

@@ -17,8 +17,8 @@
 //! - **IA** (IA-9 N-ary join permutation-invariance): reduces to L-1 +
 //! L-2 via case_analysis enumeration.
 //! - **PL**, **RL**, **CH**: per-class coexistence well-formedness +
-//! per-step preconditions + per-instruction RC-delta case grid
-//! (RL-14/14a/15/15a stack-promotion case grid).
+//! per-step preconditions + per-instruction RC-delta case grid + the RL-14
+//! through RL-21 allocation-fact and target-capability grids.
 //!
 //! Constructive primitives consumed per the foundational-axiom policy
 //! sec-Per-Engine-Constructive-Proof-Shape: finite enumeration of
@@ -105,9 +105,9 @@ impl Engine for CaseAnalysisEngine {
             return result;
         }
         // §08 realization-rule discharge (PRIMARY engine for COW / reuse /
-        // stack-promotion / header-compression / non-atomic-RC / selective-
-        // barriers / borrow-inference RL rules; SECONDARY gracious-accept for
-        // RC-emission + LLVM-fact-export RL rules) per
+        // allocation facts / projection satisfaction / thread reachability /
+        // selective barriers / borrow inference RL rules; SECONDARY gracious-
+        // accept for RC-emission + backend-neutral fact-export RL rules) per
         // Annex E §AIMS §8.
         if let Some(result) = super::realization_rules::discharge_for_engine(self.name(), theorem) {
             return result;

@@ -568,8 +568,8 @@ proptest! {
 // instructions, not raw AimsState → AimsState. The pure state-level
 // decision functions test whether specific optimizations are safe:
 //
-//   - is_rc_dec_unnecessary: true when variable is dead or absent
-//   - is_rc_inc_elidable: true when used exactly once and consumed linearly
+//   - is_release_event_unnecessary: true when variable is dead or absent
+//   - is_additional_credit_elidable: true when used exactly once and consumed linearly
 //   - is_owned_and_unique: true when owned and unique
 //   - capture_state_update: computes state for captured closure variables
 //
@@ -580,31 +580,32 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(5000))]
 
-    /// is_rc_dec_unnecessary must be true at BOTTOM (Dead+Absent) and false
+    /// is_release_event_unnecessary must be true at BOTTOM (Dead+Absent) and false
     /// at TOP (Unrestricted+Many).
     #[test]
     fn rc_dec_unnecessary_semantic_contract(a in canonical_aims_state_strategy()) {
-        use crate::aims::transfer::is_rc_dec_unnecessary;
-        let result = is_rc_dec_unnecessary(&a);
+        use crate::aims::transfer::is_release_event_unnecessary;
+        let result = is_release_event_unnecessary(&a);
         let expected = a.cardinality == Cardinality::Absent
             || a.consumption == Consumption::Dead;
         assert_eq!(
             result, expected,
-            "is_rc_dec_unnecessary must match semantic definition: a={a:?}"
+            "is_release_event_unnecessary must match semantic definition: a={a:?}"
         );
     }
 
-    /// is_rc_inc_elidable must match DP-3: `Once ∧ (Linear ∨ Affine)` per
-    /// `AimsProof.Decision.is_rc_inc_elidable` + `DP3_is_rc_inc_elidable_table`.
+    /// is_additional_credit_elidable must match DP-3:
+    /// `Once ∧ (Linear ∨ Affine)`. Historical theorem metadata retains
+    /// `DP3_is_rc_inc_elidable_table`.
     #[test]
     fn rc_inc_elidable_semantic_contract(a in canonical_aims_state_strategy()) {
-        use crate::aims::transfer::is_rc_inc_elidable;
-        let result = is_rc_inc_elidable(&a);
+        use crate::aims::transfer::is_additional_credit_elidable;
+        let result = is_additional_credit_elidable(&a);
         let expected = a.cardinality == Cardinality::Once
             && (a.consumption == Consumption::Linear || a.consumption == Consumption::Affine);
         assert_eq!(
             result, expected,
-            "is_rc_inc_elidable must match semantic definition: a={a:?}"
+            "is_additional_credit_elidable must match semantic definition: a={a:?}"
         );
     }
 
@@ -643,15 +644,15 @@ proptest! {
 
     // Intrinsic AimsState decision predicates
 
-    /// is_rc_needed: Owned + not-Dead + not-SCALAR.
+    /// needs_ownership_events: Owned + not-Dead + not-SCALAR.
     #[test]
     fn is_rc_needed_semantic_contract(a in canonical_aims_state_strategy()) {
         let expected = a.access == AccessClass::Owned
             && a.consumption != Consumption::Dead
             && !a.is_scalar();
         assert_eq!(
-            a.is_rc_needed(), expected,
-            "is_rc_needed must match semantic definition: a={a:?}"
+            a.needs_ownership_events(), expected,
+            "needs_ownership_events must match semantic definition: a={a:?}"
         );
     }
 
@@ -677,7 +678,8 @@ proptest! {
         );
     }
 
-    /// is_rc_skip_eligible: local + Owned + Linear + Unique + not-SCALAR (DP-7).
+    /// is_event_pair_elision_eligible: local + Owned + Linear + Unique +
+    /// not-SCALAR (DP-7).
     #[test]
     fn is_rc_skip_eligible_semantic_contract(a in canonical_aims_state_strategy()) {
         let expected = a.is_local()
@@ -686,8 +688,8 @@ proptest! {
             && a.uniqueness == Uniqueness::Unique
             && !a.is_scalar();
         assert_eq!(
-            a.is_rc_skip_eligible(), expected,
-            "is_rc_skip_eligible must match DP-7 semantic definition: a={a:?}"
+            a.is_event_pair_elision_eligible(), expected,
+            "is_event_pair_elision_eligible must match DP-7 semantic definition: a={a:?}"
         );
     }
 
@@ -1086,10 +1088,12 @@ fn associativity_divergence_with_canonical_triples_detects_decision_impact() {
                 );
 
                 // Check ALL downstream uniqueness consumers
-                let predicates_match = ab_c.is_rc_needed() == a_bc.is_rc_needed()
+                let predicates_match = ab_c.needs_ownership_events()
+                    == a_bc.needs_ownership_events()
                     && ab_c.needs_cow_check() == a_bc.needs_cow_check()
                     && ab_c.is_reuse_candidate() == a_bc.is_reuse_candidate()
-                    && ab_c.is_rc_skip_eligible() == a_bc.is_rc_skip_eligible()
+                    && ab_c.is_event_pair_elision_eligible()
+                        == a_bc.is_event_pair_elision_eligible()
                     && ab_c.is_local() == a_bc.is_local()
                     && is_owned_and_unique(&ab_c) == is_owned_and_unique(&a_bc)
                     && (ab_c.uniqueness == Uniqueness::Unique)

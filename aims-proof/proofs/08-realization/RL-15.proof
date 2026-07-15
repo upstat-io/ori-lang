@@ -1,52 +1,35 @@
-Theorem RL-15: non-escaping dynamic-size allocation via function-local bump allocator
+Theorem RL-15: ExtentClass is representation-owned evidence
 
   Preconditions:
-    - RL-15 governs dynamic-size stack promotion per Annex E §AIMS
-      Stack Promotion: non-escaping dynamic-size values
-      (Locality <= FunctionLocal) SHALL use a function-local bump allocator;
-      bump objects retain RC headers if Uniqueness != Unique; the bump region
-      is freed at function return.
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - DP-8 (is_local) gates locality. A dynamic-size value cannot use a fixed
-      alloca slot, so a function-local bump region is the stack-equivalent.
-    - Shipped: realize/decide.rs Locality consumption; repr.md sec-RH-3.
-    - depends-on sec-05: DP-8 (is_local).
+    - AIMS supplies AllocationFacts.
+    - Representation analysis separately supplies ExtentClass.
+    - ProjectionInput pairs the two products without merging their authority.
 
   Soundness property:
-    Forall dynamic-size local value v (Locality <= FunctionLocal):
+    Forall AllocationFacts F and extents E1, E2:
 
-      (P1) Strategy decision: RL-15 selects a function-local bump allocator,
-           for both Unique and MaybeShared locals.
+      (P1) ProjectionInput(F, E1).facts = F.
 
-      (P2) Lifetime soundness: a function-local bump region cannot outlive the
-           function (the value is non-escaping), so freeing the bump region at
-           function return releases every bump object exactly once — no object
-           dangles and none leaks.
+      (P2) ProjectionInput(F, E2).facts = F.
 
-    RL-15 refines plain ARC by avoiding individual heap allocation + RC
-    tracking for dynamic-size values that provably do not escape the frame.
+    Runtime-sized evidence can constrain a physical plan but cannot mutate the
+    frozen AIMS fact product.
 
   Proof obligation:
-    Constructive discharge by the case_analysis engine.
+    Definitional projection plus a negative witness that changing ExtentClass
+    never changes AllocationFacts.
 
-    Part (P1/P2) — dynamic-size local strategy:
-      The verifier asserts that a local (BlockLocal / FunctionLocal)
-      dynamic-size value (Unique / MaybeShared) selects BumpAlloc.
-      Coverage gate: 4 cases (Block/Function x Unique/MaybeShared). Negative
-      witness: an ESCAPING dynamic-size value must NOT use the function-local
-      bump (it would dangle after the bump region is freed at return) -> heap.
+    Part (P1/P2) - extent seam:
+      StaticShape -> same AllocationFacts
+      RuntimeSized -> same AllocationFacts
+      Coverage gate: 2 extent cases.
 
     Engines dispatched:
-      case_analysis (PRIMARY — section_08::verify_rl15_bump_allocator;
-        dynamic-size-local strategy enumeration; emits Fail on a wrong
-        strategy or an escaping-value bump promotion)
-      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      case_analysis (PRIMARY - section_08::verify_rl15_extent_seam;
+        ExtentClass and AllocationFacts authority separation)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
 
   Expected:
     status: valid
-    reason: section_08 case_analysis engine discharges RL-15 via the dynamic-size-local strategy grid (Block/Function x Unique/MaybeShared -> function-local bump allocator freed at function return) with a negative-direction witness rejecting bump promotion of an escaping dynamic-size value, grounded in repr.md RH-3 + realize/decide.rs Locality consumption
+    reason: section_08 case_analysis engine discharges RL-15 because StaticShape and RuntimeSized ExtentClass evidence remain separate from immutable AllocationFacts

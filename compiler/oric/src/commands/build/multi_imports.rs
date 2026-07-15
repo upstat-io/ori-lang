@@ -111,6 +111,7 @@ pub(super) fn build_import_infos(
             source_name,
             param_types,
             return_type,
+            metadata,
         } in &module_info.public_functions
         {
             match local_names.get(&(key_path.clone(), source_name.clone())) {
@@ -124,6 +125,7 @@ pub(super) fn build_import_infos(
                                 local_name: Some(local.clone()),
                                 param_types: param_types.clone(),
                                 return_type: *return_type,
+                                metadata: metadata.clone(),
                             },
                         );
                     }
@@ -135,6 +137,7 @@ pub(super) fn build_import_infos(
                             local_name: None,
                             param_types: param_types.clone(),
                             return_type: *return_type,
+                            metadata: metadata.clone(),
                         },
                     );
                 }

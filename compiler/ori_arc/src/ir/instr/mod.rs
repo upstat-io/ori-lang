@@ -1,8 +1,9 @@
 //! ARC IR instruction definitions.
 //!
 //! [`ArcInstr`] represents a single instruction in an ARC IR basic block.
-//! Most produce a value bound to a `dst` variable. RC operations (`RcInc`,
-//! `RcDec`) are inserted by the RC emission pass and optimized by RC elimination.
+//! Most produce a value bound to a `dst` variable. Logical owner-credit and
+//! cleanup events currently use the transitional `RcInc`/`RcDec` carrier and
+//! are subsequently pair-elided where valid.
 
 use ori_ir::canon::MonoInstanceId;
 use ori_types::Idx;
@@ -12,8 +13,8 @@ use super::{ArcValue, ArcVarId, ArgOwnership, CtorKind, RcAtomicity, RcStrategy}
 /// A single instruction in an ARC IR basic block.
 ///
 /// Instructions are executed sequentially within a block. Most produce
-/// a value bound to a `dst` variable. RC operations (`RcInc`, `RcDec`)
-/// are inserted by the RC emission pass and optimized by RC elimination.
+/// a value bound to a `dst` variable. `RcInc`/`RcDec` are compatibility names
+/// for the current carrier of logical ownership events, not a backend mandate.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum ArcInstr {
@@ -32,17 +33,18 @@ pub enum ArcInstr {
         args: Vec<ArcVarId>,
         /// Per-argument ownership at this call site.
         /// Parallel to `args`: `arg_ownership[i]` describes `args[i]`.
-        /// Defaults to all `Owned`; populated by RC insertion.
+        /// Defaults to all `Owned`; populated by ownership-event realization.
         arg_ownership: Vec<ArgOwnership>,
         /// Abstract dispatch index for generic-instantiated calls.
         /// `Some(id)` when the call resolved to a specific monomorphic
         /// instance during type checking; `None` otherwise (most builtins
         /// and non-generic calls). Sourced from
-        /// `CanonResult.mono_dispatch_map_can` during ARC lowering;
-        /// consumed by `ori_llvm` (and `ori_eval` for parity) to look up
-        /// `TypedModule.mono_instances[id.0]` and call `mangle_mono_name`
-        /// locally — keeping the LLVM-specific name format owned by
-        /// codegen per phase ownership.
+        /// `CanonResult.mono_dispatch_map_can` during ARC lowering. Physical
+        /// realization consumers use it to identify the selected instance;
+        /// `ori_llvm` maps it to `TypedModule.mono_instances[id.0]` and calls
+        /// `mangle_mono_name` locally, keeping LLVM names inside that
+        /// projection. The evaluator independently reads the canonical
+        /// dispatch map and does not consume this post-AIMS carrier.
         mono_instance_id: Option<MonoInstanceId>,
     },
 
@@ -54,7 +56,7 @@ pub enum ArcInstr {
         args: Vec<ArcVarId>,
         /// Per-argument ownership at this indirect call site.
         /// Parallel to `args`: `arg_ownership[i]` describes `args[i]`.
-        /// Empty before annotation; populated by RC insertion.
+        /// Empty before annotation; populated by ownership-event realization.
         /// Unlike `Apply`, empty defaults to all-Borrowed (conservative for
         /// unknown callees — caller retains cleanup responsibility).
         arg_ownership: Vec<ArgOwnership>,
@@ -86,12 +88,10 @@ pub enum ArcInstr {
         args: Vec<ArcVarId>,
     },
 
-    // RC operations (inserted by RC emission pass)
-    /// Increment reference count. `count` allows batched increments
-    /// when a value is passed to multiple owned parameters. `strategy`
-    /// tells the emitter how to perform the increment (no Pool queries).
-    /// `atomicity` selects atomic vs non-atomic refcount arithmetic,
-    /// populated at Phase 7 realization (Spec: Annex E §AIMS RL-19/20/21).
+    // Logical ownership events with transitional physical adapter fields.
+    /// Add `count` logical ownership credits. `strategy` and `atomicity` retain
+    /// shipped adapter behavior without downstream Pool queries; they are not
+    /// AIMS policy and move into validated physical plans in the production seam.
     RcInc {
         var: ArcVarId,
         count: u32,
@@ -99,10 +99,9 @@ pub enum ArcInstr {
         atomicity: RcAtomicity,
     },
 
-    /// Decrement reference count and free if zero. `strategy` tells
-    /// the emitter the cleanup approach (no Pool queries). `atomicity`
-    /// selects atomic vs non-atomic refcount arithmetic, populated at
-    /// Phase 7 realization (Spec: Annex E §AIMS RL-19/20/21).
+    /// Consume one logical ownership credit and perform its cleanup obligation.
+    /// `strategy` and `atomicity` are transitional physical adapter fields, not
+    /// backend-neutral AIMS facts.
     RcDec {
         var: ArcVarId,
         strategy: RcStrategy,
@@ -138,7 +137,7 @@ pub enum ArcInstr {
     /// by Phase 5 ARC lowering at every owned-arg transfer point. Carries
     /// only the SSA variable that is the subject of the burden transfer —
     /// no class info, no transitive markers. Parallel to `RcInc` but tracks
-    /// the burden lattice rather than the refcount.
+    /// the logical burden lattice rather than asserting a physical counter.
     BurdenInc { var: ArcVarId },
 
     /// Burden-decrement marker. Trivial side-effect-only annotation emitted
@@ -169,8 +168,8 @@ pub enum ArcInstr {
     /// OUT of that position before the in-place store. Carries `base` SSA
     /// var + `field: u32` top-level index; codegen iterates
     /// `Burden::owned_fields()` entries whose `field_path` has `field` as
-    /// its top-level prefix and emits per-subtree `RcDec` against the
-    /// loaded prior values.
+    /// its top-level prefix and emits per-subtree releases, currently spelled
+    /// `RcDec`, against the loaded prior values.
     BurdenDecField { base: ArcVarId, field: u32 },
 
     /// `SetTag` old-variant drop emission. Whole-var pattern (NOT
@@ -187,8 +186,10 @@ pub enum ArcInstr {
     BurdenDecVariant { var: ArcVarId },
 
     // Reuse operations (inserted by reuse emission pass)
-    /// Test whether a value's reference count is 1 (uniquely owned).
-    /// Result is a `bool` bound to `dst`.
+    /// Test whether the selected physical plan can satisfy the value's logical
+    /// unique-owner fast path. Result is a `bool` bound to `dst`; AIMS fixes
+    /// the sharing observation, not a counter or header representation.
+    /// `IsShared` is the transitional carrier spelling for that query.
     IsShared { dst: ArcVarId, var: ArcVarId },
 
     /// In-place field update: `base.field = value`.
@@ -204,7 +205,8 @@ pub enum ArcInstr {
     SetTag { base: ArcVarId, tag: u64 },
 
     /// Reset intermediate: marks a value for potential reuse.
-    /// Expanded by reuse emission into `IsShared` + conditional reuse.
+    /// Expanded by reuse realization into a sharing query plus conditional
+    /// reuse; the current carrier names that query `IsShared`.
     Reset { var: ArcVarId, token: ArcVarId },
 
     /// Reuse intermediate: construct using a reuse token's memory.
@@ -217,17 +219,22 @@ pub enum ArcInstr {
         args: Vec<ArcVarId>,
     },
 
-    /// Collection buffer reuse: replaces `RcDec(old)` + `Construct(ListLiteral)`.
+    /// Collection buffer reuse: replaces one logical release plus
+    /// `Construct(ListLiteral)`; the current carrier spells that release
+    /// `RcDec(old)`.
     ///
-    /// Unlike struct reuse (which uses `Reset`/`Reuse` → `IsShared` expansion),
-    /// collection reuse is self-contained. The LLVM emitter calls a runtime
-    /// function (`ori_list_reset_buffer`) that checks uniqueness internally:
-    /// - Unique (RC == 1): clean old elements, reuse/realloc buffer
-    /// - Shared (RC > 1): dec old RC, allocate fresh buffer
+    /// Unlike struct reuse (whose current carrier expands `Reset`/`Reuse`
+    /// through the transitional `IsShared` query),
+    /// collection reuse is self-contained. A physical consumer implements the
+    /// same unique-versus-shared decision through its validated layout plan.
+    /// The shipped LLVM projection currently calls `ori_list_reset_buffer`;
+    /// that helper and its counter/header mechanics are not part of this
+    /// operation's semantics.
     ///
     /// Only valid for `ListLiteral` and `SetLiteral` constructors.
     CollectionReuse {
-        /// The old collection being recycled (its `RcDec` was removed).
+        /// The old collection being recycled (its logical release, currently
+        /// carried by `RcDec`, was removed).
         old_var: ArcVarId,
         /// Destination variable for the new collection.
         dst: ArcVarId,
@@ -241,10 +248,9 @@ pub enum ArcInstr {
 
     /// Conditional value selection: `let dst: ty = if cond then true_val else false_val`.
     ///
-    /// Maps directly to LLVM `select`. Used by the decision tree emitter
-    /// to eliminate trivial match arm blocks — instead of
-    /// `switch -> arm_block(br) -> merge(phi)`, we emit
-    /// `icmp + select` inline, avoiding empty blocks.
+    /// Used by decision-tree lowering to represent a value choice without
+    /// trivial match-arm blocks. LLVM maps it directly to `select`; other
+    /// physical consumers choose their equivalent encoding.
     Select {
         dst: ArcVarId,
         ty: Idx,

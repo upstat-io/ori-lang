@@ -1,9 +1,11 @@
-Theorem RL-1: RC inc emission when a value is duplicated to an Owned param while still live
+Theorem RL-1: owner-credit realization when an owned value gains a simultaneous owner
 
   Preconditions:
-    - RL-1 governs RcInc emission per Annex E §AIMS RC Emission:
-      "RC inc SHALL be emitted when a value is duplicated (passed to an
-      Owned param while still live)."
+    - RcInc is the historical compiled-projection carrier for a logical
+      owner-credit event; RL-1 does not prescribe a counter or backend
+    - RL-1 governs logical owner-credit realization per Annex E §AIMS:
+      an owner-credit event is required when an owned value gains a
+      simultaneous owner.
     - The realization rules have the common signature
       ArcFunction x AimsStateMap -> ArcFunction per
       the canonical proof notation:264; RL-1 is discharged here
@@ -16,9 +18,9 @@ Theorem RL-1: RC inc emission when a value is duplicated to an Owned param while
           inc emission.
         * realize/mod.rs::inject_cow_borrowed_receiver_incs (lines 406-478)
           — RcInc before a COW call whose receiver is a borrowed function
-          parameter, so the runtime observes RC > 1 and takes the COW slow
-          path (the extra inc is matched by the slow path's dec of the old
-          buffer).
+          parameter, so the dynamic sharing observation sees multiple owner
+          credits and takes the COW slow path (the extra logical credit is
+          matched by the slow path's release of the old buffer).
         * realize/mod.rs::realize_rc_reuse (lines 106-182) Sub-step B
           dispatches unified RC emission via emit_unified::emit_rc_unified
           (line 140), routing every inc/dec decision through
@@ -34,7 +36,7 @@ Theorem RL-1: RC inc emission when a value is duplicated to an Owned param while
       sec-05; RL-1's emission decision consumes that predicate.
 
   Soundness property:
-    Forall value v allocated with RC = 1 (TF-3 FRESH allocation), and
+    Forall value v born with one logical owner credit (TF-3 FRESH), and
     forall duplication of v to an Owned parameter at a program point where
     v remains live afterward:
 
@@ -45,19 +47,18 @@ Theorem RL-1: RC inc emission when a value is duplicated to an Owned param while
            reference (move transfers the sole reference; borrow releases via
            its own scope-exit dec).
 
-      (P2) RC-count preservation (refinement of plain ARC): over v's full
-           lifecycle, every reference created — the 1 from allocation plus
-           every RL-1 inc — is released exactly once by a matching RcDec
+      (P2) Owner-credit preservation: over v's full
+           lifecycle, every owner credit created — the one from birth plus
+           every RL-1 duplication credit — is released exactly once by a
+           matching logical release
            (RL-2 at the callee's last use of the Owned param, or the
            caller's last use), or by an ownership handoff. The net
-           reference count returns to 0; no reference leaks and none is
-           double-released.
+           owner-credit balance returns to zero; no owner leaks and none is
+           double-released. Physical counters are only one satisfying
+           projection of this ledger.
 
-    RL-1 refines plain ARC: plain ARC incs on EVERY duplication
-    unconditionally; RL-1 emits the inc only when the value is still live
-    (DP-3 elides the single-use case, move or borrow), eliminating the
-    redundant inc/dec pair on a single use while preserving the same
-    observable RC balance.
+    RL-1 preserves canonical evaluator behavior and exact OwnershipEvent
+    balance while omitting an additional credit proved unnecessary.
 
   Proof obligation:
     Constructive discharge by the rc_counting engine via per-instruction

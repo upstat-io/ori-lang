@@ -402,7 +402,7 @@ fn burden_struct_heap_str_plus_scalar_int_has_one_owned_zero_borrowed() {
     );
     assert_eq!(spec.owned_fields[0].field_type, Idx::STR);
     assert_eq!(spec.owned_fields[0].field_path, vec![0]);
-    assert!(spec.self_heap_alloc);
+    assert!(spec.self_owned_identity);
 }
 
 #[test]
@@ -709,7 +709,7 @@ fn burden_list_instance_without_type_entry_resolves_via_side_table() {
         .burden(list_idx)
         .expect("registered [str] instance must resolve via side-table");
     assert!(
-        resolved.self_heap_alloc,
+        resolved.self_owned_identity,
         "[str] backing buffer is always heap-allocated"
     );
 }
@@ -725,7 +725,7 @@ fn burden_list_scalar_element_is_buffer_only() {
         .burden(list_idx)
         .expect("[int] instance resolves via side-table");
     assert!(
-        resolved.self_heap_alloc,
+        resolved.self_owned_identity,
         "[int] backing buffer is heap (buffer-only free)"
     );
     assert!(
@@ -744,7 +744,10 @@ fn burden_list_heap_element_carries_element_burden() {
     let resolved = registry
         .burden(list_idx)
         .expect("[str] instance resolves via side-table");
-    assert!(resolved.self_heap_alloc, "buffer is heap");
+    assert!(
+        resolved.self_owned_identity,
+        "list owns a distinct identity"
+    );
     assert_eq!(
         resolved.element_burden,
         Some(Idx::STR),
@@ -762,7 +765,7 @@ fn burden_map_instance_resolves_via_side_table() {
     let resolved = registry
         .burden(map_idx)
         .expect("{int: str} instance resolves via side-table");
-    assert!(resolved.self_heap_alloc, "map backing buffer is heap");
+    assert!(resolved.self_owned_identity, "map owns a distinct identity");
 }
 
 #[test]
@@ -775,7 +778,7 @@ fn burden_set_instance_resolves_via_side_table() {
     let resolved = registry
         .burden(set_idx)
         .expect("Set<str> instance resolves via side-table");
-    assert!(resolved.self_heap_alloc, "set backing buffer is heap");
+    assert!(resolved.self_owned_identity, "set owns a distinct identity");
     assert_eq!(
         resolved.element_burden,
         Some(Idx::STR),
@@ -822,7 +825,7 @@ fn burden_side_table_does_not_shadow_nominal_type_entry() {
 
 #[test]
 fn recomposed_burden_preserves_drop_impl_overlay() {
-    // The Drop-impl overlay (`user_drop`/`compiled_drop`) is populated once
+    // The Drop-impl overlay (`user_drop`/`drop_operation`) is populated once
     // at impl registration; a later field-derived recomposition (the mono
     // sweep's flush) must never clear it.
     let pool = Pool::new();
@@ -849,7 +852,7 @@ fn recomposed_burden_preserves_drop_impl_overlay() {
     };
     let overlaid = UserBurdenSpec {
         user_drop: Some(fn_sym),
-        compiled_drop: Some(fn_sym),
+        drop_operation: Some(fn_sym),
         ..burden.clone().unwrap_or_default()
     };
     let _ = registry.register_user_burden(idx, overlaid);
@@ -865,7 +868,7 @@ fn recomposed_burden_preserves_drop_impl_overlay() {
         spec.user_drop.is_some(),
         "a recomposed burden must preserve the Drop-impl overlay"
     );
-    assert!(spec.compiled_drop.is_some());
+    assert!(spec.drop_operation.is_some());
 }
 
 #[test]
@@ -901,7 +904,7 @@ fn from_typed_exports_round_trips_nominal_type_entry_burden() {
         "str field round-trips as owned-heap"
     );
     assert_eq!(spec.owned_fields[0].field_type, Idx::STR);
-    assert!(spec.self_heap_alloc);
+    assert!(spec.self_owned_identity);
 
     // Genuine-pin clamp: a reconstruction NOT given the nominal entry resolves
     // None — the positive assertion above is driven by the `entries` argument, so
@@ -935,7 +938,10 @@ fn from_typed_exports_round_trips_collection_burden_side_table() {
     let resolved = rebuilt
         .burden(list_idx)
         .expect("collection-burden side-table entry must survive from_typed_exports round-trip");
-    assert!(resolved.self_heap_alloc, "[str] buffer is heap-allocated");
+    assert!(
+        resolved.self_owned_identity,
+        "[str] owns a distinct identity"
+    );
     assert_eq!(
         resolved.element_burden,
         Some(Idx::STR),
@@ -979,7 +985,7 @@ fn register_resolved_collection_burdens_fills_pool_collection_gap() {
         .burden(bool_list)
         .expect("the pool-walk must compose + register the [bool] collection burden");
     assert!(
-        filled.self_heap_alloc,
+        filled.self_owned_identity,
         "[bool] is heap-allocated, so class-ledger emission must see an RC-bearing burden",
     );
 

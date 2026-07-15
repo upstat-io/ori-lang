@@ -4,8 +4,6 @@
 //! outer `invoke`/`landingpad` wrapper for panic capture; on Windows JIT the
 //! wrapper is skipped and panic recovery is handled by `jit_run_protected`.
 
-use ori_arc::lower_function_can;
-use ori_ir::canon::CanonResult;
 use ori_ir::{Name, TestDef};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
@@ -32,12 +30,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// uses `jit_run_protected` (C++ try/catch) for panic recovery instead.
     ///
     /// Returns a map of `test_name → wrapper_function_name` for the JIT to call.
-    pub fn compile_tests(
-        &mut self,
-        tests: &[&TestDef],
-        canon: &CanonResult,
-        mono_target_maps: Option<&ori_repr::monomorphize::MonoTargetMaps>,
-    ) -> FxHashMap<Name, String> {
+    pub fn compile_tests(&mut self, tests: &[&TestDef]) -> FxHashMap<Name, String> {
         let mut test_wrappers = FxHashMap::default();
 
         // On Windows JIT, landingpad with Itanium EH on an MSVC target causes
@@ -52,8 +45,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
             debug!(name = test_name_str, wrapper = %wrapper_name, "compiling test");
 
-            let body = canon.root_for(test.name).unwrap_or(canon.root);
-
             let abi = FunctionAbi {
                 params: vec![],
                 return_abi: ReturnAbi {
@@ -63,23 +54,19 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 call_conv: select_call_conv(CallConvSite::TestWrapper),
             };
 
+            let Some((arc_func, lambdas)) = self.clone_bound_family(test.name, &abi) else {
+                continue;
+            };
+
             let emitted = if use_invoke_wrapper {
-                self.compile_test_with_invoke_wrapper(
-                    test,
-                    &wrapper_name,
-                    body,
-                    canon,
-                    &abi,
-                    mono_target_maps,
-                )
+                self.compile_test_with_invoke_wrapper(test, &wrapper_name, &abi, arc_func, lambdas)
             } else {
                 self.compile_test_without_invoke_wrapper(
                     test,
                     &wrapper_name,
-                    body,
-                    canon,
                     &abi,
-                    mono_target_maps,
+                    arc_func,
+                    lambdas,
                 )
             };
 
@@ -100,10 +87,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         &mut self,
         test: &TestDef,
         wrapper_name: &str,
-        body: ori_ir::canon::CanId,
-        canon: &CanonResult,
         abi: &FunctionAbi,
-        mono_target_maps: Option<&ori_repr::monomorphize::MonoTargetMaps>,
+        arc_func: ori_arc::ArcFunction,
+        lambdas: Vec<ori_arc::ArcFunction>,
     ) -> bool {
         let test_name_str = self.interner.lookup(test.name);
         let body_name = format!("{wrapper_name}_body");
@@ -112,30 +98,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         let body_func_id = self.builder.declare_void_function(&body_name, &[]);
         self.builder.set_ccc(body_func_id);
         self.builder.set_current_function(body_func_id);
-
-        let mut problems = Vec::new();
-        let (mut arc_func, mut lambdas) = lower_function_can(
-            test.name,
-            &[],
-            Idx::UNIT,
-            body,
-            canon,
-            self.interner,
-            self.pool,
-            &mut problems,
-            false,
-            None,
-        );
-
-        for problem in &problems {
-            debug!(?problem, "ARC lowering problem");
-        }
-
-        // Rewrite generic call targets to mangled mono names so the test body's
-        // AIMS-contract lookups resolve (eval/AOT parity).
-        if let Some(maps) = mono_target_maps {
-            maps.rewrite_function(&mut arc_func, &mut lambdas, self.pool, self.interner);
-        }
 
         if let Err(err) = self.emit_arc_function(test.name, body_func_id, abi, arc_func, lambdas) {
             // PC-2 contract violation — error already recorded via
@@ -202,39 +164,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         &mut self,
         test: &TestDef,
         wrapper_name: &str,
-        body: ori_ir::canon::CanId,
-        canon: &CanonResult,
         abi: &FunctionAbi,
-        mono_target_maps: Option<&ori_repr::monomorphize::MonoTargetMaps>,
+        arc_func: ori_arc::ArcFunction,
+        lambdas: Vec<ori_arc::ArcFunction>,
     ) -> bool {
         let test_name_str = self.interner.lookup(test.name);
         let func_id = self.builder.declare_void_function(wrapper_name, &[]);
         self.builder.set_ccc(func_id);
         self.builder.set_current_function(func_id);
-
-        let mut problems = Vec::new();
-        let (mut arc_func, mut lambdas) = lower_function_can(
-            test.name,
-            &[],
-            Idx::UNIT,
-            body,
-            canon,
-            self.interner,
-            self.pool,
-            &mut problems,
-            false,
-            None,
-        );
-
-        for problem in &problems {
-            debug!(?problem, "ARC lowering problem");
-        }
-
-        // Rewrite generic call targets to mangled mono names so the test body's
-        // AIMS-contract lookups resolve (eval/AOT parity).
-        if let Some(maps) = mono_target_maps {
-            maps.rewrite_function(&mut arc_func, &mut lambdas, self.pool, self.interner);
-        }
 
         if let Err(err) = self.emit_arc_function(test.name, func_id, abi, arc_func, lambdas) {
             // PC-2 contract violation — error already recorded via

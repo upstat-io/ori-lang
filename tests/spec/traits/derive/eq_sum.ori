@@ -42,6 +42,24 @@ type Outcome = Success(value: Wrapper) | Failure(msg: str);
 }
 @diff_variant () -> bool = Circle(radius: 1.0) != Rectangle(w: 2.0, h: 3.0);
 
+// The method form reaches the shared generated Eq body. Keep this separate
+// from operator syntax while the backend-local derive implementation is being
+// retired so parity cannot be credited to the legacy path.
+
+@test_eq_method_on_heterogeneous_sum tests @eq_method_on_heterogeneous_sum () -> void = {
+    let circle: Shape = Circle(radius: 1.0);
+    let same: Shape = Circle(radius: 1.0);
+    let rectangle: Shape = Rectangle(w: 2.0, h: 3.0);
+    assert(cond: circle.eq(other: same));
+    assert(cond: !circle.eq(other: rectangle))
+}
+@eq_method_on_heterogeneous_sum () -> bool = {
+    let circle: Shape = Circle(radius: 1.0);
+    let same: Shape = Circle(radius: 1.0);
+    let rectangle: Shape = Rectangle(w: 2.0, h: 3.0);
+    circle.eq(other: same) && !circle.eq(other: rectangle)
+}
+
 // --- Payload-less variants (enum-like) ---
 
 @test_payloadless_eq tests @payloadless_eq () -> void = {

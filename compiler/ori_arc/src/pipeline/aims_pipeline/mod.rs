@@ -1,6 +1,12 @@
-//! AIMS pipeline implementation — the unified AIMS analysis + emission
-//! pipeline (borrow inference, liveness, uniqueness, RC insertion,
-//! reset/reuse, RC elimination as one lattice-driven flow).
+//! AIMS pipeline implementation — backend-neutral ownership calculus and
+//! logical ownership-event realization (borrow inference, liveness,
+//! uniqueness, release/retain obligations, and storage reuse as one
+//! lattice-driven flow).
+//!
+//! The current IR carrier names `RcInc` and `RcDec` are transitional logical
+//! event spellings. They do not require a backend to use a reference-counted
+//! heap representation; each physical projection realizes the frozen events
+//! through its own representation plan.
 //!
 //! # Pipeline (unified realization)
 //!
@@ -12,7 +18,8 @@
 //! 3. `compute_var_reprs` — fill `ValueRepr` per variable
 //! 3a. `aims::normalize_function` — TRMC context region detection
 //! 4. `aims::analyze_function` — backward dataflow → converged state map
-//! 5. `aims::realize_rc_reuse` — Phase 1: `arg_ownership` + RC + reuse (pre-merge)
+//! 5. `aims::realize_rc_reuse` — Phase 1: argument ownership + logical
+//!    retain/release events + reuse (pre-merge)
 //! 5a. `aims::verify::fip::verify_fip_contract` — FIP enforcement verification
 //! 6. `verify` — ARC IR sanity check
 //! 7. `run_aims_verify` — AIMS contract vs IR consistency
@@ -39,7 +46,9 @@ use crate::pipeline::rc_count;
 use crate::ArcClassification;
 
 // Re-export batch entry points used by pipeline/mod.rs.
-pub(crate) use batch::{apply_aims_ownership, run_aims_pipeline_all};
+pub(crate) use batch::{
+    run_aims_pipeline_all_with_external_contracts, run_aims_pipeline_all_with_observer,
+};
 
 /// Callback invoked at each pipeline checkpoint.
 ///
@@ -127,6 +136,9 @@ pub(crate) struct AimsPipelineConfig<'a> {
     /// `debug_assert!` fires when a callee in this set is missing from
     /// `contracts` — an IC-1 pipeline-ordering violation.
     pub func_names: &'a FxHashSet<Name>,
+    /// Local and producer-validated external callables whose exact contracts
+    /// take precedence over same-spelled builtin ownership heuristics.
+    pub exact_callables: &'a FxHashSet<Name>,
     pub pool: &'a ori_types::Pool,
     pub interner: &'a ori_ir::StringInterner,
     pub builtins: &'a BuiltinOwnershipSets,
@@ -160,8 +172,8 @@ pub(crate) struct AimsPipelineResult {
 
 /// Run the AIMS pipeline on a single function (steps 3–12).
 ///
-/// Called from within `run_arc_pipeline` when the `aims` feature is active.
-/// Interprocedural contracts must already be computed and passed via `config`.
+/// Called only by the closed-program batch owner after interprocedural facts
+/// are complete and passed via `config`.
 ///
 /// Returns `Err` if ARC IR verification fails under explicit verification
 /// mode (`ORI_VERIFY_ARC=1`). Verification errors are ICEs — they indicate
@@ -170,16 +182,23 @@ pub(crate) fn run_aims_pipeline(
     func: &mut ArcFunction,
     config: &AimsPipelineConfig<'_>,
 ) -> Result<AimsPipelineResult, Vec<crate::verify::VerifyError>> {
+    // Single-function users may bypass the batch entry. Resolve exactly once
+    // for a new artifact, or validate the already-frozen AIMS input table.
+    crate::aims::primitive::ensure_primitive_facts(func, config.classifier)?;
+
     // Steps 3–3a: compute var_reprs, detect immortals, normalize with
     // TRMC rewrite loop (idempotent — at most 2 iterations).
     let (norm_result, immortals, did_trmc_transform, pre_trmc_func) =
-        trmc::normalize_with_trmc(func, config);
+        trmc::normalize_with_trmc(func, config)?;
     trace_pipeline_checkpoint(
         func,
         "normalize_with_trmc_complete",
         config.interner,
         config.observer,
     );
+    // Normalization preserves primitive destinations. Re-check exact coverage
+    // so a future structural rewrite cannot silently orphan frozen facts.
+    crate::aims::primitive::ensure_primitive_facts(func, config.classifier)?;
 
     // Intraprocedural analysis → converged state map.
     let state_map = {
@@ -223,13 +242,14 @@ pub(crate) fn run_aims_pipeline(
     // it because arg_ownership is already populated here.
     {
         let _span = tracing::debug_span!("emit_arg_ownership_prelude").entered();
-        crate::aims::emit_rc::arg_ownership::emit_arg_ownership(
+        crate::aims::emit_rc::arg_ownership::emit_arg_ownership_with_exact_callables(
             func,
             config.contracts,
             config.interner,
             config.builtins,
             config.pool,
-        );
+            config.exact_callables,
+        )?;
     }
     trace_pipeline_checkpoint(
         func,
@@ -296,6 +316,13 @@ pub(crate) fn run_aims_pipeline(
     // Verify, AIMS-verify, tail calls, merge.
     postprocess::verify_and_merge(func, config)?;
 
+    // Tail-call lowering, unwind cleanup, reuse expansion, and block merging
+    // may introduce aliases after the initial metadata computation. Their
+    // allocation APIs preserve metadata eagerly; this owner-seam validation
+    // recomputes expected values without mutating the authoritative tables, so
+    // a missed allocator cannot be silently repaired before backend handoff.
+    validate_metadata_checkpoint(func, config)?;
+
     apply_phase_2_annotations(func, &state_map, config, &mut result);
 
     // Final verification + FBIP.
@@ -306,6 +333,110 @@ pub(crate) fn run_aims_pipeline(
         missed_reuses,
         was_trmc_rewritten: trmc_rewrite_survived,
     })
+}
+
+pub(super) fn validate_variable_metadata(
+    func: &ArcFunction,
+    classifier: &dyn crate::ArcClassification,
+    pool: &ori_types::Pool,
+) -> Result<(), Vec<crate::verify::VerifyError>> {
+    let mut errors = Vec::new();
+    if func.var_metadata_state != crate::ir::VariableMetadataState::Realized {
+        errors.push(crate::verify::VerifyError::VariableMetadataUnrealized);
+    }
+    let expected_representations = crate::ir::compute_var_reprs(func, classifier, pool);
+    errors.extend(representation_metadata_errors(
+        func,
+        &expected_representations,
+    ));
+
+    let expected_strategies =
+        crate::ir::derive_var_rc_strategies(&expected_representations, &func.var_types, pool);
+    errors.extend(rc_strategy_metadata_errors(func, &expected_strategies));
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+fn validate_metadata_checkpoint(
+    func: &ArcFunction,
+    config: &AimsPipelineConfig<'_>,
+) -> Result<(), Vec<crate::verify::VerifyError>> {
+    validate_variable_metadata(func, config.classifier, config.pool)?;
+    trace_pipeline_checkpoint(
+        func,
+        "validate_variable_metadata",
+        config.interner,
+        config.observer,
+    );
+    Ok(())
+}
+
+fn representation_metadata_errors(
+    func: &ArcFunction,
+    expected: &[crate::ir::ValueRepr],
+) -> Vec<crate::verify::VerifyError> {
+    use crate::verify::VerifyError;
+
+    if func.var_reprs.len() == func.var_types.len() {
+        expected
+            .iter()
+            .zip(&func.var_reprs)
+            .enumerate()
+            .filter(|(_, (expected, found))| expected != found)
+            .map(
+                |(index, (&expected, &found))| VerifyError::VariableRepresentationMismatch {
+                    var: variable_id(index),
+                    expected,
+                    found,
+                },
+            )
+            .collect()
+    } else {
+        vec![VerifyError::VariableMetadataLength {
+            table: "representation",
+            variables: func.var_types.len(),
+            entries: func.var_reprs.len(),
+        }]
+    }
+}
+
+fn rc_strategy_metadata_errors(
+    func: &ArcFunction,
+    expected: &[Option<crate::ir::RcStrategy>],
+) -> Vec<crate::verify::VerifyError> {
+    use crate::verify::VerifyError;
+
+    if func.var_rc_strategies.len() == func.var_types.len() {
+        expected
+            .iter()
+            .zip(&func.var_rc_strategies)
+            .enumerate()
+            .filter(|(_, (expected, found))| expected != found)
+            .map(
+                |(index, (&expected, &found))| VerifyError::VariableRcStrategyMismatch {
+                    var: variable_id(index),
+                    expected,
+                    found,
+                },
+            )
+            .collect()
+    } else {
+        vec![VerifyError::VariableMetadataLength {
+            table: "RC-strategy",
+            variables: func.var_types.len(),
+            entries: func.var_rc_strategies.len(),
+        }]
+    }
+}
+
+fn variable_id(index: usize) -> crate::ir::ArcVarId {
+    crate::ir::ArcVarId::new(
+        u32::try_from(index).unwrap_or_else(|_| panic!("variable index exceeds u32::MAX")),
+    )
 }
 
 /// Phase 2: COW + drop hints (post-merge) followed by post-realize

@@ -62,6 +62,49 @@ fn lower_string_literal() {
 }
 
 #[test]
+fn enum_variant_shadows_same_named_type_reference() {
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+    let error = interner.intern("Error");
+    let log_level = interner.intern("LogLevel");
+    let root = arena.alloc_expr(Expr::new(ExprKind::Ident(error), Span::DUMMY));
+
+    let mut pool = ori_types::Pool::new();
+    let enum_type = pool.enum_type(
+        log_level,
+        &[ori_types::EnumVariant {
+            name: error,
+            field_types: vec![Idx::STR],
+        }],
+    );
+    let constructor_type = pool.function(&[Idx::STR], enum_type);
+
+    let mut typed = TypedModule::new();
+    typed.expr_types.push(constructor_type);
+    typed.types.push(ori_types::TypeEntry {
+        name: error,
+        idx: Idx::from_raw(64),
+        kind: ori_types::TypeKind::Struct(ori_types::StructDef {
+            fields: Vec::new(),
+            category: ori_types::ValueCategory::default(),
+        }),
+        span: Span::DUMMY,
+        type_params: Vec::new(),
+        visibility: ori_types::Visibility::Public,
+        merkle_hash: 0,
+        repr: None,
+        burden: None,
+    });
+
+    let result = lower(&arena, &TypeCheckResult::ok(typed), &pool, root, &interner);
+    assert_eq!(
+        *result.arena.kind(result.root),
+        CanExpr::Ident(error),
+        "the type-checker-selected enum variant must outrank a same-named type"
+    );
+}
+
+#[test]
 fn lower_unit() {
     let mut arena = ExprArena::new();
     let root = arena.alloc_expr(Expr::new(ExprKind::Unit, Span::DUMMY));

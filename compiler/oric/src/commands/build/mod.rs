@@ -45,6 +45,30 @@ pub use super::build_options::{
     parse_build_options, BuildOptions, DebugLevel, EmitType, LinkMode, LtoMode, OptLevel,
 };
 
+/// Whether a successfully checked module declares an executable entry point.
+#[cfg(feature = "llvm")]
+fn module_has_cli_entry(
+    parse: &crate::parser::ParseOutput,
+    types: &ori_types::TypeCheckResult,
+) -> bool {
+    crate::typeck::build_function_sigs(parse, types)
+        .iter()
+        .any(|signature| signature.is_main)
+}
+
+/// Reject executable linking before the system linker when no `@main` exists.
+#[cfg(feature = "llvm")]
+fn require_cli_entry(path: &str, options: &BuildOptions, has_cli_entry: bool) {
+    let links_executable = options.emit.is_none() && !options.lib && !options.dylib;
+    if links_executable && !has_cli_entry {
+        crate::problem::codegen::report_codegen_error(
+            crate::problem::codegen::CodegenProblem::MissingEntryPoint {
+                path: path.to_string(),
+            },
+        );
+    }
+}
+
 /// Check if source code has any imports.
 ///
 /// Uses a simple line-based check for `use "./` or `use "../` patterns.

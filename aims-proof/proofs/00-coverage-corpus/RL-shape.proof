@@ -18,9 +18,10 @@ Theorem RL-2: Last-use RcDec emission
     Forall v in owned_non_scalar_vars(F).
       RL-2 emits RcDec(v) at last_use(v) UNLESS last_use(v) is
       ownership-transferring;
-      For every heap-allocating definition site of v, the realized
-      IR contains a matching RcDec(v) on every CFG path from
-      definition to function exit; RC count balanced per
+      For every definition site that creates an owned allocation identity
+      for v, the realized IR contains a matching logical debit or ownership
+      transfer on every CFG path from definition to function exit; the
+      logical count trace is balanced per
       VF-4 / VF-6.
 
   Proof obligation:

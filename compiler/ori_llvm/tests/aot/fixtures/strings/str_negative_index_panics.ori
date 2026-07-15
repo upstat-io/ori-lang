@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s = "hello";
+    s[-1];
+    0
+}

@@ -1,0 +1,43 @@
+@main () -> int = {
+    let base = [10, 20, 30];
+    let alias = base;
+    let pushed = alias.push(40);
+    let inserted = pushed.insert(1, 15);
+    let prepended = inserted.prepend(5);
+    let removed = prepended.remove(3);
+    let changed = removed.set(4, 50);
+    let protocol_changed = changed.updated(key: 0, value: 6);
+    let left = [[1], [2]];
+    let left_alias = left;
+    let joined = left_alias + [[3], [4]];
+
+    if base.len() == 3
+    && base[0] == 10
+    && base[1] == 20
+    && base[2] == 30
+    && changed.len() == 5
+    && changed[0] == 5
+    && changed[1] == 10
+    && changed[2] == 15
+    && changed[3] == 30
+    && changed[4] == 50
+    && protocol_changed[0] == 6
+    && left.len() == 2
+    && left[0][0] == 1
+    && left[1][0] == 2
+    && joined.len() == 4
+    && joined[0][0] == 1
+    && joined[1][0] == 2
+    && joined[2][0] == 3
+    && joined[3][0] == 4 then
+        protocol_changed[0]
+        + protocol_changed[1]
+        + protocol_changed[2]
+        + protocol_changed[3]
+        + protocol_changed[4]
+        + joined[0][0]
+        + joined[1][0]
+        + joined[2][0]
+        + joined[3][0]
+    else 101
+}

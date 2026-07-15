@@ -34,12 +34,43 @@ impl ModuleChecker<'_> {
     /// `impl<T> Box<T>`). Codegen keys mono-collection dispatch on the receiver
     /// shell, NOT on `sig.param_types.first()` (which is the first VALUE param,
     /// not the receiver, for a no-`self` associated function).
-    pub fn register_impl_sig(&mut self, self_type: Idx, name: Name, sig: FunctionSig) {
+    pub fn register_impl_sig(
+        &mut self,
+        id: crate::ImplMethodId,
+        self_type: Idx,
+        name: Name,
+        role: crate::ImplMethodRole,
+        sig: FunctionSig,
+    ) {
         self.impl_sigs.push(crate::ImplSig {
+            id,
             receiver: self_type,
             name,
+            role,
             sig,
         });
+    }
+
+    /// Freeze an impl method's semantic role at registration time.
+    pub(crate) fn register_impl_method_role(
+        &mut self,
+        id: crate::ImplMethodId,
+        role: crate::ImplMethodRole,
+    ) {
+        let previous = self.impl_method_roles.insert(id, role);
+        assert!(
+            previous.is_none(),
+            "duplicate semantic role registration for impl method {id:?}"
+        );
+    }
+
+    /// Read the registration-owned role for one exact impl method.
+    #[must_use]
+    pub(crate) fn impl_method_role(&self, id: crate::ImplMethodId) -> crate::ImplMethodRole {
+        self.impl_method_roles
+            .get(&id)
+            .copied()
+            .unwrap_or(crate::ImplMethodRole::Ordinary)
     }
 
     /// Record a trait impl method name for unconstrained function detection.

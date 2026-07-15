@@ -77,6 +77,12 @@ related_journeys:
 
 # Journey 20: "I am copy-on-write"
 
+> **Historical architecture note (2026-07-15):** This journey measures the
+> captured LLVM counter projection. AIMS supplies backend-neutral uniqueness,
+> sharing-observation, ownership, and cleanup facts; the VM, LLVM/native,
+> compiled-WASM, and JIT paths independently validate their physical COW and
+> storage mechanisms against those facts.
+
 ## Source
 
 ```ori
@@ -1241,7 +1247,7 @@ In `@list_cow_loop`, the compiler correctly determines that `xs` is a unique own
 
 ## Verdict
 
-Journey 20 achieves perfect codegen across all four COW patterns. The static uniqueness analysis correctly identifies sole-owner scenarios (`cow_mode=StaticUnique` for list push), the SSO guard sequences are minimal and correct for string RC operations, and the seamless slice protocol handles zero-copy views with proper SLICE_FLAG-aware cleanup. Both backends produce identical results (105) with zero leaks, demonstrating that the AIMS pipeline's COW optimizations are sound and complete.
+Journey 20 achieved perfect captured LLVM codegen across all four COW patterns. The shared uniqueness facts identify sole-owner scenarios (`cow_mode=StaticUnique` for list push), while the LLVM projection's SSO guards and SLICE_FLAG cleanup realize those facts correctly. Evaluator/AOT agreement and zero compiled leaks are evidence for this projection; they do not by themselves establish complete AIMS, VM, direct-WASM, native, or JIT conformance.
 
 ## Cross-Journey Observations
 

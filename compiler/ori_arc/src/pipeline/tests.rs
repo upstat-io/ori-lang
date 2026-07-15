@@ -12,7 +12,10 @@ use crate::aims::contract::{
 use crate::aims::lattice::{
     AccessClass, Cardinality, Consumption, Locality, ShapeClass, Uniqueness,
 };
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
+use crate::ir::{
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy, ValueRepr,
+    VariableMetadataState,
+};
 use crate::test_helpers::{owned_param, v};
 
 /// Build a function with a dangling block reference (block 0 jumps to non-existent block 99).
@@ -34,6 +37,7 @@ fn function_with_dangling_ref() -> ArcFunction {
 /// Build a function with an `RcInc` on a scalar variable (invariant violation).
 fn function_with_rc_on_scalar() -> ArcFunction {
     let mut func = ArcFunction {
+        var_types: vec![Idx::NONE],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -47,7 +51,7 @@ fn function_with_rc_on_scalar() -> ArcFunction {
         }],
         ..Default::default()
     };
-    func.var_reprs = vec![crate::ir::ValueRepr::Scalar];
+    func.replace_variable_representations(vec![crate::ir::ValueRepr::Scalar]);
     func
 }
 
@@ -88,6 +92,73 @@ fn absent_param() -> ParamContract {
         borrowed_cow_mutated: false,
         iter_consumes_projected_field: None,
     }
+}
+
+#[test]
+fn final_metadata_validation_rejects_corruption_without_repairing_it() {
+    let pool = ori_types::Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    let func = ArcFunction {
+        var_types: vec![Idx::STR],
+        var_reprs: vec![ValueRepr::Scalar],
+        var_rc_strategies: vec![None],
+        var_metadata_state: VariableMetadataState::Realized,
+        ..ArcFunction::default()
+    };
+
+    let result = super::aims_pipeline::validate_variable_metadata(&func, &classifier, &pool);
+    let Err(errors) = result else {
+        panic!("corrupt realized metadata must fail at the realization owner seam");
+    };
+
+    assert!(errors.iter().any(|error| matches!(
+        error,
+        crate::verify::VerifyError::VariableRepresentationMismatch {
+            var,
+            expected: ValueRepr::FatValue,
+            found: ValueRepr::Scalar,
+        } if *var == ArcVarId::new(0)
+    )));
+    assert!(errors.iter().any(|error| matches!(
+        error,
+        crate::verify::VerifyError::VariableRcStrategyMismatch {
+            var,
+            expected: Some(RcStrategy::FatPointer),
+            found: None,
+        } if *var == ArcVarId::new(0)
+    )));
+    let strategy_error = errors
+        .iter()
+        .find(|error| {
+            matches!(
+                error,
+                crate::verify::VerifyError::VariableRcStrategyMismatch { .. }
+            )
+        })
+        .unwrap_or_else(|| panic!("strategy mismatch should be reported"));
+    assert_eq!(
+        strategy_error.to_string(),
+        "physical ownership-strategy metadata for v0 is inconsistent with its canonical type and representation: expected Some(FatPointer), found None; rerun the same command with ORI_VERIFY_ARC=1 and report this compiler bug (Annex E, AIMS §8.11)"
+    );
+    assert_eq!(func.var_reprs, [ValueRepr::Scalar]);
+    assert_eq!(func.var_rc_strategies, [None]);
+}
+
+#[test]
+fn final_metadata_validation_rejects_unrealized_zero_var_function() {
+    let pool = ori_types::Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    let func = ArcFunction::default();
+
+    let result = super::aims_pipeline::validate_variable_metadata(&func, &classifier, &pool);
+    let Err(errors) = result else {
+        panic!("zero-variable metadata still requires an explicit realized state");
+    };
+
+    assert_eq!(
+        errors,
+        [crate::verify::VerifyError::VariableMetadataUnrealized]
+    );
 }
 
 // run_verify: blocking under verify=true
@@ -143,15 +214,15 @@ fn aims_verify_blocks_absent_param_used_on_live_path() {
     // Live-path: single block `return v0`. The absent param IS used on a
     // path that reaches Return → genuine contract/IR inconsistency → Err.
     let func = crate::test_helpers::make_func(
-        vec![owned_param(0, Idx::NONE)],
-        Idx::NONE,
+        vec![owned_param(0, Idx::UNIT)],
+        Idx::UNIT,
         vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: vec![],
             body: vec![],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
-        vec![Idx::NONE],
+        vec![Idx::UNIT],
     );
     let contract = make_contract(vec![absent_param()]);
 
@@ -402,6 +473,7 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
         classifier: &classifier,
         contracts: &contracts,
         func_names: &func_names,
+        exact_callables: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
@@ -475,6 +547,7 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
         classifier: &classifier,
         contracts: &contracts,
         func_names: &func_names,
+        exact_callables: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
@@ -533,6 +606,7 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
         classifier: &classifier,
         contracts: &contracts,
         func_names: &func_names,
+        exact_callables: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
@@ -674,21 +748,20 @@ fn fip_second_pass_blocks_all_errors() {
 // IC-1 enforcement semantic pins
 
 /// INV1 (positive pin): the batch pipeline computes a contract for every
-/// analyzed function. After `run_arc_pipeline_all` over a single function,
-/// the IC-1 invariant holds — the `get_required` sites never panic on the
-/// computed contracts map.
+/// analyzed function. The batch outcome returns the same finalized contract
+/// map consumed by the second pass, so the executable seam never reanalyzes.
 #[test]
 fn aims_pipeline_ic1_invariant_holds_end_to_end() {
     let func = crate::test_helpers::make_func(
-        vec![owned_param(0, Idx::NONE)],
-        Idx::NONE,
+        vec![owned_param(0, Idx::UNIT)],
+        Idx::UNIT,
         vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: vec![],
             body: vec![],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
-        vec![Idx::NONE],
+        vec![Idx::UNIT],
     );
 
     let interner = ori_ir::StringInterner::new();
@@ -696,22 +769,38 @@ fn aims_pipeline_ic1_invariant_holds_end_to_end() {
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
     let type_registry = ori_types::TypeRegistry::default();
+    let external_contracts = rustc_hash::FxHashMap::default();
+    let callable_boundaries = crate::CallableBoundaryFacts::default();
 
     let mut funcs = vec![func];
-    let result = crate::run_arc_pipeline_all(
+    let result = crate::realize_closed_program(
         &mut funcs,
-        &classifier,
-        &interner,
-        &pool,
-        &builtins,
-        &type_registry,
-        false,
+        &crate::ArcPipelineContext {
+            classifier: &classifier,
+            interner: &interner,
+            pool: &pool,
+            builtins: &builtins,
+            type_registry: &type_registry,
+            callable_boundaries: &callable_boundaries,
+            verify_arc: false,
+            external_contracts: &external_contracts,
+        },
     );
     assert!(
         result.is_ok(),
         "IC-1 invariant: batch pipeline computes a contract for every \
          function — get_required sites must not panic"
     );
+    let outcome =
+        result.unwrap_or_else(|errors| panic!("unexpected verification errors: {errors:?}"));
+    assert_eq!(outcome.contracts.len(), funcs.len());
+    assert!(outcome.contracts.contains_key(&funcs[0].name));
+    assert_eq!(outcome.function_effects.len(), funcs.len());
+    assert!(outcome.function_effects.contains_key(&funcs[0].name));
+    assert_eq!(outcome.fresh_return_facts.len(), funcs.len());
+    assert!(outcome.fresh_return_facts.contains_key(&funcs[0].name));
+    assert_eq!(outcome.param_disjointness.len(), funcs.len());
+    assert!(outcome.param_disjointness.contains_key(&funcs[0].name));
 }
 
 /// INV2 (negative pin — load-bearing): invoking the per-function pipeline
@@ -748,6 +837,7 @@ fn aims_pipeline_panics_on_synthetic_invariant_break() {
         classifier: &classifier,
         contracts: &contracts,
         func_names: &func_names,
+        exact_callables: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
@@ -777,6 +867,7 @@ fn run_pipeline(func: &mut ArcFunction) {
         classifier: &classifier,
         contracts: &contracts,
         func_names: &func_names,
+        exact_callables: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
@@ -927,9 +1018,10 @@ fn class_ledger_replaces_clean_function_with_lowered_plan() {
     );
 }
 
-/// A declined class is FAIL-LOUD on every path: the class-ledger plan is
-/// the sole RC emitter (the legacy repair passes are deleted; no fallback
-/// emitter exists), so a decline is an ICE naming the function + gate.
+/// A declined class is FAIL-LOUD on every path: the class-ledger plan is the
+/// sole RC-emission input to the current compiled-counter adapter (the legacy
+/// repair passes are deleted; no fallback adapter input exists), so a decline
+/// is an ICE naming the function + gate.
 #[test]
 #[should_panic(expected = "class-ledger replacement declined")]
 fn class_ledger_declined_function_fails_loud() {
@@ -1057,7 +1149,7 @@ fn class_ledger_replaces_contract_certified_payload_view_caller() {
         "Wrapper",
         container_idx,
         Some(UserBurdenSpec {
-            self_heap_alloc: false,
+            self_owned_identity: false,
             owned_fields: vec![UserOwnedField {
                 field_path: vec![0],
                 field_type: Idx::STR,
@@ -1070,6 +1162,7 @@ fn class_ledger_replaces_contract_certified_payload_view_caller() {
         classifier: &classifier,
         contracts: &contracts,
         func_names: &func_names,
+        exact_callables: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,

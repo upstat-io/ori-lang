@@ -67,9 +67,9 @@ pub enum AimsEvent {
         instr: usize,
         var: ArcVarId,
     },
-    /// A local-allocation eligibility point (`Locality::FunctionLocal`
-    /// or `BlockLocal` for a non-scalar allocation).
-    LocalAllocCandidate {
+    /// A lifetime-bounded value that a physical planner may consider for a
+    /// local placement. AIMS supplies no size, storage, or ABI decision.
+    PlacementEligibilityCandidate {
         block: ArcBlockId,
         instr: usize,
         var: ArcVarId,
@@ -100,7 +100,7 @@ impl AimsEvent {
             Self::ContextOpen { block, .. }
             | Self::ContextClose { block, .. }
             | Self::ReusableAllocation { block, .. }
-            | Self::LocalAllocCandidate { block, .. }
+            | Self::PlacementEligibilityCandidate { block, .. }
             | Self::FipGate { block, .. }
             | Self::AllocCreditBalance { block, .. } => *block,
         }
@@ -113,7 +113,7 @@ impl AimsEvent {
 ///
 /// When a callee's `MemoryContract` carries `ParamContract::return_alias =
 /// Some(ReturnAliasShape::*)` for one or more params, the destination of an
-/// Apply/Invoke at the caller IS the same heap allocation as the consumed
+/// Apply/Invoke at the caller IS the same logical allocation identity as the consumed
 /// argument(s) — the callee transferred ownership through return. This
 /// side-table records that identity so the caller's RC emission can avoid
 /// double-decrementing the shared allocation.
@@ -274,14 +274,21 @@ pub struct AimsStateMap {
     /// Sparse event table: special-interest program points, indexed by block.
     events: FxHashMap<ArcBlockId, Vec<AimsEvent>>,
 
-    /// Variables permanently marked as SCALAR (excluded from analysis).
-    /// Indexed by `ArcVarId::index()`. True = scalar (never analyzed).
+    /// Variables permanently marked as SCALAR (excluded from the AIMS product
+    /// lattice). Indexed by `ArcVarId::index()`.
     scalars: Vec<bool>,
 
-    /// Variables marked as IMMORTAL (heap-allocated but with `MAX_REFCOUNT`).
+    /// L-9-excluded scalar liveness at block boundaries. These sets carry only
+    /// whether copied scalar bits are used later; they never install an
+    /// `AimsState` or `RawDemand` for a scalar variable. The backward fixed
+    /// point uses them solely to select TF-14's scalar Project contribution.
+    scalar_live_at_exit: Vec<FxHashSet<ArcVarId>>,
+    scalar_live_at_entry: Vec<FxHashSet<ArcVarId>>,
+
+    /// Variables carrying the backend-neutral IMMORTAL lifetime fact.
     /// Excluded from RC emission, COW annotation, reuse detection, and drop hints.
-    /// Unlike scalars (which have no heap allocation), immortals DO allocate
-    /// but use pre-allocated singletons that never need RC operations.
+    /// Unlike scalars (which have no logical allocation identity), immortals may
+    /// carry a stable identity but require no ownership-count or cleanup events.
     /// Indexed by `ArcVarId::index()`. True = immortal.
     immortals: Vec<bool>,
 
@@ -403,7 +410,7 @@ pub struct AimsStateMap {
     /// # Consumer
     ///
     /// `var_state_at_definition` consults this table FIRST, so DP-3
-    /// (`is_rc_inc_elidable`) / DP-2 receive the proven converged-at-definition
+    /// (`is_additional_credit_elidable`) / DP-2 receive the proven converged-at-definition
     /// demand (TF-11 `seqAdd` accumulation) rather than the BOTTOM block-exit
     /// state. `var_state_at_block_exit` does NOT consult it (no blast radius to
     /// FIP / `LocalAlloc` consumers).
@@ -441,6 +448,8 @@ impl AimsStateMap {
             class_apply_alias_source_candidates: FxHashMap::default(),
             events: FxHashMap::default(),
             scalars: vec![false; num_vars],
+            scalar_live_at_exit: vec![FxHashSet::default(); num_blocks],
+            scalar_live_at_entry: vec![FxHashSet::default(); num_blocks],
             immortals: vec![false; num_vars],
             birth_site_partition: None,
             effect_summary: EffectSummary::default(),
@@ -460,7 +469,8 @@ impl AimsStateMap {
 
     /// Mark a variable as permanently SCALAR (excluded from analysis).
     ///
-    /// Scalar variables never need RC operations, COW checks, or reuse.
+    /// Scalar variables require no ownership events, sharing observations, or
+    /// reuse facts.
     /// This is irreversible — once marked, the variable returns `SCALAR`
     /// from all state queries.
     pub fn set_permanent_scalar(&mut self, var: ArcVarId) {
@@ -486,8 +496,8 @@ impl AimsStateMap {
         self.immortals = immortals;
     }
 
-    /// Whether a variable is marked IMMORTAL (heap-allocated constant with
-    /// `MAX_REFCOUNT`, excluded from RC operations).
+    /// Whether a variable carries the IMMORTAL logical lifetime fact and is
+    /// therefore excluded from ownership-count operations.
     #[inline]
     pub fn is_immortal(&self, var: ArcVarId) -> bool {
         self.immortals.get(var.index()).copied().unwrap_or(false)
@@ -640,6 +650,16 @@ impl AimsStateMap {
         self.block_exit_states.get(block.index())
     }
 
+    /// Get L-9-excluded scalar liveness at a block's entry.
+    pub(crate) fn scalar_live_at_entry(&self, block: ArcBlockId) -> Option<&FxHashSet<ArcVarId>> {
+        self.scalar_live_at_entry.get(block.index())
+    }
+
+    /// Get L-9-excluded scalar liveness at a block's exit.
+    pub(crate) fn scalar_live_at_exit(&self, block: ArcBlockId) -> Option<&FxHashSet<ArcVarId>> {
+        self.scalar_live_at_exit.get(block.index())
+    }
+
     // Block state mutation
 
     /// Update the entry state for a block. Returns `true` if any state changed.
@@ -679,6 +699,44 @@ impl AimsStateMap {
             return false;
         }
         self.block_exit_states[idx] = new_exit;
+        self.changed = true;
+        true
+    }
+
+    /// Join scalar liveness at a block entry as part of the same fixed point
+    /// as the managed product state.
+    pub(crate) fn update_scalar_live_at_entry(
+        &mut self,
+        block: ArcBlockId,
+        live: FxHashSet<ArcVarId>,
+    ) -> bool {
+        let Some(current) = self.scalar_live_at_entry.get_mut(block.index()) else {
+            return false;
+        };
+        let previous_len = current.len();
+        current.extend(live);
+        if current.len() == previous_len {
+            return false;
+        }
+        self.changed = true;
+        true
+    }
+
+    /// Join scalar liveness at a block exit as part of the same fixed point
+    /// as the managed product state.
+    pub(crate) fn update_scalar_live_at_exit(
+        &mut self,
+        block: ArcBlockId,
+        live: FxHashSet<ArcVarId>,
+    ) -> bool {
+        let Some(current) = self.scalar_live_at_exit.get_mut(block.index()) else {
+            return false;
+        };
+        let previous_len = current.len();
+        current.extend(live);
+        if current.len() == previous_len {
+            return false;
+        }
         self.changed = true;
         true
     }

@@ -11,7 +11,7 @@
 use ori_ir::canon::CanId;
 use ori_types::Idx;
 
-use crate::ir::ArcVarId;
+use crate::ir::{ArcVarId, MethodCallForm};
 
 use super::super::expr::{ArcLowerer, ForLoop, ForYieldShape, LoopContext};
 
@@ -181,6 +181,8 @@ impl ArcLowerer<'_> {
             let iter_result =
                 self.builder
                     .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
+            self.builder
+                .note_method_call(iter_result, iter_ty, MethodCallForm::Instance);
             self.lower_for_iterator(pattern, iter_result, elem_ty, guard, body, label)
         }
     }

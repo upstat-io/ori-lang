@@ -375,8 +375,8 @@ Theorem IC-2: ParamContract initialization at most-optimistic state
       The `may_share = false` seed at mod.rs:373 is therefore
       load-bearing for the entire COW fast-path infrastructure;
       promoting it ELSEWHERE (e.g., in CN-* canonicalization)
-      would require co-evolving DP-9 + RL-30 LLVM attribute
-      emission. The cleanest discipline is IC-2's seed at
+      would require co-evolving DP-9 + RL-30 neutral access-fact
+      derivation. The cleanest discipline is IC-2's seed at
       OR-identity, IC-3's monotone promotion via observed
       call-site evidence only.
 

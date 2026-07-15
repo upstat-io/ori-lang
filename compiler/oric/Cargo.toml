@@ -74,14 +74,15 @@ notify = "7"
 scip = "0.8.1"
 protobuf = "3"
 
-# Process-group kill for test-worker subprocess isolation (already present
-# transitively in the workspace dependency tree)
+# Safe process-group kill for test-worker subprocess isolation.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+rustix = { version = "1.1", features = ["process"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4"
 criterion = { version = "0.8", features = ["html_reports"] }
+sha2 = "0.10"
 tempfile = "3.10"
 ori_rt = { path = "../ori_rt" }
 # Format-spec SSOT (variant-registration consistency tests)
@@ -117,6 +118,10 @@ harness = false
 
 [[bench]]
 name = "memory"
+harness = false
+
+[[bench]]
+name = "vm"
 harness = false
 
 [[bench]]

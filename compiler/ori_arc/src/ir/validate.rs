@@ -13,8 +13,9 @@
 //! > SHALL NOT reach codegen.
 //!
 //! The functions in this module make that invariant self-enforcing at the
-//! single upstream codegen seam (`process_arc_function` and
-//! `declare_and_process_lambda` in `ori_llvm::codegen::function_compiler`).
+//! closed ARC-program ingress before [`crate::realize_closed_program`]. Any
+//! remaining compiler-driver or LLVM calls are transitional redundant guards,
+//! not backend-owned validation seams.
 //!
 //! # Exemption Set
 //!
@@ -94,14 +95,9 @@ fn check_unresolved_idx<S: BuildHasher>(
     Ok(())
 }
 
-/// Instruction-operand walker. Exhaustive match — new `Idx`-bearing variants
-/// are compile-time errors here, forcing PC-2 contract re-evaluation.
-fn check_instr_for_unresolved_idx<S: BuildHasher>(
-    pool: &Pool,
-    instr: &ArcInstr,
-    func_name: Name,
-    exempt_var_ids: &HashSet<u32, S>,
-) -> Result<(), UnresolvedTypeVar> {
+/// Return one instruction's type-bearing destination, when present.
+/// Exhaustive matching makes new ARC variants re-evaluate this shared seam.
+fn instruction_type_site(instr: &ArcInstr) -> Option<(Idx, ArcVarId)> {
     match instr {
         ArcInstr::Let { dst, ty, .. }
         | ArcInstr::Apply { dst, ty, .. }
@@ -111,9 +107,7 @@ fn check_instr_for_unresolved_idx<S: BuildHasher>(
         | ArcInstr::Construct { dst, ty, .. }
         | ArcInstr::Reuse { dst, ty, .. }
         | ArcInstr::CollectionReuse { dst, ty, .. }
-        | ArcInstr::Select { dst, ty, .. } => {
-            check_unresolved_idx(pool, *ty, func_name, *dst, exempt_var_ids)
-        }
+        | ArcInstr::Select { dst, ty, .. } => Some((*ty, *dst)),
         ArcInstr::RcInc { .. }
         | ArcInstr::RcDec { .. }
         | ArcInstr::RcDecPartial { .. }
@@ -127,29 +121,147 @@ fn check_instr_for_unresolved_idx<S: BuildHasher>(
         | ArcInstr::IsShared { .. }
         | ArcInstr::Set { .. }
         | ArcInstr::SetTag { .. }
-        | ArcInstr::Reset { .. } => Ok(()),
+        | ArcInstr::Reset { .. } => None,
     }
 }
 
-/// Terminator-operand walker. `Invoke` and `InvokeIndirect` are the only
-/// `Idx`-bearing terminator variants today; exhaustive match catches additions.
-fn check_terminator_for_unresolved_idx<S: BuildHasher>(
-    pool: &Pool,
-    terminator: &ArcTerminator,
-    func_name: Name,
-    exempt_var_ids: &HashSet<u32, S>,
-) -> Result<(), UnresolvedTypeVar> {
+/// Return one terminator's type-bearing destination, when present.
+fn terminator_type_site(terminator: &ArcTerminator) -> Option<(Idx, ArcVarId)> {
     match terminator {
         ArcTerminator::Invoke { dst, ty, .. } | ArcTerminator::InvokeIndirect { dst, ty, .. } => {
-            check_unresolved_idx(pool, *ty, func_name, *dst, exempt_var_ids)
+            Some((*ty, *dst))
         }
         ArcTerminator::Return { .. }
         | ArcTerminator::Jump { .. }
         | ArcTerminator::Branch { .. }
         | ArcTerminator::Switch { .. }
         | ArcTerminator::Resume
-        | ArcTerminator::Unreachable => Ok(()),
+        | ArcTerminator::Unreachable => None,
     }
+}
+
+/// Return one instruction's mutable type-bearing destination, when present.
+///
+/// This is the mutation counterpart to [`instruction_type_site`]. Keeping the
+/// exhaustive variant list beside the validation walker makes type rewrites
+/// use the same ARC surface that the closure gates validate.
+fn instruction_type_site_mut(instr: &mut ArcInstr) -> Option<(&mut Idx, ArcVarId)> {
+    match instr {
+        ArcInstr::Let { dst, ty, .. }
+        | ArcInstr::Apply { dst, ty, .. }
+        | ArcInstr::ApplyIndirect { dst, ty, .. }
+        | ArcInstr::PartialApply { dst, ty, .. }
+        | ArcInstr::Project { dst, ty, .. }
+        | ArcInstr::Construct { dst, ty, .. }
+        | ArcInstr::Reuse { dst, ty, .. }
+        | ArcInstr::CollectionReuse { dst, ty, .. }
+        | ArcInstr::Select { dst, ty, .. } => Some((ty, *dst)),
+        ArcInstr::RcInc { .. }
+        | ArcInstr::RcDec { .. }
+        | ArcInstr::RcDecPartial { .. }
+        | ArcInstr::RcDecField { .. }
+        | ArcInstr::RcDecVariant { .. }
+        | ArcInstr::BurdenInc { .. }
+        | ArcInstr::BurdenDec { .. }
+        | ArcInstr::BurdenDecPartial { .. }
+        | ArcInstr::BurdenDecField { .. }
+        | ArcInstr::BurdenDecVariant { .. }
+        | ArcInstr::IsShared { .. }
+        | ArcInstr::Set { .. }
+        | ArcInstr::SetTag { .. }
+        | ArcInstr::Reset { .. } => None,
+    }
+}
+
+/// Return one terminator's mutable type-bearing destination, when present.
+fn terminator_type_site_mut(terminator: &mut ArcTerminator) -> Option<(&mut Idx, ArcVarId)> {
+    match terminator {
+        ArcTerminator::Invoke { dst, ty, .. } | ArcTerminator::InvokeIndirect { dst, ty, .. } => {
+            Some((ty, *dst))
+        }
+        ArcTerminator::Return { .. }
+        | ArcTerminator::Jump { .. }
+        | ArcTerminator::Branch { .. }
+        | ArcTerminator::Switch { .. }
+        | ArcTerminator::Resume
+        | ArcTerminator::Unreachable => None,
+    }
+}
+
+/// Rewrite every type-bearing ARC position in deterministic order.
+///
+/// Shared pre-AIMS transformations use this rather than maintaining
+/// instruction-specific fixup lists. The reporting variable is supplied so a
+/// rewrite may remain provenance-aware when the same type index appears at
+/// several SSA sites.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "ArcFunction variable tables are indexed by u32-backed ArcVarId"
+)]
+pub(crate) fn rewrite_type_sites(
+    func: &mut ArcFunction,
+    mut rewrite: impl FnMut(Idx, ArcVarId) -> Idx,
+) {
+    for (raw_index, ty) in func.var_types.iter_mut().enumerate() {
+        *ty = rewrite(*ty, ArcVarId::new(raw_index as u32));
+    }
+    for parameter in &mut func.params {
+        parameter.ty = rewrite(parameter.ty, parameter.var);
+    }
+    func.return_type = rewrite(func.return_type, ArcVarId::INVALID);
+    for fact in &mut func.method_call_facts {
+        fact.receiver_type = rewrite(fact.receiver_type, fact.destination);
+    }
+    for block in &mut func.blocks {
+        for (var, ty) in &mut block.params {
+            *ty = rewrite(*ty, *var);
+        }
+        for instruction in &mut block.body {
+            if let Some((ty, var)) = instruction_type_site_mut(instruction) {
+                *ty = rewrite(*ty, var);
+            }
+        }
+        if let Some((ty, var)) = terminator_type_site_mut(&mut block.terminator) {
+            *ty = rewrite(*ty, var);
+        }
+    }
+}
+
+/// Visit every type-bearing ARC position in deterministic order.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "ArcFunction variable tables are indexed by u32-backed ArcVarId"
+)]
+fn validate_type_sites<E>(
+    func: &ArcFunction,
+    mut validate: impl FnMut(Idx, ArcVarId) -> Result<(), E>,
+) -> Result<(), E> {
+    for (raw_index, &ty) in func.var_types.iter().enumerate() {
+        validate(ty, ArcVarId::new(raw_index as u32))?;
+    }
+    for parameter in &func.params {
+        validate(parameter.ty, parameter.var)?;
+    }
+    validate(func.return_type, ArcVarId::INVALID)?;
+    for fact in &func.method_call_facts {
+        validate(fact.receiver_type, fact.destination)?;
+    }
+    for block in func.blocks.iter().skip(1) {
+        for &(var, ty) in &block.params {
+            validate(ty, var)?;
+        }
+    }
+    for block in &func.blocks {
+        for instruction in &block.body {
+            if let Some((ty, var)) = instruction_type_site(instruction) {
+                validate(ty, var)?;
+            }
+        }
+        if let Some((ty, var)) = terminator_type_site(&block.terminator) {
+            validate(ty, var)?;
+        }
+    }
+    Ok(())
 }
 
 /// Check that no `Tag::Var` (outside `exempt_var_ids`) or `Tag::Projection`
@@ -193,10 +305,11 @@ fn check_terminator_for_unresolved_idx<S: BuildHasher>(
 ///
 /// # When to Call
 ///
-/// Call this from `process_arc_function` + `declare_and_process_lambda` in
-/// `ori_llvm`, BEFORE `ori_arc::run_arc_pipeline(...)` is invoked. The AIMS
-/// pipeline mutates `arc_func` in place; calling after would validate the
-/// wrong IR.
+/// Call this at the shared ARC ingress, BEFORE
+/// [`crate::realize_closed_program`] is invoked. Every physical executor must
+/// consume that same validated artifact rather than define a backend-local
+/// validation seam. AIMS realization mutates `arc_func` in place, so calling
+/// after it would validate the wrong IR.
 pub fn assert_no_unresolved_type_vars<S: BuildHasher>(
     pool: &Pool,
     func: &ArcFunction,
@@ -204,50 +317,9 @@ pub fn assert_no_unresolved_type_vars<S: BuildHasher>(
     exempt_var_ids: &HashSet<u32, S>,
 ) -> Result<(), UnresolvedTypeVar> {
     let name = func.name;
-
-    // 1. SSA-variable storage (primary position).
-    //
-    // SSA variable indices are allocated by ArcLowerer::new_var() which returns
-    // `ArcVarId(u32)`; the count is therefore architecturally bounded by u32::MAX.
-    // See `compiler/ori_arc/src/ir/function.rs` for the newtype definition.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "ArcVarId is u32; var_types.len() cannot exceed u32::MAX by construction"
-    )]
-    for (raw_idx, &ty) in func.var_types.iter().enumerate() {
-        check_unresolved_idx(
-            pool,
-            ty,
-            name,
-            ArcVarId::new(raw_idx as u32),
-            exempt_var_ids,
-        )?;
-    }
-    // 2. Entry-block parameters.
-    for param in &func.params {
-        check_unresolved_idx(pool, param.ty, name, param.var, exempt_var_ids)?;
-    }
-    // 3. Return type. `ArcVarId::INVALID` is a sentinel — no owning SSA var.
-    check_unresolved_idx(
-        pool,
-        func.return_type,
-        name,
-        ArcVarId::INVALID,
-        exempt_var_ids,
-    )?;
-    // 4. CFG-block parameters (skip blocks[0]; it mirrors func.params).
-    for block in func.blocks.iter().skip(1) {
-        for &(var, ty) in &block.params {
-            check_unresolved_idx(pool, ty, name, var, exempt_var_ids)?;
-        }
-    }
-    // 5+6. Instruction operands + terminator operands (per-block walk).
-    for block in &func.blocks {
-        for instr in &block.body {
-            check_instr_for_unresolved_idx(pool, instr, name, exempt_var_ids)?;
-        }
-        check_terminator_for_unresolved_idx(pool, &block.terminator, name, exempt_var_ids)?;
-    }
+    validate_type_sites(func, |ty, var| {
+        check_unresolved_idx(pool, ty, name, var, exempt_var_ids)
+    })?;
 
     let _ = interner; // reserved for future Name rendering in Display impl
     Ok(())
@@ -318,10 +390,10 @@ pub fn assert_no_unresolved_idx(
     Ok(())
 }
 
-/// A single unresolved `Tag::BoundVar` encountered in lambda parameters
-/// after monomorphization-resolution should have run.
+/// A single unresolved `Tag::BoundVar` encountered after shared lambda
+/// specialization should have run.
 ///
-/// Constructed by [`assert_no_unresolved_bound_vars_in_params`] on invariant
+/// Constructed by [`assert_no_unresolved_bound_vars`] on invariant
 /// violation. Wrapped by `ori_arc::verify::VerifyError::UnresolvedBoundVar(_)`.
 ///
 /// Distinct from [`UnresolvedTypeVar`]: PC-2 forbids `Tag::Var` / `Tag::Projection`
@@ -334,52 +406,39 @@ pub fn assert_no_unresolved_idx(
 pub struct UnresolvedBoundVar {
     /// The lambda `ArcFunction.name` where the violation was detected.
     pub function: Name,
-    /// The parameter `ArcVarId` whose type is `Tag::BoundVar`.
+    /// The ARC variable whose type contains `Tag::BoundVar`, or
+    /// [`ArcVarId::INVALID`] for the function return type.
     pub var_id: ArcVarId,
     /// The raw type-pool index that resolved to `Tag::BoundVar`.
     pub idx: Idx,
 }
 
-/// Check that no `Tag::BoundVar` appears in lambda-parameter types.
+/// Check every shared ARC type position for a surviving `Tag::BoundVar`.
 ///
-/// Scoped to `lambda.params` specifically — this mirrors the invariant
-/// previously enforced by the `debug_assert!` at `define_phase.rs::compile_lambda_arc`
-/// entry. The check runs AFTER `resolve_all_lambda_bound_vars` has substituted
-/// every bound var in the lambda's captures + user params; any surviving
-/// `BoundVar` at this point means monomorphization did not finish.
-///
-/// # When to Call
-///
-/// Call from `compile_lambda_arc` in `ori_llvm::codegen::function_compiler::define_phase`
-/// BEFORE `declare_and_process_lambda` / `run_arc_pipeline` so failures short-circuit
-/// the emission of a lambda whose IR is not safe to process further.
-///
-/// # Returns
-///
-/// `Ok(())` when the invariant holds. `Err(UnresolvedBoundVar)` with the FIRST
-/// offending parameter (deterministic iteration order).
-pub fn assert_no_unresolved_bound_vars_in_params(
+/// This is the backend-neutral closure gate for specialized ARC: LLVM, the VM,
+/// and future executable projections consume the same validated result.
+pub fn assert_no_unresolved_bound_vars(
     pool: &Pool,
     func: &ArcFunction,
 ) -> Result<(), UnresolvedBoundVar> {
-    for param in &func.params {
-        let resolved = pool.resolve_fully(param.ty);
-        if matches!(pool.tag(resolved), Tag::BoundVar) {
-            return Err(UnresolvedBoundVar {
+    validate_type_sites(func, |ty, var_id| {
+        if let Some(idx) = crate::first_unresolved_bound_var(pool, ty) {
+            Err(UnresolvedBoundVar {
                 function: func.name,
-                var_id: param.var,
-                idx: resolved,
-            });
+                var_id,
+                idx,
+            })
+        } else {
+            Ok(())
         }
-    }
-    Ok(())
+    })
 }
 
 impl UnresolvedBoundVar {
     /// Render a user-facing diagnostic message for this violation.
     pub fn render(&self, interner: &StringInterner) -> String {
         format!(
-            "Tag::BoundVar reached codegen: lambda `{}`, ArcVarId({}) param has \
+            "Tag::BoundVar reached shared ARC closure: function `{}`, ArcVarId({}) has \
              unresolved bound-var at type index {:?}. Monomorphization-resolution \
              did not finish.",
             interner.lookup(self.function),

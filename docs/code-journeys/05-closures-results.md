@@ -66,6 +66,8 @@ related_journeys:
 
 # Journey 5: "I am a closure"
 
+> **Historical architecture note (2026-07-14):** This journey preserves the LLVM IR and scores observed on 2026-03-20. AIMS ownership decisions are backend-neutral; `nounwind`, `memory(...)`, `noundef`, closure ABI, and compiled drop callbacks are LLVM/layout projections. The production artifact carries the same ownership facts, typed runtime operations, and `ExecutableDropPlan` to the VM, LLVM/native, compiled-WASM, and JIT paths. LLVM-local scans in this report are historical implementation details and current migration gaps, not AIMS authority.
+
 ## Source
 
 ```ori
@@ -554,13 +556,13 @@ main:
 
 **Weighted average**: 1.00x | **Max**: 1.00x
 
-**@apply** (4 instructions): OPTIMAL. Two `extractvalue` to unpack the `{ptr, ptr}` closure, one indirect `call`, one `ret`. No RC ops -- AIMS correctly elided callee-side cleanup.
+**@apply** (4 instructions): OPTIMAL. Two `extractvalue` to unpack the `{ptr, ptr}` closure, one indirect `call`, one `ret`. AIMS froze no callee-side release; the current compiled-counter projection therefore emitted no RC op.
 
 **@make_adder** (7 instructions): OPTIMAL. Heap-allocates closure env via `ori_rc_alloc`, stores drop function and captured `n`, constructs the `{fn_ptr, env_ptr}` return value via `insertvalue`. Every instruction is necessary for closure construction.
 
 **@main** (19 instructions): OPTIMAL per the extract-metrics analysis. The null-check on the closure env pointer from `make_adder` is part of the standard RC dec pattern. While `make_adder` always returns a non-null env (via `ori_rc_alloc` which is `noalias`), the null guard is a generic safety pattern for all closure cleanup and protects against non-capturing closures that use `ptr null` for the env. This is structurally justified for a uniform cleanup protocol. [NOTE-1]
 
-**@__lambda_make_adder_0, @__lambda_main_0** (7 each): OPTIMAL. Clean overflow-checked arithmetic with `memory(none)` attribute correctly marking them as pure.
+**@__lambda_make_adder_0, @__lambda_main_0** (7 each): OPTIMAL in the captured IR. Both carried `memory(none)`; production validity requires complete AIMS facts for accessible and inaccessible reads and writes, followed by fail-closed LLVM projection.
 
 **@partial_0_drop** (2 instructions): OPTIMAL. Minimal destructor: `ori_rc_free` call + `ret`.
 
@@ -598,7 +600,7 @@ main:
 
 Key attribute observations:
 - `@__lambda_make_adder_0` and `@__lambda_main_0` have `memory(none)` -- correctly marking them as pure functions operating only on scalar arguments.
-- `@apply` has `nounwind` despite making an indirect call -- the two-pass fixed-point analysis propagated nounwind through the closure call graph.
+- `@apply` has `nounwind` despite making an indirect call -- the historical LLVM-local fixed point propagated the attribute through the closure call graph. Production code must project the same result from the bound AIMS effect closure; retaining the local scan is a seam gap.
 - `@__lambda_main_0` (non-capturing `double`) correctly lacks `fastcc` since it is called indirectly through the uniform `{ptr, ptr}` interface. A devirtualization pass could potentially direct-call it in this program, but this is a whole-program optimization, not a per-function attribute issue.
 - `@partial_0_drop` has `cold` -- correctly recognizing it as a destructor called only during cleanup.
 - `@_ori_partial_0_drop` and `@_ori_partial_1` now have `noundef` on all their parameters (previously missing).
@@ -708,7 +710,7 @@ bb0:
 }
 ```
 
-**Delta**: +0. OPTIMAL. AIMS correctly elided callee-side RC cleanup.
+**Delta**: +0. OPTIMAL. AIMS froze no callee-side release obligation, so the current compiled-counter projection emitted no callee cleanup RC.
 
 #### @make_adder: Ideal vs Actual
 
@@ -834,7 +836,7 @@ This design is clean and follows the standard fat-pointer closure representation
 | # | Severity | Category | Description | Status | First Seen |
 |---|----------|----------|-------------|--------|------------|
 | 1 | NOTE | Control Flow | Null-check on env pointer is uniform protocol (structurally justified) | FIXED | J5 |
-| 2 | NOTE | ARC | @apply RC dec fully elided by AIMS pipeline | CONFIRMED | J5 |
+| 2 | NOTE | ARC | @apply has no logical callee release or compiled RC dec | CONFIRMED | J5 |
 | 3 | NOTE | ARC | Live-path RC dec for closure env in @main | CONFIRMED | J5 |
 | 4 | NOTE | Attributes | Lambda functions have memory(none), closure infra has full noundef | CONFIRMED | J5 |
 | 5 | NOTE | Closures | Clean uniform {ptr, ptr} closure representation | CONFIRMED | J5 |
@@ -846,10 +848,10 @@ This design is clean and follows the standard fat-pointer closure representation
 **Impact**: Neutral. The null-check on `make_adder`'s env pointer is the uniform RC dec protocol that correctly handles both capturing (non-null env) and non-capturing (null env) closures. While `make_adder` always returns non-null, the generic pattern is architecturally sound. A future nonnull-propagation pass could specialize this for known-nonnull cases, but it is not a defect.
 **Found in**: Instruction Purity (Category 1), Optimal IR Comparison (Category 7)
 
-### NOTE-2: @apply RC dec fully elided by AIMS pipeline
+### NOTE-2: @apply has no logical callee release or compiled RC dec
 
 **Location**: `@_ori_apply` -- 4 instructions total
-**Impact**: Positive. The AIMS pipeline correctly determined that `@_ori_apply` should not RC dec the closure environment, moving cleanup responsibility to the caller. This keeps @apply at the theoretical minimum.
+**Impact**: Positive. AIMS assigned the closure-environment cleanup obligation to the caller rather than the callee. The current compiled-counter projection therefore emitted no `RcDec` in `@_ori_apply`, keeping it at the theoretical minimum without making the counter operation part of AIMS.
 **Found in**: ARC Purity (Category 2), Instruction Purity (Category 1)
 
 ### NOTE-3: Live-path RC dec for closure env
@@ -892,7 +894,11 @@ This design is clean and follows the standard fat-pointer closure representation
 
 ## Verdict
 
-Journey 5's closure codegen achieves a perfect 10.0 score. All seven user functions are OPTIMAL with zero unjustified instructions. The AIMS pipeline delivers excellent results -- `@apply` is fully elided of RC overhead, lambda functions carry `memory(none)`, and the closure env lifecycle is clean with proper live-path cleanup. Full `noundef` coverage across all closure infrastructure functions achieves 100% attribute compliance. The uniform `{ptr, ptr}` closure representation is architecturally sound and efficient.
+Journey 5's dated codegen measurement achieved a perfect 10.0 score. All seven user functions were optimal with zero unjustified instructions.
+
+AIMS froze a minimal logical ownership and cleanup plan for `@apply`; the current compiled-counter projection realized it with zero RC overhead and a clean closure-environment lifecycle. The captured LLVM projection also emitted `memory(none)` and full `noundef` coverage; those attributes are projection evidence, not AIMS decisions.
+
+The `{ptr, ptr}` closure layout was efficient for this LLVM target, while shared semantics remain representation-neutral.
 
 ## Cross-Journey Observations
 
@@ -900,8 +906,10 @@ Journey 5's closure codegen achieves a perfect 10.0 score. All seven user functi
 |---------|-------------|--------------|--------|
 | Overflow checking | J1 | J5 | CONFIRMED |
 | fastcc usage | J1 | J5 | CONFIRMED (where applicable) |
-| nounwind analysis | J1 | J5 | CONFIRMED |
+| nounwind output | J1 | J5 | CONFIRMED (historical LLVM projection) |
 | memory(none) attrs | J5 | J5 | CONFIRMED (lambdas correctly marked pure) |
 | noundef coverage | J1 | J5 | CONFIRMED (now 100% on closure infra) |
 
-The AIMS pipeline applies `noundef` consistently to indirect-call targets (closure infrastructure), achieving full attribute parity with direct-call functions. The closure subsystem demonstrates that the compiler handles heap-allocated environments, ownership transfer, and polymorphic cleanup at the same quality level as simple scalar functions.
+The historical LLVM projection applied `noundef` consistently to indirect-call targets, achieving full attribute parity with direct-call functions. AIMS supplied ownership and cleanup facts; `noundef` and the `{ptr, ptr}` calling convention came from compiled ABI/layout projection.
+
+The closure subsystem demonstrated clean heap-environment ownership transfer and polymorphic cleanup on that target.

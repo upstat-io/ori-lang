@@ -1,70 +1,31 @@
-Theorem RL-7: dynamic COW (Uniqueness = MaybeShared) — IsShared check + branch
+Theorem RL-7: MaybeShared requires a sharing observation absent caller proof
 
   Preconditions:
-    - RL-7 governs dynamic COW per Annex E §AIMS COW: "Dynamic COW
-      (MaybeShared): emit IsShared check, branch to in-place / copy."
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - DP-4 (needs_cow_check) <=> Uniqueness = MaybeShared (Appendix C
-      DP-4): a runtime IsShared check is needed exactly when the static
-      uniqueness is unknown.
-    - DP-9 cow_mode: MaybeShared AND param IC-3 ParamContract.uniqueness =
-      Unique -> StaticUnique (the caller proved RC == 1, a past guarantee);
-      MaybeShared else -> Dynamic (runtime IsShared check selects in-place /
-      copy).
-    - Shipped: realize/decide.rs::decide_annotations + emit_rc/cow.rs.
-    - depends-on sec-05: DP-4 (needs_cow_check) + DP-9 (cow_mode) soundness.
-    - depends-on sec-06: IC-3 ParamContract.uniqueness is the caller-proven
-      past guarantee that upgrades a MaybeShared param to StaticUnique.
+    - DP-4 `needs_sharing_observation` is true exactly for MaybeShared.
+    - DP-9 composes the DP-5 local result with IC-3 parameter uniqueness.
+    - The projection may observe sharing by any validated mechanism.
 
   Soundness property:
-    Forall owned value v with Uniqueness(v) = MaybeShared at a mutation
-    point:
-
-      (P1) Mode decision: RL-7 emits a runtime IsShared check (Dynamic mode)
-           iff DP-4 fires (MaybeShared) AND the caller has NOT proven param
-           uniqueness via IC-3. When IC-3 proves the param Unique, the mode
-           upgrades to StaticUnique (no runtime check).
-
-      (P2) Value-semantics preservation: the runtime IsShared check selects
-           in-place mutation on the RC == 1 branch (no other reference
-           exists) and copy on the RC > 1 branch (the copy isolates the
-           mutation). BOTH branches preserve value semantics.
-
-    RL-7 refines plain ARC by selecting the correct branch at runtime only
-    when the static analysis cannot prove uniqueness, and by skipping the
-    check entirely when IC-3 supplies a caller-side uniqueness proof.
+    Forall owned MaybeShared value v at a mutation point:
+      (P1) absent an IC-3 Unique guarantee, SharingObservationRequired.
+      (P2) an IC-3 Unique guarantee plus DP-5 may admit same identity.
+      (P3) the observed one-owner outcome may admit same identity; the
+           multiple-owner outcome requires isolation.
+    This theorem freezes outcomes and obligations, not IsShared, branching,
+    copying, or representation.
 
   Proof obligation:
-    Constructive discharge by the case_analysis engine via finite
-    enumeration of the MaybeShared mode grid + per-branch value-semantics
-    check.
-
-    Part (P1/P2) — DP-4 gate + DP-9 mode + soundness:
-      The verifier enumerates and asserts the DP-4 needs_cow_check gate, the
-      DP-9 mode selection, and its value-semantics soundness on each branch:
-        maybeshared_dynamic_check -> DP-4 fires, Dynamic (sound — both
-                                           runtime branches preserve
-                                           semantics)
-        maybeshared_param_unique_static -> DP-4 fires but IC-3 caller proof
-                                           upgrades to StaticUnique (sound —
-                                           caller proved RC == 1)
-        unique_no_dynamic_check -> DP-4 false (Unique); StaticUnique,
-                                           no runtime check
-      Coverage gate: 3 mode decisions, each cross-checked against DP-4 / DP-9
-      and verified value-semantics-preserving.
+    Enumerate three cases:
+      maybeshared_dynamic_check -> SharingObservationRequired
+      maybeshared_param_unique_static -> SameIdentityAdmissible
+      unique_no_dynamic_check -> SameIdentityAdmissible
+    Coverage gate: 3 cases, each value-semantics checked.
 
     Engines dispatched:
-      case_analysis (PRIMARY — section_08::verify_rl7_dynamic_cow; finite
-        MaybeShared-mode grid + DP-4 gate cross-check + per-branch
-        value-semantics check; emits Fail on a DP-4/DP-9 divergence or an
-        unsound branch)
-      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      case_analysis (PRIMARY — section_08::verify_rl7_dynamic_cow)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
 
   Expected:
     status: valid
-    reason: section_08 case_analysis engine discharges RL-7 via the DP-4 needs_cow_check gate + DP-9 mode grid (MaybeShared -> Dynamic runtime IsShared; MaybeShared+IC-3-param-unique -> StaticUnique; Unique -> no check) with a per-branch value-semantics-preservation check confirming both the in-place (RC==1) and copy (RC>1) runtime branches are sound, grounded in the shipped realize/decide.rs decide_annotations COW decision
+    reason: RL-7 checks the DP-4 observation gate and DP-9 outcomes without prescribing a runtime check or isolation mechanism

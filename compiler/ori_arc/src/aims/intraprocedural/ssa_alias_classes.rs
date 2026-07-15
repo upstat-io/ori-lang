@@ -4,23 +4,23 @@
 //! [`AimsStateMap`] via union-find over Let-Var alias edges, Jump-arg →
 //! block-param edges, and apply-result alias edges of `Direct` and
 //! `Conditional` shape. Class membership encodes "these SSA names refer to the
-//! same RC slot" — orthogonal to `borrow_sources` (per-Project borrow facts)
+//! same logical ownership identity" — orthogonal to `borrow_sources` (per-Project borrow facts)
 //! and to `project_alias_sources` (per-Project transitive alias chains).
 //!
 //! In-class membership: Let-Var aliases (transitively chained), Jump-arg →
 //! block-param pairs, and apply-result aliases whose `ApplyAliasSource` is
 //! `Direct(arg)` or `Conditional { candidates }`. NOT in-class:
-//! - Project field borrows — different RC slot from the source's root; the
+//! - Project field borrows — a different ownership identity from the source's root; the
 //!   `borrow_sources` side table covers DP-5 disjointness for them.
 //! - Select operands — `Select(cond, true_val, false_val)` operands refer to
-//!   different runtime RC slots; only one is selected at runtime, the
+//!   different logical ownership identities; only one is selected at runtime, the
 //!   unselected one needs an independent `RcDec`. Existing compensating `RcInc`
 //!   in `walk.rs` handles Select correctly through per-source dec
 //!   independence (PIN-2).
 //! - `ApplyAliasSource::Project { arg, field }` — the apply returned `arg.field`
-//!   (a different RC slot than `arg`'s root). Same "different RC slot"
+//!   (a different ownership identity than `arg`'s root). The same identity-separation
 //!   architectural concern as Select; unioning would conflate two distinct
-//!   RC slots and reproduce the same double-dec / under-dec failure mode
+//!   logical owners and reproduce the same double-release / under-release failure mode
 //!   PIN-2 was created to prevent. The directional metadata is still recorded
 //!   in `class_apply_alias_source_candidates` (PIN-3) so caller-side
 //!   `should_suppress_apply_aliased_dec` continues to suppress the apply-source
@@ -189,8 +189,6 @@ pub(crate) fn compute_ssa_alias_classes(
     }
 }
 
-/// Return `Some(RcStrategy)` for non-scalar `dst`, `None` for scalar or when
-/// `var_rc_strategies` has not been populated yet (test fixtures that
 /// Rank-based union-find with path compression and class-size tracking.
 ///
 /// Operations are amortized O(α(N)) per union/find; `class_size(root)` is O(1).

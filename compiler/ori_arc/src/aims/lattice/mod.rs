@@ -71,31 +71,6 @@ impl CanonicalizeFeedback {
     }
 }
 
-// SizeClass (for cross-type reuse in Stage 2+)
-
-/// Allocation size class for reuse compatibility.
-///
-/// Two allocations are reuse-compatible when they have the same `SizeClass`.
-/// In v1 (same-type matching), size compatibility is implied by type
-/// equality. Future versions may enable cross-type reuse when allocations
-/// have the same rounded size.
-///
-/// Derived from Pool type size queries, rounded to allocation granularity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SizeClass(u32);
-
-impl SizeClass {
-    /// Unknown size — used when Pool-based size queries are unavailable
-    /// or when size classification is not yet available.
-    pub const UNKNOWN: Self = Self(0);
-
-    /// Create a size class from a byte count.
-    #[must_use]
-    pub fn from_bytes(bytes: u32) -> Self {
-        Self(bytes)
-    }
-}
-
 // AimsState — the product lattice
 
 /// Unified ownership state for a variable at a program point.
@@ -105,13 +80,13 @@ impl SizeClass {
 /// Auxiliary (conservative in v1): locality, shape, effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AimsState {
-    /// Aliasing: owned allocation vs borrowed view.
+    /// Aliasing: owned logical identity vs borrowed view.
     pub access: AccessClass,
     /// Substructural: how the value is consumed.
     pub consumption: Consumption,
     /// Forward usage count.
     pub cardinality: Cardinality,
-    /// Runtime reference count knowledge.
+    /// Logical owner multiplicity, independent of physical counting strategy.
     pub uniqueness: Uniqueness,
     /// Escape analysis (auxiliary, conservative in v1).
     pub locality: Locality,
@@ -153,8 +128,8 @@ impl AimsState {
     /// Scalar variable — excluded from analysis entirely.
     ///
     /// This is NOT a lattice element. It is a sentinel that short-circuits
-    /// the analysis for non-RC types. Scalar variables never need RC
-    /// operations, COW checks, or reuse.
+    /// the analysis for types without managed ownership. Scalar variables
+    /// require no ownership events, sharing observations, or reuse facts.
     ///
     /// Uses an infeasible combination (`Unrestricted` + `Absent`) as a
     /// sentinel. This pair cannot survive [`canonicalize`](Self::canonicalize)
@@ -319,8 +294,8 @@ impl AimsState {
         // Rule 3 (CN-3): Shared values cannot be reused via constructor reset.
         // Per §2 CN-3: applies to ALL reusable shapes —
         // `ReusableCtor(Struct)`, `ReusableCtor(EnumVariant)`, `CollectionBuffer`,
-        // and `ContextHole`. A Shared value has RC > 1; resetting any reusable
-        // allocation type would corrupt other references regardless of which
+        // and `ContextHole`. A Shared value has multiple logical owners;
+        // resetting any reusable allocation type would corrupt other views regardless of which
         // reusable shape it carries. The check `!= NonReusable` covers all
         // reusable variants in one branch; equivalent to the explicit
         // `ReusableCtor(_) | CollectionBuffer | ContextHole` enumeration but
@@ -379,12 +354,12 @@ impl AimsState {
         cross_fires
     }
 
-    /// Whether this variable needs RC operations.
+    /// Whether this variable requires logical ownership events.
     ///
     /// False for: dead variables, scalar variables, and borrowed views.
-    /// Only owned, live variables carry RC obligations.
+    /// Only owned, live variables carry owner-credit/release obligations.
     #[must_use]
-    pub fn is_rc_needed(&self) -> bool {
+    pub fn needs_ownership_events(&self) -> bool {
         self.access == AccessClass::Owned
             && self.consumption != Consumption::Dead
             && !self.is_scalar()
@@ -412,18 +387,18 @@ impl AimsState {
             && !matches!(self.shape, ShapeClass::NonReusable)
     }
 
-    /// Whether this variable is eligible for RC-skip optimization.
+    /// Whether this variable is eligible to elide a balanced ownership-event
+    /// pair.
     ///
-    /// A function-local value that is owned and consumed linearly has a
-    /// refcount of 1 (unique due to linearity) and its lifetime is bounded
-    /// by the function. The `RcDec` at last use would free it (rc goes 1→0),
-    /// and the `RcInc` at entry is matched 1:1. Skip both — the value's
-    /// lifetime is precisely the function's lifetime.
+    /// A function-local value that is owned and consumed linearly has one
+    /// logical ownership credit and a function-bounded lifetime. Its entry
+    /// credit and last-use discharge form one balanced pair, so both logical
+    /// events can be eliminated without selecting any counter mechanism.
     ///
     /// Requires precise locality. `Unknown` locality never
     /// qualifies.
     #[must_use]
-    pub fn is_rc_skip_eligible(&self) -> bool {
+    pub fn is_event_pair_elision_eligible(&self) -> bool {
         // DP-7: Uniqueness = Unique is load-bearing — a Shared value's
         // +1 inc from the caller is never balanced without it → leak.
         self.is_local()

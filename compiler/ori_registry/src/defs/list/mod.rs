@@ -9,8 +9,8 @@
 //! to mutate in-place.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
-    TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
+    MemoryStrategy, MethodDef, MethodRuntime, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag,
+    RuntimeOperator, TypeDef, TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 use super::params::{
@@ -86,13 +86,13 @@ static LIST_METHODS: &[MethodDef] = &[
     MethodDef::compound("get",         &INT_PARAM,            OPT_ELEM,  None,               Ownership::Borrow, false),
     MethodDef::compound("group_by",    &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("hash",        &[],                   INT,       Some("Hashable"),   Ownership::Borrow, false),
-    MethodDef::compound("insert",      &INDEX_ELEMENT_PARAMS, SELF,      None,               Ownership::Borrow, false),
+    MethodDef::compound("insert",      &INDEX_ELEMENT_PARAMS, SELF,      None,               Ownership::Borrow, false).with_runtime(MethodRuntime::ListInsert),
     MethodDef::compound("is_empty",    &[],                   BOOL,      Some("IsEmpty"),    Ownership::Borrow, false),
     MethodDef::compound("iter",        &[],                   DEI_ELEM,  Some("Iterable"),   Ownership::Borrow, false),
     MethodDef::compound("join",        &SEPARATOR_PARAM,      STR,       None,               Ownership::Borrow, false),
     MethodDef::compound("last",        &[],                   OPT_ELEM,  None,               Ownership::Borrow, false),
-    MethodDef::compound("len",         &[],                   INT,       Some("Len"),        Ownership::Borrow, false),
-    MethodDef::compound("length",      &[],                   INT,       Some("Len"),        Ownership::Borrow, false),
+    MethodDef::compound("len",         &[],                   INT,       Some("Len"),        Ownership::Borrow, false).with_runtime(MethodRuntime::Length),
+    MethodDef::compound("length",      &[],                   INT,       Some("Len"),        Ownership::Borrow, false).with_runtime(MethodRuntime::Length),
     MethodDef::compound("map",         &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("max",         &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("max_by",      &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
@@ -100,13 +100,13 @@ static LIST_METHODS: &[MethodDef] = &[
     MethodDef::compound("min_by",      &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("partition",   &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("pop",         &[],                   OPT_ELEM,  None,               Ownership::Borrow, false),
-    MethodDef::compound("prepend",     &ELEMENT_OWNED_PARAM,  SELF,      None,               Ownership::Borrow, false),
+    MethodDef::compound("prepend",     &ELEMENT_OWNED_PARAM,  SELF,      None,               Ownership::Borrow, false).with_runtime(MethodRuntime::ListPrepend),
     MethodDef::compound("product",     &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
-    MethodDef::compound("push",        &ELEMENT_OWNED_PARAM,  SELF,      None,               Ownership::Borrow, false),
+    MethodDef::compound("push",        &ELEMENT_OWNED_PARAM,  SELF,      None,               Ownership::Borrow, false).with_runtime(MethodRuntime::ListPush),
     MethodDef::compound("reduce",      &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
-    MethodDef::compound("remove",      &INT_PARAM,            SELF,      None,               Ownership::Borrow, false),
+    MethodDef::compound("remove",      &INT_PARAM,            SELF,      None,               Ownership::Borrow, false).with_runtime(MethodRuntime::ListRemove),
     MethodDef::compound("reverse",     &[],                   SELF,      None,               Ownership::Borrow, false),
-    MethodDef::compound("set",         &INDEX_ELEMENT_PARAMS, SELF,      None,               Ownership::Borrow, false),
+    MethodDef::compound("set",         &INDEX_ELEMENT_PARAMS, SELF,      None,               Ownership::Borrow, false).with_runtime(MethodRuntime::ListSet),
     MethodDef::compound("skip",        &INT_PARAM,            SELF,      None,               Ownership::Borrow, false),
     MethodDef::compound("skip_while",  &CLOSURE_PARAM,        FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("slice",       &INT_RANGE_PARAMS,     SELF,      None,               Ownership::Borrow, false),
@@ -121,7 +121,7 @@ static LIST_METHODS: &[MethodDef] = &[
     MethodDef::compound("to_fixed",    &[],                   LIST_ELEM, None,               Ownership::Borrow, false),
     MethodDef::compound("to_str",      &[],                   STR,       Some("Printable"),  Ownership::Borrow, false),
     MethodDef::compound("unique",      &[],                   SELF,      None,               Ownership::Borrow, false),
-    MethodDef::compound("updated",     &INDEX_ELEMENT_PARAMS, SELF,      Some("IndexSet"),   Ownership::Borrow, false),
+    MethodDef::compound("updated",     &INDEX_ELEMENT_PARAMS, SELF,      Some("IndexSet"),   Ownership::Borrow, false).with_runtime(MethodRuntime::ListSet),
     MethodDef::compound("window",      &INT_PARAM,            FRESH,     None,               Ownership::Borrow, false),
     MethodDef::compound("zip",         &FRESH_PARAM,          FRESH,     None,               Ownership::Borrow, false),
 ];
@@ -134,10 +134,7 @@ pub static LIST: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(1),
     methods: LIST_METHODS,
     operators: OpDefs {
-        add: OpStrategy::RuntimeCall {
-            fn_name: "list_concat",
-            returns_bool: false,
-        },
+        add: OpStrategy::RuntimeCall(RuntimeOperator::ListConcat),
         ..OpDefs::UNSUPPORTED
     },
     traits: &["Printable"],

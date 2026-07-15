@@ -9,10 +9,12 @@ repository.workspace = true
 [dependencies]
 ori_arc.workspace = true
 ori_ir.workspace = true
+ori_registry.workspace = true
 ori_repr.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+ori_types.workspace = true
 pretty_assertions.workspace = true
 
 [lints]

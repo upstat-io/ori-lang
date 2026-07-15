@@ -4,7 +4,7 @@
 //! Implementation Items: each of the 11 bootstrap proofs (3 KERNEL +
 //! 8 COVERAGE) is discharged constructively per the foundational-axiom policy
 //! sec-Per-Engine-Constructive-Proof-Shape — finite enumeration,
-//! structural induction with explicit base + step, RC-delta arithmetic,
+//! structural induction with explicit base + step, logical owner-credit arithmetic,
 //! bounded iteration with progress measure, or definitional rewriting.
 //!
 //! KERNEL trust proofs (dispatched per RL category to
@@ -28,7 +28,7 @@
 //! Access x Consumption (8-state, 64-pair enumeration).
 //! - `CH-102` refinement — DP-10 removal soundness (counterexample to
 //! former DP-10 + alternative-paths exhibition).
-//! - `CH-103` rc_counting — bounded-loop RC balance (structural
+//! - `CH-103` rc_counting — bounded-loop ownership-event balance (structural
 //! induction; 2*N + 2 bound).
 //! - `CH-104` lattice — canonicalize_sub idempotency on
 //! Access x Consumption (8 states; no CN rule fires).
@@ -357,13 +357,14 @@ fn verify_join_commutativity() -> EngineResult {
 fn verify_dp10_removal_soundness() -> EngineResult {
     // Counterexample to former DP-10: a MaybeShared parameter used
     // linearly inside the callee. Former DP-10 would conclude Unique;
-    // the caller's RC may still be > 1, so the conclusion is unsound.
+    // the caller may still have competing logical owners, so the conclusion is
+    // unsound.
     // We model the caller-side state explicitly and confirm DP-10's
     // premise can hold while its conclusion is false.
     let callee_access = "Owned";
     let callee_consumption = "Linear";
     let callee_cardinality_once = true;
-    let caller_uniqueness = "MaybeShared"; // RC may be > 1 upstream
+    let caller_uniqueness = "MaybeShared"; // Upstream sharing remains possible.
 
     let dp10_premise_holds = callee_access == "Owned"
         && callee_consumption == "Linear"
@@ -408,26 +409,26 @@ fn verify_dp10_removal_soundness() -> EngineResult {
     }
 }
 
-/// Verify `CH-103` rc_counting bootstrap (bounded-loop RC balance).
+/// Verify `CH-103` rc_counting bootstrap (bounded-loop ownership-event balance).
 ///
 /// Per Annex E §AIMS TF-11 + sec-8 RL-1 + RL-2, a linear loop
-/// body using `v` exactly once per iteration emits at most one RcInc
-/// and one RcDec per iteration. Constructive witness: structural
+/// body using `v` exactly once per iteration records at most one additional
+/// owner credit and one release per iteration. Constructive witness: structural
 /// induction over `N in nat`; base case N = 0 emits at most 2 ops
 /// (entry + exit pair); inductive step extends the bound to
 /// 2 * (N + 1) + 2.
 fn verify_bounded_loop_balance() -> EngineResult {
-    // Per-iteration RC budget bound per RL-1 + RL-2 + TF-11.
-    const PER_ITERATION_OPS: u32 = 2;
-    const ENTRY_EXIT_OPS: u32 = 2;
+    // Per-iteration logical-event budget per RL-1 + RL-2 + TF-11.
+    const PER_ITERATION_EVENTS: u32 = 2;
+    const ENTRY_EXIT_EVENTS: u32 = 2;
 
     // Verify the inductive step for N = 0 .. 16 (a representative
     // finite slice; the structural induction extends to arbitrary
     // finite N because the per-iteration step is constant).
     let max_n = 16u32;
     for n in 0..=max_n {
-        let bound = 2u32 * n + ENTRY_EXIT_OPS;
-        let derived = n * PER_ITERATION_OPS + ENTRY_EXIT_OPS;
+        let bound = 2u32 * n + ENTRY_EXIT_EVENTS;
+        let derived = n * PER_ITERATION_EVENTS + ENTRY_EXIT_EVENTS;
         if derived != bound {
             return EngineResult {
                 verdict: EngineVerdict::Fail,
@@ -440,36 +441,35 @@ fn verify_bounded_loop_balance() -> EngineResult {
     }
 
     // Inductive-step witness: assume bound at N; prove bound at N + 1.
-    // Per-iteration RC contribution is PER_ITERATION_OPS regardless of
+    // Per-iteration logical-event contribution is constant regardless of
     // N (the loop body is the same N copies of the same instruction
     // sequence per TF-2 transparent-alias + TF-4 borrow + TF-11
     // standard demand).
     let n = 7u32; // arbitrary witness
-    let at_n = n * PER_ITERATION_OPS + ENTRY_EXIT_OPS;
-    let at_n_plus_one = (n + 1) * PER_ITERATION_OPS + ENTRY_EXIT_OPS;
-    if at_n_plus_one - at_n != PER_ITERATION_OPS {
+    let at_n = n * PER_ITERATION_EVENTS + ENTRY_EXIT_EVENTS;
+    let at_n_plus_one = (n + 1) * PER_ITERATION_EVENTS + ENTRY_EXIT_EVENTS;
+    if at_n_plus_one - at_n != PER_ITERATION_EVENTS {
         return EngineResult {
             verdict: EngineVerdict::Fail,
             reason: format!(
                 "CH-103 inductive-step witness failed: bound(N+1) - bound(N) = {} != per-iteration = {}",
                 at_n_plus_one - at_n,
-                PER_ITERATION_OPS
+                PER_ITERATION_EVENTS
             ),
         };
     }
 
-    // Balance-equation witness: count of RcInc on v across iterations
-    // 0..k minus count of RcDec on v across iterations 0..k is zero
-    // at every iteration boundary per the loop invariant. The
-    // realization phase per RL-1 + RL-2 emits matched pairs.
-    let inc_count = max_n;
-    let dec_count = max_n;
-    if inc_count != dec_count {
+    // Balance-equation witness: additional owner credits minus releases is zero
+    // at every iteration boundary. A projection may realize these events with
+    // counter motion, but that mechanism is outside this bootstrap theorem.
+    let additional_credit_count = max_n;
+    let release_count = max_n;
+    if additional_credit_count != release_count {
         return EngineResult {
             verdict: EngineVerdict::Fail,
             reason: format!(
-                "CH-103 balance-equation witness failed: inc = {}, dec = {} (must be equal at loop-iteration boundaries)",
-                inc_count, dec_count
+                "CH-103 balance-equation witness failed: owner credits = {}, releases = {} (must be equal at loop-iteration boundaries)",
+                additional_credit_count, release_count
             ),
         };
     }

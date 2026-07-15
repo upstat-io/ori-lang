@@ -1,9 +1,10 @@
 //! Backward dataflow liveness analysis on ARC IR.
 //!
 //! Computes which variables are **live** (will be read in the future) at
-//! every basic block boundary. This information drives RC insertion:
-//! a variable's last use is where its `RcDec` goes, and
-//! additional uses require `RcInc`.
+//! every basic block boundary. This information drives logical ownership-event
+//! placement: a variable's last use is where its release/cleanup obligation
+//! goes, and additional owned uses require additional owner credits. The
+//! transitional carrier spells those events `RcDec` and `RcInc`.
 //!
 //! # Algorithm
 //!
@@ -22,9 +23,9 @@
 //! and block params are definitions in the successor (in `kill`). No
 //! explicit substitution is needed.
 //!
-//! Only RC'd variables (those where `classifier.needs_rc()` is true) are
-//! tracked. Scalar variables are excluded because they never need
-//! `RcInc`/`RcDec`.
+//! Only variables with managed ownership obligations (those where
+//! `classifier.has_managed_ownership_obligation()` is true) are tracked.
+//! Scalars are excluded because they carry no ownership events.
 //!
 //! # Historical design influences
 //!
@@ -61,13 +62,15 @@ pub struct BlockLiveness {
 
 /// Compute liveness for all blocks in an ARC IR function.
 ///
-/// Only tracks variables whose types satisfy `classifier.needs_rc()`.
+/// Only tracks variables whose types satisfy
+/// `classifier.has_managed_ownership_obligation()`.
 /// Scalar variables (int, float, bool, etc.) are excluded entirely.
 ///
 /// # Arguments
 ///
 /// * `func` — the ARC IR function to analyze.
-/// * `classifier` — type classifier that determines which variables need RC.
+/// * `classifier` — type classifier that determines which variables carry
+///   managed ownership obligations.
 pub fn compute_liveness(func: &ArcFunction, classifier: &dyn ArcClassification) -> BlockLiveness {
     let num_blocks = func.blocks.len();
 
@@ -164,7 +167,7 @@ fn compute_gen_kill(
 
     // Block parameters are definitions.
     for &(param_var, _) in &block.params {
-        if needs_rc_var(param_var, func, classifier) {
+        if has_managed_ownership_var(param_var, func, classifier) {
             kill.insert(param_var);
         }
     }
@@ -174,7 +177,7 @@ fn compute_gen_kill(
     // successor — that definition acts like a block parameter.
     if let Some(dsts) = invoke_defs.get(&block.id) {
         for &dst in dsts {
-            if needs_rc_var(dst, func, classifier) {
+            if has_managed_ownership_var(dst, func, classifier) {
                 kill.insert(dst);
             }
         }
@@ -184,13 +187,13 @@ fn compute_gen_kill(
     for instr in &block.body {
         // Uses before definitions go into gen.
         for var in instr.used_vars() {
-            if needs_rc_var(var, func, classifier) && !kill.contains(&var) {
+            if has_managed_ownership_var(var, func, classifier) && !kill.contains(&var) {
                 gen.insert(var);
             }
         }
         // Definitions go into kill.
         if let Some(dst) = instr.defined_var() {
-            if needs_rc_var(dst, func, classifier) {
+            if has_managed_ownership_var(dst, func, classifier) {
                 kill.insert(dst);
             }
         }
@@ -198,7 +201,7 @@ fn compute_gen_kill(
 
     // Terminator uses.
     for var in block.terminator.used_vars() {
-        if needs_rc_var(var, func, classifier) && !kill.contains(&var) {
+        if has_managed_ownership_var(var, func, classifier) && !kill.contains(&var) {
             gen.insert(var);
         }
     }
@@ -206,12 +209,16 @@ fn compute_gen_kill(
     (gen, kill)
 }
 
-/// Check whether a variable needs RC tracking.
+/// Check whether a variable carries a managed ownership obligation.
 #[inline]
-fn needs_rc_var(var: ArcVarId, func: &ArcFunction, classifier: &dyn ArcClassification) -> bool {
+fn has_managed_ownership_var(
+    var: ArcVarId,
+    func: &ArcFunction,
+    classifier: &dyn ArcClassification,
+) -> bool {
     let idx = var.index();
     if idx < func.var_types.len() {
-        classifier.needs_rc(func.var_types[idx])
+        classifier.has_managed_ownership_obligation(func.var_types[idx])
     } else {
         // Out-of-bounds variable — conservative fallback.
         true
@@ -312,7 +319,7 @@ pub fn compute_refined_liveness(
                         if drop_set.contains(&var) {
                             drop_set.remove(&var);
                             use_set.insert(var);
-                        } else if needs_rc_var(var, func, classifier) {
+                        } else if has_managed_ownership_var(var, func, classifier) {
                             use_set.insert(var);
                         }
                     }

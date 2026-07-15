@@ -98,7 +98,7 @@ fn eval_byte_handles_all_registry_supported_ops() {
 }
 
 // Why: Duration and Size are excluded from the same-type op sync check because
-// the registry declares `mul`/`div` supported (OpStrategy::IntInstr) but the
+// the registry declares `mul`/`div` supported (OpStrategy::SignedInteger) but the
 // evaluator routes those only through the cross-type Duration-by-int / Size-by-int
 // path (eval_duration_int_binary / eval_size_int_binary); same-type
 // Duration-by-Duration multiply/divide is dimensionally ill-defined and its

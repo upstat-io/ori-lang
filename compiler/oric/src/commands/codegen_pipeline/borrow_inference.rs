@@ -1,49 +1,49 @@
-//! ARC borrow inference for the codegen pipeline.
+//! Complete pre-AIMS ARC lowering for the codegen pipeline.
 //!
-//! Lowers every function (local, mono, imported mono) to ARC IR and runs the
-//! per-SCC Salsa-tracked borrow inference queries, producing the annotated
-//! signatures plus a cache of pre-lowered `ArcFunction`s codegen consumes.
+//! Lowers every function (local, mono, imported mono) to ARC IR. The resulting
+//! batch is consumed once by backend-neutral executable realization; LLVM does
+//! not run a second ownership calculus over these bodies.
 
 #[cfg(feature = "llvm")]
 use ori_ir::canon::CanonResult;
 #[cfg(feature = "llvm")]
 use ori_types::{FunctionSig, Pool};
 #[cfg(feature = "llvm")]
-use oric::ir::{Name, StringInterner};
+use oric::ir::StringInterner;
 #[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
 #[cfg(feature = "llvm")]
-use oric::{CompilerDb, Db};
-#[cfg(feature = "llvm")]
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 
 #[cfg(feature = "llvm")]
 use super::imported_mono::ImportedSurfaces;
 
-/// Result of borrow inference: annotated signatures + pre-lowered ARC cache.
+/// Complete pre-AIMS ARC families and their monomorphized emission inventory.
 ///
-/// The `arc_cache` contains pre-lowered `ArcFunction`s grouped by parent
-/// function. These are consumed by `prepare_all_cached` during codegen,
-/// eliminating the redundant second lowering pass.
 #[cfg(feature = "llvm")]
-pub(super) struct BorrowInferenceResult {
-    /// Borrow-annotated function signatures from SCC analysis.
-    pub(super) sigs: FxHashMap<Name, ori_arc::AnnotatedSig>,
-    /// Pre-lowered ARC functions: parent → (`ArcFunction`, lambdas).
-    pub(super) arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+pub(super) struct ArcBatchLoweringResult {
+    /// Pre-lowered ARC parent/lambda families before shared preparation.
+    pub(super) groups: Vec<crate::realization::ArcFunctionGroup>,
     /// Monomorphized generic functions (reused by codegen to avoid recomputation).
     pub(super) mono_functions: Vec<ori_repr::monomorphize::MonoFunction>,
 }
 
-/// Run ARC borrow inference on all non-generic module functions.
+/// Failure before closed executable realization can consume the ARC batch.
+#[cfg(feature = "llvm")]
+pub(super) enum ArcBatchLoweringFailure {
+    /// ARC lowering emitted its structured diagnostics.
+    ArcLowering,
+    /// Final mono identities could not be bound to one source namespace.
+    MonoInventory(crate::realization::MonoFunctionInventoryError),
+}
+
+/// Lower every non-generic, specialized, and imported-specialized body.
 ///
-/// Lowers each function (local, mono, imported mono) to ARC IR and runs
-/// per-SCC Salsa-tracked borrow inference queries. Returns annotated
-/// signatures plus a cache of pre-lowered ARC functions for zero-copy
-/// consumption by codegen; Salsa memoizes per-SCC results, so only SCCs with
-/// changed bodies re-analyze on recompilation.
-/// Returns `None` when ARC lowering reported errors (diagnostics already
-/// emitted); the caller aborts codegen instead of continuing with an empty cache.
+/// Lowers each function (local, mono, imported mono) to ARC IR. Returns one
+/// cache of pre-lowered ARC functions for zero-copy consumption by
+/// shared executable realization and subsequent backend projection.
+/// ARC lowering diagnostics are emitted here. The returned lowered state has
+/// not crossed the shared specialization and target-closure seam.
 #[cfg(feature = "llvm")]
 #[expect(
     clippy::too_many_arguments,
@@ -51,10 +51,9 @@ pub(super) struct BorrowInferenceResult {
 )]
 #[expect(
     clippy::too_many_lines,
-    reason = "pipeline driver composing SCC analysis + ARC lowering loops"
+    reason = "pipeline driver composing local, mono, and imported-mono lowering loops"
 )]
-pub(super) fn run_borrow_inference(
-    db: &CompilerDb,
+pub(super) fn lower_arc_batch(
     parse_result: &ParseOutput,
     function_sigs: &[FunctionSig],
     impl_sigs: &[ori_types::ImplSig],
@@ -62,20 +61,16 @@ pub(super) fn run_borrow_inference(
     imported: ImportedSurfaces<'_>,
     canon: &CanonResult,
     interner: &StringInterner,
-    pool: &Pool,
-    source_path: &str,
+    pool: &mut Pool,
     mono_instances: &[ori_types::MonoInstance],
-) -> Option<BorrowInferenceResult> {
-    use crate::query::arc_queries::{arc_scc_decomposition, infer_borrow_scc, ArcModuleInput};
-
+    accepted_derives: &[ori_types::AcceptedDerivedImpl],
+) -> Result<ArcBatchLoweringResult, ArcBatchLoweringFailure> {
     let ImportedSurfaces {
         imported_mono_fns,
         re_interned_canons,
     } = imported;
 
-    // Grouped cache (parent → lambdas) feeds codegen; a flat clone feeds Salsa.
-    let mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> =
-        FxHashMap::default();
+    let mut groups = Vec::new();
     let mut arc_problems = Vec::new();
 
     // Why: the PC-2 exempt set is empty — pre-mono skips generics via
@@ -110,7 +105,7 @@ pub(super) fn run_borrow_inference(
             "aot_pre_mono",
             "aot_pre_mono_lambda",
         );
-        arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
+        groups.push(crate::realization::ArcFunctionGroup::new(arc_fn, lambdas));
     }
 
     // Lower monomorphized generic functions.
@@ -119,36 +114,31 @@ pub(super) fn run_borrow_inference(
         mono_instances,
         function_sigs,
         impl_sigs,
+        accepted_derives,
         import_sigs,
         interner,
         pool,
     );
-    for mono_fn in &mono_functions {
-        // Method specializations lower against the impl-method body namespace
-        // (`method_root_for`); free functions against `root_for`.
-        let (arc_fn, lambdas) = match mono_fn.receiver_type_name {
-            Some(type_name) => crate::arc_lowering::lower_impl_method_to_arc(
-                mono_fn.mangled_name,
-                &mono_fn.sig,
-                mono_fn.original_name,
-                type_name,
-                canon,
-                interner,
-                pool,
-                &mut arc_problems,
-                Some(&mono_fn.body_type_map),
-            ),
-            None => crate::arc_lowering::lower_to_arc(
-                mono_fn.mangled_name,
-                &mono_fn.sig,
-                mono_fn.original_name,
-                canon,
-                interner,
-                pool,
-                &mut arc_problems,
-                Some(&mono_fn.body_type_map),
-            ),
+    let mono_inventory = crate::realization::MonoFunctionInventory::try_new(
+        mono_functions,
+        imported_mono_fns
+            .iter()
+            .map(|(function, _, _)| function.clone()),
+        interner,
+    )
+    .map_err(ArcBatchLoweringFailure::MonoInventory)?;
+    for mono_fn in mono_inventory.local_bodies() {
+        let Some(group) = crate::realization::lower_mono_function_for_analysis(
+            mono_fn,
+            accepted_derives,
+            canon,
+            interner,
+            pool,
+            &mut arc_problems,
+        ) else {
+            continue;
         };
+        let (arc_fn, lambdas) = group.into_parts();
         super::pc2_hooks::run_pc2_hook_aot(
             pool,
             &arc_fn,
@@ -158,7 +148,7 @@ pub(super) fn run_borrow_inference(
             "aot_mono",
             "aot_mono_lambda",
         );
-        arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
+        groups.push(crate::realization::ArcFunctionGroup::new(arc_fn, lambdas));
     }
 
     // Lower imported monos via body-import linkage; an out-of-bounds
@@ -185,7 +175,7 @@ pub(super) fn run_borrow_inference(
             "aot_imported_mono",
             "aot_imported_mono_lambda",
         );
-        arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
+        groups.push(crate::realization::ArcFunctionGroup::new(arc_fn, lambdas));
     }
 
     if !arc_problems.is_empty() {
@@ -193,63 +183,12 @@ pub(super) fn run_borrow_inference(
         let mut acc = CodegenDiagnostics::new();
         acc.add_arc_problems(&arc_problems);
         if emit_codegen_diagnostics(acc) {
-            return None;
+            return Err(ArcBatchLoweringFailure::ArcLowering);
         }
     }
 
-    // Why: cloning the grouped cache into a flat Salsa map is negligible vs
-    // re-lowering every function.
-    let mut arc_functions_map: FxHashMap<Name, ori_arc::ArcFunction> = FxHashMap::default();
-    for (parent, lambdas) in arc_cache.values() {
-        arc_functions_map.insert(parent.name, parent.clone());
-        for lambda in lambdas {
-            arc_functions_map.insert(lambda.name, lambda.clone());
-        }
-    }
-
-    debug_assert!(
-        db.pool_cache()
-            .get(&std::path::PathBuf::from(source_path))
-            .is_some(),
-        "Pool not cached for source_path '{source_path}' — path may diverge from file.path(db)"
-    );
-
-    let sorted_functions = ArcModuleInput::sorted_functions(arc_functions_map);
-    let module = ArcModuleInput::new(db, std::path::PathBuf::from(source_path), sorted_functions);
-
-    tracing::debug!(
-        function_count = module.functions(db).len(),
-        "created ArcModuleInput for Salsa borrow inference"
-    );
-
-    let decomp = arc_scc_decomposition(db, module);
-
-    let mut annotated_sigs = FxHashMap::default();
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "SCC count bounded by function count, fits in u32"
-    )]
-    for i in 0..decomp.len() {
-        let result = infer_borrow_scc(db, module, i as u32);
-        for (name, sig) in result.iter() {
-            annotated_sigs.insert(*name, sig.clone());
-        }
-    }
-
-    tracing::debug!(
-        sig_count = annotated_sigs.len(),
-        scc_count = decomp.len(),
-        "Salsa borrow inference complete"
-    );
-
-    // Why: imported monos merge into mono_functions so declare/prepare sees
-    // them through the same emission path as local monos.
-    let mut all_mono_functions = mono_functions;
-    all_mono_functions.extend(imported_mono_fns.iter().map(|(mf, _, _)| mf.clone()));
-
-    Some(BorrowInferenceResult {
-        sigs: annotated_sigs,
-        arc_cache,
-        mono_functions: all_mono_functions,
+    Ok(ArcBatchLoweringResult {
+        groups,
+        mono_functions: mono_inventory.into_all(),
     })
 }

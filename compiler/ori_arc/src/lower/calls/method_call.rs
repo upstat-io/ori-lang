@@ -9,7 +9,7 @@ use ori_ir::canon::{CanExpr, CanId, CanRange};
 use ori_ir::{Name, Span};
 use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcValue, ArcVarId};
+use crate::ir::{ArcValue, ArcVarId, MethodCallForm};
 use crate::lower::expr::ArcLowerer;
 
 impl ArcLowerer<'_> {
@@ -36,13 +36,15 @@ impl ArcLowerer<'_> {
     ) -> ArcVarId {
         let receiver_kind = *self.arena.kind(receiver);
         let is_type_qualified = matches!(receiver_kind, CanExpr::TypeRef(_));
+        let receiver_type = self.expr_type(receiver);
         let mono_instance_id = self.lookup_mono_dispatch(call_expr_id);
 
-        // Inline lowering for tag-check builtins (is_err, is_ok, is_some,
-        // is_none). These are compiled inline by LLVM codegen and don't go
-        // through the ARC pipeline, so emitting them as Invoke would cause
-        // the Perceus algorithm to transfer ownership to a callee that never
-        // Dec's the receiver. Lower as Project + PrimOp instead.
+        // Lower tag-check builtins (is_err, is_ok, is_some, is_none) to the
+        // shared Project + PrimOp sequence. They do not represent a call or
+        // transfer ownership in ARC IR; encoding them as Invoke would invent
+        // a callee responsible for decrementing the receiver. Physical
+        // consumers implement the primitive sequence directly (LLVM emits it
+        // inline today).
         if !is_type_qualified {
             if let Some(var) = self.try_lower_tag_check(receiver, method, span) {
                 return var;
@@ -90,7 +92,17 @@ impl ArcLowerer<'_> {
             args = all_args.len(),
             "method_call: dispatch"
         );
-        self.emit_call_or_invoke(ty, method, all_args, span, mono_instance_id)
+        let destination = self.emit_call_or_invoke(ty, method, all_args, span, mono_instance_id);
+        self.builder.note_method_call(
+            destination,
+            receiver_type,
+            if is_type_qualified {
+                MethodCallForm::Associated
+            } else {
+                MethodCallForm::Instance
+            },
+        );
+        destination
     }
 
     /// Try to lower a tag-check method call inline.

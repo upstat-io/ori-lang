@@ -4,13 +4,63 @@ use ori_ir::Name;
 use ori_repr::executable::CallableTarget;
 
 use crate::bytecode::{
-    BytecodeFunction, BytecodeProgram, Constant, Continuation, Op, Pc, Register, RegisterClass,
-    VerifiedProgram,
+    walk_register_operands, BytecodeFunction, BytecodeProgram, CallArgument, Constant,
+    Continuation, IntBinaryOp, Op, Pc, Register, RegisterClass, RegisterOperand, StringBinaryOp,
+    TableKind, VerifiedProgram, VmCalleeOwnerDemand, VmClosureAdapterAction,
+    VmClosureAdapterSource, VmRetainPlanKind,
 };
 use crate::{IndexKind, VerifyError};
 
+fn verify_retain_plans(program: &BytecodeProgram) -> Result<(), VerifyError> {
+    for (plan_index, plan) in program.retain_plans.iter().enumerate() {
+        match &plan.kind {
+            VmRetainPlanKind::SelfOwnedIdentity => {}
+            VmRetainPlanKind::OwnedFields(edges) => {
+                verify_retain_edges(edges, plan_index, program.retain_plans.len())?;
+            }
+            VmRetainPlanKind::OwnedVariants(variants) => {
+                for edges in variants {
+                    verify_retain_edges(edges, plan_index, program.retain_plans.len())?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn verify_retain_edges(
+    edges: &[crate::bytecode::VmRetainEdge],
+    parent: usize,
+    plan_count: usize,
+) -> Result<(), VerifyError> {
+    let mut previous = None;
+    for edge in edges {
+        if edge.child.index() >= plan_count {
+            return Err(VerifyError::InvalidRetainPlanMetadata {
+                plan: parent,
+                details: "edge references a missing retain plan",
+            });
+        }
+        if edge.child.index() >= parent {
+            return Err(VerifyError::InvalidRetainPlanMetadata {
+                plan: parent,
+                details: "children are not in child-before-parent order",
+            });
+        }
+        if previous.is_some_and(|field| field >= edge.field) {
+            return Err(VerifyError::InvalidRetainPlanMetadata {
+                plan: parent,
+                details: "logical fields are not strictly ordered and unique",
+            });
+        }
+        previous = Some(edge.field);
+    }
+    Ok(())
+}
+
 /// Verify every bytecode reference and consume the unverified artifact.
 pub fn verify(program: BytecodeProgram) -> Result<VerifiedProgram, VerifyError> {
+    verify_retain_plans(&program)?;
     let main = program.functions.get(program.main.index()).ok_or_else(|| {
         invalid_index(
             Name::EMPTY,
@@ -51,10 +101,47 @@ impl<'a> Verifier<'a> {
                 classes: self.function.register_classes.len(),
             });
         }
+        if self.function.register_types.len() != self.function.register_count {
+            return Err(VerifyError::RegisterTypeMetadata {
+                function: self.function.name,
+                registers: self.function.register_count,
+                types: self.function.register_types.len(),
+            });
+        }
+        if self.function.register_closure_signatures.len() != self.function.register_count {
+            return Err(VerifyError::CallableRegisterMetadata {
+                function: self.function.name,
+                registers: self.function.register_count,
+                signatures: self.function.register_closure_signatures.len(),
+            });
+        }
+        if self.function.register_rc_strategies.len() != self.function.register_count {
+            return Err(VerifyError::RcRegisterMetadata {
+                function: self.function.name,
+                registers: self.function.register_count,
+                strategies: self.function.register_rc_strategies.len(),
+            });
+        }
+        if self.function.param_ownership.len() != self.function.params.len() {
+            return Err(VerifyError::ParameterOwnershipMetadata {
+                function: self.function.name,
+                parameters: self.function.params.len(),
+                ownership_entries: self.function.param_ownership.len(),
+            });
+        }
+        if self.function.capture_count > self.function.params.len() {
+            return Err(VerifyError::CaptureMetadata {
+                function: self.function.name,
+                captures: self.function.capture_count,
+                parameters: self.function.params.len(),
+            });
+        }
         self.pc(None, self.function.entry)?;
         for &parameter in &self.function.params {
             self.register(None, parameter)?;
         }
+        self.callable_metadata()?;
+        self.closure_adapter()?;
         for (pc, operation) in self.function.ops.iter().enumerate() {
             self.operation(pc, *operation)?;
         }
@@ -68,108 +155,282 @@ impl<'a> Verifier<'a> {
                 pc,
             });
         }
+        self.register_operands(pc, operation)?;
         match operation {
-            Op::Const { dst, value } => self.constant(pc, dst, value)?,
-            Op::Copy { dst, src } => self.registers(pc, &[dst, src])?,
-            Op::Binary { dst, lhs, rhs, .. } => self.registers(pc, &[dst, lhs, rhs])?,
-            Op::IntBinary { dst, op, lhs, rhs } => {
-                self.typed_binary(
-                    pc,
-                    dst,
-                    lhs,
-                    rhs,
-                    RegisterClass::Int,
-                    if op.returns_bool() {
-                        RegisterClass::Bool
-                    } else {
-                        RegisterClass::Int
-                    },
-                )?;
-            }
+            Op::Const { value, .. } => self.constant(pc, value)?,
+            Op::IntBinary { dst, op, lhs, rhs } => self.int_binary(pc, dst, op, lhs, rhs)?,
             Op::StringBinary { dst, op, lhs, rhs } => {
-                self.typed_binary(
-                    pc,
-                    dst,
-                    lhs,
-                    rhs,
-                    RegisterClass::String,
-                    if op.returns_bool() {
-                        RegisterClass::Bool
-                    } else {
-                        RegisterClass::String
-                    },
-                )?;
+                self.string_binary(pc, dst, op, lhs, rhs)?;
             }
-            Op::Unary { dst, arg, .. } => self.registers(pc, &[dst, arg])?,
-            Op::BoolNot { dst, arg } => {
-                self.typed_register(pc, dst, RegisterClass::Bool)?;
-                self.typed_register(pc, arg, RegisterClass::Bool)?;
-            }
-            Op::Call {
+            Op::RuntimeBinary {
                 dst,
+                operator,
+                lhs,
+                rhs,
+            } => self.runtime_binary(pc, dst, operator, lhs, rhs)?,
+            Op::BoolNot { dst, arg } => self.bool_not(pc, dst, arg)?,
+            Op::Call {
                 callee,
                 args,
                 normal,
                 unwind,
-            } => self.call(pc, dst, callee, args.index(), normal, unwind)?,
-            Op::Construct { dst, args, .. } => {
-                self.register(Some(pc), dst)?;
-                self.operand_registers(pc, args.index())?;
+                ..
+            } => self.call(pc, callee, args.index(), normal, unwind)?,
+            Op::MakeClosure {
+                dst,
+                callee,
+                captures,
+            } => self.make_closure_operation(pc, dst, callee, captures.index())?,
+            Op::CallClosure {
+                dst,
+                closure,
+                args,
+                normal,
+                unwind,
+            } => self.call_closure_operation(pc, dst, closure, args.index(), normal, unwind)?,
+            Op::Construct { args, .. } => {
+                self.operand_list(pc, args.index())?;
             }
-            Op::Project { dst, value, .. } => self.registers(pc, &[dst, value])?,
-            Op::RcInc { var, .. } | Op::RcDec { var } => {
-                self.register(Some(pc), var)?;
+            Op::RcInc { var, semantics, .. } | Op::RcDec { var, semantics } => {
+                self.rc_semantics(pc, var, semantics)?;
             }
-            Op::IsShared { dst, var } => self.registers(pc, &[dst, var])?,
-            Op::Set { base, value, .. } => self.registers(pc, &[base, value])?,
-            Op::SetTag { base, .. } => self.register(Some(pc), base)?,
+            Op::Jump { target, moves } => self.jump(pc, target, moves.index())?,
+            Op::Branch {
+                then_pc, else_pc, ..
+            } => self.branch(pc, then_pc, else_pc)?,
+            Op::Switch {
+                table, default_pc, ..
+            } => self.switch(pc, table.index(), default_pc)?,
+            Op::Copy { dst, src } => {
+                self.same_callable_signature(pc, dst, src, "callable copy changes signature")?;
+            }
             Op::Select {
                 dst,
-                cond,
                 true_value,
                 false_value,
-            } => self.registers(pc, &[dst, cond, true_value, false_value])?,
-            Op::Jump { target, moves } => {
-                self.pc(Some(pc), target)?;
-                let entries = self.moves(pc, moves.index())?;
-                for &(destination, source) in entries {
-                    self.registers(pc, &[destination, source])?;
-                }
-            }
-            Op::Branch {
-                cond,
-                then_pc,
-                else_pc,
-            } => {
-                self.register(Some(pc), cond)?;
-                self.pc(Some(pc), then_pc)?;
-                self.pc(Some(pc), else_pc)?;
-            }
-            Op::Switch {
-                scrutinee,
-                table,
-                default_pc,
-            } => {
-                self.register(Some(pc), scrutinee)?;
-                self.pc(Some(pc), default_pc)?;
-                let cases = self.switches(pc, table.index())?;
-                for &(_, target) in cases {
-                    self.pc(Some(pc), target)?;
-                }
-            }
-            Op::Return { value } => self.register(Some(pc), value)?,
-            Op::Resume | Op::Unreachable => {}
+                ..
+            } => self.select(pc, dst, true_value, false_value)?,
+            Op::Binary { .. }
+            | Op::Unary { .. }
+            | Op::Project { .. }
+            | Op::IsShared { .. }
+            | Op::Set { .. }
+            | Op::SetTag { .. }
+            | Op::Return { .. }
+            | Op::Resume
+            | Op::Unreachable => {}
         }
         Ok(())
     }
 
-    fn constant(
+    fn int_binary(
         &self,
         pc: usize,
         destination: Register,
-        value: Constant,
+        operation: IntBinaryOp,
+        left: Register,
+        right: Register,
     ) -> Result<(), VerifyError> {
-        self.register(Some(pc), destination)?;
+        let result_class = if operation.returns_bool() {
+            RegisterClass::Bool
+        } else {
+            RegisterClass::Int
+        };
+        self.typed_binary(
+            pc,
+            destination,
+            left,
+            right,
+            RegisterClass::Int,
+            result_class,
+        )
+    }
+
+    fn string_binary(
+        &self,
+        pc: usize,
+        destination: Register,
+        operation: StringBinaryOp,
+        left: Register,
+        right: Register,
+    ) -> Result<(), VerifyError> {
+        let result_class = if operation.returns_bool() {
+            RegisterClass::Bool
+        } else {
+            RegisterClass::String
+        };
+        self.typed_binary(
+            pc,
+            destination,
+            left,
+            right,
+            RegisterClass::String,
+            result_class,
+        )
+    }
+
+    fn runtime_binary(
+        &self,
+        pc: usize,
+        destination: Register,
+        operator: ori_registry::RuntimeOperator,
+        left: Register,
+        right: Register,
+    ) -> Result<(), VerifyError> {
+        if operator != ori_registry::RuntimeOperator::ListConcat {
+            return Err(VerifyError::UnsupportedRuntimePrimitive {
+                function: self.function.name,
+                pc,
+                operator,
+            });
+        }
+        self.typed_binary(
+            pc,
+            destination,
+            left,
+            right,
+            RegisterClass::Other,
+            RegisterClass::Other,
+        )
+    }
+
+    fn bool_not(
+        &self,
+        pc: usize,
+        destination: Register,
+        argument: Register,
+    ) -> Result<(), VerifyError> {
+        self.typed_register(pc, destination, RegisterClass::Bool)?;
+        self.typed_register(pc, argument, RegisterClass::Bool)
+    }
+
+    fn make_closure_operation(
+        &self,
+        pc: usize,
+        destination: Register,
+        target: ori_repr::executable::FunctionId,
+        captures: usize,
+    ) -> Result<(), VerifyError> {
+        self.typed_register(pc, destination, RegisterClass::Closure)?;
+        self.make_closure(pc, destination, target, captures)
+    }
+
+    fn call_closure_operation(
+        &self,
+        pc: usize,
+        destination: Register,
+        closure: Register,
+        operands: usize,
+        normal: Continuation,
+        unwind: Option<Pc>,
+    ) -> Result<(), VerifyError> {
+        self.typed_register(pc, closure, RegisterClass::Closure)?;
+        self.call_closure(pc, destination, closure, operands, normal, unwind)
+    }
+
+    fn jump(&self, pc: usize, target: Pc, moves: usize) -> Result<(), VerifyError> {
+        self.pc(Some(pc), target)?;
+        for &(destination, source) in self.moves(pc, moves)? {
+            self.same_callable_signature(
+                pc,
+                destination,
+                source,
+                "callable block argument changes signature",
+            )?;
+        }
+        Ok(())
+    }
+
+    fn branch(&self, pc: usize, then_pc: Pc, else_pc: Pc) -> Result<(), VerifyError> {
+        self.pc(Some(pc), then_pc)?;
+        self.pc(Some(pc), else_pc)
+    }
+
+    fn switch(&self, pc: usize, table: usize, default_pc: Pc) -> Result<(), VerifyError> {
+        self.pc(Some(pc), default_pc)?;
+        for &(_, target) in self.switches(pc, table)? {
+            self.pc(Some(pc), target)?;
+        }
+        Ok(())
+    }
+
+    fn select(
+        &self,
+        pc: usize,
+        destination: Register,
+        true_value: Register,
+        false_value: Register,
+    ) -> Result<(), VerifyError> {
+        self.same_callable_signature(
+            pc,
+            destination,
+            true_value,
+            "callable select true arm changes signature",
+        )?;
+        self.same_callable_signature(
+            pc,
+            destination,
+            false_value,
+            "callable select false arm changes signature",
+        )
+    }
+
+    fn register_operands(&self, pc: usize, operation: Op) -> Result<(), VerifyError> {
+        let mut first_error = None;
+        walk_register_operands(self.program, operation, |operand| {
+            let register = match operand {
+                RegisterOperand::Read(register) | RegisterOperand::Write(register) => register,
+            };
+            if first_error.is_none() {
+                first_error = self.register(Some(pc), register).err();
+            }
+        })
+        .map_err(|error| {
+            invalid_index(
+                self.function.name,
+                Some(pc),
+                index_kind(error.table),
+                error.index,
+                error.bound,
+            )
+        })?;
+        first_error.map_or(Ok(()), Err)
+    }
+
+    fn rc_semantics(
+        &self,
+        pc: usize,
+        register: Register,
+        semantics: crate::bytecode::RcSemantics,
+    ) -> Result<(), VerifyError> {
+        if !semantics.has_supported_atomicity() {
+            return Err(VerifyError::UnsupportedRcAtomicity {
+                function: self.function.name,
+                pc,
+                atomicity: semantics.atomicity,
+            });
+        }
+        if !semantics.has_supported_strategy() {
+            return Err(VerifyError::UnsupportedRcStrategy {
+                function: self.function.name,
+                pc,
+                strategy: semantics.strategy,
+            });
+        }
+        let expected = self.function.register_rc_strategies[register.index()];
+        if expected != Some(semantics.strategy) {
+            return Err(VerifyError::RcStrategyMismatch {
+                function: self.function.name,
+                pc,
+                register: register.index(),
+                expected,
+                found: semantics.strategy,
+            });
+        }
+        Ok(())
+    }
+
+    fn constant(&self, pc: usize, value: Constant) -> Result<(), VerifyError> {
         if let Constant::String(string) = value {
             self.index(
                 Some(pc),
@@ -198,14 +459,12 @@ impl<'a> Verifier<'a> {
     fn call(
         &self,
         pc: usize,
-        destination: Register,
         target: CallableTarget,
         operands: usize,
         normal: Continuation,
         unwind: Option<Pc>,
     ) -> Result<(), VerifyError> {
-        self.register(Some(pc), destination)?;
-        let arguments = self.operand_registers(pc, operands)?;
+        let arguments = self.call_arguments(pc, operands)?;
         let expected = match target {
             CallableTarget::Function(function) => self
                 .program
@@ -222,7 +481,27 @@ impl<'a> Verifier<'a> {
                 })?
                 .params
                 .len(),
+            CallableTarget::Runtime(
+                call @ (ori_repr::executable::RuntimeCall::RegisteredMethod(_)
+                | ori_repr::executable::RuntimeCall::RegistryMethod(_)
+                | ori_repr::executable::RuntimeCall::RegistryPrelude(_)
+                | ori_repr::executable::RuntimeCall::Protocol(_)
+                | ori_repr::executable::RuntimeCall::Compiler(_)),
+            ) => {
+                return Err(VerifyError::UnsupportedRuntimeCall {
+                    function: self.function.name,
+                    pc,
+                    call,
+                });
+            }
             CallableTarget::Runtime(call) => call.arity(),
+            CallableTarget::External(external) => {
+                return Err(VerifyError::ExternalCallTarget {
+                    function: self.function.name,
+                    pc,
+                    external,
+                });
+            }
         };
         if arguments.len() != expected {
             return Err(VerifyError::CallArity {
@@ -233,6 +512,239 @@ impl<'a> Verifier<'a> {
                 actual: arguments.len(),
             });
         }
+        self.continuations(pc, normal, unwind)
+    }
+
+    fn make_closure(
+        &self,
+        pc: usize,
+        destination: Register,
+        target: ori_repr::executable::FunctionId,
+        captures: usize,
+    ) -> Result<(), VerifyError> {
+        let target_function = self.program.functions.get(target.index()).ok_or_else(|| {
+            invalid_index(
+                self.function.name,
+                Some(pc),
+                IndexKind::Function,
+                target.index(),
+                self.program.functions.len(),
+            )
+        })?;
+        let captures = self.operand_list(pc, captures)?;
+        if captures.len() != target_function.capture_count {
+            return Err(VerifyError::ClosureCaptureArity {
+                function: self.function.name,
+                pc,
+                target,
+                expected: target_function.capture_count,
+                actual: captures.len(),
+            });
+        }
+        let Some(adapter) = target_function.closure_adapter.as_ref() else {
+            return Err(
+                self.invalid_callable(Some(pc), "closure target has no frozen adapter metadata")
+            );
+        };
+        for (&capture, slot) in captures.iter().zip(&adapter.slots) {
+            if self.function.register_types[capture.index()] != slot.ty {
+                return Err(self.invalid_callable(
+                    Some(pc),
+                    "closure capture type disagrees with target adapter",
+                ));
+            }
+        }
+        let Some(signature) =
+            self.function.register_closure_signatures[destination.index()].as_ref()
+        else {
+            return Err(self.invalid_callable(
+                Some(pc),
+                "closure destination has no residual callable signature",
+            ));
+        };
+        let residual = &adapter.slots[adapter.capture_count..];
+        if signature.parameters.len() != residual.len()
+            || signature
+                .parameters
+                .iter()
+                .zip(residual)
+                .any(|(parameter, slot)| *parameter != slot.ty)
+            || signature.result != target_function.return_type
+        {
+            return Err(self.invalid_callable(
+                Some(pc),
+                "closure destination signature disagrees with residual target",
+            ));
+        }
+        Ok(())
+    }
+
+    fn call_closure(
+        &self,
+        pc: usize,
+        destination: Register,
+        closure: Register,
+        operands: usize,
+        normal: Continuation,
+        unwind: Option<Pc>,
+    ) -> Result<(), VerifyError> {
+        let arguments = self.call_arguments(pc, operands)?;
+        let Some(signature) = self.function.register_closure_signatures[closure.index()].as_ref()
+        else {
+            return Err(
+                self.invalid_callable(Some(pc), "indirect call operand has no callable signature")
+            );
+        };
+        if arguments.len() != signature.parameters.len() {
+            return Err(self.invalid_callable(
+                Some(pc),
+                "indirect call arity disagrees with callable signature",
+            ));
+        }
+        for (argument, &expected) in arguments.iter().zip(&signature.parameters) {
+            let argument_index = argument.register().index();
+            if argument.ownership() != ori_arc::ArgOwnership::Borrowed {
+                return Err(VerifyError::ClosureArgumentOwnership {
+                    function: self.function.name,
+                    pc,
+                    argument: argument_index,
+                });
+            }
+            if self.function.register_types[argument_index] != expected {
+                return Err(self.invalid_callable(
+                    Some(pc),
+                    "indirect call argument type disagrees with callable signature",
+                ));
+            }
+        }
+        if self.function.register_types[destination.index()] != signature.result {
+            return Err(self.invalid_callable(
+                Some(pc),
+                "indirect call result type disagrees with callable signature",
+            ));
+        }
+        self.continuations(pc, normal, unwind)
+    }
+
+    fn callable_metadata(&self) -> Result<(), VerifyError> {
+        for (register, signature) in self.function.register_closure_signatures.iter().enumerate() {
+            let is_closure = self.function.register_classes[register] == RegisterClass::Closure;
+            if is_closure != signature.is_some() {
+                return Err(self.invalid_callable(
+                    None,
+                    "closure register class and callable signature presence disagree",
+                ));
+            }
+            if signature
+                .as_ref()
+                .is_some_and(|signature| signature.ty != self.function.register_types[register])
+            {
+                return Err(self.invalid_callable(
+                    None,
+                    "callable signature type identity disagrees with register metadata",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn closure_adapter(&self) -> Result<(), VerifyError> {
+        let Some(adapter) = self.function.closure_adapter.as_ref() else {
+            return Ok(());
+        };
+        if adapter.capture_count != self.function.capture_count
+            || adapter.slots.len() != self.function.params.len()
+        {
+            return Err(
+                self.invalid_adapter("adapter arity disagrees with function signature metadata")
+            );
+        }
+        for (index, (slot, &parameter)) in
+            adapter.slots.iter().zip(&self.function.params).enumerate()
+        {
+            let expected_source = if index < adapter.capture_count {
+                VmClosureAdapterSource::EnvironmentCapture
+            } else {
+                VmClosureAdapterSource::BorrowedCallArgument
+            };
+            if slot.source != expected_source
+                || slot.ty != self.function.register_types[parameter.index()]
+            {
+                return Err(self.invalid_adapter(
+                    "adapter slot source or type disagrees with function parameters",
+                ));
+            }
+            match (slot.demand, slot.action) {
+                (VmCalleeOwnerDemand::Borrow, VmClosureAdapterAction::Borrow)
+                | (
+                    VmCalleeOwnerDemand::WholeValue | VmCalleeOwnerDemand::ProjectedField(_),
+                    VmClosureAdapterAction::Copy,
+                ) => {}
+                (
+                    VmCalleeOwnerDemand::WholeValue | VmCalleeOwnerDemand::ProjectedField(_),
+                    VmClosureAdapterAction::Retain(plan),
+                ) => {
+                    let retain = self.program.retain_plans.get(plan.index()).ok_or_else(|| {
+                        invalid_index(
+                            self.function.name,
+                            None,
+                            IndexKind::RetainPlan,
+                            plan.index(),
+                            self.program.retain_plans.len(),
+                        )
+                    })?;
+                    if retain.ty != slot.ty {
+                        return Err(self
+                            .invalid_adapter("adapter retain-plan type disagrees with its slot"));
+                    }
+                }
+                _ => {
+                    return Err(
+                        self.invalid_adapter("adapter action disagrees with final owner demand")
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn same_callable_signature(
+        &self,
+        pc: usize,
+        left: Register,
+        right: Register,
+        details: &'static str,
+    ) -> Result<(), VerifyError> {
+        if self.function.register_closure_signatures[left.index()]
+            == self.function.register_closure_signatures[right.index()]
+        {
+            Ok(())
+        } else {
+            Err(self.invalid_callable(Some(pc), details))
+        }
+    }
+
+    fn invalid_callable(&self, pc: Option<usize>, details: &'static str) -> VerifyError {
+        VerifyError::InvalidCallableMetadata {
+            function: self.function.name,
+            pc,
+            details,
+        }
+    }
+
+    fn invalid_adapter(&self, details: &'static str) -> VerifyError {
+        VerifyError::InvalidClosureAdapterMetadata {
+            function: self.function.name,
+            details,
+        }
+    }
+
+    fn continuations(
+        &self,
+        pc: usize,
+        normal: Continuation,
+        unwind: Option<Pc>,
+    ) -> Result<(), VerifyError> {
         if let Continuation::At(target) = normal {
             self.pc(Some(pc), target)?;
         }
@@ -242,7 +754,20 @@ impl<'a> Verifier<'a> {
         Ok(())
     }
 
-    fn operand_registers(&self, pc: usize, index: usize) -> Result<&'a [Register], VerifyError> {
+    fn call_arguments(&self, pc: usize, index: usize) -> Result<&'a [CallArgument], VerifyError> {
+        let arguments = self.program.call_arguments.get(index).ok_or_else(|| {
+            invalid_index(
+                self.function.name,
+                Some(pc),
+                IndexKind::CallArguments,
+                index,
+                self.program.call_arguments.len(),
+            )
+        })?;
+        Ok(arguments)
+    }
+
+    fn operand_list(&self, pc: usize, index: usize) -> Result<&'a [Register], VerifyError> {
         let operands = self.program.operands.get(index).ok_or_else(|| {
             invalid_index(
                 self.function.name,
@@ -252,9 +777,6 @@ impl<'a> Verifier<'a> {
                 self.program.operands.len(),
             )
         })?;
-        for &register in operands {
-            self.register(Some(pc), register)?;
-        }
         Ok(operands)
     }
 
@@ -290,13 +812,6 @@ impl<'a> Verifier<'a> {
             })
     }
 
-    fn registers(&self, pc: usize, registers: &[Register]) -> Result<(), VerifyError> {
-        for &register in registers {
-            self.register(Some(pc), register)?;
-        }
-        Ok(())
-    }
-
     fn register(&self, pc: Option<usize>, register: Register) -> Result<(), VerifyError> {
         self.index(
             pc,
@@ -312,7 +827,6 @@ impl<'a> Verifier<'a> {
         register: Register,
         expected: RegisterClass,
     ) -> Result<(), VerifyError> {
-        self.register(Some(pc), register)?;
         let found = self.function.register_classes[register.index()];
         if found == expected {
             Ok(())
@@ -364,5 +878,15 @@ fn invalid_index(
         kind,
         index,
         bound,
+    }
+}
+
+const fn index_kind(table: TableKind) -> IndexKind {
+    match table {
+        TableKind::Operands => IndexKind::Operands,
+        TableKind::CallArguments => IndexKind::CallArguments,
+        TableKind::Moves => IndexKind::Moves,
+        TableKind::Switches => IndexKind::Switch,
+        TableKind::Strings => IndexKind::String,
     }
 }

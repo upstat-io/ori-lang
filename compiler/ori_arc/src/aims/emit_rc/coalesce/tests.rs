@@ -3,7 +3,7 @@
 use ori_ir::Name;
 use ori_types::Idx;
 
-use crate::ir::{ArcInstr, ArcValue, ArcVarId, LitValue, RcStrategy};
+use crate::ir::{ArcInstr, ArcValue, ArcVarId, LitValue, RcAtomicity, RcStrategy};
 
 use super::coalesce_block_rc;
 
@@ -238,4 +238,77 @@ fn coalesce_preserves_strategy() {
         }
         other => panic!("expected RcInc, got: {other:?}"),
     }
+}
+
+/// A compatible non-atomic physical plan remains non-atomic after merging.
+#[test]
+fn coalesce_preserves_non_atomic_plan() {
+    let var = ArcVarId::new(0);
+    let mut body = vec![
+        ArcInstr::RcInc {
+            var,
+            count: 1,
+            strategy: RcStrategy::HeapPointer,
+            atomicity: RcAtomicity::NonAtomic,
+        },
+        ArcInstr::RcInc {
+            var,
+            count: 2,
+            strategy: RcStrategy::HeapPointer,
+            atomicity: RcAtomicity::NonAtomic,
+        },
+    ];
+
+    coalesce_block_rc(&mut body);
+
+    assert_eq!(body.len(), 1, "body: {body:?}");
+    assert!(matches!(
+        body[0],
+        ArcInstr::RcInc {
+            var: actual,
+            count: 3,
+            atomicity: RcAtomicity::NonAtomic,
+            ..
+        } if actual == var
+    ));
+}
+
+/// Incompatible physical synchronization modes are a coalescing fence.
+#[test]
+fn coalesce_does_not_merge_or_cancel_mixed_atomicity() {
+    let var = ArcVarId::new(0);
+    let mut body = vec![
+        ArcInstr::RcInc {
+            var,
+            count: 1,
+            strategy: RcStrategy::HeapPointer,
+            atomicity: RcAtomicity::NonAtomic,
+        },
+        ArcInstr::RcDec {
+            var,
+            strategy: RcStrategy::HeapPointer,
+            atomicity: RcAtomicity::Atomic,
+        },
+    ];
+
+    coalesce_block_rc(&mut body);
+
+    assert_eq!(body.len(), 2, "body: {body:?}");
+    assert!(matches!(
+        body[0],
+        ArcInstr::RcInc {
+            var: actual,
+            count: 1,
+            atomicity: RcAtomicity::NonAtomic,
+            ..
+        } if actual == var
+    ));
+    assert!(matches!(
+        body[1],
+        ArcInstr::RcDec {
+            var: actual,
+            atomicity: RcAtomicity::Atomic,
+            ..
+        } if actual == var
+    ));
 }

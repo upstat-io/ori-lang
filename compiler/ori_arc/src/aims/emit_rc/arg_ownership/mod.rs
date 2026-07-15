@@ -1,4 +1,4 @@
-//! Argument ownership annotation for AIMS RC emission.
+//! Argument ownership annotation for AIMS call-event realization.
 //!
 //! Populates `arg_ownership` on `Apply`/`Invoke`/`ApplyIndirect`/
 //! `InvokeIndirect` instructions from [`MemoryContract`] signatures.
@@ -6,14 +6,14 @@
 //! [`annotate_arg_ownership`](crate::rc_insert::annotate_arg_ownership)
 //! after converting contracts to [`AnnotatedSig`]s.
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_ir::{Name, StringInterner};
 use ori_types::Pool;
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::lattice::{AccessClass, Cardinality, Consumption};
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator};
+use crate::ir::ArcFunction;
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 use crate::BuiltinOwnershipSets;
 
@@ -44,13 +44,16 @@ fn contract_to_params(contract: &MemoryContract) -> Vec<AnnotatedParam> {
         .collect()
 }
 
-/// Populate `arg_ownership` on all call sites from AIMS contracts.
+/// Populate logical argument-credit transfer on all call sites from AIMS
+/// contracts.
 ///
 /// Converts each `MemoryContract` to an `AnnotatedSig` and delegates to
 /// [`crate::rc_insert::annotate_arg_ownership`]. This preserves the
 /// type-qualified builtin dispatch logic.
 ///
-/// Must be called **before** RC emission (pipeline step 4).
+/// Must be called **before** ownership-event realization (pipeline step 4).
+/// `arg_ownership` and `annotate_arg_ownership` are transitional carrier/API
+/// names; they do not select a counter or ABI mechanism.
 #[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn emit_arg_ownership(
     func: &mut ArcFunction,
@@ -58,7 +61,27 @@ pub fn emit_arg_ownership(
     interner: &StringInterner,
     builtins: &BuiltinOwnershipSets,
     pool: &Pool,
-) {
+) -> Result<(), Vec<crate::verify::VerifyError>> {
+    emit_arg_ownership_with_exact_callables(
+        func,
+        contracts,
+        interner,
+        builtins,
+        pool,
+        &FxHashSet::default(),
+    )
+}
+
+/// Populate call ownership while preserving exact callable identities over
+/// same-spelled builtin heuristics.
+pub(crate) fn emit_arg_ownership_with_exact_callables(
+    func: &mut ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &StringInterner,
+    builtins: &BuiltinOwnershipSets,
+    pool: &Pool,
+    exact_callables: &FxHashSet<Name>,
+) -> Result<(), Vec<crate::verify::VerifyError>> {
     let mut sigs: FxHashMap<Name, AnnotatedSig> = contracts
         .iter()
         .map(|(&name, contract)| {
@@ -114,42 +137,21 @@ pub fn emit_arg_ownership(
             .or_insert(sig);
     }
 
-    crate::rc_insert::annotate_arg_ownership(func, &sigs, interner, builtins, pool);
-
-    // Invariant: after annotation, every indirect call with non-empty args
-    // must have non-empty arg_ownership. Empty arg_ownership on a call with
-    // args means annotation missed it — a bug.
-    debug_assert!(
-        {
-            let mut ok = true;
-            for block in &func.blocks {
-                for instr in &block.body {
-                    if let ArcInstr::ApplyIndirect {
-                        args,
-                        arg_ownership,
-                        ..
-                    } = instr
-                    {
-                        if !args.is_empty() && arg_ownership.is_empty() {
-                            ok = false;
-                        }
-                    }
-                }
-                if let ArcTerminator::InvokeIndirect {
-                    args,
-                    arg_ownership,
-                    ..
-                } = &block.terminator
-                {
-                    if !args.is_empty() && arg_ownership.is_empty() {
-                        ok = false;
-                    }
-                }
-            }
-            ok
-        },
-        "emit_arg_ownership: indirect call with non-empty args has empty arg_ownership"
+    crate::rc_insert::annotate_arg_ownership_with_exact_callables(
+        func,
+        &sigs,
+        interner,
+        builtins,
+        pool,
+        exact_callables,
     );
+
+    let errors = crate::verify::check_total_arg_ownership(func);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 #[cfg(test)]

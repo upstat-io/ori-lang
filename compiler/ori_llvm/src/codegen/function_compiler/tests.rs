@@ -56,6 +56,36 @@ fn make_sig(
 // outlives all these locals (it owns the actual memory), so this is safe.
 
 #[test]
+fn physical_executor_sources_do_not_enter_the_aims_calculus() {
+    const PHYSICAL_SOURCES: [(&str, &str); 9] = [
+        ("function compiler", include_str!("mod.rs")),
+        ("shared projection seam", include_str!("shared_seam.rs")),
+        ("immediate definition", include_str!("define_phase.rs")),
+        ("impl projection", include_str!("impls.rs")),
+        ("nounwind preparation", include_str!("nounwind/prepare.rs")),
+        ("nounwind analysis", include_str!("nounwind/analyze.rs")),
+        ("nounwind emission", include_str!("nounwind/emit.rs")),
+        ("nounwind orchestration", include_str!("nounwind/mod.rs")),
+        ("JIT evaluator", include_str!("../../evaluator/compile.rs")),
+    ];
+    const FORBIDDEN_ENTRIES: [&str; 4] = [
+        "ori_arc::realize_closed_program",
+        "ori_arc::aims::",
+        "run_arc_pipeline",
+        "compute_aims_contracts",
+    ];
+
+    for (source_name, source) in PHYSICAL_SOURCES {
+        for forbidden in FORBIDDEN_ENTRIES {
+            assert!(
+                !source.contains(forbidden),
+                "{source_name} must consume a closed executable artifact, not enter AIMS via {forbidden}"
+            );
+        }
+    }
+}
+
+#[test]
 fn declare_simple_function() {
     let pool = Pool::new();
     let ctx = Context::create();
@@ -79,19 +109,16 @@ fn declare_simple_function() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -120,19 +147,16 @@ fn declare_void_function() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -157,19 +181,16 @@ fn declare_sret_function() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -203,19 +224,16 @@ fn declare_main_uses_c_calling_convention() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -279,19 +297,16 @@ fn generic_functions_are_skipped() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_all(&[func], &[sig]);
@@ -339,19 +354,16 @@ fn function_map_returns_all_declared() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(add_name, &sig_add, Span::DUMMY);
@@ -455,13 +467,17 @@ fn compile_impls_populates_method_functions_map() {
 
     let impl_sigs = vec![
         ImplSig {
+            id: ori_types::ImplMethodId::new(0, ori_ir::ExprId::INVALID),
             receiver: point_idx,
             name: distance_name,
+            role: ori_types::ImplMethodRole::Ordinary,
             sig: sig_point,
         },
         ImplSig {
+            id: ori_types::ImplMethodId::new(1, ori_ir::ExprId::INVALID),
             receiver: line_idx,
             name: distance_name,
+            role: ori_types::ImplMethodRole::Ordinary,
             sig: sig_line,
         },
     ];
@@ -481,26 +497,16 @@ fn compile_impls_populates_method_functions_map() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    // IC-1: `compile_impls` runs each impl method through `run_arc_pipeline`,
-    // which requires a `MemoryContract` for the method's ARC-function name.
-    // Production computes these via `compute_aims_contracts`; this declaration-
-    // only test bypasses that step, so pre-populate the contract for the
-    // `distance` method (both impls share the method name).
-    let mut aims_contracts: FxHashMap<Name, ori_arc::MemoryContract> = FxHashMap::default();
-    aims_contracts.insert(distance_name, ori_arc::MemoryContract::conservative(1));
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        aims_contracts,
         false,
     );
 
@@ -589,19 +595,16 @@ fn module_path_appears_in_mangled_name() {
     // Use "math" as module path
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "math",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -643,19 +646,16 @@ fn scalar_params_have_noundef() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -688,19 +688,16 @@ fn scalar_return_has_noundef() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -737,19 +734,16 @@ fn indirect_params_have_noundef() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -791,19 +785,16 @@ fn direct_aggregate_params_have_noundef() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -852,19 +843,16 @@ fn mixed_params_selective_noundef() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -892,10 +880,9 @@ fn mixed_params_selective_noundef() {
 fn make_nounwind_fc<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     builder: &'a mut IrBuilder<'scx, 'ctx>,
     store: &'a TypeInfoStore<'tcx>,
-    resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
+    resolver: &'a TypeLayoutResolver<'a, 'ctx, 'tcx>,
     interner: &'a StringInterner,
     pool: &'tcx Pool,
-    type_registry: &'tcx ori_types::TypeRegistry,
     annotated_sigs: &'a FxHashMap<Name, AnnotatedSig>,
     classifier: &'a ArcClassifier<'tcx>,
 ) -> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -905,12 +892,10 @@ fn make_nounwind_fc<'a, 'scx: 'ctx, 'ctx, 'tcx>(
         resolver,
         interner,
         pool,
-        type_registry,
         "",
         annotated_sigs,
         classifier,
         None,
-        FxHashMap::default(),
         false,
     )
 }
@@ -953,15 +938,12 @@ fn nounwind_empty_function() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -990,15 +972,12 @@ fn nounwind_direct_safe_call() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1034,15 +1013,12 @@ fn nounwind_panic_call_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1078,15 +1054,12 @@ fn nounwind_indirect_call_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1124,15 +1097,12 @@ fn nounwind_invoke_unknown_callee_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1178,15 +1148,12 @@ fn nounwind_mixed_safe_and_indirect_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1234,15 +1201,12 @@ fn nounwind_may_panic_runtime_call_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1281,15 +1245,12 @@ fn nounwind_unknown_user_function_is_not_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1333,15 +1294,12 @@ fn compute_nounwind_set_marks_trivial_nounwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1387,15 +1345,12 @@ fn compute_nounwind_set_caller_sees_callee() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1474,15 +1429,12 @@ fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1575,15 +1527,12 @@ fn compute_nounwind_set_three_level_chain() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1692,15 +1641,12 @@ fn compute_nounwind_set_propagates_to_generic_original_name() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1758,15 +1704,12 @@ fn compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let type_registry = ori_types::TypeRegistry::default();
-
     let mut fc = make_nounwind_fc(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &type_registry,
         &annotated_sigs,
         &classifier,
     );
@@ -1877,19 +1820,16 @@ fn main_wrapper_has_noundef_return() {
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
 
@@ -1920,11 +1860,11 @@ fn main_wrapper_has_noundef_return() {
 
 /// PC-2 seam pin: `process_arc_function` short-circuits with
 /// `Err(VerifyError::UnresolvedTypeVar(_))` and records a codegen error when
-/// the ARC IR carries a raw `Tag::Var`, WITHOUT invoking `run_arc_pipeline`.
+/// the ARC IR carries a raw `Tag::Var`, before physical emission.
 ///
 /// Guards against INVERTED-TDD weakening of the primary PC-2 seam hook at
 /// `define_phase.rs` — any gate that would let a `Tag::Var`-bearing function
-/// reach the pipeline MUST cause this test to fail.
+/// reach physical emission MUST cause this test to fail.
 #[test]
 fn test_process_arc_function_records_codegen_error_on_violation() {
     let mut pool = Pool::new();
@@ -1943,19 +1883,16 @@ fn test_process_arc_function_records_codegen_error_on_violation() {
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
 
-    let test_type_registry = ori_types::TypeRegistry::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
         &resolver,
         &interner,
         &pool,
-        &test_type_registry,
         "",
         &annotated_sigs,
         &classifier,
         None,
-        FxHashMap::default(),
         false,
     );
 
@@ -1998,13 +1935,12 @@ fn test_process_arc_function_records_codegen_error_on_violation() {
          report_primary_seam_violation)"
     );
     // Exactly one error was recorded — consistent with the seam short-
-    // circuiting via the `return Err(...)` path before `run_arc_pipeline`
-    // could emit any additional codegen errors. A second recorded error
-    // would indicate the pipeline ran on a Tag::Var-leaking IR.
+    // circuiting via the `return Err(...)` path before physical emission
+    // could record any additional codegen errors.
     assert_eq!(
         fc.builder.codegen_error_count(),
         1,
         "exactly one codegen error expected — the primary PC-2 seam short-\
-         circuits before run_arc_pipeline can add further errors"
+         circuits before physical emission can add further errors"
     );
 }

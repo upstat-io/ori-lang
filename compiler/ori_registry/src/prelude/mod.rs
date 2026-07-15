@@ -7,6 +7,37 @@
 
 use crate::{ParamDef, ReturnTag, TypeTag};
 
+/// Exact identity of one free function in the versioned prelude registry.
+///
+/// Construction is registry-owned so executable artifacts can carry a compact
+/// semantic identity without retaining or switching on function text.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RegisteredPreludeFunctionId {
+    index: u16,
+    arity: u8,
+}
+
+impl RegisteredPreludeFunctionId {
+    fn new(index: usize, arity: usize) -> Option<Self> {
+        Some(Self {
+            index: u16::try_from(index).ok()?,
+            arity: u8::try_from(arity).ok()?,
+        })
+    }
+
+    /// Version-local prelude-function table position.
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self.index as usize
+    }
+
+    /// Number of source operands accepted by this function.
+    #[must_use]
+    pub const fn arity(self) -> usize {
+        self.arity as usize
+    }
+}
+
 /// A builtin prelude free-function signature.
 ///
 /// Unlike [`crate::MethodDef`] (which describes methods on types), this
@@ -98,12 +129,26 @@ pub static PRELUDE_FUNCTIONS: &[PreludeFunctionDef] = &[
         params: &GENERIC_PARAM,
         returns: ReturnTag::Concrete(TypeTag::Str),
     },
+    PreludeFunctionDef {
+        name: "thread_id",
+        params: &[],
+        returns: ReturnTag::Concrete(TypeTag::Int),
+    },
 ];
 
 /// Look up a prelude function by name.
 #[must_use]
 pub fn find_prelude_function(name: &str) -> Option<&'static PreludeFunctionDef> {
     PRELUDE_FUNCTIONS.iter().find(|f| f.name == name)
+}
+
+/// Resolve a free-function name once into its exact versioned registry identity.
+#[must_use]
+pub fn find_prelude_function_id(name: &str) -> Option<RegisteredPreludeFunctionId> {
+    let index = PRELUDE_FUNCTIONS
+        .iter()
+        .position(|function| function.name == name)?;
+    RegisteredPreludeFunctionId::new(index, PRELUDE_FUNCTIONS[index].params.len())
 }
 
 #[cfg(test)]

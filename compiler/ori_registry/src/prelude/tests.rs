@@ -15,7 +15,8 @@ fn prelude_functions_complete() {
             "hash_combine",
             "int",
             "repeat",
-            "str"
+            "str",
+            "thread_id"
         ],
         "PRELUDE_FUNCTIONS must contain exactly these entries in alphabetical order"
     );

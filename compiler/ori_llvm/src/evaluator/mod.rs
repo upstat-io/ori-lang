@@ -5,9 +5,9 @@
 //!
 //! # V2 Architecture
 //!
-//! The evaluator is a pure codegen component — it receives pre-computed
-//! borrow inference results and pre-lowered ARC functions from the caller
-//! (`oric`). It does NOT perform ARC lowering or borrow inference itself.
+//! The evaluator is a pure physical projection component. It receives one
+//! closed executable artifact from `oric` and does not lower canonical IR or
+//! run ownership analysis.
 //!
 //! Pipeline:
 //! 1. `TypeInfoStore` + `TypeLayoutResolver` for LLVM type computation
@@ -28,7 +28,7 @@ use rustc_hash::FxHashMap;
 use ori_ir::ast::Function;
 use ori_ir::canon::CanonResult;
 use ori_ir::Name;
-use ori_types::{FunctionSig, Pool};
+use ori_types::FunctionSig;
 
 /// Check if LLVM IR dumping is requested (new or legacy env var).
 ///
@@ -192,19 +192,23 @@ impl CompiledTestModule<'_> {
 /// LLVM-based evaluator that owns its context.
 ///
 /// Uses the V2 codegen pipeline (`TypeInfoStore` → `IrBuilder` → `FunctionCompiler`).
-pub struct OwnedLLVMEvaluator<'tcx> {
+pub struct OwnedLLVMEvaluator {
     context: Context,
-    /// Type pool for resolving compound types (List, Map, etc.)
-    pool: &'tcx Pool,
 }
 
-impl<'tcx> OwnedLLVMEvaluator<'tcx> {
-    /// Create an evaluator with a type pool for compound type resolution.
+impl OwnedLLVMEvaluator {
+    /// Create an evaluator. The bound executable artifact owns all semantic
+    /// type identities used during physical projection.
     #[must_use]
-    pub fn with_pool(pool: &'tcx Pool) -> Self {
+    pub fn new() -> Self {
         OwnedLLVMEvaluator {
             context: Context::create(),
-            pool,
         }
+    }
+}
+
+impl Default for OwnedLLVMEvaluator {
+    fn default() -> Self {
+        Self::new()
     }
 }

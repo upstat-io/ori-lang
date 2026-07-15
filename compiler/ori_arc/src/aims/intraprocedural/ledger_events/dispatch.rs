@@ -6,6 +6,7 @@
 //! on `Classifier` (`super::mod`).
 
 use ori_ir::Name;
+use ori_registry::{PrimitiveOperandUse, PrimitiveResultOwnership};
 
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership};
 
@@ -140,15 +141,9 @@ impl Classifier<'_> {
     /// — the TF-3 analog with zero funded args; every other literal kind
     /// allocates nothing at runtime even under a heap-repr variable (the
     /// iterator-protocol placeholder `%n: str = 0` shape), so it stays
-    /// event-less. A HEAP-producing `PrimOp` (str/list concat) is a fresh
-    /// allocation whose operand ownership splits by repr, mirroring the
-    /// runtime contract's consumed-operand discriminator: an `RcPointer`
-    /// operand transfers into the
-    /// dual-consuming `ori_list_concat_cow` (CONSUME); a `FatValue` str
-    /// operand is BORROWED by `ori_str_concat` — the operand's class READs
-    /// and keeps its own owed release with the planner (the caller-side
-    /// dec). A SCALAR-dst `PrimOp` (comparison) borrow-READS its heap
-    /// operands.
+    /// event-less. `PrimOp` result and operand events come exclusively from
+    /// the typed primitive descriptor frozen by AIMS. Physical representation,
+    /// runtime symbol, and executor strategy never participate here.
     fn classify_let_value(
         &mut self,
         stream: &mut Vec<ClassInstr>,
@@ -163,43 +158,34 @@ impl Classifier<'_> {
                 }
             }
             ArcValue::PrimOp { args, .. } => {
-                if self.excluded(dst) {
-                    for &arg in args {
-                        if !self.excluded(arg) {
-                            self.read(stream, arg);
+                let fact = self.func.primitive_facts.get(dst).unwrap_or_else(|| {
+                    panic!("validated PrimOp v{} is missing its frozen fact", dst.raw())
+                });
+                match fact.descriptor.result {
+                    PrimitiveResultOwnership::Scalar | PrimitiveResultOwnership::Alias { .. } => {}
+                    PrimitiveResultOwnership::IndependentOwned
+                    | PrimitiveResultOwnership::OwnedFromConsumedOrIndependent { .. } => {
+                        if !self.excluded(dst) {
+                            self.birth(stream, dst, ClassOrigin::Fresh);
                         }
                     }
-                } else {
-                    if !self.excluded(dst) {
-                        self.birth(stream, dst, ClassOrigin::Fresh);
+                }
+
+                let alias_operand = match fact.descriptor.result {
+                    PrimitiveResultOwnership::Alias { operand } => Some(usize::from(operand)),
+                    _ => None,
+                };
+                for (position, (&arg, &use_)) in args
+                    .iter()
+                    .zip(fact.descriptor.operand_uses.iter())
+                    .enumerate()
+                {
+                    if self.excluded(arg) || alias_operand == Some(position) {
+                        continue;
                     }
-                    for &arg in args {
-                        if self.excluded(arg) {
-                            continue;
-                        }
-                        if matches!(
-                            self.func.var_repr(arg),
-                            Some(crate::ir::ValueRepr::RcPointer)
-                        ) {
-                            // `ori_list_concat_cow` consumes BOTH operands
-                            // on every strategy row (reuse / copy / takeover
-                            // all release or absorb the operand reference);
-                            // COW uniqueness selects the internal strategy,
-                            // never the external refcount contract. A
-                            // borrowed-param-rooted operand is externally
-                            // net-0: the operator lowering emits its own
-                            // `borrow_protect.inc` whose undo is the concat's
-                            // dec, so the caller-retained reference survives
-                            // — the class READs (a ledger funding inc would
-                            // double-fund it).
-                            if self.borrowed_rooted_vars.contains(&arg) {
-                                self.read(stream, arg);
-                            } else {
-                                self.consume(stream, arg);
-                            }
-                        } else {
-                            self.read(stream, arg);
-                        }
+                    match use_ {
+                        PrimitiveOperandUse::Borrow => self.read(stream, arg),
+                        PrimitiveOperandUse::Consume => self.consume(stream, arg),
                     }
                 }
             }

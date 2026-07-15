@@ -37,13 +37,13 @@ use crate::codegen::value_id::{FunctionId, ValueId};
 /// caches the `FunctionId` immediately (cycle safety), then generates the
 /// body based on `DropKind`.
 ///
-/// Naming: per [`ori_arc::drop_glue_symbol`] (the `_ori_drop$<idx>` SSOT).
+/// Naming is an LLVM projection owned by [`crate::drop_glue_symbol`].
 pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     emitter: &mut ArcIrEmitter<'a, 'scx, 'ctx, 'tcx>,
     ty: Idx,
     drop_info: &DropInfo,
 ) -> FunctionId {
-    let func_name = ori_arc::drop_glue_symbol(ty);
+    let func_name = crate::drop_glue_symbol(ty);
 
     // Get-or-declare: reuse an existing function from a previous emitter instance
     // to avoid duplicate definitions (LLVM would auto-rename with `.1`, `.2`, etc.)

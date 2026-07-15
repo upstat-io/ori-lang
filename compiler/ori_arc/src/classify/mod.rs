@@ -1,4 +1,4 @@
-//! ARC type classifier.
+//! Managed-ownership type classifier.
 //!
 //! Walks the type pool to classify each type as `Scalar`, `DefiniteRef`,
 //! or `PossibleRef`. Uses memoization and cycle detection to handle
@@ -8,11 +8,12 @@ use std::cell::RefCell;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use ori_registry::TypeTag;
 use ori_types::{Idx, Pool};
 
 use crate::ArcClass;
 
-/// Classification trait for ARC analysis.
+/// Classification trait for backend-neutral ownership analysis.
 ///
 /// Provides the core `arc_class` query plus convenience predicates.
 /// Implemented by [`ArcClassifier`], which wraps a `Pool` reference
@@ -21,20 +22,33 @@ pub trait ArcClassification {
     /// Classify a type by its pool index.
     fn arc_class(&self, idx: Idx) -> ArcClass;
 
-    /// Returns `true` if this type is scalar (no RC operations needed).
+    /// Resolve the builtin semantic type identity for a typed IR index.
+    ///
+    /// AIMS uses this to freeze primitive-operation semantics before analysis.
+    /// Custom classifiers that do not own a type pool may leave the default;
+    /// primitive resolution then fails closed instead of guessing from layout.
+    fn builtin_type_tag(&self, _idx: Idx) -> Option<TypeTag> {
+        None
+    }
+
+    /// Returns `true` if this type is scalar and carries no managed ownership
+    /// obligation.
     fn is_scalar(&self, idx: Idx) -> bool {
         self.arc_class(idx) == ArcClass::Scalar
     }
 
-    /// Returns `true` if this type might need reference counting.
+    /// Returns `true` if values of this type carry managed ownership or
+    /// cleanup obligations.
     ///
-    /// This is `true` for both `DefiniteRef` and `PossibleRef`.
-    fn needs_rc(&self, idx: Idx) -> bool {
+    /// This is `true` for both historical `DefiniteRef` and `PossibleRef`
+    /// classes. A physical plan may realize the obligation with counters or
+    /// another proven mechanism.
+    fn has_managed_ownership_obligation(&self, idx: Idx) -> bool {
         self.arc_class(idx) != ArcClass::Scalar
     }
 }
 
-/// Type classifier for ARC analysis.
+/// Type classifier for backend-neutral ownership analysis.
 ///
 /// Wraps a `Pool` reference with classification caching and cycle detection.
 /// This mirrors the `TypeInfoStore` pattern in `ori_llvm` but lives in a
@@ -196,6 +210,10 @@ impl ArcClassification for ArcClassifier<'_> {
             "classifying set should be empty at top-level arc_class() entry"
         );
         self.classify(idx)
+    }
+
+    fn builtin_type_tag(&self, idx: Idx) -> Option<TypeTag> {
+        self.pool.builtin_type_tag(self.pool.resolve_fully(idx))
     }
 }
 

@@ -1,116 +1,39 @@
-Theorem RL-15a: ArgEscaping caller-stack allocation — 4 emission categories (CRITICAL)
+Theorem RL-15a: ArgEscaping freezes a complete nonempty caller extent
 
   Preconditions:
-    - RL-15a governs ArgEscaping caller-stack allocation per Annex E §AIMS Stack Promotion: ArgEscaping values (Locality = ArgEscaping)
-      SHALL be stack-allocated in the CALLER, with the header decision
-      determined by the CALLEE's parameter contract (NOT the caller's
-      Access, which is Owned + ArgEscaping). CRITICAL: sec-11 coexistence
-      handshake + the burden-prototype C5 build on RL-15a; it is the Ori-novel realization
-      rule whose soundness the burden prototype assumed but never proved.
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - The 4 distinct emission categories (the canonical enumeration per
-      Annex E §AIMS RL-15a — NOT a 2x2x2 cross product; may_share
-      modulates category 1 vs 2):
-        (1) callee Borrowed + Unique + may_share=false -> headerless
-            caller-stack (no RC ops; heap children receive field-level RcDec
-            at caller scope exit per RL-14, VF-1 DecOnBorrowed exemption);
-        (2) callee Borrowed + != Unique (MaybeShared/Shared), AND the
-            may_share=true upgrade of category 1 -> caller-stack WITH RC
-            header init MAX_REFCOUNT (immortal — the callee may emit IsShared
-            per DP-4 reading the header; headerless allocation crashes;
-            immortal prevents a callee RcDec freeing the stack pointer);
-        (3) callee Owned -> caller-stack WITH immortal RC header (the callee
-            may emit RcDec/IsShared; immortal makes a callee RcDec a no-op;
-            the caller owns field cleanup);
-        (4) closure-capture (PartialApply) -> TF-13 promotes Access to Owned
-            only for >= HeapEscaping; CN-8 clamps Borrowed+ArgEscaping ->
-            Borrowed+FunctionLocal, routing the captured variable to RL-14,
-            NOT RL-15a.
-    - TF-13 closure-capture exception + CN-8 Borrowed-locality-ceiling are
-      explicit proof obligations (per the sec-08 RL-15a success criterion).
-    - DP-8 (is_local): ArgEscaping is NOT local (it escapes into the callee),
-      so RL-14/RL-15 do not apply; caller-stack promotion (RL-15a) is the
-      ArgEscaping optimization.
-    - Shipped: realize/project_escape.rs (escape-driven caller-stack +
-      field-RcDec) + realize/decide.rs (Locality + callee-contract
-      consumption).
-    - depends-on sec-05: DP-8 (is_local); depends-on sec-06: IC-3
-      ParamContract.access / .uniqueness / .may_share is the callee contract
-      driving the category split.
+    - Locality = ArgEscaping.
+    - Each CallerUse carries a stable CallSiteId and CallerProtocol.
+    - CallerProtocol is borrowOnly, mayShare, or ownershipTransfer.
 
   Soundness property:
-    Forall caller value v with Locality(v) = ArgEscaping passed to a callee
-    parameter with contract (access, uniqueness, may_share, is_closure):
+    Forall nonempty caller-use sequence U:
 
-      (P1) Category decision (the full 4-clause SUFFICIENT enumeration as
-           explicit theorem antecedents):
-        cat1: access = Borrowed AND uniqueness = Unique AND may_share = false
-              -> CallerStackHeaderless
-        cat1-upgrade / cat2: access = Borrowed AND (uniqueness != Unique OR
-              may_share = true) -> CallerStackImmortal
-        cat3: access = Owned -> CallerStackImmortal
-        cat4: is_closure (PartialApply) -> routed to RL-14
-              (HeaderlessStack via the CN-8 clamp), NOT RL-15a
+      (P1) lifetimeFromLocality(ArgEscaping, U) = callerExtent(U).
 
-      (P2) RC soundness per category:
-        cat1: headerless is safe because the callee neither shares (may_share
-              = false) nor decs (Borrowed) — no RC op touches the header;
-              heap children are released by caller-scope field RcDec.
-        cat2/cat3: the immortal MAX_REFCOUNT header makes every callee RcDec a
-              no-op and lets a callee IsShared read a valid header, so the
-              stack pointer is never freed by an RC op; the caller frame
-              deallocates it; the caller owns field cleanup.
-        cat4: the closure-captured variable is handled by RL-14 (the CN-8
-              clamp moved it to FunctionLocal), so RL-15a's antecedent is
-              never reached for it.
+      (P2) Every CallSiteId and CallerProtocol in U is preserved exactly.
 
-      (TF-13 / CN-8 obligation) No Borrowed value ever satisfies RL-15a's
-        Locality = ArgEscaping antecedent: CN-8 clamps a Borrowed+ArgEscaping
-        caller value to Borrowed+FunctionLocal (an Appendix-B infeasible-state
-        elimination), which DP-8 marks is_local, routing it to RL-14. Hence
-        "Borrowed callee parameter" in RL-15a refers to the CALLEE's contract
-        for the parameter, never the value's Access at the caller (the caller
-        value is Owned + ArgEscaping; the callee receives it as Borrowed).
+      (P3) Empty caller-use evidence yields LifetimeBound.unknown.
 
-    RL-15a refines plain ARC by stack-allocating (in the caller) values that
-    escape ONLY into a callee, never to the heap — eliminating the heap
-    allocation while the per-category header choice keeps every callee RC
-    operation safe.
+    The caller extent constrains lifetime and ownership obligations without
+    prescribing caller storage or metadata.
 
   Proof obligation:
-    Constructive discharge by the case_analysis engine via finite enumeration
-    of the 4-category callee-contract grid + the TF-13/CN-8 obligation.
+    Constructive nonempty-list discharge with one row for each protocol and a
+    fail-closed empty-evidence witness.
 
-    Part (P1/P2) — 4-category grid:
-      cat1_borrowed_unique_no_share_headerless -> CallerStackHeaderless
-      cat1_upgrade_borrowed_unique_may_share_immortal -> CallerStackImmortal
-      cat2_borrowed_maybeshared_immortal -> CallerStackImmortal
-      cat2_borrowed_shared_immortal -> CallerStackImmortal
-      cat3_owned_immortal -> CallerStackImmortal
-      cat4_closure_capture_routed_to_rl14 -> HeaderlessStack (RL-14)
-      Coverage gate: 6 category cases covering all 4 canonical categories +
-      the may_share category-1->2 upgrade.
-
-    Part (TF-13 / CN-8 obligation):
-      The verifier discharges cn8_clamp(Borrowed, ArgEscaping) = FunctionLocal
-      AND is_local(FunctionLocal) = true — proving a Borrowed value never
-      reaches RL-15a's ArgEscaping antecedent (it is always clamped to a local
-      RL-14 path first). This is the Appendix-B `Borrowed ∧ ArgEscaping`
-      infeasible-state elimination composed with DP-8.
+    Part (P1/P2/P3) - caller-use grid:
+      borrowOnly site -> preserved
+      mayShare site -> preserved
+      ownershipTransfer site -> preserved
+      empty uses -> unknown
+      Coverage gate: 4 caller-use cases.
 
     Engines dispatched:
-      case_analysis (PRIMARY —
-        section_08::verify_rl15a_argescaping_caller_stack; 4-category
-        callee-contract grid + TF-13/CN-8 clamp obligation; emits Fail on a
-        wrong category, a missing category, or a Borrowed-reaches-ArgEscaping
-        violation)
-      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      case_analysis (PRIMARY - section_08::verify_rl15a_caller_extent;
+        exact CallerUse identity and completeness)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
 
   Expected:
     status: valid
-    reason: section_08 case_analysis engine discharges the CRITICAL RL-15a via the full 4-category caller-stack grid (cat1 Borrowed+Unique+!may_share headerless; cat1-upgrade/cat2 Borrowed+!=Unique-or-may_share immortal; cat3 Owned immortal; cat4 closure-capture routed to RL-14) enumerated as explicit theorem antecedents, PLUS the TF-13/CN-8 obligation proving cn8_clamp(Borrowed, ArgEscaping) = FunctionLocal is_local so no Borrowed value ever reaches the ArgEscaping antecedent, grounded in the shipped realize/project_escape.rs caller-stack realization + IC-3 callee contract
+    reason: section_08 case_analysis engine discharges RL-15a by preserving the nonempty CallerUse sequence and failing closed to LifetimeBound.unknown when caller evidence is absent

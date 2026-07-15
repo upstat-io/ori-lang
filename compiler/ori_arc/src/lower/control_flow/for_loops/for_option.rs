@@ -17,10 +17,11 @@ type OptionMergeParams = (
 impl ArcLowerer<'_> {
     /// Lower `for x in <option> do body` — 0-or-1 element iteration.
     ///
-    /// Option layout: `{i64 tag, T payload}` (tag 0=None, 1=Some).
+    /// The logical Option carrier exposes a discriminant and payload path.
+    /// Physical tags, niches, and payload offsets belong to compiled layout.
     /// Structure:
     /// ```text
-    /// entry: is_some = (tag != 0); branch(is_some, some_block, none_block)
+    /// entry: branch on the logical Some discriminant
     /// none_block: jump(exit, [pre_muts...])
     /// some_block: bind elem; [guard check]; body; jump(exit, [post_muts...])
     /// exit(muts_merged...): ...

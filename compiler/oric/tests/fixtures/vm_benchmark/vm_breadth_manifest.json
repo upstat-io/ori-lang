@@ -1,0 +1,1479 @@
+{
+  "schema_version": 1,
+  "corpus_id": "ori-main-breadth",
+  "selected_count": 207,
+  "frontend_valid_count": 194,
+  "oracle_eligible_count": 48,
+  "path_list_sha256": "5c001b9b79bfa41620c9c59bef988077172cd10e3d255cf40c433d04c8f267f6",
+  "source_index_sha256": "32d847df4ceb2ac66d451570e4e633bb2fc611808f9d2c33537d8a2a0ae26d95",
+  "provenance": {
+    "vm_sweep_sha256": "02ab0830ceea4c58acb1f8f8242394f3cd9ba3c49f34463d4818685ebf7b03d1",
+    "oracle_sweep_sha256": "b9429e03a71a8dbcd88e39881080499d58492f7fa5cc49e6ded27497ab336993",
+    "frontend_check_sweep_sha256": "b1ddb232424bcdcead75223081d99932e0862b7ff8c20f092fd01b6193234197"
+  },
+  "selection": {
+    "roots": [
+      "tests/benchmarks",
+      "tests/run-pass",
+      "tests/spec",
+      "tests/valgrind"
+    ],
+    "extension": "ori",
+    "requires_main_attribute": true,
+    "excluded_path_components": [
+      "_test"
+    ],
+    "ordering": "path_lexicographic"
+  },
+  "cases": [
+    {
+      "path": "tests/benchmarks/aims_burden/closures_inside_loops.ori",
+      "source_sha256": "6b2f7f73c5a3fde1b972c64091c851be7d9c41800c9ffd8cb7eaa289cf20d3e2",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/aims_burden/conditional_transfer_in_branch.ori",
+      "source_sha256": "f92a6311ae26f3a974bd3ed1990a412fdb7aec141801d1011bbae1dcceaeed1a",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/benchmarks/aims_burden/doors_toggle.ori",
+      "source_sha256": "c00d585a971692c594b0b4108776c1316286dad83105ec09647fedeeb0f40af4",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/aims_burden/fresh_alloc_loop.ori",
+      "source_sha256": "e15a047b6f6d2c58c220612d6029d96fd9e78734b2935bad7556d80aa070fb5d",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/aims_burden/sum_payload_extraction.ori",
+      "source_sha256": "6e20e3cce0e3148221f31cafea3baf951b788ac94dcdc3e96bfd65ecda775f1c",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/bench_alloc.ori",
+      "source_sha256": "13efd041a6324133a594b502df7873e988a05ea5b0225b133c2aeaea00dc6588",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/bench_compute.ori",
+      "source_sha256": "d8f4de99bea6cb8ea10c2dc2f17914ec0c42285b0c90d34985aed3d0ab8028f2",
+      "frontend_status": "valid",
+      "vm_status": "timeout",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/bench_hello.ori",
+      "source_sha256": "37ce55d27bd6b9402cdb878847bb5cf57b756bb6087991cd34aabb71c2e923a3",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/benchmarks/bench_medium.ori",
+      "source_sha256": "68093553e235dcd3d5e188efeed362db3a3c53ff55c1cc62a7de671e75b78827",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/bench_recursion.ori",
+      "source_sha256": "c713a8faca73f129c88e2c20668ecb7a4e8d2fdb152d129bb77ccf10a1a3bf42",
+      "frontend_status": "valid",
+      "vm_status": "timeout",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/bench_small.ori",
+      "source_sha256": "2659b3acdbbef5b762b5908520f6dae2e2d0c8185b21777f9a08736797d5965e",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/benchmarks/bench_string.ori",
+      "source_sha256": "f7813045c56a0333243b94787493f7be7babd967e5fc39684dcc9d4d46a8ae03",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/benchmarks/cow/compare.ori",
+      "source_sha256": "bd4ccd356ad5671110486eaac87bc2fc833c6783e13c858141fd6b19461802d8",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/benchmarks/cow/list_push.ori",
+      "source_sha256": "34b6173dfb23b8dfe7d6398489f47caa6f37cd1c3e33ef07f542e87788e88380",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/cow/list_push_shared.ori",
+      "source_sha256": "8cd8f38b303ec739ae8c53dd15856e20fcf03e11d5da610634d63efcc996b370",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/benchmarks/cow/list_slice.ori",
+      "source_sha256": "9cc98dacd85ce66cdc87dfb9c62e7bf40b42c0e758c73ab8fa370c8c4dfd1281",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/cow/macro/file_pipeline.ori",
+      "source_sha256": "a53fa8160cfdf628d4017af2958730fb59a9f3f8716ac467887cc2534b8d693d",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/benchmarks/cow/macro/graph_bfs.ori",
+      "source_sha256": "e1f81cf6ae52e60ee7fb32880a279380a8c944dbdf82b00e18799a9c18ffabea",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/cow/macro/json_builder.ori",
+      "source_sha256": "2df27c86af38aa65d357ebbd4dd19b66ac80438f629f0630fc4cdc59d950bc5a",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/benchmarks/cow/macro/sort_dedup.ori",
+      "source_sha256": "ec05c52d9254940f47fb8c64b65e084b64f55c041b989f708c61876b21b52a3b",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/cow/map_insert.ori",
+      "source_sha256": "ffbfebb204b6a5d9b7bd14d84ab69113cab1c5a6153771fa34392c4970747444",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/cow/nested_list_crash.ori",
+      "source_sha256": "3031f5811df365a7826ae152ce57fca8e8b3efd9483461bc7b286408923bc0f0",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/benchmarks/cow/set_union.ori",
+      "source_sha256": "71a14298b1b29b1dbf489e788447a5443174898fcf75a7adc69b70d048e7f792",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/benchmarks/cow/str_concat.ori",
+      "source_sha256": "bd39f16b613f50706d65f28c5470725863c48730d29b2f8eb744984e404e7dd7",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/run-pass/closure_uses_outer_binding.ori",
+      "source_sha256": "5a112a1be09ce46eb46b78fe90ec0c4f22374a1ca9e4e16df4736d0c3f7d758b",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/run-pass/examples/math.ori",
+      "source_sha256": "0f9a81632659ea56d29cb2c80d29dfb58c7c5344083c75391de5ddcea8349576",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/run-pass/rosetta/001_100_doors/001_100_doors.ori",
+      "source_sha256": "1cff74f8056c442376b016a7a7a6f65acb75c224114972cc7be2d50ea4ba4e49",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/run-pass/rosetta/001_100_doors/ori/100_doors.ori",
+      "source_sha256": "7bab5642aed6733857a2150dd08de5a0d77013c2d39c556db14a8d88afd924c1",
+      "frontend_status": "valid",
+      "vm_status": "timeout",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/codegen/block_merge_test.ori",
+      "source_sha256": "72d81c592daec756ff30d1d7fcce8a950c33f746dda7ef5e25746baff1494d96",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/codegen/tail_call_test.ori",
+      "source_sha256": "16c27b41e4c2dd2a5b636cb8d02116838e332c9839b912597f750b70d2e2ce07",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "mismatch"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/cfg_any_feature.ori",
+      "source_sha256": "1aae3ec9bf891612a58280a9e891a05bfe47583ba96b8a59bd3449a41e7251d4",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/cfg_feature_underscore_start.ori",
+      "source_sha256": "3dc70cef461ef8f9728329560f78da8c200a8a8c63c338064701bbc7bd1f4253",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/cfg_feature_valid_names.ori",
+      "source_sha256": "31cad1ff9d7d2a66b549b2b4509485a1e5b8f81d1227adc7d9bfbc6a22332c1a",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/item_cfg_const.ori",
+      "source_sha256": "e35152427e5672e88770c4e5e2f3dc98a412851649c07b75613c90c430100618",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/item_cfg_function.ori",
+      "source_sha256": "a093423724e30d4e3ee04238b5534c847a98df8d23c33a6c67509e6205a251d7",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/item_cfg_impl.ori",
+      "source_sha256": "3cb2e351ad0821a88095c5d064de952e9ceca03d700ec2762b6ab807b5484f5f",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/item_cfg_use.ori",
+      "source_sha256": "e4df87c659f43e70f6fc9bebdb14ed537c8aef2413d8523cffb7b162ec504a78",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/item_target_const.ori",
+      "source_sha256": "1c4af6e21901ed85151d9d17f0456c4a81b3b1a94ba0a1ef5ecffc56292df3ae",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/item_target_function.ori",
+      "source_sha256": "6bf835ee41ea3b1ae1f135d6a6d1d5584216c72910c44b2d07203afd4e3c7efc",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/item_target_impl.ori",
+      "source_sha256": "dd9fe37b68463f57813a0a47d3df12a93d7aba038e8ace6dc8090a0930f58689",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/item_target_type.ori",
+      "source_sha256": "3007367fbf9c2a62c776351a8154d67ea26791e1dd49e6e83d770dafcbd8c3cc",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/item_target_use.ori",
+      "source_sha256": "171d8fad7144aefd7c8188f8e9e69b1f54361610daef2e70f74a87fcf726518c",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/target_any_arch.ori",
+      "source_sha256": "37555d66ecad5db567e87d2d9cc4c6656df4b6fa383b375496cb50cd22c1d117",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/target_any_os.ori",
+      "source_sha256": "b4688fc2dfe7d5f712d075f6e3b11ccd305176e6ef68d9449ba126e2f0b00e91",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/target_not_arch.ori",
+      "source_sha256": "d2554fc90ae86cce4e06a0e01f8e53242561c232ce09bdb1c9be19fca1478979",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/declarations/conditional/target_not_family.ori",
+      "source_sha256": "6c9ff7314043d6bab103875d882947c6d5832ddf4ba65ac5ef27f2dc111d28a0",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/expressions/minmax_in_generic.ori",
+      "source_sha256": "9cc405274d2991dbd315c873369e1187e3a248871d0c3f7ad4340b75df0e3c9a",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/patterns/try-tailless-empty.ori",
+      "source_sha256": "a6018e9af017c81c8635908fba5bdd0acf2f34326f72b1a8708d93d23f35b56e",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/patterns/try-tailless-type-mismatch.ori",
+      "source_sha256": "5e363938b60808f4bf36a98ec36f8f934fb1db9a7bb9f742104700069d7bf544",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/clone/collections.ori",
+      "source_sha256": "056a0276bd80a5031f316aa4ec4b81bda42ea0175eb7998e364eb4d5597b47ef",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/clone/definition.ori",
+      "source_sha256": "aeee7ba6a818bb747afa4e0080419c4537eb07e5e2303b29d5783146bf442ac2",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/clone/primitives.ori",
+      "source_sha256": "a597c12686c2a7d943f78c84d0b6db1adbf27d733444d498669db3b4918a7b0a",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/clone/tuples.ori",
+      "source_sha256": "56c206ecf5a3e9f0bcb96ad8d0d28460fab4b8942ee524244a352ab2785e8e63",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/clone/wrappers.ori",
+      "source_sha256": "bc1eaaf1f7267233d23b6bd01d8fd3b0954c61bdfeef2b0259ec94a8dba66cf3",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/default/default_in_generic.ori",
+      "source_sha256": "57685bab563dcc7f29ce61bea26a8606fd7479faaa4d35c92f75867f34c1c8c1",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/default/definition.ori",
+      "source_sha256": "d6892fd4537719a82fbc316f3a638a4a3a8bd1f5acc7ce2f3aa5e39a7ba60829",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/default/derive.ori",
+      "source_sha256": "502ff85cf06b9d5e62548271b1fad51196c9806625a91977dcc4f608970b9773",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/derive/all_derives.ori",
+      "source_sha256": "5ecdf4d599f3c28381e3b13724efa4f411b080567181c5cbbf97212978cb5f46",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/derive/default.ori",
+      "source_sha256": "a1d8a21a4253d7f5aca0d9d0c5d43788b9147d98ef2cb2dc5eaa09ff8ca4cfd9",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/formattable/blanket.ori",
+      "source_sha256": "32fe9a71553ca808359308ebfb9c024a35cb568f056f3efc7a60558abd1bd90d",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/formattable/definition.ori",
+      "source_sha256": "50e83a82e52d884aca9942bbfd199fbebccb638bbbfd337bbd8212709a2ae192",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/formattable/edge_cases.ori",
+      "source_sha256": "9de34999e794cd305e6004b77c834100afcbc34c978b74c296fff0b354beb4cd",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/formattable/fill.ori",
+      "source_sha256": "c6a49fc7b36de1623c5639b28b373fb15eeeba572da561dfffd7f48e00276bf9",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/formattable/float.ori",
+      "source_sha256": "11526a4cc15da030e8376c42c60f0cd6d35e1754e7de80f4046e8859ea1e3fb8",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/formattable/format_spec_type.ori",
+      "source_sha256": "ee0587b19f3626651b22091aa2069c15de8d8e691f237779aed5ff199150144f",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/formattable/int.ori",
+      "source_sha256": "e9ee1d3de50a88e3cabd353fadcec76414aa05d7d6a8cee30cc15f8213d50ad8",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/formattable/user_enum.ori",
+      "source_sha256": "53dbc6b9d1febe9f16a78b032f8cd8da858b994ecb206993853cac0ab18820ab",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/formattable/user_impl.ori",
+      "source_sha256": "7ef2b52540b54140444fd6c15e014230d5f5cc43485018472573bc52817c1220",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/traits/printable/definition.ori",
+      "source_sha256": "965c36bebee577ed8bba87e3fd738555c1b3790e6178d44166cada8d554233a3",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/traits/printable/derive.ori",
+      "source_sha256": "d89a7cbee8d257bdda05b81ec0f55b16602524c4e033a425dded0255285663ce",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_annotated_dual_exec.ori",
+      "source_sha256": "ef325ceb6f7ae0be49d225926d07ae81bcfc1ba8c8d6ad2728d28caed5239558",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_bare_with_is_empty_only.ori",
+      "source_sha256": "720652b13bd0b6b68c143fb2f4fe8df614b9391527cdc60bd4141fbb57d615c5",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_bare_with_len_only.ori",
+      "source_sha256": "b0a944643788c0e1ecf4240bd6a663a9038be8cad474527da8b0e757b5384602",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_defaulting_dual_exec.ori",
+      "source_sha256": "1cf34d60460384e7ce9b74a350676dd5e221b6ffb17258249cb5999e409ffa1f",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_iter_chain_dual_exec.ori",
+      "source_sha256": "7d0671be50f2e1378833ecd89c849d5221d419eb8bd5321af1c008f272b97995",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_multiple_unannotated.ori",
+      "source_sha256": "906229033add339371919e386967c837a6f5c6171aebd834f8ff5a007c6af38b",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_nested_dual_exec.ori",
+      "source_sha256": "04e7ff7f31a8eeae1478d21cc3386db1a431302ad3655641eb5c5e2a8b7e106e",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_nested_let.ori",
+      "source_sha256": "c9facf13b77386957b228f7e526d7af06088f7e7df9b0e2d4e0080c1723e06e9",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_push_unified_dual_exec.ori",
+      "source_sha256": "3afdb63de820b1a649c370058104fb53ce2d0a18d8e81f5c08f231394bdd8421",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_try_block.ori",
+      "source_sha256": "45064a879bf9994ba5d2c653d8839dfddcdb1b4a4cd6d57827d8daf4b3802adc",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_unannotated_param_in_def_impl.ori",
+      "source_sha256": "3aeddccd8f11dc498acba0fe30861f9554f20c94479cec9fd3a01b78e62d8e44",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_unannotated_param_in_function.ori",
+      "source_sha256": "9d50fecc887cf96c190dc4fde398514e5583a29373a58d02b49c738262c80854",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/collections/empty_list/empty_list_unannotated_param_in_impl.ori",
+      "source_sha256": "5f1725a63abbe9303d61ebf8160ed6d5f9ce450dc93c45f5178768813de1707d",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/empty_immutable_binding_still_monomorphic.ori",
+      "source_sha256": "8786c56134c96ab48941c6f1d96f53bd9777c43cb7b634cb6deb93ce458ad09e",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/empty_in_tuple.ori",
+      "source_sha256": "4bf9939442c4988459a674b1ea1e0d00be8f1682f1d63c66d98d1aaf3de464c9",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/for_do_empty_list_body.ori",
+      "source_sha256": "2069002fe2e9786b4b45a61635090746108b3a3521925915e5ec8be97ee815ba",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/for_do_empty_map_body.ori",
+      "source_sha256": "8049a231d5e7b91a3d04b1ea1c4d95dc3c1ac2211ff634ddcd0d45cf173c1ba8",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/for_do_mixed_empty_branches.ori",
+      "source_sha256": "d4460e9c549c5b14dd7673f7e01b876d538df9e6dc84a97faddcda00e8c3af87",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/for_yield_empty_list_body.ori",
+      "source_sha256": "db0de732cbbbf5b8032e995f7d81afb2841963c9eef4cbcbb5e552b134f956e2",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/for_yield_empty_map_body.ori",
+      "source_sha256": "1d98d924e45af58e9bb4c6c0a4208fd0de4a015c5340116ddfed0e44b0aa47b3",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/if_both_branches_empty.ori",
+      "source_sha256": "5557f152ee0abdfcd48c8e923484c1d308b4970a36034651f57389a5232f9a7d",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/if_both_branches_empty_map.ori",
+      "source_sha256": "c24c7bfb670fdc11bca0735657845ad03e941e3fdff06e1cc6450d8e8772b840",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/let_binding_empty_list_unused.ori",
+      "source_sha256": "c973d0d69695392ca7f00ca39408d2746fe8173a687933f97ec6ef07554f7324",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/let_binding_empty_map_unused.ori",
+      "source_sha256": "cb7de94282f4e9beb90d429ea5f7e14771547ddcc87d08a1f271b59582c9b7ee",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/negative_annotation_conflict.ori",
+      "source_sha256": "aaeea1cd6125bc23d35a4ae42c042169c9dce494a879d3e0733b7e59e93b3e23",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/negative_unrelated_signature_var_still_errors.ori",
+      "source_sha256": "8c35655a4bb165199b3d557555057d383f07b8038456d51e1ec0b38c39eb14f9",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/nested_empty_list.ori",
+      "source_sha256": "6c918f7971ed2e545524dc8b5eaf49ebac654ac12a8a200400ba018f64f54904",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/nested_empty_map.ori",
+      "source_sha256": "c7e07e48622ab8884513ebbf5d2e7db4920cdde89daa1c323b5d1792d3010787",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/empty_literals/statement_position_empty_map.ori",
+      "source_sha256": "fdd1e99d3b5f9837327e193aca58d340d2519452f585086ac363ebfd988723df",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/spec/types/repr_attr.ori",
+      "source_sha256": "85295f2f3de1b09b503cd9197660dbf1dd5046003a153ae101b3be27b849d7a5",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/types/repr_attr_c_aligned.ori",
+      "source_sha256": "b72f6e143d1141d73297a3f1746d3c801ae1e48d2693ccceffaafef70d2b020c",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/spec/types/repr_attr_c_aligned_combined.ori",
+      "source_sha256": "05eaec9cb14f2e02066e4369033785da4a917e578633b9685487953785bf98da",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/valgrind/aims_borrowed_return.ori",
+      "source_sha256": "3fbc7709baa75b4536b438f4535eed583755443b3287e0b764ca7309eb92a5c0",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/aims_drop_reuse.ori",
+      "source_sha256": "048fcc916c7f359207e5d22050f4e971d909f03b0a26bfd38802f4bcd1cb463c",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/aims_fip_interprocedural.ori",
+      "source_sha256": "6c16d4cba57f6f3a5def5f332a0129062eac9c23597c3ceb9c99a0a7f12779f2",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/aims_h_drop_rc.ori",
+      "source_sha256": "8a7f5b3c3443ee205385d92d6e2a001799fe16a25d02143cab1049f40c619bab",
+      "frontend_status": "rejected",
+      "vm_status": "not_run_frontend_rejected",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/aims_h_fip_reuse.ori",
+      "source_sha256": "1e6f2b60dc212d4450ea85df0e79b5187e1ff8425c981ed27af33fdd0f3138f2",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/aims_h_inter_cow.ori",
+      "source_sha256": "53665df9eb991b0ffd8b4d3a76e763a84f2042b4cbe807189b965e1791c6c8e6",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/aims_h_trmc.ori",
+      "source_sha256": "95e13394bf06ea287804873830afdaca5756c795c65881bd725abc6e035e4648",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/collection_stress.ori",
+      "source_sha256": "ba48e9ebe1912b790e9b2c2a29d1e358dd333e4d3bb11febfdfdc11f9777ec89",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_iterator_collect.ori",
+      "source_sha256": "69fff65205a3140bd804950005dcacb44f6f25eba59de3918dfe0b93676ffaf3",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_leak_scenarios.ori",
+      "source_sha256": "6aa00d4fd9a8e515533a6b63e27265d90d9332afd8790167e2f9703bb1df4082",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_list_concat.ori",
+      "source_sha256": "baac66bce3b1bc51f672f1efe3aad00ee46ac54b1bcb6ea194de7832032a19ff",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_list_insert_remove.ori",
+      "source_sha256": "d468e23b6084426c237721fe031e771a617346a05b332571533c72b11b7d58b6",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_list_pop.ori",
+      "source_sha256": "cdaa69e5e20674a84af9e036971522e5f5337c797c73e8d250ae811aecc646fd",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_list_push.ori",
+      "source_sha256": "69f72277cb00c674b6c51aded32fa49ed4d0bd30dc19837bbbcf961bf8a4cb09",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_list_reverse_sort.ori",
+      "source_sha256": "cd15c578691d25ac0202e584a3de32ba321e71e98db297fedcdb9d3668c06a00",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_list_set.ori",
+      "source_sha256": "93aa7febe83464ee2f74c1aaceff92578461dc7a0486fbb1adeeea99da10cb47",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_list_slice.ori",
+      "source_sha256": "929268c4a6055bc755814e79ea2464c9a4a7060cbe3e0cead30cfe7fe9a81b5d",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_map_insert_remove.ori",
+      "source_sha256": "320f53977989675f4e650463930c5db0bb198e6e9b2f55395599e51e1c66e974",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_nested.ori",
+      "source_sha256": "e05b1346b44bde16ebd08ef3b0ea6fa2f0f51374183a875e1a6d492f7b23e109",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_set_operations.ori",
+      "source_sha256": "fc772da2bf1a7713a55d362570af1d1fce3b810d45e9b6fda27367007b326bf6",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_sharing.ori",
+      "source_sha256": "c9668f8b0fd1d1ec760b31f833899b81b909b8f0e5e97a8da3992e2b2f4221b3",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_str_concat.ori",
+      "source_sha256": "8fec227ab46436682fc7393fc76efa95c565e0dffc4f17db3466837a2f2861db",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_str_sso.ori",
+      "source_sha256": "d73e124d6984dde41db1bd6edbfef95797d9ed3b2e7c957257d8ef8f5bb27a70",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow/cow_str_substring.ori",
+      "source_sha256": "8b5fae85a3a84f9c6252a211cc709143bc2725a7bef3d526fb89cc722866ca1f",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow_list_operations.ori",
+      "source_sha256": "84fd193002f070a182a89a563a71529c90ece8c9e1e474d1322bd7101236adb8",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/cow_map_operations.ori",
+      "source_sha256": "dde7654f921f5d1dad01a83a6e4ce6698b8e0b8003be948e8b7fbe0eb43b89da",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f01_let_binding.ori",
+      "source_sha256": "20a21e37cd041df197594647556c2981e1667e792118a38244f286cc8a87348e",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f02_function_param.ori",
+      "source_sha256": "951e2b734eb21f0475247f975730f16ef3c3f18c83464eb3f60f98a6e2301701",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f03_function_return.ori",
+      "source_sha256": "1a17f02d336f12301b24c2ee1b8c767819b7af8c2871484d4c4a5a38b0c14e84",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f04_closure_capture.ori",
+      "source_sha256": "c914906e20aa8a2563bd8c415943dcb504b436aab5d33ce87dd6e1c841fa558a",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f05_closure_param.ori",
+      "source_sha256": "807d61285af05179b77fdfa2e128f17451a213a8c9ef4e4726cdc445130ece30",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f06_pattern_matching.ori",
+      "source_sha256": "710c24b1623cd1ca4b5a5bbc41e9f628b587a0eea458ebfe997db551da47cb62",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f07_branching.ori",
+      "source_sha256": "ae533824ce88f51a07e3594db694c516a4220e3644697fee241d47d83ee9361a",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f08_for_loop.ori",
+      "source_sha256": "4e97d169ef906ffda50e7177a8fe2f2409b4f52129e626613153f93fb9ae664a",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f09_loop_accumulation.ori",
+      "source_sha256": "d69df59417465bc89a58a7bfc0ff22a5d34f2b9ebe0fe47a4df4fe9b13259828",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f10_generics.ori",
+      "source_sha256": "cbc7751385641b42c5609813fff22b7612ca9a3f1a6b3ef82c5931a67e49bed4",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f11_struct_field.ori",
+      "source_sha256": "660d3e5587b4c10bf22d57847f8065e4be14bc4bbc60d3bf925749fbd90756f4",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f12_sum_payload.ori",
+      "source_sha256": "b766f179cd143974a4eba94415d6ed54274717d8ba4fb737b982420cad19c82d",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f13_derived_eq.ori",
+      "source_sha256": "d0738de5f1fed5958b958f499bbfb5e8df258bbebc3b5817a5462c60078bc1fe",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f14_list_element.ori",
+      "source_sha256": "c14b4784d5c2c78c324b5e8aee01d133fa32834e5aaa9273cd582e3f714e4965",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f15_question_mark.ori",
+      "source_sha256": "40e1d55ad1bc204aff8f31e83038303058b9f79ac046021c6255c978b3e02b23",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f16_recursion.ori",
+      "source_sha256": "b03fb15fb17110460a143b8335571737bbd203dbd52fcdd31a5798bdbc770e59",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f17_higher_order.ori",
+      "source_sha256": "25128451bc20e796e8b0425365e21f91766613d6c3d589252d3d7a1ecef18ae5",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f18_multiple_values.ori",
+      "source_sha256": "1481fb252d2ad1bdf431bbbcc318e56a3189abea25db9d7dc03422b9c59ac08f",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f19_break_continue.ori",
+      "source_sha256": "0dc7c0844ae1aba1681b9083867e664e65237c945260cd50a8577685e6eb9631",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_matrix/f20_derived_clone.ori",
+      "source_sha256": "06935f0125d3dd0c34173afd7253c1fb6d61eb61145d345bdf7c8268950f8469",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/args_str_list.ori",
+      "source_sha256": "33d98621c732975d1ee18f6546b644f46982681ff68b3e7892579ac905034e9e",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/cow_push_str.ori",
+      "source_sha256": "790724767eb12d3c7484be7ca531a6c5a527fa96a1a4fbb592ec62904234a904",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/for_yield_set_str.ori",
+      "source_sha256": "cf9ae3b51757bbe0db6912dbc27ad36a6d12c97c51416cf9bfe854274a763be0",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/map_insert_overwrite_str.ori",
+      "source_sha256": "48574b5a950e6d3b00695ce82b87c1185bae0d62de3151b60e5806b6c5d5b104",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/method_collect_str.ori",
+      "source_sha256": "4477213db84dba3b83c7e7e082fe4a7f8dfa95a56b7de6d155a665b935f0d5ed",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/nested_list_cow.ori",
+      "source_sha256": "1f19bdeec0ee3a8848c51c1d23cb21df7901372edbc9e2b179813b2ccfe9b8fb",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/result_str_list.ori",
+      "source_sha256": "7f6434b694287580c08733bcbb1c85ef202ebda15cbfda2f0249b694a414d03e",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/set_difference_str.ori",
+      "source_sha256": "9dd88e1f89b5e0a7d3db81d4b509557a1719489a35e9bace3059c23eaaf397c2",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/set_intersection_str.ori",
+      "source_sha256": "bc04057fdd03fbefe4ab525b5287c71514b38d2a994823028be7a8b51a9a7888",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/str_list_full.ori",
+      "source_sha256": "a238fa89bdcb574ebc5302b7df695ccb90381b9c067b0aea3ca006ca7ba3bae6",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/str_list_function_param.ori",
+      "source_sha256": "db41cc8b004e29186a1c4dc827accd7cb687fba8a92ea6d3d4cbb6e6160290a3",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/str_list_mixed_sso.ori",
+      "source_sha256": "3ed54a15d0a02056a735d146dbda07e1f3f09737cdbb4ab3535d8b19b71e3e5c",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/struct_with_str.ori",
+      "source_sha256": "dc9a3320bc8630d19d21ee2b998f370658eef6dfcd3bfdca800f1a051993cfbc",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/fat_ptr_iter/tuple_str_list.ori",
+      "source_sha256": "86817105c92b06c1fe46829dca82e8c89c2bc19e967c7c741b7d1b48d43ba0d9",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/float_narrowing.ori",
+      "source_sha256": "5826b099cf07f2b19b8675cbd4e483aec53f124443d01ea66307def678b3c593",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/valgrind/for_yield_option_str.ori",
+      "source_sha256": "d2a2400af49c1d6e86396655d58bb9f45ee8b444bc8fc82a6d1f20a5ae4341c3",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/for_yield_str.ori",
+      "source_sha256": "15725083399dee6b57453e4afb5946d8f499562e0914bfee37ebd5d722950f3d",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/generic_chain_list_element.ori",
+      "source_sha256": "05e625de03ecb20d51d4b443c57bf023bd6488968b2d6f4c039eabda27e2f602",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/collect_set_str.ori",
+      "source_sha256": "383a284b0b354a9b3e4bff9a27b15a06ca79fe216ea97036a29139029c177d24",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/map_keys_values_fat.ori",
+      "source_sha256": "2d2518625d51cbd9f72adf59cd7e416ecd82013e32742fb3dd583c81c84db982",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/map_remove_fat_values.ori",
+      "source_sha256": "173896396471b365ceb6d4851611e55e5d864ebed4e34e209803bd63fe81d8b6",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/map_str_for_do.ori",
+      "source_sha256": "ccce5e3a02e2105e21cd428b55a689f63df8c7a138d8dfc49e70c61d49e1be18",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/map_str_iteration.ori",
+      "source_sha256": "0d778693072f8af80159c05f78b60ccda95aa1eab61cb9c40415fda4ef5001b3",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/map_values_fat_values.ori",
+      "source_sha256": "17ba0658b7f4da98af5e802d37fc3eb47507dd105bc5d03c2c869ae735404f1a",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/nested_int_list_iter.ori",
+      "source_sha256": "8d8cd53bacdf0606f65e418eaf7fad9201cf0a941736eb96a70a4c24e0bb13d7",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/option_str_for_yield.ori",
+      "source_sha256": "d2e48242f0c54e6e7f454237fdc0c947c6361029113df85bb9646921e38c11b3",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/set_str_cow_mutations.ori",
+      "source_sha256": "cd3e2c130196416f65c03b2b8e56c0f75de9bd9cca73c67d78ae4a3e5971539e",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/set_str_iteration.ori",
+      "source_sha256": "9ca42bb7126b3652d4dcc8e4e28b3fd060d8154c6d5f598f44cfe937755f3407",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/set_str_to_list.ori",
+      "source_sha256": "ee889b1508ccf4fe02840557176bd07504a2c65ef2c71e8e609b971c803c13e6",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/str_for_break.ori",
+      "source_sha256": "994a90fae4847ea8678436470f1929cedbd87079d8db8e0692f3fa7b5d087c90",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/str_for_guard.ori",
+      "source_sha256": "8795ba5e17fe7a968a42b568e46fac19b5e80bdb520325b47d875bb11bba9eea",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/str_for_yield.ori",
+      "source_sha256": "87388dc9fa50a58228abd1f38c490ef3fb59b683b043952179e66acb1b67e3d0",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/str_for_yield_transform.ori",
+      "source_sha256": "18495b1a1b6fec53179ff64b1f9d34c1904a088bf3e1eefb94076a066c72a114",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/str_nested_for.ori",
+      "source_sha256": "cde97221b093f700a5113629740da8f6d886c318ba024e297291de196eec3ff1",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/iter_rc/str_split_result.ori",
+      "source_sha256": "7946cdae5f75711ecf97c38952b7c7f141024d59f4e858557136bea8e799d4cb",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_agg_shared_two_containers.ori",
+      "source_sha256": "68269a274feea79e530ed213f5d1377f4d6586cc2a570dd4aee539828979c968",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_agg_two_owned_store.ori",
+      "source_sha256": "318ba76f04013e678b98038f2c596eda36ab388d148e11bb08814f9663114893",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_branch.ori",
+      "source_sha256": "0b966a1269518c481d2b37cd0b9d0a42dce1010563ab795a6cea36cb78676a00",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_branch_exclusive_store.ori",
+      "source_sha256": "eb98533997a8d06465652938b057d4172818aeb7b1b0120f9909fb26c874e256",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_break.ori",
+      "source_sha256": "f24f826f54533a18be038d94f8f603bb920bce47432794f8090c76e620779f47",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_closure_capture_store.ori",
+      "source_sha256": "6f740d7f68bdc026d0a3f3b8d8c1bf17008ab3247d49f4360713c88a4d463547",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_dead_param.ori",
+      "source_sha256": "7205deb80a863bbbd5911c68aedc03c1fc60406031ed2f9e90775345ae0e04d7",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_forwarder_ttr.ori",
+      "source_sha256": "f3bdc12b9f1ee17e811d080ae972162d28fd867b3ee1c69f7f011833d3cd1eb2",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_full_consume.ori",
+      "source_sha256": "44dcb4fe299f70fd280338ef13415646309d3427866b840e4646e90709d3af3f",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_list_literal_double_field.ori",
+      "source_sha256": "1a6d57cf142519c4d2a45004d039da3540f908b5af646fc9a604f7c9c7ebaf72",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_loop_invariant_heap_local.ori",
+      "source_sha256": "ebfb09a3d0de9bf27659fad83301e591a322a0469994b1eb1aa813084dc1c801",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_niche_sum_extract.ori",
+      "source_sha256": "b6cab811da25129276ce55aa4db925c13221fb0cf5fa2e9e15a5d7ec7b8dd39a",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_slice_view_coowner.ori",
+      "source_sha256": "82862e0037482077af6084987f64aa050eeaf89dc92ea3e1e6ee762ac51a6ea9",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/move_borrow_matrix/mb_switch_both_arms_store.ori",
+      "source_sha256": "f1c969169a78eef5e64e68c65b708d320b2af6889a2f0368ae3d95b69f696530",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/project_block_param_cross_block.ori",
+      "source_sha256": "cb7ce4f37b9f5c7b5cd717bdd9a31e4741f79c6c2d2ba24600bff62b2b4dfa3e",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/project_let_alias_cross_block.ori",
+      "source_sha256": "44174be5ad506ca33c0d6172919bdc6a852dca1e0c43f3c9f428c7e09f058b23",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/recursion_stress.ori",
+      "source_sha256": "94395ff7d6f6ba8ccac750a471075edc4cca73c87899a46c9c02be991ab61c19",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/valgrind/sharing_and_functions.ori",
+      "source_sha256": "2eff9b092f9ba3b4b7cf21688393288257435512805500e6d6834472ce0d5568",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/valgrind/slice_operations.ori",
+      "source_sha256": "a8326d7cd0389c1c8be69a1dbfb42f996e84adf2bd4eed41f9e2a6dbe6bcf758",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/slice_str_outlives_original.ori",
+      "source_sha256": "b251322eb154e9d539571486ff8e8d895ca3ae30ff7354ffc20a17d3ffcd7c5e",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/struct_lifecycle.ori",
+      "source_sha256": "d4eff1b85d9cdab7428c9f9a9c0a6be4ade03dd31115290996fc51774f8e9cbe",
+      "frontend_status": "valid",
+      "vm_status": "full_vm",
+      "oracle_status": "match"
+    },
+    {
+      "path": "tests/valgrind/trmc/trmc_chain_lifecycle.ori",
+      "source_sha256": "f28e044d65264bbaf4a6212c0c8949ab71fbc7a4688c04e9e68195ea2f724b54",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/trmc/trmc_list_map.ori",
+      "source_sha256": "17b952dbf8a225597aa0ec2b90e2f10a222f463d58dac936468dfb5106419ca2",
+      "frontend_status": "valid",
+      "vm_status": "runtime",
+      "oracle_status": "not_run"
+    },
+    {
+      "path": "tests/valgrind/trmc/trmc_tree_ops.ori",
+      "source_sha256": "4d78cd410641ec6cc499f9447a2d48ef7e34e204874d2580cd1138631c97938b",
+      "frontend_status": "valid",
+      "vm_status": "unsupported",
+      "oracle_status": "not_run"
+    }
+  ]
+}

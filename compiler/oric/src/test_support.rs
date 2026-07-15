@@ -45,20 +45,28 @@ impl ArcCompileResult {
 #[derive(Debug, thiserror::Error)]
 pub enum ExecutableCompileError {
     /// Parsing failed before realization.
-    #[error("parse errors in {path}: {count} error(s)")]
+    #[error(
+        "could not parse `{path}` ({count} syntax error(s)): {details}; fix the syntax at the reported location, then rerun the same command"
+    )]
     Parse {
         /// Source path used for diagnostics.
         path: String,
         /// Number of parse errors.
         count: usize,
+        /// Location-aware parser messages.
+        details: String,
     },
     /// Type checking failed before realization.
-    #[error("type errors in {path}: {count} error(s)")]
+    #[error(
+        "could not type-check `{path}` ({count} type error(s)): {details}; apply each diagnostic's named correction at its reported source location, then rerun the same command"
+    )]
     Type {
         /// Source path used for diagnostics.
         path: String,
         /// Number of type errors.
         count: usize,
+        /// Location-aware type-checker messages.
+        details: String,
     },
     /// Type checking did not publish the pool required by realization.
     #[error("type checking produced no type pool for {path}")]
@@ -170,25 +178,46 @@ pub fn compile_to_executable(
     let file = SourceFile::new(&db, source_path.into(), source_text.into());
     let parse_result = crate::query::parsed(&db, file);
     if parse_result.has_errors() {
+        let details = parse_result
+            .errors
+            .iter()
+            .map(|error| format!("{}: {}", error.span(), error.message()))
+            .collect::<Vec<_>>()
+            .join("; ");
         return Err(ExecutableCompileError::Parse {
             path: source_path.to_owned(),
             count: parse_result.errors.len(),
+            details,
         });
     }
 
     let type_result = crate::query::typed(&db, file);
+    let typed_pool = crate::query::typed_pool(&db, file);
     if type_result.has_errors() {
+        let details = type_result
+            .errors()
+            .iter()
+            .map(|error| {
+                let message = typed_pool.as_deref().map_or_else(
+                    || error.message(),
+                    |pool| error.format_with(pool, db.interner()),
+                );
+                format!("{}: {message}", error.span())
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
         return Err(ExecutableCompileError::Type {
             path: source_path.to_owned(),
             count: type_result.errors().len(),
+            details,
         });
     }
 
-    let pool = crate::query::typed_pool(&db, file)
-        .map(|pool| (*pool).clone())
-        .ok_or_else(|| ExecutableCompileError::MissingTypePool {
+    let pool = typed_pool.map(|pool| (*pool).clone()).ok_or_else(|| {
+        ExecutableCompileError::MissingTypePool {
             path: source_path.to_owned(),
-        })?;
+        }
+    })?;
     let shared_canon =
         crate::query::canonicalize_cached(&db, file, &parse_result, &type_result, &pool);
     crate::realization::realize_local_program(crate::realization::ProgramRealizationInput {
@@ -198,6 +227,11 @@ pub fn compile_to_executable(
         pool,
         symbols: db.shared_interner(),
         narrowing_policy,
+        verify_arc: std::env::var(crate::debug_flags::ORI_VERIFY_ARC)
+            .is_ok_and(|value| value != "0"),
     })
     .map_err(ExecutableCompileError::from)
 }
+
+#[cfg(test)]
+mod tests;

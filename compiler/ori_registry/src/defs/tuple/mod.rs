@@ -14,8 +14,8 @@
 //! rather than through the general trait machinery.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ReturnTag, TypeDef, TypeParamArity, TypeTag,
-    ONE_SELF_OWNED,
+    MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ReturnTag, TypeDef,
+    TypeParamArity, TypeTag, ONE_SELF_OWNED,
 };
 
 // Helper aliases
@@ -52,7 +52,8 @@ static TUPLE_METHODS: &[MethodDef] = &[
         false,
     ),
     MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, false),
-    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
+    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Length),
     MethodDef::compound(
         "to_str",
         &[],

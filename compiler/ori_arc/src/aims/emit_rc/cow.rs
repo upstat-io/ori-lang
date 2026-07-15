@@ -27,8 +27,8 @@ pub(crate) fn has_borrows_from_aggregate(state_map: &AimsStateMap, aggregate: Ar
 /// source is provably uniquely owned at the receiver's program point AND
 /// the receiver's borrow field is disjoint from every sibling borrow.
 /// Source uniqueness is established SOLELY by the Uniqueness dimension.
-/// §RL-31 is the related interprocedural rule for `noalias` metadata on
-/// disjoint borrowed parameters; this helper implements the local mutation case.
+/// §RL-31 is the related interprocedural rule for backend-neutral disjointness
+/// facts on borrowed parameters; this helper implements the local mutation case.
 ///
 /// For the optimization to apply, ALL of:
 /// 1. The receiver has `BorrowSource::Exact { source, field: Some(f) }`

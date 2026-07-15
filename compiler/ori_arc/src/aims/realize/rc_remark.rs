@@ -1,12 +1,14 @@
 //! RC-survivor remark record + emission (observability-only).
 //!
-//! Every RC op surviving the class-ledger (Step 4b) burden-elimination
-//! lattice is a specific proof failure. This defines the structured
+//! This module observes the current compiled counter projection after logical
+//! AIMS realization. Every surviving physical RC operation names the exact
+//! logical owner-credit obligation that its selected plan could not erase; the
+//! operation is not itself an AIMS fact. This defines the structured
 //! `AimsRcRemark` record (modeled on
 //! LLVM `-fsave-optimization-record`) and emits one per survivor to the path
 //! named by `ORI_RC_REMARKS`. Reads the converged verdict only; mutates no
-//! instruction (Spec: Annex E §AIMS — observability changes no RC-emission
-//! semantics).
+//! instruction (Spec: Annex E §AIMS — observability changes neither the logical
+//! ownership plan nor physical RC-emission semantics).
 //!
 //! The `cause.lattice_dim` taxonomy is pinned to the 7 AIMS lattice dimensions
 //! (`aims::lattice::dimensions`); `rc_op` is pinned to the `ArcInstr` burden-op
@@ -44,9 +46,11 @@ pub(crate) fn rc_remarks_enabled() -> bool {
 }
 
 /// Whether compilation is on the burden-sole RC path
-/// (`ORI_DISABLE_PREDICATE_STACK_RC=1`) — the ONLY surface where a burden
-/// remark is a valid RC verdict; a default-path run still co-emits the legacy
-/// predicate-stack RC and is false-green on floor cells. The envelope's
+/// (`ORI_DISABLE_PREDICATE_STACK_RC=1`) — the only surface where a burden
+/// remark is a valid verdict on the current compiled-counter adapter; a
+/// default-path run still co-emits the legacy predicate-stack RC and is
+/// false-green on floor cells. This never establishes AIMS or sibling-executor
+/// conformance. The envelope's
 /// `burden_path` is derived from this so `burden_path: true` is truthful and a
 /// default-path stream is honestly `false`.
 #[allow(
@@ -67,8 +71,8 @@ pub(crate) const RC_SCHEMA_VERSION: u32 = 1;
 
 /// The once-per-stream header for a JSONL remark stream: schema version,
 /// producing compiler SHA, source file, and the `burden_path` assertion (true
-/// only when produced on the burden-sole path, the sole valid RC verdict
-/// surface). Emitted as the first JSONL line; the remark
+/// only when produced on the burden-sole path, the valid compiled-counter
+/// adapter verdict surface). Emitted as the first JSONL line; the remark
 /// objects follow, one per line. Constructed by the cli-producer stream driver
 /// (`write_rc_remarks_header`).
 #[derive(Clone, Debug)]
@@ -79,14 +83,14 @@ pub(crate) struct RcRemarkStreamEnvelope {
     pub compiler_sha: String,
     /// The source file the stream describes.
     pub source_file: String,
-    /// `true` iff produced on the burden-sole path (the sole RC verdict surface).
+    /// `true` iff produced on the current adapter's burden-sole verdict surface.
     pub burden_path: bool,
 }
 
 impl RcRemarkStreamEnvelope {
     /// Build a header for the current schema version. `burden_path` is derived
     /// from [`on_burden_sole_path`] so `burden_path: true` is truthful — the
-    /// stream is a valid RC verdict only on the burden-sole path.
+    /// stream is a valid current-adapter RC verdict only on the burden-sole path.
     pub fn new(compiler_sha: String, source_file: String) -> Self {
         Self {
             schema_version: RC_SCHEMA_VERSION,

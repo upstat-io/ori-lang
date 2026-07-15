@@ -1,10 +1,10 @@
 //! SSA-alias dec-dedup matrix tests.
 //!
 //! In-class alias cells and semantic-pin cells from the SSA-alias
-//! dec-dedup TDD matrix. Pre-fix: AIMS realize emits `RcDec`
-//! per SSA name, causing double-free on aliased aggregates with heap
-//! children. Post-fix: SSA-alias equivalence-class union-find collapses
-//! dec emission to one canonical dec per class.
+//! dec-dedup TDD matrix. Pre-fix: the current compiled-counter carrier contained
+//! one `RcDec` per SSA name, causing double-free on aliased aggregates with heap
+//! children. Post-fix: SSA-alias equivalence-class union-find freezes one
+//! logical release per class, which the adapter realizes as one dec.
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -166,8 +166,9 @@ fn test_option_intlist_select_branch_return() {
 //
 // Regression: closure capturing `Result<int, str>::Err(string)` invoked
 // twice via `lookup()` previously leaked 28 + 40 bytes under
-// `ORI_CHECK_LEAKS=1`. AIMS realize emitted a spurious `RcInc` on the
-// closure receiver between the two `ApplyIndirect` calls, leaving the
+// `ORI_CHECK_LEAKS=1`. The current compiled-counter carrier contained a
+// spurious `RcInc` on the closure receiver between the two `ApplyIndirect`
+// calls, leaving the
 // closure RC at 1 + 1 - 1 = 1 (instead of 0) when the function exited —
 // the LastUse `RcDec` freed only one reference, leaking the underlying
 // allocation. Post-fix: realize-layer borrow-recognition for ApplyIndirect
@@ -260,7 +261,7 @@ fn test_closure_nested_closure_capture_two_call_no_leak() {
 
 #[test]
 fn test_closure_scalar_only_capture_two_call() {
-    // Stays-green pin: scalar-only capture is not RC-tracked (AIMS:L-9
+    // Stays-green pin: scalar-only capture has no logical ownership event (AIMS:L-9
     // scalar sentinel). Pre-fix and post-fix both pass.
     assert_aot_success(
         include_str!("fixtures/match_alias/closure_scalar_only_capture_two_call.ori"),

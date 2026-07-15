@@ -106,6 +106,7 @@ const fn iter(
         receiver: Ownership::Owned,
         params,
         returns,
+        runtime: None,
         trait_name: None,
         pure: true,
         backend_required,
@@ -127,8 +128,8 @@ const NA: DeiPropagation = DeiPropagation::NotApplicable;
 /// at the end) — the `dei_only` flag handles filtering.
 ///
 /// Internal methods (`__iter_next`, `__collect_set`) are NOT included.
-/// They are compiler-internal implementation details handled by the
-/// LLVM backend and evaluator directly.
+/// They are compiler-internal implementation details handled through each
+/// admitted executor's internal-operation projection.
 #[rustfmt::skip]
 static ITERATOR_METHODS: &[MethodDef] = &[
     //   name         params             returns    dei_only  dei_prop  backend

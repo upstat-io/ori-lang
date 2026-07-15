@@ -1165,7 +1165,10 @@ mod feasibility {
     fn borrowed_never_rc_needed() {
         for s in representative_states() {
             if s.access == AccessClass::Borrowed {
-                assert!(!s.is_rc_needed(), "borrowed should not need RC: {s:?}");
+                assert!(
+                    !s.needs_ownership_events(),
+                    "borrowed values should not require ownership events: {s:?}"
+                );
             }
         }
     }
@@ -1198,13 +1201,13 @@ mod queries {
     }
 
     #[test]
-    fn scalar_no_rc() {
-        assert!(!AimsState::SCALAR.is_rc_needed());
+    fn scalar_has_no_ownership_events() {
+        assert!(!AimsState::SCALAR.needs_ownership_events());
     }
 
     #[test]
-    fn fresh_needs_rc() {
-        assert!(AimsState::FRESH.is_rc_needed());
+    fn fresh_needs_ownership_events() {
+        assert!(AimsState::FRESH.needs_ownership_events());
     }
 
     #[test]
@@ -1214,7 +1217,7 @@ mod queries {
             cardinality: Cardinality::Absent,
             ..AimsState::TOP
         };
-        assert!(!dead.is_rc_needed());
+        assert!(!dead.needs_ownership_events());
     }
 
     #[test]
@@ -1225,7 +1228,7 @@ mod queries {
             cardinality: Cardinality::Once,
             ..AimsState::FRESH
         };
-        assert!(!borrowed.is_rc_needed());
+        assert!(!borrowed.needs_ownership_events());
     }
 
     #[test]
@@ -1300,7 +1303,7 @@ mod queries {
             shape: ShapeClass::NonReusable,
             effect: EffectClass::NONE,
         };
-        assert!(state.is_rc_skip_eligible());
+        assert!(state.is_event_pair_elision_eligible());
     }
 
     #[test]
@@ -1314,7 +1317,7 @@ mod queries {
             shape: ShapeClass::NonReusable,
             effect: EffectClass::NONE,
         };
-        assert!(!state.is_rc_skip_eligible());
+        assert!(!state.is_event_pair_elision_eligible());
     }
 
     #[test]
@@ -1328,7 +1331,7 @@ mod queries {
             shape: ShapeClass::NonReusable,
             effect: EffectClass::NONE,
         };
-        assert!(!state.is_rc_skip_eligible());
+        assert!(!state.is_event_pair_elision_eligible());
     }
 
     #[test]
@@ -1342,7 +1345,7 @@ mod queries {
             shape: ShapeClass::NonReusable,
             effect: EffectClass::NONE,
         };
-        assert!(!state.is_rc_skip_eligible());
+        assert!(!state.is_event_pair_elision_eligible());
     }
 
     #[test]
@@ -1357,7 +1360,7 @@ mod queries {
             shape: ShapeClass::NonReusable,
             effect: EffectClass::NONE,
         };
-        assert!(state.is_rc_skip_eligible());
+        assert!(state.is_event_pair_elision_eligible());
     }
 }
 
@@ -1370,7 +1373,7 @@ mod from_arc_class {
     fn scalar_maps_to_scalar() {
         let s = AimsState::from_arc_class(ArcClass::Scalar);
         assert!(s.is_scalar());
-        assert!(!s.is_rc_needed());
+        assert!(!s.needs_ownership_events());
     }
 
     #[test]
@@ -1529,8 +1532,8 @@ mod dimension_interactions {
                 effect: EffectClass::ALL,
             };
             assert!(
-                !s.is_rc_needed(),
-                "borrowed + {consumption:?} should not need RC"
+                !s.needs_ownership_events(),
+                "borrowed + {consumption:?} should not require ownership events"
             );
         }
     }
@@ -1633,10 +1636,11 @@ mod pairwise_interactions {
                 };
                 s.canonicalize();
                 // Only owned + non-dead should need RC
-                let expected_rc = access == AccessClass::Owned && consumption != Consumption::Dead;
+                let expected_events =
+                    access == AccessClass::Owned && consumption != Consumption::Dead;
                 assert_eq!(
-                    s.is_rc_needed(),
-                    expected_rc,
+                    s.needs_ownership_events(),
+                    expected_events,
                     "access={access:?}, consumption={consumption:?}"
                 );
             }
@@ -1678,8 +1682,8 @@ mod pairwise_interactions {
                 // §2 CN-3, applies to ALL reusable shapes —
                 // `ReusableCtor(Struct)`, `ReusableCtor(EnumVariant)`,
                 // `CollectionBuffer`, AND `ContextHole`. A Shared value has
-                // RC > 1; resetting any reusable allocation type would
-                // corrupt other references regardless of which reusable
+                // multiple logical owners; resetting any reusable allocation
+                // type would corrupt other views regardless of which reusable
                 // variant it carries.
                 if uniqueness == Uniqueness::Shared && shape != ShapeClass::NonReusable {
                     assert_eq!(
@@ -1890,8 +1894,8 @@ mod soundness {
                 };
                 s.canonicalize();
                 assert!(
-                    !s.is_rc_needed(),
-                    "borrowed + {consumption:?} + {cardinality:?} should not need RC"
+                    !s.needs_ownership_events(),
+                    "borrowed + {consumption:?} + {cardinality:?} should not require ownership events"
                 );
             }
         }
@@ -1905,7 +1909,7 @@ mod soundness {
             ..AimsState::TOP
         };
         s.canonicalize();
-        assert!(!s.is_rc_needed());
+        assert!(!s.needs_ownership_events());
     }
 
     #[test]
@@ -1942,7 +1946,7 @@ mod soundness {
             uniqueness: Uniqueness::Unique,
             ..AimsState::FRESH
         };
-        assert!(crate::aims::transfer::is_rc_inc_elidable(&s));
+        assert!(crate::aims::transfer::is_additional_credit_elidable(&s));
     }
 }
 
@@ -2178,7 +2182,7 @@ fn fresh_is_optimistic_owned() {
     assert_eq!(f.locality, Locality::BlockLocal);
     assert_eq!(f.shape, ShapeClass::NonReusable);
     assert_eq!(f.effect, EffectClass::NONE);
-    assert!(f.is_rc_needed());
+    assert!(f.needs_ownership_events());
     assert!(!f.needs_cow_check());
     assert!(!f.is_reuse_candidate()); // NonReusable shape
 }

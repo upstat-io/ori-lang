@@ -205,13 +205,13 @@ fn shape_nonreusable_owned_unique_is_not_reuse_candidate() {
     );
 }
 
-// Locality → DP-7 `is_rc_skip_eligible` + DP-8 `is_local`.
+// Locality → DP-7 `is_event_pair_elision_eligible` + DP-8 `is_local`.
 //
-// Plan matrix row: positive — `Locality ≤ FunctionLocal ∧ Unique` → headerless
-// stack alloca, zero RC ops; order-based predicate holds across all shipped
-// Locality variants. negative — `Locality ≥ HeapEscaping` → heap alloc with
-// full RC header; NOT stack-promoted (promoting an escaping value = dangling
-// pointer pin).
+// Plan matrix row: positive — `Locality ≤ FunctionLocal ∧ Unique` can prove
+// that logical retain/release operations are unnecessary. Negative —
+// `Locality ≥ HeapEscaping` cannot use that proof. These predicates freeze
+// logical AIMS facts; they do not select stack/heap placement, object headers,
+// or any other target mechanism.
 //
 // "Unchanged = the dimension's ROLE": RL-14/RL-17/RL-18 + DP-7/DP-8 consume
 // Locality by ORDER (`≤ FunctionLocal` / `≥ HeapEscaping`), so the role is
@@ -219,7 +219,7 @@ fn shape_nonreusable_owned_unique_is_not_reuse_candidate() {
 // target 5-variant lattice identically. The 5th variant (`ArgEscaping`) is
 // target-only per the ArgEscaping carve-out.
 
-/// DP-8 positive pin: `BlockLocal` is local — eligible for stack promotion.
+/// DP-8 positive pin: `BlockLocal` satisfies the logical local predicate.
 #[test]
 fn locality_block_local_is_local() {
     let s = state(
@@ -264,14 +264,13 @@ fn locality_function_local_unique_is_rc_skip_eligible() {
         Cardinality::Once,
     );
     assert!(
-        s.is_rc_skip_eligible(),
+        s.is_event_pair_elision_eligible(),
         "FunctionLocal + Owned + Linear + Once + Unique must be RC-skip eligible (DP-7)"
     );
 }
 
-/// DP-8 negative pin: `HeapEscaping` is NOT local — promoting it to a stack
-/// alloca would leave a dangling pointer when the value escapes. This pin
-/// rejects stack promotion of an escaping value.
+/// DP-8 negative pin: `HeapEscaping` is not logically local. Physical
+/// placement remains a target projection constrained by this lifetime fact.
 #[test]
 fn locality_heap_escaping_is_not_local() {
     let s = state(
@@ -284,13 +283,14 @@ fn locality_heap_escaping_is_not_local() {
     );
     assert!(
         !s.is_local(),
-        "HeapEscaping must NOT be local (stack-promoting an escaping value = dangling pointer)"
+        "HeapEscaping must NOT satisfy the logical local predicate"
     );
 }
 
 /// DP-7 negative pin: `HeapEscaping` is NOT RC-skip eligible even when
 /// Owned + Linear + Once + Unique — the Locality dimension gates the skip, so
-/// an escaping value keeps its full RC header (RL-16).
+/// an escaping value retains its logical ownership-observation obligations
+/// (RL-16).
 #[test]
 fn locality_heap_escaping_is_not_rc_skip_eligible() {
     let s = state(
@@ -302,8 +302,8 @@ fn locality_heap_escaping_is_not_rc_skip_eligible() {
         Cardinality::Once,
     );
     assert!(
-        !s.is_rc_skip_eligible(),
-        "HeapEscaping must NOT be RC-skip eligible (escaping value keeps full RC header per RL-16)"
+        !s.is_event_pair_elision_eligible(),
+        "HeapEscaping must NOT elide logical ownership-observation obligations under RL-16"
     );
 }
 
@@ -321,7 +321,7 @@ fn locality_unknown_is_not_rc_skip_eligible() {
         Cardinality::Once,
     );
     assert!(
-        !s.is_rc_skip_eligible(),
+        !s.is_event_pair_elision_eligible(),
         "Unknown locality must NOT be RC-skip eligible (conservative default)"
     );
 }

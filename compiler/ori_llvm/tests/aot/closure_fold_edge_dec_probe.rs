@@ -17,12 +17,14 @@
 //! to Phase-6.65 `relocate_borrowed_terminator_arg_dec_to_edges`) — never re-derive
 //! edge-deadness from a separate per-edge model (narrowing Cat-2 would double-dec).
 //!
-//! VERDICT SURFACE — burden-sole ONLY: the default codegen path co-emits the
+//! COMPILED-COUNTER VERDICT SURFACE — burden-sole ONLY: the default codegen path co-emits the
 //! legacy predicate-stack RC, which masks this burden-path leak (FALSE-GREEN), so
-//! it is NOT a valid RC verdict for these cells. Every cell compiles with
-//! `ORI_DISABLE_PREDICATE_STACK_RC=1` (burden is the sole real-RC emitter) + runs
-//! under the always-on `ORI_CHECK_LEAKS=1`. `assert_aot_success` (default path) is
-//! WRONG for this bug; this probe uses the burden-sole harness.
+//! it is NOT a valid current-adapter RC verdict for these cells. Every cell
+//! compiles with `ORI_DISABLE_PREDICATE_STACK_RC=1` (burden is this adapter's
+//! sole real-RC emitter) + runs under the always-on `ORI_CHECK_LEAKS=1`.
+//! `assert_aot_success` (default path) is WRONG for this bug; this probe uses the
+//! burden-sole harness. Neither mode establishes AIMS or sibling-executor
+//! conformance.
 //!
 //! Matrix: captured-type dimension (heap str / [int] / Option<str> / {str:int} /
 //! nested [[int]] / user-struct / scalar-env) over the `fold` + `all` borrowed-
@@ -39,9 +41,9 @@
 
 use crate::util::compile_and_run_with_build_env;
 
-/// Compile `source` on the COMPLETE gated burden probe surface (the only valid RC
-/// verdict surface for these cells): predicate-stack RC emitter OFF
-/// (`ORI_DISABLE_PREDICATE_STACK_RC=1` — burden is the sole real-RC emitter) PLUS the per-
+/// Compile `source` on the complete gated current-adapter burden probe:
+/// predicate-stack RC emitter OFF (`ORI_DISABLE_PREDICATE_STACK_RC=1` — burden
+/// is this compiled-counter adapter's sole real-RC emitter) plus the per-
 /// function LLVM verification (`ORI_VERIFY_ARC=1`) + post-pass verification
 /// (`ORI_VERIFY_EACH=1`) so a burden-imbalance that compiles to wrong-but-non-
 /// crashing IR (VR-1 checkpoints + VF-1 burden-balance residual) is caught, not

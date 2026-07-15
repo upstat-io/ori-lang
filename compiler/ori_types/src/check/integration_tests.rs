@@ -2759,6 +2759,58 @@ fn s09_2_derived_method_on_generic_composite_typechecks_to_bool() {
     );
 }
 
+#[test]
+fn generic_derived_methods_share_exact_applied_self_identity() {
+    let source = r"
+#derive(Eq, Hashable, Clone) type P3Box<T> = { value: T }
+@p3_clone (value: P3Box<int>) -> P3Box<int> = value.clone();
+@p3_clone_str (value: P3Box<str>) -> P3Box<str> = value.clone();
+@p3_hash (value: P3Box<int>) -> int = value.hash();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "generic derived methods must resolve without poison; kinds: {:?}",
+        result.error_kinds()
+    );
+
+    let clone_ty = result.function_body_type("p3_clone").unwrap();
+    let expected = result
+        .find_applied("P3Box", &[Idx::INT])
+        .expect("concrete P3Box<int> must exist");
+    assert_eq!(clone_ty, expected);
+    let expected_str = result
+        .find_applied("P3Box", &[Idx::STR])
+        .expect("concrete P3Box<str> must exist");
+    assert_eq!(
+        result.function_body_type("p3_clone_str"),
+        Some(expected_str)
+    );
+    assert_eq!(result.function_body_type("p3_hash"), Some(Idx::INT));
+
+    let type_param = result.interner.intern("T");
+    for accepted in &result.result.typed.accepted_derives {
+        assert_eq!(result.tag(accepted.owner_type), Tag::Applied);
+        assert_eq!(
+            result.pool.applied_name(accepted.owner_type),
+            result.interner.intern("P3Box")
+        );
+        let args = result.pool.applied_args(accepted.owner_type);
+        assert_eq!(args.len(), 1);
+        assert_eq!(result.tag(args[0]), Tag::Named);
+        assert_eq!(result.pool.named_name(args[0]), type_param);
+        assert_eq!(accepted.signature.type_params, vec![type_param]);
+        assert!(accepted
+            .signature
+            .param_types
+            .iter()
+            .all(|&param| param == accepted.owner_type));
+        if accepted.trait_kind == ori_ir::DerivedTrait::Clone {
+            assert_eq!(accepted.signature.return_type, accepted.owner_type);
+        }
+    }
+}
+
 // Pin 4 — builtin Duration ctor (`Duration.from_seconds`). The factory family
 // is a non-generic builtin (`MethodKind::Associated` in `ori_registry`, not in
 // `impl_sigs`), so a recorded MonoInstance would be skipped by

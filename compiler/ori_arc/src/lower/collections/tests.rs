@@ -2,7 +2,7 @@ use ori_ir::canon::{CanArena, CanExpr, CanNode, CanonResult};
 use ori_ir::{Name, Span, StringInterner, TypeId};
 use ori_types::{Idx, Pool};
 
-use crate::ir::{ArcInstr, CtorKind};
+use crate::ir::{ArcInstr, ArcValue, CtorKind, LitValue};
 
 /// Wrap a built arena into a single-root `CanonResult` and lower it.
 fn lower_root(
@@ -227,7 +227,8 @@ fn lower_try_does_not_inject_trace_on_newtype_over_error_err_payload() {
 #[test]
 fn lower_tuple() {
     let interner = StringInterner::new();
-    let pool = Pool::new();
+    let mut pool = Pool::new();
+    let tuple_ty = pool.tuple(&[Idx::INT, Idx::INT]);
     let mut arena = CanArena::with_capacity(200);
 
     let a = arena.push(CanNode::new(
@@ -244,7 +245,7 @@ fn lower_tuple() {
     let tup = arena.push(CanNode::new(
         CanExpr::Tuple(exprs),
         Span::new(0, 6),
-        TypeId::from_raw(Idx::UNIT.raw()),
+        TypeId::from_raw(tuple_ty.raw()),
     ));
 
     let canon = CanonResult {
@@ -262,7 +263,7 @@ fn lower_tuple() {
     let (func, _) = super::super::super::lower_function_can(
         Name::from_raw(1),
         &[],
-        Idx::UNIT,
+        tuple_ty,
         tup,
         &canon,
         &interner,
@@ -280,6 +281,53 @@ fn lower_tuple() {
             ctor: CtorKind::Tuple,
             ..
         }
+    ));
+}
+
+#[test]
+fn lower_empty_tuple_as_unit_literal() {
+    let interner = StringInterner::new();
+    let pool = Pool::new();
+    let mut arena = CanArena::with_capacity(1);
+    let exprs = arena.push_expr_list(&[]);
+    let unit = arena.push(CanNode::new(
+        CanExpr::Tuple(exprs),
+        Span::new(0, 2),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+    let canon = CanonResult {
+        arena,
+        constants: ori_ir::canon::ConstantPool::new(),
+        decision_trees: ori_ir::canon::DecisionTreePool::default(),
+        root: unit,
+        roots: vec![],
+        method_roots: vec![],
+        problems: vec![],
+        mono_dispatch_map_can: vec![],
+    };
+    let mut problems = Vec::new();
+
+    let (function, _) = super::super::super::lower_function_can(
+        Name::from_raw(1),
+        &[],
+        Idx::UNIT,
+        unit,
+        &canon,
+        &interner,
+        &pool,
+        &mut problems,
+        false,
+        None,
+    );
+
+    assert!(problems.is_empty());
+    assert!(matches!(
+        function.blocks[0].body.as_slice(),
+        [ArcInstr::Let {
+            ty: Idx::UNIT,
+            value: ArcValue::Literal(LitValue::Unit),
+            ..
+        }]
     ));
 }
 

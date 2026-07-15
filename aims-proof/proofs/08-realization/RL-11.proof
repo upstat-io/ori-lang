@@ -1,64 +1,33 @@
-Theorem RL-11: same-block allocation reuse — conditions (a) + (b) + (c)
+Theorem RL-11: same-block donor-to-recipient owner-credit transfer
 
   Preconditions:
-    - RL-11 governs same-block reuse per Annex E §AIMS Allocation
-      Reuse: a dying value's allocation SHALL be reused for a fresh
-      allocation of the same type in the same block iff (a) a Reset precedes
-      the Reuse, (b) no intervening instruction may throw, may allocate, or
-      may use the dying value or any alias of it
-      (project_alias_sources MUST be checked), AND (c) the dying value's
-      Uniqueness = Unique (non-unique reuse corrupts aliases).
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - Reuse eligibility is DP-6 (is_reuse_candidate) <=> Access = Owned AND
-      Uniqueness != Shared AND Shape != NonReusable. RL-11 additionally
-      requires the dying value Unique (condition c).
-    - Shipped: emit_reuse/detect.rs + emit_reuse/planner.rs;
-      realize/mod.rs::realize_rc_reuse Sub-step C (emit_reuse_from_events,
-      lines 143-167).
-    - depends-on sec-05: DP-6 (is_reuse_candidate) soundness; depends-on
-      §AIMS §7 project_alias_sources for the intervening-alias-use check.
+    - DP-6 identifies an Owned, non-Shared, shape-compatible candidate.
+    - The donor precedes the recipient in the block.
+    - No intervening throw, competing birth, or alias use occurs.
+    - The donor is statically Unique.
 
   Soundness property:
-    Forall dying value v in block B and forall fresh same-type allocation a
-    in B:
-
-      (P1) Reuse decision: RL-11 reuses v's allocation for a iff DP-6(v) AND
-           (a) Reset-precedes-Reuse AND (b) no-intervening-hazard AND
-           (c) Uniqueness(v) = Unique.
-
-      (P2) Value-semantics preservation: when (a)+(b)+(c) hold, v is the
-           provable sole owner at death (Unique) with no live alias observing
-           the reused bytes (no intervening hazard), so reusing v's
-           allocation for a is observably equivalent to a fresh allocation
-           plus a separate free of v.
-
-    RL-11 refines plain ARC by eliminating the alloc-free pair when the
-    lattice proves the dying allocation can carry the fresh value, while
-    preserving the same observable behavior.
+    Forall dying donor d and fresh same-type recipient r in one block:
+      (P1) RL-11 freezes the transfer relation iff all four conditions hold.
+      (P2) the donor's exact owner credit becomes the recipient's credit.
+      (P3) the relation is evaluator-equivalent to donor cleanup plus an
+           independent recipient birth.
+    Reset, Reuse, allocation identity, and storage recycling are transitional
+    carrier or projection details, not theorem premises.
 
   Proof obligation:
-    Constructive discharge by the case_analysis engine via finite
-    enumeration of the (a)+(b)+(c) condition grid + DP-6 cross-check.
-
-    Part (P1/P2) — condition grid:
-      abc_all_hold_reuse -> reuse fires (sound)
-      no_reset_no_reuse -> (a) violated, no reuse
-      intervening_hazard_no_reuse -> (b) violated, no reuse
-      non_unique_no_reuse -> (c) violated, no reuse
-      Coverage gate: 4 condition cases. Negative-direction witness: a Shared
-      dying value is never reuse-eligible (DP-6 excludes Shared) — asserted.
+    Enumerate:
+      abc_all_hold_credit_transfer -> transfer
+      recipient_before_donor_no_transfer -> no transfer
+      intervening_hazard_no_transfer -> no transfer
+      non_unique_no_transfer -> no transfer
+    Coverage gate: 4 cases. A Shared donor is rejected.
 
     Engines dispatched:
-      case_analysis (PRIMARY — section_08::verify_rl11_same_block_reuse;
-        condition-grid enumeration + DP-6 cross-check; emits Fail on a
-        condition divergence or an unsound reuse)
-      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      case_analysis (PRIMARY — section_08::verify_rl11_same_block_reuse)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
 
   Expected:
     status: valid
-    reason: section_08 case_analysis engine discharges RL-11 via the same-block reuse condition grid (a) Reset-precedes-Reuse (b) no-intervening-hazard (c) dying-Unique, each cross-checked against DP-6 reuse-eligibility, with a negative-direction witness rejecting a Shared dying value, grounded in the shipped emit_reuse/detect.rs + planner.rs reuse-from-events realization
+    reason: RL-11 freezes a same-block donor/recipient owner-credit transfer in four exhaustive condition cases without selecting a storage-reuse mechanism

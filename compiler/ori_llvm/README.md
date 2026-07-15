@@ -1,12 +1,12 @@
 # ori_llvm
 
-> **`ori_llvm` exists to emit LLVM IR from realized ARC IR without re-deriving any information an earlier phase already owns.** Faithful emission is the deliverable.
+> **`ori_llvm` is one physical projection of the shared post-AIMS executable artifact.** It emits LLVM IR without re-deriving semantic, ownership, drop, effect, callable, or representation policy. Faithful projection is the deliverable.
 
 ## Role in the pipeline
 
-Phase 8 of the compiler pipeline. Consumes realized `ArcFunction` from phase 7 ARC realization, computes a `ReprPlan` via the `ori_repr` sub-layer (7a), and emits LLVM IR. Subsequent LLVM optimization + emission (phase 9) runs the LLVM pipeline on the emitted IR.
+Phase 8 of the shipped compiler pipeline. It consumes realized `ArcFunction` values plus upstream representation and executable facts, then emits LLVM IR. The production seam supplies one validated `ExecutableProgram` and a compiled-layout/ABI projection; LLVM does not own AIMS or recompute its policy. Subsequent LLVM optimization + emission (phase 9) runs only on the emitted IR.
 
-`ori_llvm` depends on `ori_arc` but **not** on `ori_canon` — codegen consumes ARC IR, not `CanExpr`. Every RC operation emitted corresponds to a specific AIMS proof failure; `ori_llvm` emits faithfully, it does not re-optimize.
+`ori_llvm` depends on `ori_arc` but **not** on `ori_canon` — codegen consumes ARC IR, not `CanExpr`. Every memory-management operation must trace to a compiled physical-plan choice satisfying an exact frozen AIMS obligation; `ori_llvm` projects faithfully and does not reconstruct policy.
 
 ## Architecture
 
@@ -30,7 +30,8 @@ Note: does NOT depend on `ori_canon` — codegen consumes ARC IR, not `CanExpr`.
 - **Faithful emission**: no re-derivation of type facts, ownership, or repr decisions that upstream phases already own. Querying is the rule; re-inference is a layering violation.
 - **Dual-execution parity**: every language construct is lowered in both `ori_llvm` and `ori_eval` with identical observable behavior, or it is a documented GAP.
 - **ABI agrees with `ori_rt`**: runtime function signatures and codegen call sites match exactly; changes to either require a matched commit to the other.
-- **AIMS facts are consumed, not challenged**: RC operations emitted reflect the lattice's proof-failure list, not codegen's opinion.
+- **AIMS is backend-neutral**: VM, LLVM, native, compiled-WebAssembly, and JIT consumers receive the same typed ownership/drop/effect facts. LLVM attributes and instructions are one physical spelling, never the fact authority.
+- **AIMS facts are consumed, not challenged**: the current counter projection's RC operations implement validated physical-plan choices that satisfy the shared calculus; they are not AIMS facts or codegen's opinion.
 
 ## Testing
 

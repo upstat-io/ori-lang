@@ -32,8 +32,8 @@ const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const ORD: ReturnTag = ReturnTag::Concrete(TypeTag::Ordering);
 
-// All methods alphabetically sorted. `backend_required` = true for methods
-// with eval+LLVM coverage, false for typeck-only methods.
+// All methods alphabetically sorted. `backend_required` is true for methods
+// that require executable behavior and false for typeck-only methods.
 static ORDERING_METHODS: &[MethodDef] = &[
     MethodDef::compound(
         "clone",
@@ -114,8 +114,8 @@ pub static ORDERING: TypeDef = TypeDef {
         div: OpStrategy::Unsupported,
         rem: OpStrategy::Unsupported,
         floor_div: OpStrategy::Unsupported,
-        eq: OpStrategy::IntInstr,
-        neq: OpStrategy::IntInstr,
+        eq: OpStrategy::SignedInteger,
+        neq: OpStrategy::SignedInteger,
         lt: OpStrategy::Unsupported,
         gt: OpStrategy::Unsupported,
         lt_eq: OpStrategy::Unsupported,

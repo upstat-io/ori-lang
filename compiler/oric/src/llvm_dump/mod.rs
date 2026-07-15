@@ -75,9 +75,9 @@ fn demangle_define(line: &str, pool: &Pool, interner: &StringInterner) -> Option
         &after_at[..end]
     };
 
-    // Drop functions: resolve pool index to type name. The prefix is the
-    // codegen naming SSOT (`ori_arc::DROP_GLUE_PREFIX`), not a local copy.
-    if let Some(drop_idx) = name.strip_prefix(ori_arc::DROP_GLUE_PREFIX) {
+    // Drop functions: resolve pool index to type name. The prefix belongs to
+    // the LLVM projection and is shared with its emitter.
+    if let Some(drop_idx) = name.strip_prefix(ori_llvm::DROP_GLUE_PREFIX) {
         let raw: u32 = drop_idx.parse().ok()?;
         let idx = Idx::from_raw(raw);
         if !idx.is_none() && !idx.is_error() {
@@ -120,7 +120,7 @@ fn annotate_rc_op(line: &str, pool: &Pool, interner: &StringInterner) -> Option<
 /// `<idx_raw>` is the raw Pool index. The function parses this index and
 /// resolves the type via `Pool::format_type_resolved`.
 fn extract_drop_type(line: &str, pool: &Pool, interner: &StringInterner) -> Option<String> {
-    let drop_marker = ori_arc::DROP_GLUE_PREFIX;
+    let drop_marker = ori_llvm::DROP_GLUE_PREFIX;
     let pos = line.find(drop_marker)?;
     let after = &line[pos + drop_marker.len()..];
 

@@ -21,6 +21,10 @@ Theorem IA-5-step-1: Intraprocedural alias-transfer soundness (6-case enumeratio
         src.locality := max(src.locality, dst.locality)
         src.consumption := seq_add(src.consumption, Affine)
         no TF-11 demand
+      An L-9-excluded scalar destination instead contributes RawDemand selected
+      only by liveness: deadProjection when dead, (Once, Affine) when live.
+      The live contribution is capped at one copy-out regardless of downstream
+      scalar copy count.
     - Case (c) Select { cond, t_val, f_val } conditional alias:
         t_val.cardinality := seq_add(t_val.cardinality, dst.cardinality)
         t_val.consumption := seq_add(t_val.consumption, dst.consumption)
@@ -41,7 +45,10 @@ Theorem IA-5-step-1: Intraprocedural alias-transfer soundness (6-case enumeratio
     - L-6 monotonicity (per Annex E §AIMS IA-5 + §1.2 / §1.3 / §1.5):
       seq_add monotone over Consumption + Cardinality; max monotone over
       Locality; unconditional Owned promotion preserves order
-      (Borrowed <= Owned per ACCESS_CARRIER).
+      (Borrowed <= Owned per ACCESS_CARRIER)
+    - Cardinality and Consumption updates compose as RawDemand evidence during
+      the complete block walk; canonicalization is an observation after the
+      fold, never an instruction-local side effect.
 
   Soundness property:
     Forall arc_instr in ArcInstr. Forall (src, dst) state pair where dst
@@ -51,10 +58,15 @@ Theorem IA-5-step-1: Intraprocedural alias-transfer soundness (6-case enumeratio
     AND src.{cardinality, locality, consumption} are monotone in dst.{...}
         for fixed src (L-6 layer (b) — seq_add + max monotone)
     AND Access promotion to Owned preserves order (Owned is TOP of
-        ACCESS_CARRIER lattice).
+        ACCESS_CARRIER lattice)
+    AND Let/Select full-alias transfer and Project/TF-14 transfer project
+        exactly into RawDemand.seqAdd
+    AND scalar Project transfer composes the TF-14 live/dead copy-out theorem
+    AND every permutation of a block's raw instruction contributions produces
+        the same unobserved block-entry demand.
 
   Proof obligation:
-    Seven-part discharge (6 cases + monotonicity sweep):
+    Case coverage plus monotonicity and raw-fold timing:
       (a) Let { Var(v) } transparent alias enumeration — verify
           seq_add(Cardinality) + seq_add(Consumption) + max(Locality).
       (b) Project borrow — verify composes with TF-14 (TF-14.proof) +
@@ -71,6 +83,10 @@ Theorem IA-5-step-1: Intraprocedural alias-transfer soundness (6-case enumeratio
       (g) Monotonicity sweep — enumerate L-6 layer (b) over Locality x
           Cardinality x Consumption for cases (a) / (c); confirm Owned
           promotion preserves order for cases (d) / (e).
+      (h) Raw block-walk composition — prove Let/Select and Project transfer
+          projections use the shared RawDemand algebra; compose the scalar
+          Project live/dead copy-out cap; and prove permutation invariance for
+          the block's left fold before observation.
 
     Part (a) — Let { Var(v) } transparent alias:
       Pick representative (src, dst) pairs over the per-dimension carriers
@@ -156,6 +172,19 @@ Theorem IA-5-step-1: Intraprocedural alias-transfer soundness (6-case enumeratio
         unconditional — preserves order (Borrowed <= Owned).
       Case (e): same as (d).
       Case (f): no-op is trivially monotone (identity function).
+
+    Part (h) — RawDemand block-walk composition:
+      IA5_full_alias_uses_raw_demand_composition proves that transparent Let
+      and conditional Select transfer project to componentwise RawDemand.seqAdd.
+      TF14_uses_raw_demand_composition proves that Project contributes
+      `(dst.cardinality, Affine)` through the same algebra without observing it.
+      TF14_scalar_project_copy_out_sound proves that an L-9-excluded scalar
+      destination contributes deadProjection when dead or exactly
+      `(Once, Affine)` when live, independent of downstream scalar copy count.
+      IA5_block_walk_raw_fold_permutation proves that any permutation of the
+      block contribution list has the same foldl result from RawDemand.zero.
+      The observation timing and concrete CN-1 negative witness are discharged
+      by TF11_raw_demand_timing_sound in the same compiled Lean module.
 
     Engines dispatched:
       monotonicity (PRIMARY — L-6 layer (b) sweep over 6-case ArcInstr

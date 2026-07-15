@@ -1,11 +1,13 @@
 Theorem DP-1: Decision predicate signatures — pure-state DPs + context-dependent DPs + DP-10 confirmation-of-removal
 
   Preconditions:
-    - Decision predicates map lattice states to RC / COW / reuse decisions
-      per Annex E §AIMS + Appendix C truth tables
+    - Decision predicates map lattice states to logical ownership-event,
+      mutation-isolation, and donor/recipient-transfer decisions per Annex E
+      §AIMS + Appendix C truth tables
     - Most DPs are pure functions of AimsState; DP-5 + DP-9 additionally
       consult borrow_sources + project_alias_sources + live-variable set
-    - CowMode is the closed sum type returned by DP-9
+    - MutationObligation is the closed sum type returned by DP-9; CowMode is
+      retained only as a historical artifact alias
     - DP-10 was REMOVED from Annex E §AIMS as unsound
       (confirmation-of-removal entry authored below)
 
@@ -13,24 +15,27 @@ Theorem DP-1: Decision predicate signatures — pure-state DPs + context-depende
     Pure-state DP signatures (per Annex E §AIMS + the canonical proof notation:245):
 
       DP-1 : AimsState -> Bool
-        is_rc_needed(s) <=> s.access = O AND s.consumption != empty AND NOT s.is_scalar
+        needs_ownership_events(s) <=> s.access = O AND
+          s.consumption != empty AND NOT s.is_scalar
 
       DP-2 : AimsState -> Bool
-        is_rc_dec_unnecessary(s) <=> s.cardinality = absent OR s.consumption = empty
+        is_release_unnecessary(s) <=> s.cardinality = absent OR
+          s.consumption = empty
 
       DP-3 : AimsState -> Bool
-        is_rc_inc_elidable(s) <=> s.cardinality = 1 AND (s.consumption = L OR s.consumption = A)
+        is_additional_credit_elidable(s) <=> s.cardinality = 1 AND
+          (s.consumption = L OR s.consumption = A)
 
       DP-4 : AimsState -> Bool
-        needs_cow_check(s) <=> s.uniqueness = ms
+        needs_sharing_observation(s) <=> s.uniqueness = ms
 
       DP-6 : AimsState -> Bool
         is_reuse_candidate(s) <=> s.access = O AND s.uniqueness != s AND s.shape != Phi
 
       DP-7 : AimsState -> Bool
-        is_rc_skip_eligible(s) <=> s.locality <= fl AND s.access = O
-                                 AND s.consumption = L AND s.cardinality = 1
-                                 AND s.uniqueness = u AND NOT s.is_scalar
+        is_event_pair_elision_eligible(s) <=> s.locality <= fl AND
+          s.access = O AND s.consumption = L AND s.cardinality = 1 AND
+          s.uniqueness = u AND NOT s.is_scalar
 
       DP-8 : AimsState -> Bool
         is_local(s) <=> s.locality in {bl, fl}
@@ -54,31 +59,35 @@ Theorem DP-1: Decision predicate signatures — pure-state DPs + context-depende
         of field path. Signature amended at rule reformulation (case 3) surfaced
         during the DP-5 discharge.
 
-      DP-9 : AimsState x ArcVarId x FieldPath x ProgramPoint x ParamContract -> CowMode
-        cow_mode(s, var, field, point, contract) =
-          Unique AND DP-5 = true -> StaticUnique
-          Unique AND DP-5 = false -> StaticShared
-          MaybeShared AND contract.uniqueness = Unique AND DP-5 = true -> StaticUnique
-          MaybeShared AND contract.uniqueness = Unique AND DP-5 = false -> Dynamic
-          MaybeShared else -> Dynamic
-          Shared -> StaticShared
+      DP-9 : AimsState x ArcVarId x FieldPath x ProgramPoint x ParamContract
+        -> MutationObligation
+        mutation_obligation(s, var, field, point, contract) =
+          Unique AND DP-5 = true -> SameIdentityAdmissible
+          Unique AND DP-5 = false -> IsolationRequired
+          MaybeShared AND contract.uniqueness = Unique AND DP-5 = true
+            -> SameIdentityAdmissible
+          MaybeShared AND contract.uniqueness = Unique AND DP-5 = false
+            -> SharingObservationRequired
+          MaybeShared else -> SharingObservationRequired
+          Shared -> IsolationRequired
 
         Row (c) joint-DP-5 refinement (per Annex E §AIMS DP-9 row (c)
         + the DP-9 proof artifact): MaybeShared + IC-3 ParamContract.
-        uniqueness = Unique routes to StaticUnique only when DP-5 returns
-        true locally; falls through to Dynamic (row c-prime) when DP-5
-        returns false. IC-3 proves not-shared at function entry but does
+        uniqueness = Unique routes to SameIdentityAdmissible only when DP-5
+        returns true locally; otherwise SharingObservationRequired remains
+        (row c-prime). IC-3 proves not-shared at function entry but does
         NOT prove no-active-local-borrows at the mutation point; DP-9 must
         compose IC-3 (interprocedural) with DP-5 (intraprocedural alias
         safety). Signature amended at rule reformulation (case 3) surfaced during
         the DP-9 discharge.
 
-      CowMode : closed sum type (per the canonical proof notation:257):
-        CowMode = StaticUnique | StaticShared | Dynamic
+      MutationObligation : closed sum type:
+        MutationObligation = SameIdentityAdmissible | IsolationRequired |
+          SharingObservationRequired
 
     DP-10 confirmation-of-removal entry:
 
-      DP-10 — Owned + Linear + Once does NOT imply RC == 1 (REMOVED)
+      DP-10 — Owned + Linear + Once does NOT imply one logical owner (REMOVED)
 
       Removed in: Annex E §AIMS DP-10 removal note
         (2026-04 root cause documented inline)
@@ -87,8 +96,8 @@ Theorem DP-1: Decision predicate signatures — pure-state DPs + context-depende
         NOT "no existing aliases". Uniqueness is ONLY established via
         the Uniqueness lattice dimension (§AIMS §3.4) OR via fresh allocation
         (TF-3 FRESH output). DP-10's inference from Consumption x Cardinality
-        alone was unsound: one use may be "store into data structure"
-        (creates alias via RcInc).
+        alone was unsound: one use may store the value into a data structure
+        and create another logical owner.
 
       Subsumed by:
         - TF-3 (fresh allocation establishes Uniqueness = u directly)

@@ -1,4 +1,4 @@
-Theorem TF-11: Standard backward demand `(operand, Once, Linear)` + seq_add accumulation soundness
+Theorem TF-11: Standard backward demand + raw-before-observation seq_add soundness
 
   Preconditions:
     - TF-11 backward demand emits `(operand, cardinality=Once, consumption=Linear)`
@@ -18,6 +18,12 @@ Theorem TF-11: Standard backward demand `(operand, Once, Linear)` + seq_add accu
       IsShared / Reset / Reuse / CollectionReuse / Select / RcInc / RcDec)
     - IA-5 step (1) alias transfers use `seq_add` per Annex E §AIMS IA-5;
       cross-instruction accumulation soundness MUST hold uniformly
+    - Cardinality and Consumption remain independent `RawDemand` evidence
+      throughout a block's backward fold; CN-1 canonicalization runs once at
+      the observation boundary, not after each individual contribution
+    - A Project contributes fixed Affine Consumption even when its destination
+      Cardinality is Absent; a lone such contribution canonicalizes to Dead,
+      but its Affine evidence must compose with any other demand first
 
   Soundness property:
     Forall arc_instr in ArcInstr.
@@ -29,10 +35,19 @@ Theorem TF-11: Standard backward demand `(operand, Once, Linear)` + seq_add accu
       Many; X + Many = Many)
     AND L-6 monotonicity: a1 <=_C a2 implies seq_add(a1, c) <=_C seq_add(a2, c)
     for fixed c (`seq_add` monotone in each argument per §1.2 / §1.3 lattice
-    properties).
+    properties)
+    AND RawDemand.seqAdd is associative and commutative, imperative left-fold
+    accumulation equals the declarative raw sum, and every permutation has the
+    same raw result before observation
+    AND eager CN-1 observation is rejected by the concrete
+    `(Absent, Affine) + (Once, Linear)` witness: eager observation produces
+    `(Once, Linear)`, while raw fold then one observation produces
+    `(Once, Unrestricted)`
+    AND a lone `(Absent, Affine)` Project contribution observes as
+    `(Absent, Dead)`.
 
   Proof obligation:
-    Four-part discharge:
+    Five-part discharge:
       (a) Per-Instr demand-table enumeration — 14 instructions per §3 TF-11
           table; each row's demand list verified against the §3 statement.
       (b) Consumption `seq_add` 4 x 4 matrix enumeration — 16 inputs;
@@ -43,6 +58,10 @@ Theorem TF-11: Standard backward demand `(operand, Once, Linear)` + seq_add accu
           Consumption lattice (Dead < Linear < Affine < Unrestricted per
           §1.2) AND over the Cardinality lattice (Absent < Once < Many
           per §1.3).
+      (e) Raw-demand timing — prove associativity, commutativity, left-fold /
+          right-fold equality, and permutation invariance before observation;
+          prove the eager-CN-1 non-commutation witness and both required final
+          observations under the existing canonicalize definition.
 
     Part (a) — per-Instr demand-table enumeration:
       Per Annex E §AIMS TF-11 table:
@@ -80,7 +99,7 @@ Theorem TF-11: Standard backward demand `(operand, Once, Linear)` + seq_add accu
 
     Part (c) — Cardinality seq_add 3 x 3 matrix:
       Per Annex E §AIMS + §3 TF-11 accumulation:
-        seq_add(Absent, X) = X (Absent absorbing on left)
+        seq_add(Absent, X) = X (Absent is the identity on the left)
         seq_add(Once, Once) = Many
         seq_add(Once, Many) = Many
         seq_add(Many, X) = Many
@@ -99,6 +118,33 @@ Theorem TF-11: Standard backward demand `(operand, Once, Linear)` + seq_add accu
       = 27 monotonicity checks; all pass since seq_add is monotone on each
       argument per §1.2 + §1.3.
 
+    Part (e) — raw demand algebra and observation timing:
+      Define RawDemand as the backend-neutral product of independent
+      Cardinality and Consumption evidence. Its `seqAdd` is componentwise and
+      never invokes canonicalize. Its identity is `(Absent, Dead)`.
+      Prove:
+        RawDemand.seqAdd is associative and commutative.
+        foldl(seqAdd, initial, demands) = seqAdd(initial, raw_sum(demands)).
+        Perm(left, right) implies raw_sum(left) = raw_sum(right) before any
+          observation.
+      Define observe by embedding the raw pair in neutral AimsState dimensions,
+      invoking the existing canonicalize definition once, then projecting the
+      pair. This keeps CN-1's implementation single-sourced.
+      Concrete negative witness:
+        observe(seqAdd(observe(Absent, Affine), (Once, Linear)))
+          = (Once, Linear)
+        observe(seqAdd((Absent, Affine), (Once, Linear)))
+          = (Once, Unrestricted)
+        therefore eager observation does not commute with seqAdd.
+      Concrete dead-only witness:
+        observe(raw_sum([(Absent, Affine)])) = (Absent, Dead).
+      Kernel discharge: AimsProof.Transfer.TF11_raw_demand_timing_sound;
+      supporting theorems include RawDemand.sum_perm,
+      RawDemand.eager_observation_yields_once_linear,
+      RawDemand.eager_CN1_observation_does_not_commute_with_seqAdd,
+      RawDemand.raw_fold_then_observe_once_unrestricted, and
+      RawDemand.lone_dead_projection_observes_dead.
+
     Engines dispatched:
       monotonicity (PRIMARY — seq_add monotonicity over Consumption + Cardinality
         lattices per section_04::verify_tf11_backward_demand_seq_add)
@@ -111,4 +157,4 @@ Theorem TF-11: Standard backward demand `(operand, Once, Linear)` + seq_add accu
 
   Expected:
     status: valid
-    reason: section_04 monotonicity + case_analysis engines discharge TF-11 via per-Instr demand-table enumeration + Consumption + Cardinality seq_add matrix enumeration + monotonicity check
+    reason: section_04 monotonicity + case_analysis engines discharge TF-11 matrices and the compiled Lean proves the raw-demand algebra, permutation invariance, and observe-once timing witnesses

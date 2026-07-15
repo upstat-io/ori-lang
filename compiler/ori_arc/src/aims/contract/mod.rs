@@ -24,10 +24,10 @@ mod param;
 mod tests;
 
 pub use context::{ContextBehavior, ContextRegion};
-pub use param::{ParamContract, ReturnAliasShape};
+pub use param::{CalleeOwnerDemand, CalleeOwnerDemandConflict, ParamContract, ReturnAliasShape};
 
-use super::lattice::{AccessClass, Consumption, Locality, ShapeClass, Uniqueness};
-use crate::ir::ArcParam;
+use super::lattice::{AccessClass, Cardinality, Consumption, Locality, ShapeClass, Uniqueness};
+use crate::ir::{ArcFunction, ArcInstr, ArcParam, ArcTerminator};
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 
 use std::collections::HashMap;
@@ -127,6 +127,81 @@ impl MemoryContract {
         }
     }
 
+    /// Realize the backend-neutral memory-access classification for RL-30.
+    ///
+    /// This consumes the final post-AIMS body as well as its final contract.
+    /// `EffectSummary` describes ownership/FIP effects, not arbitrary runtime
+    /// or I/O writes, so a contract alone cannot prove a whole-function memory
+    /// attribute. Until IC-5 carries typed inaccessible-memory effects, every
+    /// call is untyped and therefore fails closed. This includes apparently
+    /// known calls and runtime I/O, panic, and thread-local-state operations;
+    /// their names never substitute for typed write effects.
+    #[must_use]
+    pub fn function_effect_facts(&self, function: &ArcFunction) -> FunctionEffectFacts {
+        let may_write_inaccessible = function.blocks.iter().any(|block| {
+            block.body.iter().any(|instruction| {
+                matches!(
+                    instruction,
+                    ArcInstr::Apply { .. } | ArcInstr::ApplyIndirect { .. }
+                )
+            }) || matches!(
+                block.terminator,
+                ArcTerminator::Invoke { .. }
+                    | ArcTerminator::InvokeIndirect { .. }
+                    | ArcTerminator::Resume
+            )
+        });
+        let structurally_read_only = function.blocks.iter().all(|block| {
+            block.body.iter().all(|instruction| {
+                matches!(
+                    instruction,
+                    ArcInstr::Let { .. }
+                        | ArcInstr::Project { .. }
+                        | ArcInstr::Construct { .. }
+                        | ArcInstr::Select { .. }
+                )
+            }) && matches!(
+                block.terminator,
+                ArcTerminator::Return { .. }
+                    | ArcTerminator::Jump { .. }
+                    | ArcTerminator::Branch { .. }
+                    | ArcTerminator::Switch { .. }
+                    | ArcTerminator::Unreachable
+            )
+        });
+        let no_writes = !self.effects.may_allocate
+            && !self.effects.may_deallocate
+            && !self.effects.may_share
+            && !self.effects.may_throw
+            && !may_write_inaccessible
+            && structurally_read_only
+            && self.params.iter().all(|param| {
+                param.cardinality == Cardinality::Absent
+                    || (param.access == AccessClass::Borrowed && !param.may_share)
+            });
+        FunctionEffectFacts {
+            effects: self.effects,
+            may_write_inaccessible,
+            memory_access: if no_writes {
+                MemoryAccessClass::ReadOnly
+            } else {
+                MemoryAccessClass::ReadWrite
+            },
+        }
+    }
+
+    /// Freeze the backend-neutral RL-29 return-allocation fact.
+    ///
+    /// `preserves_freshness` is deliberately insufficient: a result may remain
+    /// unique while forwarding caller-owned or consumed storage. Only the
+    /// stronger path-universal self-allocation proof excludes upstream aliases.
+    #[must_use]
+    pub const fn fresh_self_allocation_facts(&self) -> FreshSelfAllocationFacts {
+        FreshSelfAllocationFacts {
+            returns_fresh_self_alloc: self.return_info.returns_fresh_self_alloc,
+        }
+    }
+
     /// Convert to [`AnnotatedSig`] for compatibility during migration.
     ///
     /// Requires the function's parameter definitions (for names and types)
@@ -178,30 +253,31 @@ pub struct ReturnContract {
     /// Whether the function preserves freshness: if all RC'd inputs are
     /// `Unique`, the output is guaranteed `Unique`.
     pub preserves_freshness: bool,
-    /// Locality of the returned value (v1: `HeapEscaping` for most).
+    /// Logical lifetime bound of the returned value. The shipped carrier uses
+    /// the legacy `HeapEscaping` label for most escaping results; it does not
+    /// select heap placement.
     pub locality: Locality,
     /// Shape class of the return value.
     pub shape: ShapeClass,
-    /// Whether the function returns a FRESH self-allocated rc=1 buffer on every
-    /// path — a buffer allocated INSIDE this function (a `Construct`/`Reuse`/
-    /// `CollectionReuse` collection, or the `for_yield` `@ori_list_take`
-    /// finalizer that moves a fresh scratch buffer out), distinct from any
-    /// caller-visible value. Stronger than `preserves_freshness ∧ uniqueness`:
-    /// it certifies the returned allocation is a fresh self-alloc the caller
-    /// receives at rc=1 (no upstream alias), which licenses caller-side analyses
-    /// to admit the Invoke/Apply result as a fresh collection root. Orthogonal to
+    /// Whether every path returns a fresh, independently owned buffer identity
+    /// with no upstream alias.
+    /// The buffer may be produced directly by this body (`Construct`/`Reuse`/
+    /// `CollectionReuse` or `@ori_list_take`) or by a callee carrying the same
+    /// path-universal proof; it is never caller-provided or consumed-input
+    /// storage. Stronger than `preserves_freshness ∧ uniqueness`, this licenses
+    /// caller-side analyses to admit the Invoke/Apply result as a fresh collection
+    /// root. Orthogonal to
     /// `uniqueness`/`preserves_freshness` — set independently, consumed only by
     /// the fresh-collection-root admission, so it never perturbs the
     /// uniqueness/freshness-driven store-dup accounting.
     /// Spec: Annex E §AIMS RL-1 + RL-29 (fresh + Unique non-aliasing).
     pub returns_fresh_self_alloc: bool,
-    /// Whether the return value is a SHARING VIEW of a borrowed input's
-    /// backing buffer on every path — a seamless-slice co-reference
-    /// (`slice`/`substring`/`take`/`drop`) whose runtime self-inc mints the
-    /// view's own `+1` on the SHARED allocation. The typed buffer-provenance
-    /// CREDIT fact: the call boundary classifies the result as a CREDIT on
-    /// the source's allocation class (on top of the borrow-read of the
-    /// source), never a fresh birth. Orthogonal to `uniqueness` /
+    /// Whether the return value is a sharing view of a borrowed input's
+    /// backing identity on every path — a seamless-slice co-reference
+    /// (`slice`/`substring`/`take`/`drop`) whose producer creates the view's
+    /// independent logical owner. The typed provenance CREDIT fact classifies
+    /// that result on the source's identity class in addition to the source
+    /// borrow-read, never as a fresh birth. Orthogonal to `uniqueness` /
     /// `returns_fresh_self_alloc` (a view is NEVER a fresh self-alloc);
     /// carried for the provenance-ledger emitter, consumed by no emission
     /// path here. Spec: Annex E §AIMS §12 (sharing-view producer = CREDIT).
@@ -339,6 +415,67 @@ impl EffectSummary {
             // Either side unbounded → joined is unbounded.
             has_unbounded_stack: self.has_unbounded_stack || other.has_unbounded_stack,
         }
+    }
+}
+
+/// Backend-neutral whole-function memory-access class derived by AIMS.
+///
+/// The shipped calculus does not carry `may_read_inaccessible`, so it cannot
+/// distinguish no access from reads of non-argument memory. `ReadOnly` permits
+/// reads from any memory and proves only the absence of writes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MemoryAccessClass {
+    /// The function may read any memory but does not write memory.
+    ReadOnly,
+    /// The function may write memory or lacks a no-write proof.
+    ReadWrite,
+}
+
+/// Final backend-neutral proof that a function returns its own fresh allocation.
+///
+/// This fact is semantic: it does not prescribe a target attribute or physical
+/// return convention. Backend projections must additionally honor their ABI.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FreshSelfAllocationFacts {
+    returns_fresh_self_alloc: bool,
+}
+
+impl FreshSelfAllocationFacts {
+    /// Return whether every path yields fresh storage with no upstream alias.
+    #[must_use]
+    pub const fn is_proven(self) -> bool {
+        self.returns_fresh_self_alloc
+    }
+}
+
+/// Final backend-neutral effect facts for one realized function.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FunctionEffectFacts {
+    effects: EffectSummary,
+    may_write_inaccessible: bool,
+    memory_access: MemoryAccessClass,
+}
+
+impl FunctionEffectFacts {
+    /// Return the final IC-5 effect summary.
+    #[must_use]
+    pub const fn effects(self) -> EffectSummary {
+        self.effects
+    }
+
+    /// Return whether an untyped operation may write non-argument memory.
+    ///
+    /// Calls fail closed here until IC-5 supplies typed inaccessible-memory
+    /// effects that can be propagated interprocedurally.
+    #[must_use]
+    pub const fn may_write_inaccessible(self) -> bool {
+        self.may_write_inaccessible
+    }
+
+    /// Return the final RL-30 memory-access classification.
+    #[must_use]
+    pub const fn memory_access(self) -> MemoryAccessClass {
+        self.memory_access
     }
 }
 

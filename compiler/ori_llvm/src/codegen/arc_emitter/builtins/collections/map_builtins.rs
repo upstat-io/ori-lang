@@ -543,10 +543,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Element cleanup contract: passes real key/val dec functions so that
     /// `ori_map_buffer_rc_dec` properly cleans up RC children when the buffer
-    /// is freed. The AIMS pipeline marks destructured `(k, v)` variables as
-    /// borrowed (via `collect_iter_element_defs()` transitive Project chain
-    /// propagation), so AIMS skips their `RcDec` — the buffer's Drop handles
-    /// all element cleanup.
+    /// is freed. AIMS marks destructured `(k, v)` variables as borrowed (via
+    /// `collect_iter_element_defs()` transitive Project chain propagation), so
+    /// their logical plan contains no independent release. The current compiled
+    /// adapter therefore emits no `RcDec`; the buffer's Drop handles all element
+    /// cleanup.
     pub(crate) fn emit_map_iter(
         &mut self,
         receiver: ValueId,
@@ -568,9 +569,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let owns_data = self.builder.const_bool(owns_data);
         // Real dec functions: `collect_iter_element_defs()` propagates
         // borrowed status through transitive Project chains (tuple
-        // destructuring), so AIMS skips RcDec on destructured k/v.
-        // The buffer's drop (via ori_map_buffer_rc_dec) handles all
-        // element cleanup using these real dec functions.
+        // destructuring), so their logical plan has no independent release.
+        // The current adapter emits no RcDec on destructured k/v; the buffer's
+        // drop (via ori_map_buffer_rc_dec) handles all element cleanup using
+        // these real dec functions.
         let key_dec_fn = self.get_or_generate_elem_dec_fn(key_ty);
         let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
 

@@ -15,9 +15,10 @@ use super::type_resolution::{
 };
 use crate::check::bodies::allocate_rigid_var_map;
 use crate::registry::burden::UserBurdenSpec;
-use crate::registry::burden_compose::scc::mint_compiled_drop_fn_sym;
+use crate::registry::burden_compose::scc::mint_drop_operation_sym;
 use crate::{
-    Idx, ImplEntry, ImplMethodDef, ImplSpecificity, ModuleChecker, TypeCheckError, WhereConstraint,
+    Idx, ImplEntry, ImplMethodDef, ImplMethodId, ImplMethodRole, ImplSpecificity, ModuleChecker,
+    TypeCheckError, WhereConstraint,
 };
 
 /// Register implementation blocks.
@@ -25,7 +26,7 @@ use crate::{
 /// For trait impls, also registers unoverridden default methods so they're
 /// visible during method resolution in function body checking (Pass 2).
 pub fn register_impls(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module) {
-    for impl_def in &module.impls {
+    for (impl_index, impl_def) in module.impls.iter().enumerate() {
         // Allocate this impl block's `RigidVar` substitution map NOW (Pass 0c),
         // before any body pass, and store it keyed by `module.impls` position.
         // `check_impl_block` (Pass 4) reuses it via `prealloc`. Allocating here —
@@ -34,7 +35,7 @@ pub fn register_impls(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module) 
         // composite (`Pair<RigidVar(B), RigidVar(A)>`) then registers correctly.
         let impl_rigid_var_map = allocate_rigid_var_map(checker, impl_def.generics);
         checker.push_impl_rigid_var_map(impl_rigid_var_map);
-        register_impl(checker, impl_def, &module.traits);
+        register_impl(checker, impl_def, &module.traits, impl_index);
     }
 }
 
@@ -47,6 +48,7 @@ fn register_impl(
     checker: &mut ModuleChecker<'_>,
     impl_def: &ori_ir::ImplDef,
     traits: &[ori_ir::TraitDef],
+    impl_index: usize,
 ) {
     // 1. Collect generic parameters
     let arena = checker.arena();
@@ -83,51 +85,19 @@ fn register_impl(
 
     // 5. Process explicitly defined methods + inherited defaults, under the
     //    associated-type projection scope so `Self.Item` resolves.
-    //
-    // Explicit user-written impl methods reference impl-level binders directly
-    // (e.g. `op: (T, X) -> T` where `X` is the impl's own type-param) — no
-    // trait→impl substitution is needed. Pass an empty `trait_substitutions`
-    // overlay. The substitution path matters only for inherited defaults at
-    // step 5b below (see `inherit_default_methods`).
-    let (methods, explicit_methods) =
-        checker.with_impl_assoc_scope(assoc_types.clone(), trait_idx, |checker| {
-            let empty_trait_subst: FxHashMap<Name, Idx> = FxHashMap::default();
-            let mut methods = FxHashMap::default();
-            for impl_method in &impl_def.methods {
-                let method_def = build_impl_method(
-                    checker,
-                    impl_method,
-                    &type_params,
-                    self_type,
-                    &empty_trait_subst,
-                );
-                methods.insert(impl_method.name, method_def);
-            }
-
-            // 5b. Inherit unoverridden default methods (direct + transitive).
-            //
-            // `ImplBuildContext` bundles the three co-varying impl-instance
-            // fields (`type_params`, `self_type`, `trait_type_args`).
-            // `trait_type_args` is required so direct-default inheritance can
-            // build the trait→impl binder substitution map (e.g. `F → X` for
-            // `impl<X> Reducer<X>` over `trait Reducer<F>`) — without it, the
-            // inherited default's `op: (T, F) -> T` body would carry a dangling
-            // `Tag::Named("F")` that fails to unify at call sites.
-            let impl_ctx = ImplBuildContext {
-                type_params: &type_params,
-                self_type,
-                trait_type_args: &trait_type_args,
-            };
-            let explicit_methods = inherit_default_methods(
-                checker,
-                impl_def,
-                traits,
-                trait_idx,
-                &impl_ctx,
-                &mut methods,
-            );
-            (methods, explicit_methods)
-        });
+    let impl_context = ImplBuildContext {
+        type_params: &type_params,
+        self_type,
+        trait_type_args: &trait_type_args,
+    };
+    let (methods, explicit_methods) = build_impl_methods(
+        checker,
+        impl_def,
+        traits,
+        trait_idx,
+        &assoc_types,
+        &impl_context,
+    );
 
     // 6. Process where clauses (const bounds filtered out — not yet evaluated)
     // Empty scheme_overlay: impl-level where-clauses don't reference method-level
@@ -191,20 +161,70 @@ fn register_impl(
 
     checker.trait_registry_mut().register_impl(entry);
 
-    // 10. Drop trait wiring: when this impl is `impl T: Drop`,
-    //     populate `UserBurdenSpec.user_drop = Some(FnSym)` AND mint
-    //     `compiled_drop = Some(FnSym)` so codegen's refcount-zero path
-    //     materializes the AUGMENT body (user @drop FIRST, then field
-    //     walk in reverse declaration order). The decision
-    //     rule: `compiled_drop = Some(_) iff (in non-singleton SCC) OR
+    // 10. Drop trait wiring: when this impl is `impl T: Drop`, populate
+    //     `UserBurdenSpec.user_drop = Some(FnSym)` and mint a stable
+    //     `drop_operation = Some(FnSym)`. The logical operation orders user
+    //     @drop before reverse-declaration field cleanup; each physical
+    //     projection chooses how to realize it. The decision
+    //     rule: `drop_operation = Some(_) iff (in non-singleton SCC) OR
     //     (self-loop) OR (user_drop = Some(_))`. The third clause fires
     //     here for every Drop type, including non-recursive ones —
-    //     they need an entry point invoked by `ori_rc_dec` at rc==0.
+    //     they need an executable cleanup identity.
     //
     //     Drop is explicit-impl-only per `drop-trait-proposal.md
     //     §Auto-derive`; population happens at this `register_impl`
     //     site, NOT `register_derived_impl`.
-    populate_drop_burden_if_applicable(checker, impl_def, self_type, trait_idx);
+    if let Some(logical) =
+        populate_drop_burden_if_applicable(checker, impl_def, self_type, trait_idx)
+    {
+        let drop_method = checker.well_known().drop_method;
+        for method in &impl_def.methods {
+            if method.name == drop_method {
+                checker.register_impl_method_role(
+                    ImplMethodId::new(impl_index, method.body),
+                    ImplMethodRole::UserDrop { logical },
+                );
+            }
+        }
+    }
+}
+
+/// Build explicit and inherited methods for one impl registration.
+fn build_impl_methods(
+    checker: &mut ModuleChecker<'_>,
+    impl_def: &ori_ir::ImplDef,
+    traits: &[ori_ir::TraitDef],
+    trait_idx: Option<Idx>,
+    assoc_types: &FxHashMap<Name, Idx>,
+    impl_context: &ImplBuildContext<'_>,
+) -> (FxHashMap<Name, ImplMethodDef>, FxHashSet<Name>) {
+    checker.with_impl_assoc_scope(assoc_types.clone(), trait_idx, |checker| {
+        // Explicit methods use impl-level binders directly. Trait-to-impl
+        // substitution is needed only when inherited defaults are added below.
+        let empty_trait_subst: FxHashMap<Name, Idx> = FxHashMap::default();
+        let mut methods = FxHashMap::default();
+        for impl_method in &impl_def.methods {
+            let method_def = build_impl_method(
+                checker,
+                impl_method,
+                impl_context.type_params,
+                impl_context.self_type,
+                &empty_trait_subst,
+            );
+            methods.insert(impl_method.name, method_def);
+        }
+
+        // Inherit unoverridden defaults from direct and transitive traits.
+        let explicit_methods = inherit_default_methods(
+            checker,
+            impl_def,
+            traits,
+            trait_idx,
+            impl_context,
+            &mut methods,
+        );
+        (methods, explicit_methods)
+    })
 }
 
 /// Resolve a trait impl's trait reference: the trait's pool `Idx` (None for
@@ -249,33 +269,29 @@ fn resolve_impl_trait_ref(
 }
 
 /// When `impl_def` is a `Drop` impl on `self_type`, populate
-/// `UserBurdenSpec.user_drop` and `compiled_drop` on the type's burden
+/// `UserBurdenSpec.user_drop` and `drop_operation` on the type's burden
 /// entry.
 ///
 /// Resolves `Drop`'s trait `Idx` via the interner; gracefully no-ops if
 /// the trait is not yet registered (pre-deployment shape).
 ///
-/// `compiled_drop` is minted via the shared SCC `FnSym` helper so the
-/// codegen-side `_ori_drop$<idx_raw>` mangling stays consistent across
-/// the three populator sites (recursive, closure, and Drop
-/// populators).
+/// `drop_operation` is minted through the shared SCC identity helper so
+/// recursive, closure, and user-Drop populators use one stable logical ID
+/// space. Physical helper naming is not part of this contract.
 fn populate_drop_burden_if_applicable(
     checker: &mut ModuleChecker<'_>,
     impl_def: &ori_ir::ImplDef,
     self_type: Idx,
     trait_idx: Option<Idx>,
-) {
-    let Some(t_idx) = trait_idx else {
-        return;
-    };
+) -> Option<ori_registry::burden::FnSym> {
+    let t_idx = trait_idx?;
 
-    // Resolve Drop's Idx via interner -> trait_registry.
-    let drop_name = checker.interner().intern("Drop");
-    let Some(drop_trait_entry) = checker.trait_registry().get_trait_by_name(drop_name) else {
-        return;
-    };
+    // Resolve the language-defined Drop identity through the frontend's
+    // well-known-name SSOT. Downstream phases never classify by spelling.
+    let drop_name = checker.well_known().drop_trait;
+    let drop_trait_entry = checker.trait_registry().get_trait_by_name(drop_name)?;
     if drop_trait_entry.idx != t_idx {
-        return;
+        return None;
     }
 
     // Value/Drop conflict detection (E2049).
@@ -283,15 +299,14 @@ fn populate_drop_burden_if_applicable(
     // When `impl T: Drop` is being registered AND T's trait set already
     // carries `Value` (recorded at the type-decl registration site via
     // `TypeRegistry::record_value_marker`), the two markers mutually
-    // exclude per Annex E §AIMS: `Value`
-    // declares inline storage with no ARC, so the refcount-zero cleanup
-    // path that `@drop` hooks into never fires.
+    // exclude per Annex E §AIMS: `Value` declares no independent ownership
+    // identity, so no logical cleanup transition exists for `@drop` to extend.
     //
     // The span points at the `impl T: Drop` block (the second
     // registration to land); the diagnostic still permits Phase 5 to
     // proceed with whichever burden spec was already populated for T
-    // (the codegen gate at the driver level — `PC-4` — suppresses
-    // emission when any typeck error remains).
+    // (the executable-projection gate at the driver level — `PC-4` —
+    // suppresses emission when any typeck error remains).
     if checker.type_registry().carries_value_marker(self_type) {
         // Resolve the type's name from the registry for the diagnostic.
         // Fall back to the placeholder `<unknown>` when the type is not
@@ -307,18 +322,18 @@ fn populate_drop_burden_if_applicable(
             type_name,
         ));
         // Do NOT short-circuit Drop wiring: emitting the diagnostic
-        // suppresses codegen at the driver level, but Phase 5 may still
-        // touch the type's burden. Wiring `user_drop` / `compiled_drop`
+        // suppresses executable projection at the driver level, but Phase 5 may still
+        // touch the type's burden. Wiring `user_drop` / `drop_operation`
         // below keeps the spec internally consistent (matches the
         // shape of well-formed Drop types) until the user resolves the
         // conflict by removing one of the two markers.
     }
 
-    let user_drop_fn_sym = mint_compiled_drop_fn_sym(self_type);
+    let user_drop_fn_sym = mint_drop_operation_sym(self_type);
 
     // Look up existing burden + merge: preserve any spec already
     // computed by `burden_compute` at type-registration time;
-    // overlay the user_drop / compiled_drop fields.
+    // overlay the user_drop / drop_operation fields.
     let existing = checker
         .type_registry()
         .burden(self_type)
@@ -326,28 +341,16 @@ fn populate_drop_burden_if_applicable(
         .unwrap_or_default();
     let merged = UserBurdenSpec {
         user_drop: Some(user_drop_fn_sym),
-        compiled_drop: Some(mint_compiled_drop_fn_sym(self_type)),
+        drop_operation: Some(mint_drop_operation_sym(self_type)),
         ..existing
     };
     checker
         .type_registry_mut()
         .register_user_burden(self_type, merged);
+    Some(user_drop_fn_sym)
 }
 
-/// Per-impl resolver context.
-///
-/// Bundles the three impl-instance descriptors that travel together for any
-/// per-impl operation: the impl-level type-generic param names, the resolved
-/// `Self` type, and the resolved trait type arguments. The three fields
-/// co-vary at every site (`inherit_default_methods` and `build_impl_method`
-/// both need all three); bundling into a domain newtype keeps the flat
-/// signature under clippy's `too_many_arguments` threshold.
-///
-/// # Note
-///
-/// `build_impl_method` does not consume `trait_type_args` (only param + return
-/// type resolution, which uses `trait_substitutions` directly), so
-/// `ImplBuildContext` is consumed only by `inherit_default_methods` today.
+/// Type-resolution inputs shared while registering one impl's methods.
 struct ImplBuildContext<'a> {
     /// Impl-level type-generic param names (e.g. `["X"]` for
     /// `impl<X> Reducer<X> for Container<X>`).
@@ -648,7 +651,7 @@ fn build_impl_method(
     // method mono, so the recording's name-scan (`build_impl_rigid_var_subst`)
     // resolves `[Rigid(method_T)] -> concrete` in `body_type_map`. Without early
     // allocation the body's `RigidVar`s are born at Pass 4 (after the recording)
-    // and the rigid leaf survives to codegen. The registration-time scheme vars
+    // and the rigid leaf survives to executable projection. The registration-time scheme vars
     // (`scheme_var_ids`, fresh `Tag::Var` for call-site instantiation) and these
     // body rigid vars are distinct pool entries serving distinct purposes.
     let method_rigid_var_map = allocate_rigid_var_map(checker, method.generics);

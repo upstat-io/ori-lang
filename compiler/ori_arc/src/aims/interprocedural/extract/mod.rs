@@ -22,11 +22,14 @@ mod alias_flow;
 mod param_facts;
 mod return_contract;
 
-pub(crate) use alias_flow::build_alias_to_param_map;
+pub(crate) use alias_flow::{
+    build_alias_to_param_map, build_subject_independent_alias_to_param_map,
+};
 use alias_flow::{
-    find_consumed_via_callees, find_payload_containment_params, find_return_alias_shapes,
+    find_consumed_params, find_payload_containment_params, find_return_alias_shapes,
     find_return_flow_params,
 };
+pub(crate) use param_facts::find_iter_consume_call_args;
 use param_facts::{
     find_aggregate_iter_consume_fields, find_borrowed_cow_consumed_params,
     find_borrowed_read_only_params, find_iter_consume_params, CowConsumeScope,
@@ -362,7 +365,7 @@ fn detect_param_facts(
     interner: &ori_ir::StringInterner,
 ) -> ParamFacts {
     let alias_to_param = build_alias_to_param_map(func, param_vars, Some(sigs));
-    let mut consumed = find_consumed_via_callees(func, sigs, &alias_to_param);
+    let mut consumed = find_consumed_params(func, sigs, &alias_to_param);
     let mut return_flow = find_return_flow_params(func, &alias_to_param);
     let return_alias_shapes = find_return_alias_shapes(func, &alias_to_param, sigs);
     // Invariant `transfers_through_return == true IFF return_alias ==

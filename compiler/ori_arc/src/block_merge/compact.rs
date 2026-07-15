@@ -23,7 +23,8 @@ pub(crate) fn compact_blocks(func: &mut ArcFunction) {
     // unwind edge, so the handler block (which holds `ori_catch_recover` → Err
     // → Jump(merge)) is unreachable from entry and would be dead-eliminated.
     // Seeding the DFS from each distinct handler keeps it (and its recover/
-    // merge chain) live so the LLVM emitter can materialize its landing pad.
+    // merge chain) live so every physical projection can preserve the unwind
+    // edge; LLVM currently materializes it as a landing pad.
     let mut reachable = vec![false; num_blocks];
     let mut stack = vec![func.entry.index()];
     for &(_, handler) in &func.catch_scoped_checked_ops {

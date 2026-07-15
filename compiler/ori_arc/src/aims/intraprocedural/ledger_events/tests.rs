@@ -59,6 +59,13 @@ fn one_block_func(num_vars: u32, body: Vec<ArcInstr>, terminator: ArcTerminator)
     func_with_blocks(num_vars, vec![block(0, vec![], body, terminator)])
 }
 
+fn freeze_primitive(func: &mut ArcFunction, dst: u32, strategy: ori_registry::OpStrategy) {
+    let Some(fact) = crate::ir::PrimitiveFact::resolve(strategy, 2) else {
+        panic!("expected a valid binary primitive descriptor");
+    };
+    assert!(func.primitive_facts.insert(v(dst), fact).is_none());
+}
+
 /// Populate the partition, classify, and hand back everything a test needs.
 fn classify(
     func: &ArcFunction,
@@ -815,7 +822,7 @@ fn excluded_vars_produce_no_events() {
 /// `IsShared` and `PrimOp` operands are READ positions.
 #[test]
 fn is_shared_and_primop_operands_read() {
-    let func = one_block_func(
+    let mut func = one_block_func(
         3,
         vec![
             construct(0, vec![]),
@@ -834,6 +841,7 @@ fn is_shared_and_primop_operands_read() {
         ],
         ArcTerminator::Return { value: v(0) },
     );
+    freeze_primitive(&mut func, 2, ori_registry::OpStrategy::SignedInteger);
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_permanent_scalar(v(1));
     state_map.set_permanent_scalar(v(2));
@@ -1234,11 +1242,16 @@ fn heap_primop_dst_births_fresh_and_rcptr_operands_consumed() {
         ],
         ArcTerminator::Return { value: v(2) },
     );
-    func.var_reprs = vec![
+    func.replace_variable_representations(vec![
         crate::ir::ValueRepr::RcPointer,
         crate::ir::ValueRepr::RcPointer,
         crate::ir::ValueRepr::RcPointer,
-    ];
+    ]);
+    freeze_primitive(
+        &mut func,
+        2,
+        ori_registry::OpStrategy::RuntimeCall(ori_registry::RuntimeOperator::ListConcat),
+    );
     let state_map = AimsStateMap::new(&func);
     let (classification, mut partition) = classify(&func, &state_map, &no_facts());
 
@@ -1392,7 +1405,7 @@ fn select_of_excluded_operands_is_excluded() {
 #[test]
 fn alias_of_excluded_var_is_excluded() {
     // %0: immortal; %1 = Let Var(%0); %2 = PrimOp(%1 == %1)
-    let func = one_block_func(
+    let mut func = one_block_func(
         3,
         vec![
             construct(0, vec![]),
@@ -1412,6 +1425,7 @@ fn alias_of_excluded_var_is_excluded() {
         ],
         ArcTerminator::Return { value: v(2) },
     );
+    freeze_primitive(&mut func, 2, ori_registry::OpStrategy::SignedInteger);
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_immortals(vec![true, false, false]);
     state_map.set_permanent_scalar(v(2));
@@ -1456,11 +1470,16 @@ fn str_concat_operand_reads_not_consumes() {
         ],
         ArcTerminator::Return { value: v(2) },
     );
-    func.var_reprs = vec![
+    func.replace_variable_representations(vec![
         crate::ir::ValueRepr::FatValue,
         crate::ir::ValueRepr::FatValue,
         crate::ir::ValueRepr::FatValue,
-    ];
+    ]);
+    freeze_primitive(
+        &mut func,
+        2,
+        ori_registry::OpStrategy::RuntimeCall(ori_registry::RuntimeOperator::StringConcat),
+    );
     let state_map = AimsStateMap::new(&func);
     let (classification, mut partition) = classify(&func, &state_map, &no_facts());
 
@@ -1496,11 +1515,16 @@ fn list_concat_operand_consumes() {
         ],
         ArcTerminator::Return { value: v(2) },
     );
-    func.var_reprs = vec![
+    func.replace_variable_representations(vec![
         crate::ir::ValueRepr::RcPointer,
         crate::ir::ValueRepr::RcPointer,
         crate::ir::ValueRepr::RcPointer,
-    ];
+    ]);
+    freeze_primitive(
+        &mut func,
+        2,
+        ori_registry::OpStrategy::RuntimeCall(ori_registry::RuntimeOperator::ListConcat),
+    );
     let state_map = AimsStateMap::new(&func);
     let (classification, mut partition) = classify(&func, &state_map, &no_facts());
 
@@ -1790,13 +1814,11 @@ fn absent_owned_param_books_no_events() {
     assert!(live_param_evented, "a live owned param keeps its birth");
 }
 
-/// A BORROWED-param-rooted `RcPointer` operand of a heap-dst `PrimOp`
-/// (list concat) READs instead of consuming: the operator lowering emits
-/// its own `borrow_protect.inc` whose undo is the concat's internal dec,
-/// so the caller-retained reference is externally untouched — a ledger
-/// funding inc would double-fund it (the curried-lambda concat leak).
+/// A borrowed-rooted list operand still CONSUMES at the semantic primitive
+/// boundary. The borrowed class origin makes AIMS fund that consume with a
+/// placed increment; no physical executor owns a hidden protection rule.
 #[test]
-fn borrowed_rooted_concat_operand_reads_not_consumes() {
+fn borrowed_rooted_concat_operand_is_explicit_consume() {
     let mut func = one_block_func(
         4,
         vec![
@@ -1822,20 +1844,25 @@ fn borrowed_rooted_concat_operand_reads_not_consumes() {
         ty: ty(0),
         ownership: Ownership::Borrowed,
     }];
-    func.var_reprs = vec![
+    func.replace_variable_representations(vec![
         crate::ir::ValueRepr::RcPointer,
         crate::ir::ValueRepr::RcPointer,
         crate::ir::ValueRepr::RcPointer,
         crate::ir::ValueRepr::RcPointer,
-    ];
+    ]);
+    freeze_primitive(
+        &mut func,
+        3,
+        ori_registry::OpStrategy::RuntimeCall(ori_registry::RuntimeOperator::ListConcat),
+    );
     let state_map = AimsStateMap::new(&func);
     let (classification, mut partition) = classify(&func, &state_map, &no_facts());
 
-    // The borrowed-rooted operand (%2, alias of borrowed param %0): READ.
+    // The borrowed-rooted operand (%2, alias of borrowed param %0): CONSUME.
     let borrowed = rep(&mut partition, 0);
     assert_eq!(
         derive_ledger(borrowed, &flat(&classification)),
-        vec![LedgerEvent::Birth, LedgerEvent::Read]
+        vec![LedgerEvent::Birth, LedgerEvent::Consume]
     );
     // The fresh local operand (%1): CONSUMED (its reference hands in).
     let fresh = rep(&mut partition, 1);

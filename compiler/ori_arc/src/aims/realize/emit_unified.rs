@@ -1,4 +1,5 @@
-//! Unified RC emission: per-block walk with inline death/alloc event collection.
+//! Unified logical ownership-event realization with inline lifetime-event
+//! collection.
 //!
 //! Phase 1 sub-step B of [`super::realize_rc_reuse()`]. Phase-7 mechanical
 //! lowering lives in [`burden_lowering`]; jump-threaded same-allocation rep
@@ -25,10 +26,12 @@ use burden_lowering::lower_burden_ops_to_rc;
 
 pub use jump_threaded_reps::push_receiver_lineage_returned;
 
-/// Per-phase RC-op snapshot for post-walk pass debugging.
+/// Per-phase snapshot of the current counter-shaped carrier for post-walk
+/// adapter debugging.
 ///
 /// Emits one `tracing::trace!` per block summarising every `RcInc`/`RcDec` by
-/// `ArcVarId`. Gated behind `tracing::enabled!` — zero overhead when the
+/// `ArcVarId`. These are physical-projection migration metrics, not AIMS facts.
+/// Gated behind `tracing::enabled!` — zero overhead when the
 /// `ori_arc::aims::realize` target is below trace level.
 ///
 /// `ORI_LOG=ori_arc::aims::realize=trace` activates it; bisects which post-walk
@@ -96,9 +99,20 @@ pub(super) fn emit_rc_unified(
     Vec<AllocEvent>,
     metrics::SynergyMetrics,
 ) {
-    assert!(
-        !func.var_reprs.is_empty(),
-        "var_reprs must be populated before RC emission"
+    assert_eq!(
+        func.var_metadata_state,
+        crate::ir::VariableMetadataState::Realized,
+        "variable metadata must be fully realized before RC emission"
+    );
+    assert_eq!(
+        func.var_reprs.len(),
+        func.var_types.len(),
+        "realized var_reprs must be parallel to var_types before RC emission"
+    );
+    assert_eq!(
+        func.var_rc_strategies.len(),
+        func.var_types.len(),
+        "realized var_rc_strategies must be parallel to var_types before RC emission"
     );
 
     // The burden ops in the stream ARE the per-class-verified plan. Lower the
@@ -115,8 +129,10 @@ pub(super) fn emit_rc_unified(
         );
     }
 
-    // The class-ledger plan is the SOLE RC emitter. On the normal
-    // (burden-ops-enabled) path the Step-4b `assert!` already ICEs before a
+    // The class-ledger burden carrier is the sole RC-emission input to the
+    // current compiled-counter adapter. It is not AIMS's sole physical
+    // realization. On the normal (burden-ops-enabled) path the Step-4b `assert!`
+    // already ICEs before a
     // non-replaced function reaches here. Under `ORI_DISABLE_BURDEN_OPS=1`
     // the Step-4b assert is vacuously satisfied (its condition is
     // `!burden_ops_enabled || replaced`), so every function declines

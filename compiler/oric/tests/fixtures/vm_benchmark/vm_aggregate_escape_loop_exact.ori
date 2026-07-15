@@ -1,0 +1,9 @@
+@make_pair (value: int) -> (int, int) = (value, value + 10);
+
+@main () -> int = {
+    let pairs = for value in 0..3 yield make_pair(value: value);
+    if pairs[0].0 == 0 && pairs[0].1 == 10 && pairs[1].0 == 1 && pairs[1].1 == 11 && pairs[2].0 == 2
+    && pairs[2].1 == 12 then
+        37
+    else 99
+}

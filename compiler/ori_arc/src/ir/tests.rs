@@ -429,6 +429,7 @@ fn arc_function_var_type_single() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
@@ -475,6 +476,7 @@ fn arc_function_var_type_multiple() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
@@ -1061,6 +1063,7 @@ fn fresh_var_sequential_ids() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
@@ -1068,14 +1071,156 @@ fn fresh_var_sequential_ids() {
         ..Default::default()
     };
 
-    let v1 = func.fresh_var(Idx::STR);
+    let v1 = func.fresh_unrealized_var(Idx::STR);
     assert_eq!(v1, ArcVarId::new(1));
     assert_eq!(func.var_type(v1), Idx::STR);
 
-    let v2 = func.fresh_var(Idx::BOOL);
+    let v2 = func.fresh_unrealized_var(Idx::BOOL);
     assert_eq!(v2, ArcVarId::new(2));
     assert_eq!(func.var_type(v2), Idx::BOOL);
     assert_eq!(func.var_types.len(), 3);
+}
+
+#[test]
+fn realized_fresh_vars_preserve_all_parallel_metadata() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        var_reprs: vec![ValueRepr::FatValue],
+        var_rc_strategies: vec![Some(RcStrategy::FatPointer)],
+        var_metadata_state: VariableMetadataState::Realized,
+        ..ArcFunction::default()
+    };
+
+    let alias = func.fresh_var_like(ArcVarId::new(0));
+    let scalar = func.fresh_scalar_var(Idx::BOOL);
+
+    assert_eq!(alias, ArcVarId::new(1));
+    assert_eq!(func.var_type(alias), Idx::STR);
+    assert_eq!(func.var_repr(alias), Some(ValueRepr::FatValue));
+    assert_eq!(
+        func.var_rc_strategies[alias.index()],
+        Some(RcStrategy::FatPointer)
+    );
+    assert_eq!(scalar, ArcVarId::new(2));
+    assert_eq!(func.var_repr(scalar), Some(ValueRepr::Scalar));
+    assert_eq!(func.var_rc_strategies[scalar.index()], None);
+    assert_eq!(func.var_types.len(), func.var_reprs.len());
+    assert_eq!(func.var_types.len(), func.var_rc_strategies.len());
+}
+
+#[test]
+fn realized_zero_var_function_allocates_scalar_metadata_atomically() {
+    let mut func = ArcFunction::default();
+    func.replace_realized_variable_metadata(Vec::new(), Vec::new());
+
+    let scalar = func.fresh_scalar_var(Idx::UNIT);
+
+    assert_eq!(scalar, ArcVarId::new(0));
+    assert_eq!(func.var_types, [Idx::UNIT]);
+    assert_eq!(func.var_reprs, [ValueRepr::Scalar]);
+    assert_eq!(func.var_rc_strategies, [None]);
+}
+
+#[test]
+fn representation_ready_allocations_preserve_only_ready_metadata() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        ..ArcFunction::default()
+    };
+    func.replace_variable_representations(vec![ValueRepr::FatValue]);
+
+    let alias = func.fresh_var_like(ArcVarId::new(0));
+    let scalar = func.fresh_scalar_var(Idx::BOOL);
+
+    assert_eq!(
+        func.var_metadata_state,
+        VariableMetadataState::RepresentationsReady
+    );
+    assert_eq!(
+        func.var_reprs,
+        [ValueRepr::FatValue, ValueRepr::FatValue, ValueRepr::Scalar]
+    );
+    assert!(func.var_rc_strategies.is_empty());
+    assert_eq!(func.var_repr(alias), Some(ValueRepr::FatValue));
+    assert_eq!(func.var_repr(scalar), Some(ValueRepr::Scalar));
+}
+
+#[test]
+fn representation_ready_zero_var_state_is_not_unrealized() {
+    let mut func = ArcFunction::default();
+    func.replace_variable_representations(Vec::new());
+
+    assert_eq!(
+        func.var_metadata_state,
+        VariableMetadataState::RepresentationsReady
+    );
+    let scalar = func.fresh_scalar_var(Idx::UNIT);
+    assert_eq!(func.var_repr(scalar), Some(ValueRepr::Scalar));
+    assert!(func.var_rc_strategies.is_empty());
+}
+
+#[test]
+fn type_rewrite_invalidation_clears_ready_derived_metadata() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        ..ArcFunction::default()
+    };
+    func.replace_variable_representations(vec![ValueRepr::FatValue]);
+
+    func.invalidate_variable_metadata_for_type_rewrite();
+
+    assert_eq!(func.var_metadata_state, VariableMetadataState::Unrealized);
+    assert!(func.var_reprs.is_empty());
+    assert!(func.var_rc_strategies.is_empty());
+    assert_eq!(func.var_types, [Idx::STR]);
+}
+
+#[test]
+fn type_rewrite_invalidation_preserves_unrealized_metadata() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        ..ArcFunction::default()
+    };
+
+    func.invalidate_variable_metadata_for_type_rewrite();
+
+    assert_eq!(func.var_metadata_state, VariableMetadataState::Unrealized);
+    assert!(func.var_reprs.is_empty());
+    assert!(func.var_rc_strategies.is_empty());
+}
+
+#[test]
+#[should_panic(expected = "fully realized variable metadata is immutable")]
+fn type_rewrite_invalidation_rejects_realized_metadata() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        ..ArcFunction::default()
+    };
+    func.replace_realized_variable_metadata(
+        vec![ValueRepr::FatValue],
+        vec![Some(RcStrategy::FatPointer)],
+    );
+
+    func.invalidate_variable_metadata_for_type_rewrite();
+}
+
+#[test]
+#[should_panic(expected = "fully realized metadata cannot be downgraded")]
+fn realized_zero_var_metadata_cannot_be_downgraded() {
+    let mut func = ArcFunction::default();
+    func.replace_realized_variable_metadata(Vec::new(), Vec::new());
+    func.replace_variable_representations(Vec::new());
+}
+
+#[test]
+#[should_panic(expected = "metadata-preserving alias type must match")]
+fn typed_metadata_alias_rejects_source_type_mismatch() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        ..ArcFunction::default()
+    };
+    func.replace_variable_representations(vec![ValueRepr::FatValue]);
+    let _ = func.fresh_var_like_typed(ArcVarId::new(0), Idx::BOOL);
 }
 
 // Serde roundtrip tests (cache feature)
@@ -1111,6 +1256,7 @@ fn test_arc_ir_roundtrip() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
@@ -1311,6 +1457,7 @@ fn next_block_id_and_push() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),

@@ -45,7 +45,8 @@
 ; - PL-1a Per-function pipeline (Steps 3-12) SHALL process functions in
 ; SCC topological order.
 ; [aims-proof/proofs/07-pipeline/PL-1a.proof]
-; - PL-2 Step 4 (analyze_function) SHALL precede Step 5 (realize_rc_reuse).
+; - PL-2 Step 4 (analyze_function) SHALL precede Step 5 logical realization.
+;   `realize_rc_reuse` is the current compiled-projection carrier name.
 ; [aims-proof/proofs/07-pipeline/PL-2.proof]
 ; - PL-5 No pass SHALL rely on stale summaries.
 ; [aims-proof/proofs/07-pipeline/PL-5.proof]
@@ -64,7 +65,8 @@
 ; consumer that observes the `__cast` operand.
 ; - file-symbols "ori_arc/src/aims/realize" --repo ori → 30 symbols including
 ; eliminate_burden_ops, eliminate_in_block, should_elide_dec; confirms
-; Step 5 (realize_rc_reuse) is the consumer downstream of analyze_function.
+; Step 5 logical realization is downstream of analyze_function;
+; `realize_rc_reuse` is the historical/current compiled carrier name.
 
 (set-logic ALL)
 (set-option :produce-unsat-cores true)
@@ -82,7 +84,7 @@
     (PS_apply_ownership) ; AIMS Step 2
     (PS_compute_reprs) ; AIMS Step 3
     (PS_analyze_fn) ; AIMS Step 4 (intraprocedural backward)
-    (PS_realize_rc) ; AIMS Step 5 (RC emission consumer of __cast)
+    (PS_realize_rc) ; AIMS Step 5 logical realization; historical carrier name
   ))
 
 (define-fun ps_idx ((p PipelineStep)) Int
@@ -154,7 +156,8 @@
 ; ----------------------------------------------------------------------------
 ; §4. The counterexample question (E5001 shape)
 ; ----------------------------------------------------------------------------
-; E5001 shape: a downstream AIMS consumer (PS_realize_rc) reads an UNRESOLVED
+; E5001 shape: downstream logical realization (PS_realize_rc, historical
+; compiled-carrier name) reads an UNRESOLVED
 ; __cast operand — the empirical signature observed in the burden-prototype generics tests.
 
 (push 1)

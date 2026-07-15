@@ -41,8 +41,10 @@ Theorem TF-3: Construct transfer produces FRESH(shape_from_ctor)
         from NonReusable per Annex E §AIMS Shape lattice.
       Tuple / Closure: NonReusable because tuples have no nominal type-id
         for reuse matching and closures carry environment-shape variance.
-      All 7 ctors produce FRESH heap allocation (RC = 1, Unique). Effect =
+      All 7 ctors produce a FRESH logical allocation identity with one
+      ownership credit and Unique classification. Effect =
       {may_alloc=true, may_share=false, may_throw=false} = 0b001 per §1.7.
+      This row does not choose heap, stack, arena, or region placement.
 
     Part (b) — per-ctor constant-function monotonicity:
       For fixed ctor, TF-3 emits FRESH(shape_from_ctor(ctor)) — a constant

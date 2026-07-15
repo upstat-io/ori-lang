@@ -2,6 +2,20 @@ use crate::{Ownership, ReturnTag, TypeTag};
 
 use super::*;
 
+#[test]
+fn registered_method_identity_counts_only_real_source_operands() {
+    let instance = find_method_id(TypeTag::Ordering, "is_less")
+        .unwrap_or_else(|| panic!("Ordering.is_less should have an identity"));
+    assert_eq!(instance.arity(), 1);
+
+    let associated = find_method_id(TypeTag::Str, "from_utf8")
+        .unwrap_or_else(|| panic!("str.from_utf8 should have an identity"));
+    let definition = find_method(TypeTag::Str, "from_utf8")
+        .unwrap_or_else(|| panic!("str.from_utf8 should be registered"));
+    assert_eq!(definition.kind, crate::MethodKind::Associated);
+    assert_eq!(associated.arity(), definition.params.len());
+}
+
 // find_type tests
 
 #[test]
@@ -94,6 +108,22 @@ fn find_method_returns_none_for_unknown_method() {
 #[test]
 fn find_method_returns_none_for_non_registry_type() {
     assert!(find_method(TypeTag::Unit, "foo").is_none());
+}
+
+#[test]
+fn method_identity_preserves_receiver_and_exact_arity() {
+    let identity = find_method_id(TypeTag::Ordering, "is_less")
+        .unwrap_or_else(|| panic!("Ordering.is_less should have an identity"));
+    assert_eq!(identity.receiver(), TypeTag::Ordering);
+    assert_eq!(identity.arity(), 1);
+
+    let dei = find_method_id(TypeTag::DoubleEndedIterator, "next_back")
+        .unwrap_or_else(|| panic!("DEI.next_back should have an identity"));
+    assert_eq!(dei.receiver(), TypeTag::DoubleEndedIterator);
+    assert_eq!(dei.arity(), 1);
+
+    assert!(find_method_id(TypeTag::Iterator, "next_back").is_none());
+    assert!(find_method_id(TypeTag::Int, "nonexistent").is_none());
 }
 
 #[test]

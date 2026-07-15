@@ -2,7 +2,7 @@
 //!
 //! The `Burden` trait is the consumer-facing surface Phase 5 emission queries
 //! regardless of whether the underlying burden comes from a pure-const
-//! `BuiltinBurdenSpec` or a heap-backed `UserBurdenSpec`.
+//! `BuiltinBurdenSpec` or an owned-vector `UserBurdenSpec`.
 //!
 //! Trait methods (`owned_fields` / `borrowed_fields` / `variant_burdens`)
 //! return `Box<dyn Iterator>` over view types so each variant constructs the
@@ -73,17 +73,17 @@ pub struct VariantBurdenView<'a> {
 /// burden storage. Methods return boxed iterators so each variant constructs
 /// views on-demand from its native storage shape.
 pub trait Burden {
-    fn self_heap_alloc(&self) -> bool;
+    fn self_owned_identity(&self) -> bool;
     fn owned_fields<'a>(&'a self) -> Box<dyn Iterator<Item = OwnedFieldView<'a>> + 'a>;
     fn borrowed_fields<'a>(&'a self) -> Box<dyn Iterator<Item = BorrowedFieldView<'a>> + 'a>;
     fn variant_burdens<'a>(&'a self) -> Box<dyn Iterator<Item = VariantBurdenView<'a>> + 'a>;
     fn element_burden(&self) -> Option<TypeRef>;
-    fn compiled_drop(&self) -> Option<FnSym>;
+    fn drop_operation(&self) -> Option<FnSym>;
     fn user_drop(&self) -> Option<FnSym>;
 }
 
-/// Burden reference — either pure-const builtin (lifetime-free) or heap-backed
-/// user spec tied to `TypeRegistry`'s lifetime.
+/// Burden reference — either a pure-const builtin or an owned-vector user spec
+/// tied to `TypeRegistry`'s lifetime.
 #[derive(Clone, Copy, Debug)]
 pub enum BurdenRef<'a> {
     /// Builtin path — `&'static BuiltinBurdenSpec`; lifetime widens to any `'a`.
@@ -169,10 +169,10 @@ fn view_from_user_variant(v: &UserVariantBurden) -> VariantBurdenView<'_> {
 }
 
 impl Burden for BurdenRef<'_> {
-    fn self_heap_alloc(&self) -> bool {
+    fn self_owned_identity(&self) -> bool {
         match self {
-            BurdenRef::Builtin(b) => b.self_heap_alloc,
-            BurdenRef::User(u) => u.self_heap_alloc,
+            BurdenRef::Builtin(b) => b.self_owned_identity,
+            BurdenRef::User(u) => u.self_owned_identity,
         }
     }
 
@@ -208,10 +208,10 @@ impl Burden for BurdenRef<'_> {
         }
     }
 
-    fn compiled_drop(&self) -> Option<FnSym> {
+    fn drop_operation(&self) -> Option<FnSym> {
         match self {
-            BurdenRef::Builtin(b) => b.compiled_drop,
-            BurdenRef::User(u) => u.compiled_drop,
+            BurdenRef::Builtin(b) => b.drop_operation,
+            BurdenRef::User(u) => u.drop_operation,
         }
     }
 

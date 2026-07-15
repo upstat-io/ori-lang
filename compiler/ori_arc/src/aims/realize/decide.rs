@@ -34,14 +34,14 @@ pub struct AnnotationSiteContext<'a> {
     pub var: ArcVarId,
     /// Uniqueness from the state map (via `var_state_at_block_entry`).
     pub uniqueness: Uniqueness,
-    /// Whether this variable has been `RcInc`'d (physical refcount may
-    /// exceed logical uniqueness).
+    /// Whether realization added an owner credit through the transitional
+    /// `RcInc` carrier, invalidating a pre-event single-owner fact.
     pub rc_incremented: bool,
     /// Whether this variable is a function parameter.
     pub is_param: bool,
     /// Whether this variable is a function parameter with `Ownership::Borrowed`.
-    /// Borrowed parameters must never use unique-drop because the caller
-    /// retains a reference — the buffer is never uniquely owned by the callee.
+    /// Borrowed parameters cannot use single-owner cleanup because the caller
+    /// retains the governing owner credit.
     pub is_param_borrowed: bool,
     /// Whether this variable was passed as a Borrowed argument to a function.
     pub is_borrowed_call_arg: bool,
@@ -103,18 +103,18 @@ pub fn decide_annotations(
 /// §DP-9. The removed DP-10 pattern (deriving past uniqueness
 /// from `Owned + Linear + Once` or `Once + CollectionBuffer`/`ReusableCtor`)
 /// was unsound — backward-analysis facts (consumption, cardinality) are
-/// FUTURE guarantees and cannot prove PAST uniqueness (RC == 1 right now).
-/// Re-enabling the spec-approved `MaybeShared + IC-3 ParamContract.uniqueness
-/// = Unique → StaticUnique` path is tracked as BUG-04-079, blocked on
-/// BUG-04-069.
+/// FUTURE guarantees and cannot prove PAST one-owner status.
+/// The spec-approved `MaybeShared + IC-3 ParamContract.uniqueness = Unique →
+/// StaticUnique` path remains unshipped until contract-derived uniqueness is
+/// complete.
 ///
 /// 1. Excluded variables → `Dynamic` (safe fallback)
-/// 2. RC-incremented → `Dynamic` (physical refcount > logical uniqueness)
+/// 2. Added ownership credit still outstanding → `Dynamic`
 /// 3. `Unique` → `StaticUnique`
 /// 4. `MaybeShared` + disjoint borrow → `StaticUnique` (spec §DP-5/§RL-10 —
 ///    source uniqueness at the receiver's block is enforced by
 ///    `is_borrow_disjoint_from_siblings`)
-/// 5. `MaybeShared` → `Dynamic` (runtime `IsShared` check)
+/// 5. `MaybeShared` → `Dynamic` (physical-plan sharing probe)
 /// 6. `Shared` → `StaticShared`
 pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
     // Excluded (scalar, immortal) → safe fallback.
@@ -122,7 +122,7 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
         return CowMode::Dynamic;
     }
 
-    // Post-RC-emission guard: physical refcount may exceed logical uniqueness.
+    // Post-emission guard: an added logical owner may invalidate uniqueness.
     if ctx.rc_incremented {
         return CowMode::Dynamic;
     }
@@ -163,8 +163,8 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
 ///
 /// 1. Excluded variables (scalar, immortal) → not eligible
 /// 2. Non-collection types → not eligible (drop hints are for buffer cleanup)
-/// 3. RC-incremented → not eligible (physical refcount may exceed 1)
-/// 4. Borrowed call arg → not eligible (callee may have internally inc'd)
+/// 3. Added owner credit → not eligible
+/// 4. Borrowed call arg with possible sharing → not eligible
 /// 5. Unique → eligible for unique-drop fast path
 pub fn decide_drop_hint(ctx: &AnnotationSiteContext<'_>) -> bool {
     // Excluded (scalar, immortal) — no drop hint needed.
@@ -177,8 +177,8 @@ pub fn decide_drop_hint(ctx: &AnnotationSiteContext<'_>) -> bool {
         return false;
     }
 
-    // Borrowed parameters must never use unique-drop: the caller retains
-    // a reference, so the buffer is never uniquely owned by the callee.
+    // Borrowed parameters cannot use single-owner cleanup: the caller retains
+    // the governing owner credit.
     if ctx.is_param_borrowed {
         return false;
     }

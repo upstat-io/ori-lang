@@ -7,24 +7,50 @@
 **Affects:** spec (Annex E), tooling (new `/sync-aims-spec` skill), documentation, in-tree rules (`canon.md §6`, `missions.md §AIMS`, `CLAUDE.md §AIMS`)
 **Depends On:** *(none)*
 
+> **Architecture clarification (2026-07-14):** the proposal's original “ARC
+> Intelligent Memory System” expansion and RC-centric success wording describe
+> the first compiled counter projection. The promoted calculus itself is
+> backend-neutral: it freezes logical ownership, cleanup, transfer, COW/reuse,
+> effect, unwind, and provenance facts for VM, LLVM, native,
+> compiled-WebAssembly, and JIT projections. The current Annex E title and
+> wording supersede the historical naming below wherever they differ.
+
 ---
 
 ## Summary
 
-Promote the full AIMS lattice formalism — including target-only rules — into the public language spec under Annex E, giving OSS readers a citable destination for the memory-management design Ori provides. Annex E's INFORMATIVE designation is the framing that absorbs target-only rules: the spec section uses ISO/IEC normative voice (`shall` / `shall not` / `NOTE` / `EXAMPLE`) for clarity, while the annex's informative status keeps unshipped rules from imposing pre-shipping conformance on implementations. `.claude/rules/arc.md` + `.claude/rules/aims-rules.md` become the implementer's working surface that mirrors the spec content with prescriptive editorial style. Add a `/sync-aims-spec` skill — analogous to `/sync-grammar` — that produces a candidate spec section from the rules files; humans review the ISO/IEC voice transformation. The skill is wired into the pre-commit lefthook to fail on drift. The proposal does NOT change any language semantics; it organizes existing implemented and target behavior into a public documentation surface.
+This proposal:
+
+- Promotes the full AIMS lattice formalism, including unshipped
+  backend-neutral calculus and fact targets, into Annex E.
+- Uses Annex E's INFORMATIVE designation for precise ISO/IEC voice without
+  imposing pre-shipping conformance.
+- Keeps physical storage, layout, ABI, helper, and synchronization rules in
+  representation, codegen, and runtime contracts rather than AIMS.
+- Retains `.claude/rules/arc.md` and `.claude/rules/aims-rules.md` as the
+  mirrored implementer surface, with `/sync-aims-spec` detecting drift.
+- Changes no language semantics.
 
 ---
 
 ## Motivation
 
-AIMS is a load-bearing language feature. The mission — "RC operations are rare in emitted code, not RC ops faster" — is the design center that lets Ori give programmers value semantics + ARC + zero ceremony, with hand-coded-C-class performance. AIMS spans seven product-lattice dimensions, interprocedural contracts (`MemoryContract`, `ParamContract`, `ReturnContract`, `EffectSummary`), a layered verification stack, and the FBIP / TRMC / immortal pre-pass / borrow inference subsystems.
+AIMS is a load-bearing language feature. Its design center is to make logical
+owner-credit bookkeeping rare and every surviving obligation exact, then let
+each admitted physical plan realize those facts efficiently. In the current
+compiled counter projection, rare emitted RC operations are one downstream
+metric rather than the definition of AIMS. This gives Ori value semantics and
+zero ownership ceremony with hand-coded-C-class performance targets. AIMS spans
+seven product-lattice dimensions, interprocedural contracts (`MemoryContract`,
+`ParamContract`, `ReturnContract`, `EffectSummary`), a layered verification
+stack, and the FBIP, TRMC, immortal pre-pass, and borrow-inference subsystems.
 
 ### The Problem in Practice
 
 Today the only places AIMS is documented are:
 
 1. **`.claude/rules/arc.md`** (~309 lines) — the shipped surface overview, auto-loaded into Claude's context when ARC code is touched.
-2. **`.claude/rules/aims-rules.md`** (~1003 lines) — the formal ruleset including target-only / unshipped subsystems.
+2. **`.claude/rules/aims-rules.md`** (~1003 lines) — the formal ruleset including unshipped backend-neutral calculus and fact targets.
 
 Both files live in the private/internal `.claude/` tree. Public OSS readers cannot read them. Contributors landing in `compiler/ori_arc/` see code that enforces invariants (`AIMS Invariant 5`, `CN-3`, `RL-9`) but the invariants themselves are undocumented in any public surface.
 
@@ -53,23 +79,35 @@ The AIMS surface splits along an audience boundary, with both tiers carrying the
 | **Language users + OSS readers + external reviewers** | ISO/IEC normative (`shall` / `shall not` / `NOTE` / `EXAMPLE`) inside an Annex E section | Spec annex (public) |
 | **Compiler implementers** | Prescriptive bullets ("Tools MUST NOT...", imperative form, in-tree commentary) | `.claude/rules/arc.md` + `.claude/rules/aims-rules.md` (working source) |
 
-Both tiers carry the full lattice formalism (TF-1..TF-15, CN-1..CN-8, IC-1..IC-7, PL-1..PL-11, RL-1..RL-34, VF-1..VF-8). Annex E's INFORMATIVE designation handles target-only rules: a target-only rule in spec uses normative `shall` voice without locking the compiler into pre-shipping conformance, because Annex E carries implementation-defined-behavior framing. Implementers reading `aims-rules.md` see the same content with prescriptive editorial style suited to working-document workflow plus extra in-tree commentary that has no place in normative spec text (debugging tips, evolution notes, target-system rationale).
+- Both tiers carry the full backend-neutral lattice formalism: TF-1..TF-15,
+  CN-1..CN-8, IC-1..IC-7, PL-1..PL-11, RL-1..RL-34, and VF-1..VF-8.
+- Annex E's INFORMATIVE designation lets unshipped calculus and fact targets
+  use normative `shall` voice without imposing pre-shipping conformance.
+- Physical projection rules remain in representation, codegen, and runtime contracts.
+- The implementer mirror adds only workflow commentary, debugging guidance,
+  and evolution notes.
 
 ### Why Annex E (Informative)
 
 Annex E is the right home because:
 
-- Annex E is INFORMATIVE — sections in this annex describe implementation considerations, not user-facing requirements. Target-only AIMS rules fit this framing.
+- Annex E is INFORMATIVE — sections in this annex describe implementation
+  considerations, not user-facing requirements. Unshipped backend-neutral
+  calculus and fact targets fit this framing; physical projection rules do not
+  move into AIMS.
 - Annex E already covers ARC Runtime, Heap Object Layout, Built-in Type Representations, Representation Optimization. AIMS extends the existing surface — the *intelligence layer* over the runtime substrate.
 - AIMS's analog at the implementer-facing layer (`.claude/rules/repr.md`) already mirrors Annex E §Representation Optimization. The proposal extends this exact pattern to AIMS.
-- A new top-level Clause 28 would imply normative weight; Annex E's informative status is what makes target-rule inclusion sound.
+- A new top-level Clause 28 would imply normative weight; Annex E's informative status is what makes unshipped calculus/fact-target inclusion sound.
 
 ### Spec Destination
 
-Add `§AIMS — ARC Intelligent Memory System` to `compiler_repo/docs/ori_lang/v2026/spec/annex-e-system-considerations.md`. Section structure:
+Add `§AIMS` to
+`compiler_repo/docs/ori_lang/v2026/spec/annex-e-system-considerations.md`.
+The original title used the now-historical “ARC Intelligent Memory System”
+expansion. Section structure:
 
 ```
-§AIMS — ARC Intelligent Memory System
+§AIMS — Backend-Neutral Ownership Calculus
   §1 Mission and Design Center
   §2 Five Load-Bearing Invariants
   §3 Lattice Dimensions (Access × Consumption × Cardinality × Uniqueness × Locality × Shape × Effect)
@@ -80,12 +118,20 @@ Add `§AIMS — ARC Intelligent Memory System` to `compiler_repo/docs/ori_lang/v
   §8 Realization Rules (RL-1..RL-34)
   §9 Verification Layers (VF-1..VF-8) — structural / contract-consistency / oracle / FIP certification
   §10 Active Subsystems (RC elimination, FIP, TRMC, immortal pre-pass, borrow inference)
-  §11 Target Subsystems (stack promotion, header compression, non-atomic RC, AIMS→LLVM fact export)
+  §11 Target Subsystems (neutral lifetime/owner/ownership-observation/cleanup/thread/
+      visibility fact export; independent VM and compiled projection-
+      soundness; storage, header, and synchronization optimizations)
 ```
 
 A header note inside §AIMS makes the informative-status framing explicit:
 
-> NOTE  Annex E is informative. Rules in this section using `shall` / `shall not` document the AIMS algorithm and its invariants. Target subsystems documented in §11 describe design targets; implementations conforming to a given Ori build need not satisfy target rules until those subsystems ship.
+> NOTE  Annex E is informative. Rules in this section using `shall` / `shall not` document the backend-neutral AIMS calculus and its invariants. Unshipped calculus and fact targets in §11 describe design targets; implementations conforming to a given Ori build need not satisfy them until those targets ship. Physical projection rules remain outside AIMS.
+
+- The target-subsystem split is load-bearing: AIMS specifies backend-neutral logical facts and obligations.
+- `VmLayoutPlan` and `CompiledLayoutPlan(TargetSpec)` independently choose
+  physical storage, headers, counters, synchronization, ABI, helpers, and
+  opcodes and must prove those choices satisfy the same facts.
+- LLVM is one compiled projection, never the destination or definition of AIMS.
 
 ### Sync Mechanism: `/sync-aims-spec` Skill
 
@@ -124,7 +170,7 @@ The strip was an interim correctness fix; the spec promotion is the durable arch
 - `.claude/rules/arc.md` becomes a one-line `@compiler_repo/docs/.../annex-e-aims.md`. Spec is SSOT.
 - **Rejected**: unproven harness behavior for `paths:`-auto-loaded rule files. Silent-degradation failure mode is the worst kind.
 
-### Alternative 2: Per-rule `NOTE` wrappers tagging target-only rules inside an otherwise-normative section
+### Alternative 2: Per-rule `NOTE` wrappers tagging unshipped calculus and fact targets
 
 - Spec section structured as normative-by-default with explicit `NOTE` blocks marking which rules are not-yet-shipped.
 - **Rejected**: more editorial overhead per rule edit; readers must distinguish per-rule status rather than reading the whole annex's informative framing once. Annex E's INFORMATIVE designation already provides the framing — per-rule wrapping duplicates that work.
@@ -142,7 +188,7 @@ The strip was an interim correctness fix; the spec promotion is the durable arch
 ### Alternative 5: New top-level Clause 28 instead of Annex E section
 
 - Give AIMS its own clause, not an annex section.
-- **Rejected**: a new clause implies normative weight on every rule; Annex E's INFORMATIVE designation is what makes target-rule inclusion sound. AIMS fits naturally with Annex E's existing system-level implementation-considerations content (ARC Runtime, Heap Object Layout, Built-in Type Representations, Representation Optimization).
+- **Rejected**: a new clause implies normative weight on every rule; Annex E's INFORMATIVE designation is what makes unshipped calculus/fact-target inclusion sound. AIMS fits naturally with Annex E's existing system-level implementation-considerations content. Physical representation rules remain in their representation, codegen, and runtime contracts.
 
 ### Alternative 6: Strip-only (status quo after Phase 5/6 cleanup)
 
@@ -165,7 +211,11 @@ The strip was an interim correctness fix; the spec promotion is the durable arch
 
 ### Spec Edits
 
-- **Add**: new `§AIMS — ARC Intelligent Memory System` section to `compiler_repo/docs/ori_lang/v2026/spec/annex-e-system-considerations.md`, structured per §Spec Destination above (§§1–11).
+- **Add**: new `§AIMS — Backend-Neutral Ownership Calculus` section to
+  `compiler_repo/docs/ori_lang/v2026/spec/annex-e-system-considerations.md`,
+  structured per §Spec Destination above (§§1–11). The title reflects the
+  2026-07-14 architecture clarification; the original approval used the
+  historical ARC expansion.
 - **Cross-reference**: Clause 21 (Memory Model) gets a forward-pointer to Annex E §AIMS at the ARC introduction.
 - **No removals or edits to existing spec content.**
 

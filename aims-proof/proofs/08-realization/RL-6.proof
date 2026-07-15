@@ -1,80 +1,34 @@
-Theorem RL-6: static unique mutation (Uniqueness = Unique) — in-place, no IsShared check
+Theorem RL-6: Unique admits same-identity mutation when local safety holds
 
   Preconditions:
-    - RL-6 governs static-unique COW per Annex E §AIMS COW: "Static
-      unique mutation (Uniqueness = Unique): emit in-place, no IsShared
-      check."
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - The COW mode is selected by DP-9 (cow_mode, Annex E §AIMS)
-      gated on DP-5 (can_mutate_in_place): Unique AND
-      can_mutate_in_place -> StaticUnique (in-place, no check); Unique AND
-      NOT can_mutate_in_place -> StaticShared (an active overlapping borrow
-      blocks in-place; IsShared on a Unique value always returns false, so a
-      runtime check is unsound with the borrow — copy unconditionally).
-    - DP-5 (can_mutate_in_place) <=> Access = Owned AND Uniqueness = Unique
-      AND no_active_overlapping_borrows; field-aware (a disjoint-field
-      borrow does NOT block — see RL-10).
-    - Shipped: realize/decide.rs::decide_annotations (Phase 2 COW decision)
-      consuming DP-5 / DP-9; emit_rc/cow.rs (has_borrows_from_aggregate,
-      is_borrow_disjoint_from_siblings) supplies the borrow-state inputs.
-    - depends-on sec-05: DP-5 (can_mutate_in_place) + DP-9 (cow_mode)
-      soundness proofs are the gating predicates RL-6 consumes.
+    - Uniqueness(v) = Unique and Access(v) = Owned.
+    - DP-5 proves whether local borrows permit same-identity mutation.
+    - DP-9's historical `StaticUnique` / `StaticShared` labels denote neutral
+      SameIdentityAdmissible / IsolationRequired outcomes.
 
   Soundness property:
-    Forall owned value v with Uniqueness(v) = Unique at a mutation point:
-
-      (P1) Mode decision: RL-6 selects StaticUnique (in-place, no IsShared)
-           iff can_mutate_in_place(v) holds (no active overlapping borrow);
-           an active overlapping borrow demotes the mode to StaticShared.
-
-      (P2) Value-semantics preservation: a StaticUnique in-place write is
-           observed by NO other live reference — a provably-RC==1 value with
-           no overlapping borrow has no aliases. The in-place mutation is
-           observably equivalent to copy-then-mutate.
-
-    RL-6 refines plain ARC: plain ARC would emit a runtime IsShared check
-    (RL-7) or an unconditional copy (RL-8) on every mutation; RL-6 emits a
-    bare in-place write when the lattice statically proves RC == 1 with no
-    overlapping borrow, eliminating both the check and the copy.
+    Forall owned Unique value v at a mutation point:
+      (P1) DP-5 true -> SameIdentityAdmissible.
+      (P2) DP-5 false -> IsolationRequired.
+      (P3) either outcome preserves evaluator value semantics when satisfied.
+    No premise names a sharing check, branch, copy, counter, or storage layout.
 
   Proof obligation:
-    Constructive discharge by the case_analysis engine via finite
-    enumeration of the canonical (Uniqueness x borrow-state) grid +
-    per-branch value-semantics check (the foundational-axiom policy
-    sec-Per-Engine-Constructive-Proof-Shape — closed-world coverage, no
-    uncovered branches).
+    Enumerate three cases:
+      unique_no_borrow_static_inplace -> SameIdentityAdmissible
+      unique_disjoint_borrow_static_inplace -> SameIdentityAdmissible
+      unique_overlapping_borrow_static_shared -> IsolationRequired
+    Coverage gate: 3 cases.
 
-    Part (P1/P2) — mode-decision grid + soundness:
-      The verifier enumerates and asserts the DP-5/DP-9 mode selection +
-      its value-semantics soundness on each branch:
-        unique_no_borrow_static_inplace -> StaticUnique (sound)
-        unique_disjoint_borrow_static_inplace -> StaticUnique (RL-10 lets
-                                                   the disjoint borrow
-                                                   through; sound)
-        unique_overlapping_borrow_static_shared -> StaticShared (DP-5 blocks
-                                                   in-place; sound copy)
-      Coverage gate: 3 mode decisions, each cross-checked against DP-5 / DP-9
-      and verified value-semantics-preserving.
-
-    Negative-direction witness (REJECTED):
-      A StaticUnique (in-place) selection on a Unique value WITH an
-      overlapping borrow is NOT value-semantics-preserving — the borrowed
-      reference would observe the in-place write. The soundness predicate
-      cow_mode_preserves_value_semantics REFUSES it; the verifier asserts
-      the refusal.
+    Negative-direction witness:
+      SameIdentityAdmissible with an overlapping live borrow is rejected because
+      the borrowed view would observe another value's mutation.
 
     Engines dispatched:
-      case_analysis (PRIMARY — section_08::verify_rl6_static_unique_mutation;
-        finite (Uniqueness x borrow-state) grid enumeration + per-branch
-        value-semantics check; emits Fail on a mode-decision divergence or
-        an unsound in-place selection)
-      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      case_analysis (PRIMARY — section_08::verify_rl6_static_unique_mutation)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
 
   Expected:
     status: valid
-    reason: section_08 case_analysis engine discharges RL-6 via the DP-5/DP-9 mode-decision grid (Unique+no-borrow / Unique+disjoint-borrow -> StaticUnique in-place; Unique+overlapping-borrow -> StaticShared) with a per-branch value-semantics-preservation check and a negative-direction witness rejecting in-place on an overlapping borrow, grounded in the shipped realize/decide.rs decide_annotations COW decision consuming emit_rc/cow.rs borrow state
+    reason: RL-6 enumerates Unique mutation outcomes and freezes same-identity admissibility or isolation without selecting a physical COW mechanism

@@ -2,7 +2,9 @@
 
 Code journeys trace a single Ori program through the entire compiler pipeline -- lexer, parser, type checker, canonicalization, interpreter, LLVM codegen, AOT binary -- and perform deep scrutiny on the generated output. Each journey targets a specific language feature set, scoring the compiler's codegen across seven dimensions: instruction efficiency, ARC correctness, attributes/safety, control flow, IR quality, binary quality, and other findings.
 
-Journeys are the primary mechanism for validating that the AIMS (ARC Intelligent Memory System) pipeline produces correct, efficient, and well-attributed LLVM IR. Every journey compares interpreter (eval) results against AOT (compiled binary) results to verify semantic equivalence.
+Code journeys validate the LLVM projection of the shared AIMS result: they inspect generated LLVM IR and compare evaluator output against AOT execution.
+
+They are one projection-specific verification surface, not the sole validation of AIMS. Kernel-checked calculus conformance, shared-carrier validation, VM parity, and cross-executor cleanup require their own gates.
 
 **Latest run**: 2026-03-22 (J15-J17 re-run with updated findings), 2026-03-20 (full re-run of all 20 journeys)
 **Branch**: `experiment/aims`
@@ -17,7 +19,7 @@ Journeys are the primary mechanism for validating that the AIMS (ARC Intelligent
 | J2 | "I am a branch" | branching, comparison, function_calls | 17 | PASS | PASS | 10.0 | Branchless select for max, hybrid branch+select for nested if |
 | J3 | "I am recursive" | recursion, comparison, arithmetic | 61 | PASS | PASS | 10.0 | TCO on gcd (loop lowering), zero empty blocks in fib, leak detection |
 | J4 | "I am a struct" | struct_construction, field_access, nested_structs | 57 | PASS | PASS | 10.0 | nonnull dereferenceable(32), memory(argmem: read) on ptr params |
-| J5 | "I am a closure" | closures, higher_order, capture | 27 | PASS | PASS | 10.0 | AIMS RC elision on @apply, uniform {ptr, ptr} closure ABI |
+| J5 | "I am a closure" | closures, higher_order, capture | 27 | PASS | PASS | 10.0 | AIMS froze no callee release for @apply; compiled projection emitted zero RC, uniform {ptr, ptr} closure ABI |
 | J6 | "I am a match" | pattern_matching, sum_types, destructuring, exhaustiveness | 41 | PASS | PASS | 10.0 | Branchless select chain for tag-only enums, unreachable default |
 | J7 | "I am a loop" | loops, ranges, break_continue | 30 | PASS | PASS | 10.0 | Range unused field extraction FIXED, phi-based loop lowering |
 | J8 | "I am generic" | generics, monomorphization, generic_structs, type_inference | 57 | PASS | PASS | 10.0 | Zero-cost abstraction, all generics at 1.00x instruction ratio |

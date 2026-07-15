@@ -11,20 +11,20 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId, RcAtomicity, RcStrategy};
 use crate::lower::type_has_user_drop;
 
-/// Phase 7 (probe): mechanically lower surviving whole-var burden ops to real
-/// RC instructions.
+/// Phase 7 (probe): mechanically lower surviving whole-var burden ops to the
+/// shipped transitional RC carrier.
 ///
 /// `BurdenInc { var }` → `RcInc { var, count: 1, strategy, atomicity }` and
 /// whole-var `BurdenDec { var }` → `RcDec { var, strategy, atomicity }`, with
 /// the canonical `RcStrategy::from_repr` (same strategy the predicate-stack
-/// emitter embeds) and `atomicity = Atomic` (RL-19/20/21 thread-local dispatch
-/// pending).
+/// emitter embeds) and compatibility `atomicity = Atomic`. The latter preserves
+/// the shipped compiled runtime; AIMS freezes thread reachability rather than
+/// selecting this physical mechanism.
 ///
 /// Field-grain `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` are
 /// rewritten to their REALIZED spellings (`RcDecPartial` / `RcDecField` /
-/// `RcDecVariant`) — same codegen drop glue (`skip_fields`-aware partial drop,
-/// `SetTag` pre-drop variant walk, `Set` old-value field drop), never a
-/// whole-var `RcDec` (would double-drop). The re-spelling takes the lowered op
+/// `RcDecVariant`) with the same logical partial, variant, and replacement
+/// cleanup obligations, never a whole-var `RcDec` (would double-drop). The re-spelling takes the lowered op
 /// OUT of the Step-11 burden census: the VF-1 whole-var ledger counts SURVIVING
 /// burden ops, and a mechanically-lowered op must leave the burden stream with
 /// its pair partner (the whole-var acquire inc lowers to `RcInc` in the same
@@ -91,7 +91,8 @@ pub(super) fn lower_burden_ops_to_rc(
             };
             let ty = func.var_type(var);
             let has_user_drop = type_has_user_drop(ty, type_registry);
-            // Why: a Scalar repr carries no RC header — skip it (no RC op) UNLESS
+            // Why: a Scalar carries no logical ownership-count obligation — skip it
+            // (no RC op) UNLESS
             // its type has a user `@drop`, which falls through to the `UserDrop`
             // strategy in the match that follows (the `@drop` call alone).
             // Spec: Annex E §AIMS RL-DROP.

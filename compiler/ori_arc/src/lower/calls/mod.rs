@@ -192,13 +192,11 @@ impl ArcLowerer<'_> {
         arg_vars: Vec<ArcVarId>,
         span: Span,
     ) -> Option<ArcVarId> {
-        // Gate on the callee being the reserved builtin `Error` name (a user
-        // cannot shadow it) AND the `Error` struct being registered. The call
-        // result is a fresh `Error`-struct `Idx` distinct from the registered
-        // `error_struct_idx`, so an Idx-equality `is_error_struct` check fails;
-        // the callee name uniquely identifies the constructor in call position.
+        // Both the selected name and the type-checker-selected result must be
+        // the builtin Error struct. A module enum variant may also be named
+        // `Error`, so spelling alone is not a constructor identity.
         let error_name = self.interner.intern("Error");
-        if name != error_name || self.pool.error_struct_idx().is_none() {
+        if name != error_name || !self.pool.is_error_struct_receiver(ty) {
             return None;
         }
         if arg_vars.len() != 1 {
@@ -213,6 +211,9 @@ impl ArcLowerer<'_> {
             "call: Error builtin struct constructor"
         );
         let resolved = self.pool.resolve_fully(ty);
+        if self.pool.tag(resolved) != Tag::Struct {
+            return None;
+        }
         let fields = self.pool.struct_fields(resolved);
         let trace_list_ty = fields[1].1;
         let trace_var =
@@ -318,6 +319,9 @@ impl ArcLowerer<'_> {
                 // via `lower_ident`, which routes through the `Tag::Function`
                 // arm and emits unresolvable `PartialApply` (plan root
                 // cause).
+                if let Some(var) = self.try_emit_variant_ctor(name, ty, arg_vars.clone(), span) {
+                    return var;
+                }
                 if let Some(var) = self.try_emit_newtype_ctor(name, ty, &arg_vars, span) {
                     return var;
                 }
@@ -350,9 +354,10 @@ impl ArcLowerer<'_> {
     /// builtin (`is_err`, `is_ok`, `is_some`, `is_none`) on a matching type.
     /// The receiver must already be lowered to an `ArcVarId`.
     ///
-    /// These builtins are lowered as `Project(tag) == constant` instead
-    /// of an Invoke, because they're compiled inline by LLVM codegen and
-    /// don't participate in Perceus ownership.
+    /// These builtins lower to the backend-neutral primitive sequence
+    /// `Project(tag) == constant` rather than a call. The sequence has no
+    /// callee ownership transfer, and every physical consumer implements it
+    /// directly; LLVM currently emits it inline.
     fn emit_tag_check(
         &mut self,
         method: Name,

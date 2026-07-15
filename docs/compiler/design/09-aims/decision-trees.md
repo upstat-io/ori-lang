@@ -13,7 +13,7 @@ Pattern matching is a central feature of ML-family languages, but the way progra
 
 The classical approach, developed by Augustsson (1985) and refined by [Maranget (2008)](https://doi.org/10.1017/S0956796808006771) in "Compiling Pattern Matching to Good Decision Trees," transforms pattern matrices into **decision trees** — branching structures where each internal node tests a single discriminant (enum tag, literal value, type tag) and each leaf represents a successful match. The goal is to minimize the number of tests executed on any path from root to leaf.
 
-Decision trees are compiled during [canonicalization](../07-canonicalization/pattern-compilation.md) and stored in a shared pool (`DecisionTreePool`). AIMS's role is to **emit** these pre-compiled trees as basic blocks in ARC IR, converting the tree's branching structure into `Switch`, `Branch`, and `Jump` terminators that the LLVM backend can translate directly to machine code.
+Decision trees are compiled during [canonicalization](../07-canonicalization/pattern-compilation.md) and stored in a shared pool (`DecisionTreePool`). AIMS's role is to **emit** these pre-compiled trees as basic blocks in ARC IR, converting the tree's branching structure into `Switch`, `Branch`, and `Jump` terminators that VM and compiled consumers encode without reinterpreting source patterns.
 
 ## Decision Tree Structure
 
@@ -55,18 +55,23 @@ flowchart LR
     Pool --> Emit["ARC Lowering
     Emit tree as
     basic blocks"]
-    Emit --> LLVM["LLVM Codegen
-    Standard block
+    Emit --> Exec["Shared Executable Carrier
+    VM / compiled block
     translation"]
 
     classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
     classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
 
     class Canon,Pool canon
-    class Emit,LLVM native
+    class Emit,Exec native
 ```
 
-The split is deliberate: pattern compilation is a frontend concern (it depends on type information, exhaustiveness checking, and pattern semantics), while block emission is a backend concern (it produces the control flow graph that AIMS analysis operates on). The `DecisionTreePool` is the handoff point between the two.
+The split is deliberate: pattern compilation is a frontend concern because it
+depends on type information, exhaustiveness, and pattern semantics. ARC block
+emission is a shared lowering concern because it produces the single CFG that
+AIMS analyzes before any VM or compiled projection is selected.
+
+The `DecisionTreePool` is the handoff point between those shared phases.
 
 ## Emission to ARC IR
 
@@ -99,7 +104,10 @@ When a type has exactly one constructor (structs, tuples, single-variant enums),
 
 ### Select Inlining
 
-When a `Switch` has exactly two arms and both target blocks contain only a single assignment, the switch can be replaced with a `Select` instruction — a conditional value selection that maps to LLVM's `select` instruction (a branchless conditional move). This eliminates the branch overhead for trivial two-way matches like `Option` unwrapping.
+When a `Switch` has exactly two arms and both target blocks contain only a
+single assignment, shared optimization may replace it with a logical `Select`.
+The VM and compiled projections choose their own branchless or branching
+encoding without changing that selection semantics.
 
 ## Connection to Exhaustiveness
 

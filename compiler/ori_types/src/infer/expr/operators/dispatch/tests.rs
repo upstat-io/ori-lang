@@ -3,7 +3,8 @@
 use ori_ir::Name;
 use rustc_hash::FxHashMap;
 
-use super::{extract_impl_subst, resolve_under_subst};
+use super::resolve_under_subst;
+use crate::infer::expr::calls::match_self_type;
 use crate::{Idx, Pool};
 
 fn name(s: &str) -> Name {
@@ -23,60 +24,53 @@ fn extract_subst_applied_self_type_binds_via_match() {
     let self_ty = pool.applied(pair, &[t_idx]);
     let target = pool.applied(pair, &[Idx::INT]);
 
-    let subst = extract_impl_subst(&pool, self_ty, target, &[t]).expect("should match");
+    let subst = match_self_type(&pool, self_ty, target, &[t]).expect("should match");
     assert_eq!(subst.get(&t), Some(&Idx::INT));
-}
-
-// Derive-generated impl registers `self_type = Named(Pair)` (bare); the params
-// zip positionally against the receiver's applied args.
-#[test]
-fn extract_subst_bare_named_zips_positionally() {
-    let mut pool = Pool::new();
-    let (t, pair) = (name("T"), name("Pair"));
-    let self_ty = pool.named(pair);
-    let target = pool.applied(pair, &[Idx::INT]);
-
-    let subst = extract_impl_subst(&pool, self_ty, target, &[t]).expect("should match");
-    assert_eq!(subst.get(&t), Some(&Idx::INT));
-}
-
-// Const generics interleave type + const args, so the arity differs from the
-// type-param count: the helper returns an EMPTY subst (Some, not None) so the
-// gate stays applicable and does not over-reject a valid instantiation.
-#[test]
-fn extract_subst_const_generic_arity_mismatch_returns_empty_some() {
-    let mut pool = Pool::new();
-    let (t, foo) = (name("T"), name("Foo"));
-    let self_ty = pool.named(foo);
-    let target = pool.applied(foo, &[Idx::INT, Idx::INT]);
-
-    let subst = extract_impl_subst(&pool, self_ty, target, &[t]).expect("applicable, empty subst");
-    assert!(subst.is_empty());
 }
 
 // Non-generic impl (no type params): empty subst, applicable.
 #[test]
-fn extract_subst_non_generic_returns_empty_some() {
+fn match_self_type_non_generic_returns_empty_subst() {
     let mut pool = Pool::new();
     let p = name("P");
     let self_ty = pool.named(p);
     let target = pool.named(p);
 
-    let subst = extract_impl_subst(&pool, self_ty, target, &[]).expect("applicable, empty subst");
+    let subst = match_self_type(&pool, self_ty, target, &[]).expect("applicable, empty subst");
     assert!(subst.is_empty());
 }
 
-// A receiver whose base does not structurally align (different head, no zip
-// fallback because it is not the bare-Named-vs-Applied shape) yields no subst.
 #[test]
-fn extract_subst_no_alignment_returns_none() {
+fn bare_generic_owner_does_not_match_applied_receiver() {
+    let mut pool = Pool::new();
+    let (t, pair) = (name("T"), name("Pair"));
+    let pattern = pool.named(pair);
+    let receiver = pool.applied(pair, &[Idx::INT]);
+
+    assert!(match_self_type(&pool, pattern, receiver, &[t]).is_none());
+}
+
+#[test]
+fn applied_generic_owner_rejects_receiver_arity_drift() {
+    let mut pool = Pool::new();
+    let (t, pair) = (name("T"), name("Pair"));
+    let t_idx = pool.named(t);
+    let pattern = pool.applied(pair, &[t_idx]);
+    let receiver = pool.applied(pair, &[Idx::INT, Idx::STR]);
+
+    assert!(match_self_type(&pool, pattern, receiver, &[t]).is_none());
+}
+
+// A receiver whose nominal head differs from the registered pattern does not match.
+#[test]
+fn match_self_type_no_alignment_returns_none() {
     let mut pool = Pool::new();
     let (t, pair, other) = (name("T"), name("Pair"), name("Other"));
     let t_idx = pool.named(t);
     let self_ty = pool.applied(pair, &[t_idx]);
     let target = pool.applied(other, &[Idx::INT]);
 
-    assert!(extract_impl_subst(&pool, self_ty, target, &[t]).is_none());
+    assert!(match_self_type(&pool, self_ty, target, &[t]).is_none());
 }
 
 // `where T: Eq` — a direct binder resolves to its concrete arg.

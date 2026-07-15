@@ -97,8 +97,8 @@ pub(crate) fn idx_out_of_range_detail(pool_len: usize) -> String {
     )
 }
 
-/// Read-only CONSUMER-edge attribution for the provenance DAG: each generated
-/// `_ori_drop$<idx>` symbol attributed back to the `Idx` chain that produced it.
+/// Read-only CONSUMER-edge attribution for the provenance DAG: each logical
+/// drop plan is attributed back to the `Idx` chain that produced it.
 ///
 /// The drop/RC machinery lives behind the `llvm` feature; with it, the
 /// attribution walks the drop-descriptor tree (`ori_arc::drop`) read-only.
@@ -111,8 +111,7 @@ fn consumer_attribution(
     ori_arc::compute_consumer_attribution(root, &classifier, pool, ori_types::PROVENANCE_MAX_DEPTH)
 }
 
-/// Without the `llvm` feature there is no drop-glue surface, so the attribution
-/// is empty (the DAG renders `0 consumer edge(s)`).
+/// Without the current ARC-enabled compiler feature, attribution is empty.
 #[cfg(not(feature = "llvm"))]
 fn consumer_attribution(
     _pool: &ori_types::Pool,

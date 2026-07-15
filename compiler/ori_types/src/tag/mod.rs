@@ -187,7 +187,7 @@ impl Tag {
     }
 
     /// Check if this tag routes arithmetic through the checked-integer
-    /// codegen path (`OpStrategy::IntInstr`; see `codegen-rules.md`
+    /// codegen path (`OpStrategy::SignedInteger`; see `codegen-rules.md`
     /// `emit_int_binary_op`). `int`, `byte`, `Duration`, and `Size` all
     /// share this path; `float`/`bool`/`char` do not.
     #[inline]

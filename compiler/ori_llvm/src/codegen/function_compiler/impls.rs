@@ -12,6 +12,13 @@ use tracing::{trace, warn};
 
 use super::FunctionCompiler;
 
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum ImplCompilePhase {
+    DeclareAndEmit,
+    DeclareOnly,
+    EmitOnly,
+}
+
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Compile impl block methods.
     ///
@@ -38,12 +45,71 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         canon: &CanonResult,
         traits: &[TraitDef],
     ) {
+        self.compile_impls_inner(
+            impls,
+            impl_sigs,
+            canon,
+            traits,
+            None,
+            ImplCompilePhase::DeclareAndEmit,
+        );
+    }
+
+    /// Compile impl methods against stable bodies in a bound executable artifact.
+    ///
+    /// `emission_names` is parallel to `impl_sigs`; every non-generic entry
+    /// identifies the exact qualified body already realized by AIMS.
+    pub fn compile_impls_from_artifact(
+        &mut self,
+        impls: &[ori_ir::ImplDef],
+        impl_sigs: &[ImplSig],
+        canon: &CanonResult,
+        traits: &[TraitDef],
+        emission_names: &[Option<Name>],
+    ) {
+        if emission_names.len() != impl_sigs.len() {
+            self.builder.record_codegen_error_with_msg(format!(
+                "closed executable impl-body table has {} entries for {} signatures",
+                emission_names.len(),
+                impl_sigs.len()
+            ));
+            return;
+        }
+        self.compile_impls_inner(
+            impls,
+            impl_sigs,
+            canon,
+            traits,
+            Some(emission_names),
+            ImplCompilePhase::DeclareOnly,
+        );
+        self.bind_user_drop_targets();
+        self.compile_impls_inner(
+            impls,
+            impl_sigs,
+            canon,
+            traits,
+            Some(emission_names),
+            ImplCompilePhase::EmitOnly,
+        );
+    }
+
+    fn compile_impls_inner(
+        &mut self,
+        impls: &[ori_ir::ImplDef],
+        impl_sigs: &[ImplSig],
+        canon: &CanonResult,
+        traits: &[TraitDef],
+        emission_names: Option<&[Option<Name>]>,
+        phase: ImplCompilePhase,
+    ) {
         // Consume impl_sigs positionally — the type checker pushes sigs in the
         // same iteration order: `for impl_def { for method { register_impl_sig } }`,
         // followed by unoverridden default trait methods.
         // A flat HashMap keyed by method Name would lose entries when two types
         // define same-name methods (e.g., Point.distance vs Line.distance).
         let mut sig_iter = impl_sigs.iter();
+        let mut emission_name_iter = emission_names.map(<[Option<Name>]>::iter);
 
         // Build trait map for default method lookup
         let trait_map: FxHashMap<Name, &TraitDef> = traits.iter().map(|t| (t.name, t)).collect();
@@ -68,6 +134,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     type_name,
                     &type_name_str,
                     canon,
+                    &mut emission_name_iter,
+                    phase,
                 );
             }
 
@@ -81,6 +149,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 &trait_map,
                 &mut sig_iter,
                 canon,
+                &mut emission_name_iter,
+                phase,
             );
         }
     }
@@ -102,6 +172,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         trait_map: &FxHashMap<Name, &TraitDef>,
         sig_iter: &mut impl Iterator<Item = &'sig ImplSig>,
         canon: &CanonResult,
+        emission_names: &mut Option<std::slice::Iter<'_, Option<Name>>>,
+        phase: ImplCompilePhase,
     ) {
         let Some(trait_path) = &impl_def.trait_path else {
             return;
@@ -129,6 +201,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 type_name,
                 type_name_str,
                 canon,
+                emission_names,
+                phase,
             );
         }
     }
@@ -144,6 +218,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         type_name: Name,
         type_name_str: &str,
         canon: &CanonResult,
+        emission_names: &mut Option<std::slice::Iter<'_, Option<Name>>>,
+        phase: ImplCompilePhase,
     ) {
         // `receiver` is the owning impl receiver — the type-qualified
         // dispatch key for a no-receiver associated call (`Widget.make()`),
@@ -152,6 +228,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             receiver: owning_type_idx,
             name: sig_name,
             sig,
+            ..
         }) = sig_iter.next()
         else {
             trace!(
@@ -160,6 +237,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             );
             return;
         };
+        let artifact_name = emission_names
+            .as_mut()
+            .and_then(|names| names.next().copied().flatten());
 
         debug_assert_eq!(
             *sig_name, method_name,
@@ -170,36 +250,109 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        // Use type-qualified mangled name for LLVM symbol. `type_name_str` is
-        // never empty: it is the interned LAST segment of a parser-validated
-        // type path (compile_impls unreachable-panics on an empty path).
-        let method_str = self.interner.lookup(method_name);
-        let symbol = self
-            .mangler
-            .mangle_method(self.module_path, type_name_str, method_str);
-        // Declare the LLVM function but do NOT insert into the bare `functions`
-        // map. Impl methods must be resolved only through the type-qualified
-        // `method_functions` map to prevent wrong-callee dispatch: registering
-        // `Box$to_str` under the bare key `to_str` would cause any unresolved
-        // `to_str` call (e.g., on an `int` field inside `Box$to_str`) to
-        // incorrectly resolve to the struct method.
-        let (func_id, abi) = self.declare_impl_method(method_name, &symbol, sig, method_span);
+        if self.executable_program.is_some() && artifact_name.is_none() {
+            self.builder.record_codegen_error_with_msg(format!(
+                "closed executable has no stable impl body for {}.{}",
+                type_name_str,
+                self.interner.lookup(method_name)
+            ));
+            return;
+        }
 
-        // Populate type-qualified method map for dispatch
-        self.codegen_ctx
-            .method_functions
-            .insert((type_name, method_name), (func_id, abi.clone()));
+        let fact_name = artifact_name.unwrap_or(method_name);
+        let (func_id, abi) = if phase == ImplCompilePhase::EmitOnly {
+            let Some(declared) = self.codegen_ctx.functions.get(&fact_name).cloned() else {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "closed executable impl body {} was not declared before emission",
+                    self.interner.lookup(fact_name)
+                ));
+                return;
+            };
+            declared
+        } else {
+            // Artifact targets own unique physical identities. Source-level
+            // `(type, method)` symbols collide when inherent and trait methods
+            // share a name; a bound projection therefore mangles the exact
+            // realized target while unbound low-level fixtures retain the
+            // source ABI symbol.
+            let symbol = artifact_name.map_or_else(
+                || {
+                    self.mangler.mangle_method(
+                        self.module_path,
+                        type_name_str,
+                        self.interner.lookup(method_name),
+                    )
+                },
+                |target| {
+                    self.mangler
+                        .mangle_function(self.module_path, self.interner.lookup(target))
+                },
+            );
+            let declared = self.declare_impl_method_with_fact_name(
+                method_name,
+                fact_name,
+                &symbol,
+                sig,
+                method_span,
+            );
 
-        // Map the type Idx → type Name for receiver/return-type resolution.
-        // Register BOTH keys:
-        //  - the self-receiver Idx (`param_types.first()`) — the monomorphized
-        //    self type a self-method call resolves through; load-bearing for
-        //    generic/builtin self-method dispatch (where it does NOT coincide
-        //    with the impl-receiver `owning_type_idx`).
-        //  - the owning impl-receiver Idx — the key a no-receiver associated
-        //    call resolves through (an associated function has no self param to
-        //    source the self key from). Without it an associated-only impl
-        //    never registers its owning type and the call site misses (E5001).
+            // Populate the legacy type-qualified method map for unbound
+            // user-method consumers. Bound direct calls and user-drop glue use
+            // exact executable targets instead.
+            self.codegen_ctx
+                .method_functions
+                .insert((type_name, method_name), declared.clone());
+            self.codegen_ctx
+                .functions
+                .insert(fact_name, declared.clone());
+            declared
+        };
+
+        self.register_impl_dispatch_types(sig, *owning_type_idx, type_name, method_name, phase);
+
+        if phase == ImplCompilePhase::DeclareOnly {
+            return;
+        }
+
+        let emission = if phase == ImplCompilePhase::EmitOnly {
+            let Some((arc_function, lambdas)) = self.clone_bound_family(fact_name, &abi) else {
+                return;
+            };
+            self.enter_debug_scope(func_id);
+            self.builder.set_current_function(func_id);
+            self.emit_arc_function(fact_name, func_id, &abi, arc_function, lambdas)
+        } else {
+            let body = canon
+                .method_root_for(type_name, method_name)
+                .or_else(|| canon.root_for(method_name))
+                .unwrap_or(canon.root);
+            self.define_function_body(fact_name, func_id, &abi, body, canon, sig.is_fbip)
+        };
+
+        // Keep scanning after a per-method projection failure so one bad body
+        // does not hide independent diagnostics in the same module.
+        if let Err(err) = emission {
+            warn!(
+                method = %self.interner.lookup(method_name),
+                type_name = type_name_str,
+                ?err,
+                "PC-2 contract violation — skipping impl method"
+            );
+        }
+    }
+
+    /// Register and verify the type keys used by legacy impl-method dispatch.
+    fn register_impl_dispatch_types(
+        &mut self,
+        sig: &ori_types::FunctionSig,
+        owning_type_idx: ori_types::Idx,
+        type_name: Name,
+        method_name: Name,
+        phase: ImplCompilePhase,
+    ) {
+        // The self receiver can differ from the impl receiver after
+        // monomorphization. Associated functions have no self parameter, so
+        // both identities are required to cover receiver and return dispatch.
         if let Some(&self_type_idx) = sig.param_types.first() {
             self.codegen_ctx
                 .type_idx_to_name
@@ -207,9 +360,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
         self.codegen_ctx
             .type_idx_to_name
-            .insert(*owning_type_idx, type_name);
+            .insert(owning_type_idx, type_name);
 
-        // Verify round-trip: what we registered is immediately retrievable.
         debug_assert!(
             self.codegen_ctx
                 .method_functions
@@ -218,6 +370,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.interner.lookup(type_name),
             self.interner.lookup(method_name),
         );
+
+        if phase == ImplCompilePhase::DeclareOnly {
+            return;
+        }
         if let Some(&self_type_idx) = sig.param_types.first() {
             debug_assert!(
                 self.codegen_ctx
@@ -231,32 +387,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         debug_assert!(
             self.codegen_ctx
                 .type_idx_to_name
-                .contains_key(owning_type_idx),
+                .contains_key(&owning_type_idx),
             "type_idx_to_name owning-type registration failed for '{}' (Idx {:?})",
             self.interner.lookup(type_name),
             owning_type_idx,
         );
-
-        // Look up the canonical body for this impl method
-        let body = canon
-            .method_root_for(type_name, method_name)
-            .or_else(|| canon.root_for(method_name))
-            .unwrap_or(canon.root);
-
-        // Absorb PC-2 contract violation: the hook records the error via
-        // `record_codegen_error()` so the driver will refuse to emit the
-        // malformed module; `compile_impls` continues to the next method
-        // so a single bad impl does not hide other errors (per-method
-        // failure pattern mirrors `compile_tests`).
-        if let Err(err) =
-            self.define_function_body(method_name, func_id, &abi, body, canon, sig.is_fbip)
-        {
-            warn!(
-                method = %self.interner.lookup(method_name),
-                type_name = type_name_str,
-                ?err,
-                "PC-2 contract violation — skipping impl method"
-            );
-        }
     }
 }

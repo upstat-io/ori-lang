@@ -1,181 +1,112 @@
-//! ARC pipeline entry points.
+//! Backend-neutral AIMS realization entry points.
 //!
-//! Contains [`run_arc_pipeline`] (single function), [`run_arc_pipeline_all`]
-//! (batch with ownership application), and [`compute_aims_contracts`]
-//! (interprocedural contract computation).
-//!
-//! All functions use the AIMS unified lattice pipeline (interprocedural
-//! contracts → per-variable state map → RC/reuse emission).
+//! Production consumers submit one closed program to
+//! [`realize_closed_program`]. Interprocedural contracts, logical ownership
+//! events, reuse decisions, and callable facts are frozen together; physical
+//! backends consume that result without re-running or approximating the
+//! calculus locally.
+
+use std::collections::HashMap;
+use std::hash::BuildHasher;
 
 use ori_ir::Name;
 use ori_types::{Pool, TypeRegistry};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
-use crate::aims::contract::MemoryContract;
+use crate::aims::contract::{FreshSelfAllocationFacts, FunctionEffectFacts, MemoryContract};
+use crate::aims::realize::rl31_disjoint::ParamDisjointnessFacts;
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
-use crate::ArcClassification;
+use crate::{ArcClassification, ClosureAdapterPlan, FunctionCallableFacts, RetainPlanTable};
 
 mod aims_pipeline;
+pub(crate) mod callable_boundary;
 pub(crate) mod rc_count;
 
 pub use aims_pipeline::CheckpointObserver;
+pub use callable_boundary::{CallableBoundaryError, CallableBoundaryFacts};
 
 #[cfg(test)]
 mod tests;
 
-/// Run the full ARC optimization pipeline on a single function.
+/// Final output of one whole-program AIMS realization.
 ///
-/// Uses the AIMS unified lattice pipeline: backward dataflow analysis
-/// produces a per-variable state map, then RC/reuse emission reads the
-/// state map to place operations. The AIMS pipeline derives all ownership
-/// information from `aims_contracts`.
-///
-/// `type_registry` is bundled into `AimsPipelineConfig` for downstream
-/// consumption by class-ledger burden-op replacement.
-#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
-pub fn run_arc_pipeline(
-    func: &mut ArcFunction,
-    classifier: &dyn ArcClassification,
-    pool: &Pool,
-    interner: &ori_ir::StringInterner,
-    aims_contracts: &FxHashMap<Name, MemoryContract>,
-    type_registry: &TypeRegistry,
-    verify_arc: bool,
-) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
-    let builtins = BuiltinOwnershipSets::new(interner);
-    // Single-function entry: codegen may compile functions OUTSIDE the
-    // interprocedural batch (test-wrapper bodies, impl methods, derived
-    // methods lowered after `analyze_program`). IC-1 makes no claim about a
-    // function not in the analyzed set, so its own contract may be absent.
-    // Seed a conservative contract for `func` when absent — the sound upper
-    // bound `analyze_program` would assign an unanalyzed function — so the
-    // pipeline's own-contract lookups (trmc, fip) have a real entry. Callee
-    // lookups for analyzed functions still hit their precise contracts.
-    let contracts = ensure_own_contract(aims_contracts, func);
-    let func_names: FxHashSet<Name> = contracts.keys().copied().collect();
-    let config = aims_pipeline::AimsPipelineConfig {
-        classifier,
-        contracts: &contracts,
-        func_names: &func_names,
-        pool,
-        interner,
-        builtins: &builtins,
-        verify_arc,
-        observer: None,
-        type_registry,
-    };
-    Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
+/// The contracts are the same map updated by the post-emission second pass;
+/// consumers must not recompute interprocedural facts from the realized IR.
+#[derive(Debug)]
+pub struct ArcPipelineBatchOutcome {
+    /// Semantic lowering problems collected across all realized functions.
+    pub problems: Vec<ArcProblem>,
+    /// Final backend-neutral contracts keyed by stable semantic function name.
+    pub contracts: FxHashMap<Name, MemoryContract>,
+    /// Final RL-30 facts from the same realized bodies and contracts.
+    pub function_effects: FxHashMap<Name, FunctionEffectFacts>,
+    /// Final RL-29 facts from the same realized return contracts.
+    pub fresh_return_facts: FxHashMap<Name, FreshSelfAllocationFacts>,
+    /// Final RL-31 facts from the same realized signatures and type pool.
+    pub param_disjointness: FxHashMap<Name, ParamDisjointnessFacts>,
+    /// Exact closure-call bridge plans frozen from the same realized target
+    /// signatures. Residual indirect arguments remain borrowed; physical
+    /// projections only encode these actions.
+    pub closure_adapters: FxHashMap<Name, ClosureAdapterPlan>,
+    /// Closed logical ownership-credit graph referenced by closure adapter
+    /// actions. Physical projections map these stable identities through their
+    /// own representation plans.
+    pub retain_plans: RetainPlanTable,
+    /// Semantic callable signatures parallel to every realized function's SSA
+    /// register table. Backends consume these facts without querying `Pool`.
+    pub callable_facts: FxHashMap<Name, FunctionCallableFacts>,
 }
 
-/// Return a contracts map guaranteed to contain `func`'s own contract.
+/// Immutable inputs for one closed-program AIMS realization.
 ///
-/// When `func.name` is already present (the batch / analyzed case), the
-/// borrowed map is cloned unchanged. When absent (codegen of a function
-/// outside the interprocedural batch — test bodies, impl methods, derives),
-/// a conservative contract for `func`'s arity is inserted. Conservative is the
-/// sound upper bound: all-Owned params, `may_share`, conservative effects —
-/// identical to what `analyze_program` assigns a function it could not refine.
-fn ensure_own_contract(
-    aims_contracts: &FxHashMap<Name, MemoryContract>,
-    func: &ArcFunction,
-) -> FxHashMap<Name, MemoryContract> {
-    let mut contracts = aims_contracts.clone();
-    contracts
-        .entry(func.name)
-        .or_insert_with(|| MemoryContract::conservative(func.params.len()));
-    contracts
+/// This context is the backend-neutral analysis seam. It contains semantic
+/// services and producer-frozen external contracts, but no executor, layout,
+/// ABI, opcode, or runtime representation choice.
+pub struct ArcPipelineContext<'a, S> {
+    /// Type ownership classifier used by the logical calculus.
+    pub classifier: &'a dyn ArcClassification,
+    /// Stable name interner shared by the closed program.
+    pub interner: &'a ori_ir::StringInterner,
+    /// Canonical type pool for semantic type queries.
+    pub pool: &'a Pool,
+    /// Registry-authored builtin ownership contracts.
+    pub builtins: &'a BuiltinOwnershipSets,
+    /// Canonical registry for type-directed logical facts.
+    pub type_registry: &'a TypeRegistry,
+    /// Exact language-prescribed callable roles projected from frontend-owned
+    /// semantic bindings.
+    pub callable_boundaries: &'a CallableBoundaryFacts,
+    /// Whether to enforce the expensive verification layer in this run.
+    pub verify_arc: bool,
+    /// Immutable contracts imported from other compiled units.
+    pub external_contracts: &'a HashMap<Name, MemoryContract, S>,
 }
 
-/// Run the full ARC optimization pipeline on a single function with a
-/// checkpoint observer.
+/// Realize one closed program through the backend-neutral AIMS calculus.
 ///
-/// Used by snapshot tests to capture per-pass ARC IR. The observer
-/// receives `(&ArcFunction, phase_name)` at each pipeline boundary.
-/// Otherwise identical to [`run_arc_pipeline`].
-#[expect(
-    clippy::too_many_arguments,
-    reason = "pipeline entry point bundles all context"
-)]
-#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
-pub fn run_arc_pipeline_with_observer<'a>(
-    func: &mut ArcFunction,
-    classifier: &'a dyn ArcClassification,
-    pool: &'a Pool,
-    interner: &'a ori_ir::StringInterner,
-    aims_contracts: &'a FxHashMap<Name, MemoryContract>,
-    type_registry: &'a TypeRegistry,
-    verify_arc: bool,
-    observer: &'a aims_pipeline::CheckpointObserver<'a>,
-) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
-    let builtins = BuiltinOwnershipSets::new(interner);
-    // Seed `func`'s own conservative contract when absent — see
-    // `run_arc_pipeline` for the out-of-batch-function rationale.
-    let contracts = ensure_own_contract(aims_contracts, func);
-    let func_names: FxHashSet<Name> = contracts.keys().copied().collect();
-    let config = aims_pipeline::AimsPipelineConfig {
-        classifier,
-        contracts: &contracts,
-        func_names: &func_names,
-        pool,
-        interner,
-        builtins: &builtins,
-        verify_arc,
-        observer: Some(observer),
-        type_registry,
-    };
-    Ok(aims_pipeline::run_aims_pipeline(func, &config)?.problems)
-}
-
-/// Run the full ARC pipeline on all functions, including ownership application.
-///
-/// This is the batch entry point for the entire ARC optimization pass:
-/// 1. Compute AIMS interprocedural contracts (`MemoryContract` per function)
-/// 2. Apply ownership annotations to function parameters
-/// 3. Run the per-function AIMS pipeline for each function
-///
-/// `type_registry` is bundled into `AimsPipelineConfig` for downstream
-/// consumption (see `run_arc_pipeline` docs).
-pub fn run_arc_pipeline_all(
+/// `external_contracts` contains immutable producer-authored facts for calls
+/// whose bodies live in another compiled unit. The returned facts cover local
+/// realized bodies exactly; no physical backend may fill gaps conservatively.
+pub fn realize_closed_program<S: BuildHasher>(
     functions: &mut [ArcFunction],
-    classifier: &dyn ArcClassification,
-    interner: &ori_ir::StringInterner,
-    pool: &Pool,
-    builtins: &BuiltinOwnershipSets,
-    type_registry: &TypeRegistry,
-    verify_arc: bool,
-) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
-    aims_pipeline::run_aims_pipeline_all(
-        functions,
-        classifier,
-        interner,
-        pool,
-        builtins,
-        type_registry,
-        verify_arc,
-    )
+    context: &ArcPipelineContext<'_, S>,
+) -> Result<ArcPipelineBatchOutcome, Vec<crate::verify::VerifyError>> {
+    aims_pipeline::run_aims_pipeline_all_with_external_contracts(functions, context)
 }
 
-/// Compute AIMS interprocedural contracts and apply param ownership.
+/// Realize one closed program and report whole-batch pipeline checkpoints.
 ///
-/// Runs the AIMS interprocedural analysis ([`aims::analyze_program`]) to produce
-/// a [`MemoryContract`] for each function, then applies the resulting ownership
-/// annotations to function parameters.
-///
-/// The returned contracts map must be passed to [`run_arc_pipeline`] for each
-/// function so that callsite `arg_ownership` is correctly annotated from contract
-/// data.
-pub fn compute_aims_contracts(
+/// The observer is diagnostic only; it cannot select a different calculus or
+/// bypass interprocedural closure. `ownership_applied` is reported before the
+/// first per-function transformation, followed by the normal phase names.
+pub fn realize_closed_program_with_observer<'a, S: BuildHasher>(
     functions: &mut [ArcFunction],
-    classifier: &dyn ArcClassification,
-    interner: &ori_ir::StringInterner,
-    builtins: &BuiltinOwnershipSets,
-) -> FxHashMap<Name, MemoryContract> {
-    let contracts =
-        crate::aims::interprocedural::analyze_program(functions, classifier, builtins, interner);
-    aims_pipeline::apply_aims_ownership(functions, &contracts);
-    contracts
+    context: &ArcPipelineContext<'a, S>,
+    observer: &'a CheckpointObserver<'a>,
+) -> Result<ArcPipelineBatchOutcome, Vec<crate::verify::VerifyError>> {
+    aims_pipeline::run_aims_pipeline_all_with_observer(functions, context, observer)
 }
 
 /// Run ARC IR verification if enabled.

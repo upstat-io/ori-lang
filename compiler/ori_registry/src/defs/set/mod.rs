@@ -6,8 +6,8 @@
 //! inherent ordering).
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag, ONE_SELF_BORROW,
+    MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ReturnTag, TypeDef,
+    TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 use super::params::{CLOSURE_PARAM, ELEMENT_BORROW_PARAM, ELEMENT_OWNED_PARAM};
@@ -96,8 +96,10 @@ static SET_METHODS: &[MethodDef] = &[
         Ownership::Borrow,
         false,
     ),
-    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
-    MethodDef::compound("length", &[], INT, Some("Len"), Ownership::Borrow, false),
+    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Length),
+    MethodDef::compound("length", &[], INT, Some("Len"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Length),
     MethodDef::compound(
         "remove",
         &ELEMENT_BORROW_PARAM,

@@ -38,6 +38,11 @@ pub(super) fn build_file_single(
     else {
         std::process::exit(1)
     };
+    super::require_cli_entry(
+        path,
+        options,
+        super::module_has_cli_entry(&parse_result, &type_result),
+    );
 
     let target = configure_target(options).unwrap_or_else(|e| report_codegen_error(e));
 

@@ -191,6 +191,45 @@ fn list_set_takes_index_and_element() {
 }
 
 #[test]
+fn persistent_list_mutations_have_runtime_identities() {
+    let expected = [
+        ("insert", MethodRuntime::ListInsert),
+        ("prepend", MethodRuntime::ListPrepend),
+        ("push", MethodRuntime::ListPush),
+        ("remove", MethodRuntime::ListRemove),
+        ("set", MethodRuntime::ListSet),
+        ("updated", MethodRuntime::ListSet),
+    ];
+
+    for (name, runtime) in expected {
+        let method = LIST
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .unwrap_or_else(|| panic!("List.{name} should exist"));
+        assert_eq!(method.runtime, Some(runtime), "List.{name}");
+    }
+
+    let tagged = LIST
+        .methods
+        .iter()
+        .filter(|method| {
+            matches!(
+                method.runtime,
+                Some(
+                    MethodRuntime::ListInsert
+                        | MethodRuntime::ListPrepend
+                        | MethodRuntime::ListPush
+                        | MethodRuntime::ListRemove
+                        | MethodRuntime::ListSet
+                )
+            )
+        })
+        .count();
+    assert_eq!(tagged, expected.len());
+}
+
+#[test]
 fn list_join_takes_separator() {
     let m = LIST
         .methods

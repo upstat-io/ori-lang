@@ -11,21 +11,23 @@
 //! `pipeline_ordering` structural_induction-PRIMARY / case_analysis-SECONDARY
 //! split:
 //!
-//! - `rc_counting` PRIMARY — RC-emission balance (RL-1..RL-5) + KnownSafe /
-//! PRE-style motion (RL-22..RL-26) + the RL-1/RL-2 composition obligation
+//! - `rc_counting` PRIMARY — logical ownership-event balance (RL-1..RL-5) +
+//! KnownSafe / event-pair refinement (RL-22..RL-26) + the RL-1/RL-2 composition obligation
 //! + the whole-pipeline composition theorem (RL-comp).
-//! - `refinement` PRIMARY — LLVM fact-export refinement against IC-3 / IC-5
-//! contracts (RL-29 / RL-30 / RL-31).
-//! - `case_analysis` PRIMARY — COW (RL-6..RL-10), allocation reuse
-//! (RL-11 / RL-11a / RL-12 / RL-13-removed), stack promotion
-//! (RL-14 / RL-14a / RL-15 / RL-15a / RL-16), header compression
-//! (RL-17 / RL-18), unified representation (RL-18a), non-atomic RC
-//! (RL-19..RL-21), selective barriers (RL-27 / RL-28), borrow inference
+//! - `refinement` PRIMARY — backend-neutral fact refinement against IC-3 /
+//! IC-4 / IC-5, followed by separate target-projection fidelity checks
+//! (RL-29 / RL-30 / RL-31).
+//! - `case_analysis` PRIMARY — mutation-isolation obligations (RL-6..RL-10),
+//! donor/recipient credit transfer
+//! (RL-11 / RL-11a / RL-12 / RL-13-removed), allocation/lifetime facts
+//! (RL-14 / RL-14a / RL-15 / RL-15a / RL-16), owner bounds and projection
+//! satisfaction (RL-17 / RL-18 / RL-18a), thread reachability facts
+//! (RL-19..RL-21), selective barriers (RL-27 / RL-28), and borrow inference
 //! (RL-32..RL-34).
 //!
 //! Each PRIMARY verifier encodes the shipped realization semantics as a
-//! fixture grid, discharges the rule's soundness invariant (RC-count
-//! preservation = refinement of plain ARC), and carries a negative-direction
+//! fixture grid, discharges the rule's soundness invariant (logical
+//! ownership-event preservation plus projection satisfaction), and carries a negative-direction
 //! witness so the check has teeth (a wrong emission schedule is REJECTED).
 //! Verifiers reason over a model of the shipped emission; they cite the
 //! shipped `compiler/ori_arc/src/aims/realize/` +
@@ -74,21 +76,22 @@ fn primary_engine_for(suffix: &str) -> Option<&'static str> {
         // §08.3 Allocation reuse — case_analysis PRIMARY (RL-13 is the
         // removal-confirmation entry).
         "11" | "11a" | "12" | "13" => "case_analysis",
-        // §08.4 Stack promotion — case_analysis PRIMARY (RL-15a is CRITICAL).
+        // §08.4 Allocation/lifetime facts — case_analysis PRIMARY.
         "14" | "14a" | "15" | "15a" | "16" => "case_analysis",
-        // §08.5 RC header compression — case_analysis PRIMARY.
+        // §08.5 Owner bounds and layout satisfaction — case_analysis PRIMARY.
         "17" | "18" => "case_analysis",
-        // §08.6 Unified representation — case_analysis PRIMARY.
+        // §08.6 VM/compiled trace parity — case_analysis PRIMARY.
         "18a" => "case_analysis",
-        // §08.7 Non-atomic RC — case_analysis PRIMARY.
+        // §08.7 Thread reachability facts — case_analysis PRIMARY.
         "19" | "20" | "21" => "case_analysis",
-        // §08.8 KnownSafe + PRE-style RC motion — rc_counting PRIMARY.
+        // §08.8 KnownSafe + logical event refinement — rc_counting PRIMARY.
         "22" | "23" | "24" | "25" | "26" => "rc_counting",
         // §08.9 Selective barriers — case_analysis PRIMARY.
         "27" | "28" => "case_analysis",
-        // §08.10 LLVM fact export — refinement PRIMARY (RL-31 is CRITICAL).
+        // §08.11 backend-neutral AIMS facts — refinement PRIMARY.
+        // RL-31 is CRITICAL.
         "29" | "30" | "31" => "refinement",
-        // §08.11 Borrow inference — case_analysis PRIMARY.
+        // §08.12 Borrow inference — case_analysis PRIMARY.
         "32" | "33" | "34" => "case_analysis",
         // §08.12 Composition — rc_counting PRIMARY (RC-balance composition).
         "1-RL-2-composition" | "comp" => "rc_counting",
@@ -105,36 +108,36 @@ fn run_primary_verifier(suffix: &str) -> EngineResult {
         "3" => verify_rl3_rc_op_elision(),
         "4" => verify_rl4_edge_specific_decs(),
         "5" => verify_rl5_dead_at_entry_cleanup(),
-        "6" => verify_rl6_static_unique_mutation(),
-        "7" => verify_rl7_dynamic_cow(),
-        "8" => verify_rl8_static_shared_mutation(),
-        "9" => verify_rl9_cow_compound_contraction(),
+        "6" => verify_rl6_same_identity_mutation(),
+        "7" => verify_rl7_sharing_observation(),
+        "8" => verify_rl8_mutation_isolation(),
+        "9" => verify_rl9_observation_representation_equivalence(),
         "10" => verify_rl10_disjoint_field_mutation(),
         "11" => verify_rl11_same_block_reuse(),
         "11a" => verify_rl11a_dynamic_reuse(),
         "12" => verify_rl12_cross_block_reuse(),
         "13" => verify_rl13_removal_confirmation(),
-        "14" => verify_rl14_headerless_stack(),
-        "14a" => verify_rl14a_immortal_header_stack(),
-        "15" => verify_rl15_bump_allocator(),
-        "15a" => verify_rl15a_argescaping_caller_stack(),
-        "16" => verify_rl16_escaping_heap(),
-        "17" => verify_rl17_sharing_bound(),
-        "18" => verify_rl18_header_width_narrowing(),
-        "18a" => verify_rl18a_locality_escape_ssot(),
-        "19" => verify_rl19_thread_local_nonatomic(),
-        "20" => verify_rl20_thread_shared_atomic(),
-        "21" => verify_rl21_program_wide_nonatomic(),
+        "14" => verify_rl14_lifetime_facts(),
+        "14a" => verify_rl14a_cleanup_obligation(),
+        "15" => verify_rl15_extent_seam(),
+        "15a" => verify_rl15a_caller_extent(),
+        "16" => verify_rl16_conservative_unknown(),
+        "17" => verify_rl17_owner_bound(),
+        "18" => verify_rl18_layout_satisfaction(),
+        "18a" => verify_rl18a_projection_parity(),
+        "19" => verify_rl19_thread_reachability(),
+        "20" => verify_rl20_thread_capability(),
+        "21" => verify_rl21_no_thread_boundary(),
         "22" => verify_rl22_knownsafe_pair_elimination(),
         "23" => verify_rl23_knownsafe_join_propagation(),
         "24" => verify_rl24_bidirectional_pair_matching(),
         "25" => verify_rl25_pair_eliminable_conditions(),
-        "26" => verify_rl26_rc_motion_barriers(),
-        "27" => verify_rl27_selective_flush(),
-        "28" => verify_rl28_unknown_callee_flush(),
-        "29" => verify_rl29_noalias_fresh_unique(),
-        "30" => verify_rl30_memory_attribute_derivation(),
-        "31" => verify_rl31_disjoint_borrowed_alias_metadata(),
+        "26" => verify_rl26_event_ordering_barriers(),
+        "27" => verify_rl27_selective_event_ordering(),
+        "28" => verify_rl28_unknown_callee_event_ordering(),
+        "29" => verify_rl29_neutral_fresh_self_allocation(),
+        "30" => verify_rl30_neutral_memory_fact(),
+        "31" => verify_rl31_neutral_parameter_disjointness(),
         "32" => verify_rl32_borrowed_init_owned_promotion(),
         "33" => verify_rl33_projection_owned_propagation(),
         "34" => verify_rl34_tail_call_preservation(),
@@ -183,78 +186,59 @@ fn require_count(rule: &str, expected: u64, actual: u64, label: &str) -> EngineR
 }
 
 // ============================================================================
-// Shared RC-balance ledger — the RC-count-preservation substrate
+// Shared logical ownership-event ledger
 // ============================================================================
 //
-// Per Annex E §AIMS + the §08 mission ("each elimination/optimization rule
-// justified by a proof that RC count is preserved"), the RC-emission rules
-// RL-1..RL-5 are sound iff every reference created over a value's lifetime is
-// released exactly once. A value's lifecycle is modeled as a sequence of
-// RcEvents; the verifier computes (refs_created - refs_released) and asserts
-// the value is fully balanced (== 0): every alloc + every RL-1 inc is matched
-// by exactly one RL-2 dec, RL-4 edge dec, RL-5 cleanup dec, or RL-2
-// ownership-transfer handoff. This is the rc_counting engine's stated job
-// (per the proof-checker design sec-Engine-per-Category-Inventory): per-instruction
-// RC-delta arithmetic + balance-equation witness construction.
+// The calculus freezes logical ownership events: every credit created over a
+// value's lifetime is released, cleaned up, or handed off exactly once. The
+// verifier computes (credits - discharges) and asserts balance. A physical
+// counter is one projection of this ledger; it is not a premise of the rule.
 
-/// One reference-count event in a value's lifecycle, as the RL emission rules
-/// schedule it. Shipped grounding cited per variant.
+/// One canonical logical ownership event in a value lifecycle.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum RcEvent {
-    /// Heap allocation — `Construct` / `Reuse` / `Apply` result starts RC = 1
-    /// (TF-3: FRESH allocation). Creates one reference.
-    Alloc,
-    /// RL-1: `RcInc` emitted on duplication to an Owned parameter while the
-    /// value is still live afterward (Cardinality = Many, or > Once usage).
-    /// Creates one reference balanced by the callee's dec.
-    /// Shipped: aims/class_ledger/emit/incs.rs plan_incs (the class-ledger's
-    /// sole Inc emitter).
-    IncLiveDup,
-    /// RL-3 / DP-3: inc ELIDED on a single-use value (Once ∧ (Linear ∨ Affine)).
-    /// The single use creates no new owned reference: a move (Linear) transfers
-    /// the existing reference; a borrow (Affine) reads it non-consumingly and
-    /// releases it via its own RL-2 scope-exit dec.
-    /// Shipped: aims/transfer/mod.rs is_rc_inc_elidable gate.
-    ElideIncMove,
-    /// RL-2: `RcDec` at last use or scope exit (terminal, non-transfer).
-    /// Releases one reference. Shipped: aims/class_ledger/emit/releases.rs
-    /// (the class-ledger's per-class release planner).
-    DecLastUse,
-    /// RL-2: definitional cleanup dec for an UNUSED owned non-scalar value
-    /// (Dead / Absent). Releases the alloc reference immediately at definition.
-    /// Shipped: aims/class_ledger/emit/releases.rs plan_dead_class_releases.
-    CleanupDecUnused,
-    /// RL-2 exclusion: ownership-transferring use (Return / Construct arg /
-    /// Set value / PartialApply capture / Apply-to-Owned-param / Jump arg).
-    /// Releases the caller's reference by HANDOFF — no dec emitted, the
-    /// consumer inherits the obligation. Shipped: the twelve-kind terminal-use
-    /// table in aims/intraprocedural/ledger_events/ (classifying such uses as
-    /// Consume events the class's own release plan never re-decs).
-    TransferOut,
-    /// RL-4: edge-specific `RcDec` on a CFG edge where the value is live at
-    /// block exit but dead at the successor entry. Releases one reference.
-    /// Shipped: aims/class_ledger/emit/releases.rs plan_releases.
-    EdgeDec,
-    /// RL-3 / DP-2: dec ELIDED on an Absent / Dead value — there is no live
-    /// reference to release. Shipped: aims/transfer/mod.rs is_rc_dec_unnecessary.
-    ElideDecDead,
+enum OwnershipEvent {
+    BirthCredit,
+    AdditionalCredit,
+    ElidedAdditionalCredit,
+    Release,
+    Cleanup,
+    Handoff,
+    EdgeRelease,
+    ElidedRelease,
 }
 
-impl RcEvent {
-    /// Net reference-count delta this event contributes to the running RC.
-    /// Alloc + Inc create (+1); Dec / EdgeDec / Cleanup / TransferOut release
-    /// (-1); elision events are no-ops (0).
+impl OwnershipEvent {
+    /// Net logical owner-credit delta contributed by this event.
     fn delta(self) -> i64 {
         match self {
-            RcEvent::Alloc | RcEvent::IncLiveDup => 1,
-            RcEvent::DecLastUse
-            | RcEvent::CleanupDecUnused
-            | RcEvent::TransferOut
-            | RcEvent::EdgeDec => -1,
-            RcEvent::ElideIncMove | RcEvent::ElideDecDead => 0,
+            Self::BirthCredit | Self::AdditionalCredit => 1,
+            Self::Release | Self::Cleanup | Self::Handoff | Self::EdgeRelease => -1,
+            Self::ElidedAdditionalCredit | Self::ElidedRelease => 0,
         }
     }
+
+    // Historical fixture spellings. These are compatibility aliases for MIR
+    // carrier names, not canonical calculus vocabulary.
+    #[allow(non_upper_case_globals)]
+    const Alloc: Self = Self::BirthCredit;
+    #[allow(non_upper_case_globals)]
+    const IncLiveDup: Self = Self::AdditionalCredit;
+    #[allow(non_upper_case_globals)]
+    const ElideIncMove: Self = Self::ElidedAdditionalCredit;
+    #[allow(non_upper_case_globals)]
+    const DecLastUse: Self = Self::Release;
+    #[allow(non_upper_case_globals)]
+    const CleanupDecUnused: Self = Self::Cleanup;
+    #[allow(non_upper_case_globals)]
+    const TransferOut: Self = Self::Handoff;
+    #[allow(non_upper_case_globals)]
+    const EdgeDec: Self = Self::EdgeRelease;
+    #[allow(non_upper_case_globals)]
+    const ElideDecDead: Self = Self::ElidedRelease;
 }
+
+/// Historical local type alias retained while fixture names migrate.
+type RcEvent = OwnershipEvent;
 
 /// A named value lifecycle = an ordered RcEvent sequence + whether it is
 /// EXPECTED to balance (sound emission) or NOT (negative-direction witness).
@@ -266,10 +250,14 @@ struct LedgerCase {
     expect_balanced: bool,
 }
 
-/// Compute the net RC after applying every event in order. A balanced
-/// lifecycle returns 0 (every created reference released exactly once).
-fn ledger_net(events: &[RcEvent]) -> i64 {
+/// Compute the net logical owner-credit balance after applying every event.
+fn owner_credit_balance(events: &[OwnershipEvent]) -> i64 {
     events.iter().map(|e| e.delta()).sum()
+}
+
+/// Historical compatibility wrapper for checker fixtures.
+fn ledger_net(events: &[RcEvent]) -> i64 {
+    owner_credit_balance(events)
 }
 
 /// Discharge a fixture grid of LedgerCases: every `expect_balanced` case MUST
@@ -282,7 +270,7 @@ fn discharge_ledger_cases(rule: &str, cases: &[LedgerCase]) -> Result<u64, Engin
         let balanced = net == 0;
         if balanced != case.expect_balanced {
             return Err(fail(format!(
-                "{}: ledger case '{}' expected balanced={} but net RC = {} (balanced={}); RC-count preservation violated",
+                "{}: ownership-event case '{}' expected balanced={} but net credit = {} (balanced={}); logical event preservation violated",
                 rule, case.label, case.expect_balanced, net, balanced
             )));
         }
@@ -318,7 +306,7 @@ fn dp2_dec_unnecessary(cardinality: Card, consumption: Cons) -> bool {
     cardinality == Card::Absent || consumption == Cons::Dead
 }
 
-/// DP-7: `is_rc_skip_eligible(s) ⟺ is_local ∧ Access = Owned ∧
+/// DP-7: `is_event_pair_elision_eligible(s) ⟺ is_local ∧ Access = Owned ∧
 /// Consumption = Linear ∧ Cardinality = Once ∧ Uniqueness = Unique ∧
 /// ¬is_scalar` (Appendix C DP-7 truth table). The caller-inc + callee-dec
 /// pair cancels for a local-linear-unique param.
@@ -368,14 +356,11 @@ enum Uniq {
 }
 
 // ============================================================================
-// RL-1: RC inc emission when value duplicated to Owned param while still live
+// RL-1: additional owner credit when a live value is duplicated
 // ============================================================================
 //
-// Per Annex E §AIMS RL-1: "RC inc SHALL be emitted when a value is
-// duplicated (passed to Owned param while still live)." Soundness: the inc
-// creates one reference, balanced by the callee's dec (RL-2 on the Owned
-// param) — so RC count is preserved. RL-1 refines plain ARC: plain ARC incs
-// on EVERY duplication; RL-1's inc is ELIDED on the single-use value (DP-3:
+// A live duplication creates one additional logical owner credit, balanced by
+// the consumer's release. RL-1 elides that event on a single-use value (DP-3:
 // Once ∧ (Linear ∨ Affine)) because the single use creates no new owned
 // reference (a move transfers the existing reference; a borrow reads it
 // non-consumingly and releases it via its own RL-2 scope-exit dec).
@@ -506,7 +491,7 @@ fn verify_rl1_inc_on_live_duplication() -> EngineResult {
 //
 // (P1) Decision: a dec is emitted at a terminal use IFF the use is NOT
 // ownership-transferring; an unused owned non-scalar gets a cleanup dec.
-// (P2) RC-count preservation: every owned heap value is released exactly
+// (P2) RC-count preservation: every owned managed value is released exactly
 // once — by a dec, an edge dec, a cleanup dec, OR an ownership handoff.
 //
 // Shipped: aims/class_ledger/emit/releases.rs (last-use dec + dead-at-entry /
@@ -625,14 +610,11 @@ fn verify_rl2_dec_at_last_use() -> EngineResult {
 }
 
 // ============================================================================
-// RL-3: RC op elision when DP-2 / DP-3 / DP-7 hold
+// RL-3: ownership-event elision when DP-2 / DP-3 / DP-7 hold
 // ============================================================================
 //
-// Per Annex E §AIMS RL-3: "RC ops SHALL be ELIDED when the lattice proves
-// unnecessary (DP-2, DP-3, DP-7)." Soundness: an elided op was redundant —
-// removing it preserves the RC count (the value's balance is identical with or
-// without the elided op). RL-3 refines plain ARC by removing exactly the ops
-// the lattice proves redundant.
+// An ownership event is elided only when the lattice proves it unnecessary.
+// Removing it preserves the exact logical balance and evaluator behavior.
 //
 // (P1) Elision decision: an op is elided IFF at least one of DP-2 / DP-3 /
 // DP-7 holds for the value's state.
@@ -679,7 +661,14 @@ fn verify_rl3_rc_op_elision() -> EngineResult {
             label: "dp7_local_unique_skips_pair",
             dp2: false,
             dp3: false,
-            dp7: dp7_skip_eligible(true, Access::Owned, Cons::Linear, Card::Once, Uniq::Unique, false),
+            dp7: dp7_skip_eligible(
+                true,
+                Access::Owned,
+                Cons::Linear,
+                Card::Once,
+                Uniq::Unique,
+                false,
+            ),
             expect_elide: true,
         },
         // No predicate fires (Many + Unrestricted + non-local) → NO elision.
@@ -687,7 +676,14 @@ fn verify_rl3_rc_op_elision() -> EngineResult {
             label: "no_predicate_no_elision",
             dp2: dp2_dec_unnecessary(Card::Many, Cons::Unrestricted),
             dp3: dp3_inc_elidable(Card::Many, Cons::Unrestricted),
-            dp7: dp7_skip_eligible(false, Access::Owned, Cons::Unrestricted, Card::Many, Uniq::MaybeShared, false),
+            dp7: dp7_skip_eligible(
+                false,
+                Access::Owned,
+                Cons::Unrestricted,
+                Card::Many,
+                Uniq::MaybeShared,
+                false,
+            ),
             expect_elide: false,
         },
         // DP-7 blocked by non-unique (MaybeShared) → NO skip (an unbalanced
@@ -696,7 +692,14 @@ fn verify_rl3_rc_op_elision() -> EngineResult {
             label: "dp7_blocked_by_maybeshared",
             dp2: false,
             dp3: false,
-            dp7: dp7_skip_eligible(true, Access::Owned, Cons::Linear, Card::Once, Uniq::MaybeShared, false),
+            dp7: dp7_skip_eligible(
+                true,
+                Access::Owned,
+                Cons::Linear,
+                Card::Once,
+                Uniq::MaybeShared,
+                false,
+            ),
             expect_elide: false,
         },
         // DP-7 blocked by Shared → NO skip (a Shared value's caller inc is never
@@ -705,7 +708,14 @@ fn verify_rl3_rc_op_elision() -> EngineResult {
             label: "dp7_blocked_by_shared",
             dp2: false,
             dp3: false,
-            dp7: dp7_skip_eligible(true, Access::Owned, Cons::Linear, Card::Once, Uniq::Shared, false),
+            dp7: dp7_skip_eligible(
+                true,
+                Access::Owned,
+                Cons::Linear,
+                Card::Once,
+                Uniq::Shared,
+                false,
+            ),
             expect_elide: false,
         },
     ];
@@ -754,7 +764,12 @@ fn verify_rl3_rc_op_elision() -> EngineResult {
         // net-preserving rewrite).
         LedgerCase {
             label: "redundant_inc_dec_elided_balanced",
-            events: &[RcEvent::Alloc, RcEvent::ElideIncMove, RcEvent::ElideDecDead, RcEvent::TransferOut],
+            events: &[
+                RcEvent::Alloc,
+                RcEvent::ElideIncMove,
+                RcEvent::ElideDecDead,
+                RcEvent::TransferOut,
+            ],
             expect_balanced: true,
         },
         // Negative witness: eliding a NEEDED dec (DP-2 false — Many cardinality)
@@ -1039,13 +1054,13 @@ fn verify_rl5_dead_at_entry_cleanup() -> EngineResult {
 }
 
 // ============================================================================
-// §08.2 COW substrate — value-semantics preservation via DP-4 / DP-5 / DP-9
+// §08.2 mutation-isolation obligations via DP-4 / DP-5 / DP-9
 // ============================================================================
 //
-// Per Annex E §AIMS COW (RL-6..RL-10), a mutation is sound iff no OTHER
-// live reference observes the post-mutation state unless a semantic copy was
-// made first. The COW mode is selected by DP-9 (cow_mode) gated on DP-5
-// (can_mutate_in_place) and DP-4 (needs_cow_check). The case_analysis engine
+// A mutation is sound iff no existing owner observes a change that belongs to
+// another value. DP-9 freezes an admissible outcome or an observation/isolation
+// obligation, gated on DP-5 and DP-4. It does not prescribe a branch or copy.
+// The case_analysis engine
 // enumerates the (Uniqueness x borrow-state x field) grid and discharges, per
 // branch, that the selected mode preserves value semantics — with a closed-
 // world coverage check (every case exhibited) per the foundational-axiom policy
@@ -1055,16 +1070,12 @@ fn verify_rl5_dead_at_entry_cleanup() -> EngineResult {
 // is_borrow_disjoint_from_siblings) + realize/decide.rs::decide_annotations
 // (the Phase 2 COW decision) consuming DP-5 / DP-9.
 
-/// COW mode selected by DP-9 (Annex E §AIMS DP-9).
+/// Neutral mutation outcome/obligation selected by DP-9.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum CowMode {
-    /// In-place mutation, no IsShared check (Unique + mutable-in-place). RL-6.
-    StaticUnique,
-    /// Runtime IsShared check, branch in-place / copy (MaybeShared). RL-7.
-    Dynamic,
-    /// Unconditional copy (Shared, or Unique blocked by an active borrow).
-    /// RL-8.
-    StaticShared,
+enum MutationObligation {
+    SameIdentityAdmissible,
+    SharingObservationRequired,
+    IsolationRequired,
 }
 
 /// DP-5: `can_mutate_in_place(s, var, field, point) ⟺ Access = Owned ∧
@@ -1090,111 +1101,107 @@ fn can_mutate_in_place(
     borrow_is_field_disjoint && !is_settag
 }
 
-/// DP-4: `needs_cow_check(s) ⟺ Uniqueness = MaybeShared` (Appendix C DP-4).
-fn needs_cow_check(uniqueness: Uniq) -> bool {
+/// DP-4: `needs_sharing_observation(s) ⟺ Uniqueness = MaybeShared`.
+fn needs_sharing_observation(uniqueness: Uniq) -> bool {
     uniqueness == Uniq::MaybeShared
 }
 
-/// DP-9 cow_mode (Annex E §AIMS DP-9 + Appendix C DP-9):
-/// - Unique ∧ can_mutate_in_place ⟹ StaticUnique (in-place, no check)
-/// - Unique ∧ ¬can_mutate_in_place ⟹ StaticShared (active overlapping borrow
-/// blocks in-place; IsShared on a Unique value always returns false, so the
-/// runtime check is unsound with an active borrow — copy unconditionally)
-/// - MaybeShared ∧ param IC-3 ParamContract.uniqueness = Unique ⟹ StaticUnique
-/// (caller proved RC == 1, a past guarantee)
-/// - MaybeShared else ⟹ Dynamic (runtime IsShared check)
-/// - Shared ⟹ StaticShared (unconditional copy)
-fn decide_cow_mode(uniqueness: Uniq, param_ic3_unique: bool, can_mutate: bool) -> CowMode {
+/// DP-9 neutral mutation-obligation classification:
+/// - Unique ∧ can_mutate_in_place ⟹ same identity is admissible
+/// - Unique ∧ ¬can_mutate_in_place ⟹ isolation is required
+/// - MaybeShared ∧ param IC-3 ParamContract.uniqueness = Unique ⟹ same
+/// identity is admissible (caller proved exactly one owner credit)
+/// - MaybeShared else ⟹ sharing observation is required
+/// - Shared ⟹ isolation is required
+fn decide_mutation_obligation(
+    uniqueness: Uniq,
+    param_ic3_unique: bool,
+    can_mutate: bool,
+) -> MutationObligation {
     match uniqueness {
         Uniq::Unique => {
             if can_mutate {
-                CowMode::StaticUnique
+                MutationObligation::SameIdentityAdmissible
             } else {
-                CowMode::StaticShared
+                MutationObligation::IsolationRequired
             }
         }
         Uniq::MaybeShared => {
             if param_ic3_unique {
-                CowMode::StaticUnique
+                MutationObligation::SameIdentityAdmissible
             } else {
-                CowMode::Dynamic
+                MutationObligation::SharingObservationRequired
             }
         }
-        Uniq::Shared => CowMode::StaticShared,
+        Uniq::Shared => MutationObligation::IsolationRequired,
     }
 }
 
-/// Value-semantics soundness of a selected COW mode: a mutation preserves
-/// value semantics iff no OTHER live reference observes the in-place write.
-/// - StaticUnique is sound iff the value is provably RC == 1 at the mutation
+/// Value-semantics soundness of a selected mutation obligation: a mutation preserves
+/// value semantics iff no other live view observes the in-place write.
+/// - SameIdentityAdmissible is sound iff the value has exactly one logical owner credit at the mutation
 /// point with no overlapping borrow (Unique + can_mutate_in_place), OR the
 /// caller proved param uniqueness (IC-3).
-/// - Dynamic is always sound — the runtime IsShared check selects in-place
-/// (RC == 1) vs copy (RC > 1) correctly.
-/// - StaticShared is always sound — an unconditional copy never corrupts a
-/// shared reference.
-fn cow_mode_preserves_value_semantics(
-    mode: CowMode,
+/// - SharingObservationRequired is sound because the observation selects the
+/// same-identity or isolation obligation.
+/// - IsolationRequired is sound because aliases cannot observe the mutation.
+fn mutation_obligation_preserves_value_semantics(
+    mode: MutationObligation,
     uniqueness: Uniq,
     param_ic3_unique: bool,
     can_mutate: bool,
 ) -> bool {
     match mode {
-        CowMode::StaticUnique => {
+        MutationObligation::SameIdentityAdmissible => {
             (uniqueness == Uniq::Unique && can_mutate)
                 || (uniqueness == Uniq::MaybeShared && param_ic3_unique)
         }
-        CowMode::Dynamic => true,
-        CowMode::StaticShared => true,
+        MutationObligation::SharingObservationRequired => true,
+        MutationObligation::IsolationRequired => true,
     }
 }
 
 // ----------------------------------------------------------------------------
-// RL-6: static unique mutation (Uniqueness = Unique): in-place, no IsShared
+// RL-6: Unique admits same-identity mutation when local borrows permit it
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-6: "Static unique mutation (Uniqueness = Unique):
-// emit in-place, no IsShared check." Soundness: when the value is provably
-// RC == 1 (Unique) with no overlapping borrow, an in-place write is observed
-// by no other reference — observably equivalent to copy-then-mutate. Refines
-// plain ARC, which would emit a runtime IsShared check (RL-7) or an
-// unconditional copy (RL-8) on every mutation.
+// Soundness: one logical owner plus local borrow safety admits preserving the
+// value's identity. If local safety fails, the theorem freezes isolation. The
+// projection chooses how to satisfy either outcome.
 
-fn verify_rl6_static_unique_mutation() -> EngineResult {
+fn verify_rl6_same_identity_mutation() -> EngineResult {
     struct Row {
         label: &'static str,
         uniqueness: Uniq,
         has_active_borrow: bool,
         borrow_field_disjoint: bool,
-        expect_mode: CowMode,
+        expect_mode: MutationObligation,
     }
     let grid: &[Row] = &[
-        // Unique, no borrow → StaticUnique in-place (RL-6).
+        // Unique, no borrow admits same-identity mutation (RL-6).
         Row {
             label: "unique_no_borrow_static_inplace",
             uniqueness: Uniq::Unique,
             has_active_borrow: false,
             borrow_field_disjoint: false,
-            expect_mode: CowMode::StaticUnique,
+            expect_mode: MutationObligation::SameIdentityAdmissible,
         },
-        // Unique, disjoint-field borrow → StaticUnique in-place (RL-10 lets the
+        // Unique, disjoint-field borrow admits same identity (RL-10 lets the
         // disjoint borrow through; covered fully by RL-10, exercised here).
         Row {
             label: "unique_disjoint_borrow_static_inplace",
             uniqueness: Uniq::Unique,
             has_active_borrow: true,
             borrow_field_disjoint: true,
-            expect_mode: CowMode::StaticUnique,
+            expect_mode: MutationObligation::SameIdentityAdmissible,
         },
-        // Unique, OVERLAPPING borrow → StaticShared (DP-5 blocks in-place; an
-        // IsShared check on a Unique value always returns false, so the runtime
-        // check would be unsound with the active borrow — copy unconditionally).
+        // Unique, OVERLAPPING borrow → isolation required.
         Row {
             label: "unique_overlapping_borrow_static_shared",
             uniqueness: Uniq::Unique,
             has_active_borrow: true,
             borrow_field_disjoint: false,
-            expect_mode: CowMode::StaticShared,
+            expect_mode: MutationObligation::IsolationRequired,
         },
     ];
     let mut checked: u64 = 0;
@@ -1206,14 +1213,14 @@ fn verify_rl6_static_unique_mutation() -> EngineResult {
             row.borrow_field_disjoint,
             false,
         );
-        let mode = decide_cow_mode(row.uniqueness, false, can_mutate);
+        let mode = decide_mutation_obligation(row.uniqueness, false, can_mutate);
         if mode != row.expect_mode {
             return fail(format!(
                 "RL-6 (P1) mode decision: '{}' expected {:?} but DP-5/DP-9 yield {:?}",
                 row.label, row.expect_mode, mode
             ));
         }
-        if !cow_mode_preserves_value_semantics(mode, row.uniqueness, false, can_mutate) {
+        if !mutation_obligation_preserves_value_semantics(mode, row.uniqueness, false, can_mutate) {
             return fail(format!(
                 "RL-6 (P2) soundness: '{}' selected {:?} but it does not preserve value semantics",
                 row.label, mode
@@ -1221,16 +1228,19 @@ fn verify_rl6_static_unique_mutation() -> EngineResult {
         }
         checked += 1;
     }
-    // Negative-direction witness: forcing StaticUnique (in-place) on a Unique
+    // Negative-direction witness: forcing same identity on a Unique
     // value with an OVERLAPPING borrow is NOT value-semantics-preserving
     // (the borrowed reference would observe the in-place write). The soundness
     // predicate must REJECT it.
-    let neg_can_mutate =
-        can_mutate_in_place(Access::Owned, Uniq::Unique, true, false, false);
-    if cow_mode_preserves_value_semantics(CowMode::StaticUnique, Uniq::Unique, false, neg_can_mutate)
-    {
+    let neg_can_mutate = can_mutate_in_place(Access::Owned, Uniq::Unique, true, false, false);
+    if mutation_obligation_preserves_value_semantics(
+        MutationObligation::SameIdentityAdmissible,
+        Uniq::Unique,
+        false,
+        neg_can_mutate,
+    ) {
         return fail(
-            "RL-6 negative witness: StaticUnique on a Unique value with an overlapping borrow was wrongly accepted as value-semantics-preserving".to_string(),
+            "RL-6 negative witness: same-identity mutation with an overlapping borrow was wrongly accepted".to_string(),
         );
     }
     require_count(
@@ -1242,55 +1252,53 @@ fn verify_rl6_static_unique_mutation() -> EngineResult {
 }
 
 // ----------------------------------------------------------------------------
-// RL-7: dynamic COW (Uniqueness = MaybeShared): IsShared check + branch
+// RL-7: MaybeShared retains a sharing-observation obligation
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-7: "Dynamic COW (MaybeShared): emit IsShared
-// check, branch to in-place / copy." Soundness: the runtime IsShared check
-// selects in-place (RC == 1) vs copy (RC > 1), preserving value semantics on
-// both branches. DP-4 (needs_cow_check) fires exactly on MaybeShared.
+// A logical sharing observation selects whether same identity is admissible or
+// isolation is required. DP-4 fires exactly on MaybeShared. The observation
+// mechanism and isolation mechanism are projection choices.
 
-fn verify_rl7_dynamic_cow() -> EngineResult {
+fn verify_rl7_sharing_observation() -> EngineResult {
     struct Row {
         label: &'static str,
         uniqueness: Uniq,
         param_ic3_unique: bool,
         expect_needs_check: bool,
-        expect_mode: CowMode,
+        expect_mode: MutationObligation,
     }
     let grid: &[Row] = &[
-        // MaybeShared, no caller proof → Dynamic (runtime IsShared). RL-7.
+        // MaybeShared, no caller proof → sharing observation required.
         Row {
             label: "maybeshared_dynamic_check",
             uniqueness: Uniq::MaybeShared,
             param_ic3_unique: false,
             expect_needs_check: true,
-            expect_mode: CowMode::Dynamic,
+            expect_mode: MutationObligation::SharingObservationRequired,
         },
-        // MaybeShared but caller proved param uniqueness (IC-3) → StaticUnique
-        // (past guarantee; no runtime check needed).
+        // MaybeShared but caller-proven param uniqueness admits same identity.
         Row {
             label: "maybeshared_param_unique_static",
             uniqueness: Uniq::MaybeShared,
             param_ic3_unique: true,
             expect_needs_check: true,
-            expect_mode: CowMode::StaticUnique,
+            expect_mode: MutationObligation::SameIdentityAdmissible,
         },
-        // Unique → no dynamic check (DP-4 false).
+        // Unique requires no sharing observation (DP-4 false).
         Row {
             label: "unique_no_dynamic_check",
             uniqueness: Uniq::Unique,
             param_ic3_unique: false,
             expect_needs_check: false,
-            expect_mode: CowMode::StaticUnique,
+            expect_mode: MutationObligation::SameIdentityAdmissible,
         },
     ];
     let mut checked: u64 = 0;
     for row in grid {
-        let needs = needs_cow_check(row.uniqueness);
+        let needs = needs_sharing_observation(row.uniqueness);
         if needs != row.expect_needs_check {
             return fail(format!(
-                "RL-7 (P1) DP-4 needs_cow_check: '{}' expected {} got {}",
+                "RL-7 (P1) DP-4 needs_sharing_observation: '{}' expected {} got {}",
                 row.label, row.expect_needs_check, needs
             ));
         }
@@ -1298,15 +1306,19 @@ fn verify_rl7_dynamic_cow() -> EngineResult {
         // DP-5 yields false (Uniqueness != Unique), so the mode is driven by
         // param_ic3_unique per DP-9.
         let can_mutate = can_mutate_in_place(Access::Owned, row.uniqueness, false, false, false);
-        let mode = decide_cow_mode(row.uniqueness, row.param_ic3_unique, can_mutate);
+        let mode = decide_mutation_obligation(row.uniqueness, row.param_ic3_unique, can_mutate);
         if mode != row.expect_mode {
             return fail(format!(
                 "RL-7 (P1) mode decision: '{}' expected {:?} got {:?}",
                 row.label, row.expect_mode, mode
             ));
         }
-        if !cow_mode_preserves_value_semantics(mode, row.uniqueness, row.param_ic3_unique, can_mutate)
-        {
+        if !mutation_obligation_preserves_value_semantics(
+            mode,
+            row.uniqueness,
+            row.param_ic3_unique,
+            can_mutate,
+        ) {
             return fail(format!(
                 "RL-7 (P2) soundness: '{}' selected {:?} but it does not preserve value semantics",
                 row.label, mode
@@ -1318,108 +1330,110 @@ fn verify_rl7_dynamic_cow() -> EngineResult {
         "RL-7",
         3,
         checked,
-        "(P1/P2) MaybeShared dynamic-COW decisions (DP-4 gate + DP-9 mode + value-semantics soundness)",
+        "(P1/P2) MaybeShared observation decisions (DP-4 gate + DP-9 obligation + value-semantics soundness)",
     )
 }
 
 // ----------------------------------------------------------------------------
-// RL-8: static shared mutation (Uniqueness = Shared): unconditional copy
+// RL-8: Shared requires mutation isolation
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-8: "Static shared mutation (Shared): emit
-// unconditional copy." Soundness: when provably RC > 1, an in-place write
-// would corrupt another live reference; an unconditional copy preserves value
-// semantics. Refines plain ARC by skipping the (always-true) runtime IsShared
-// check on a statically-Shared value.
+// When multiple logical owners are proven, changing shared identity would
+// violate value semantics. The calculus requires isolation; it does not select
+// copying, regions, handles, or any other physical mechanism.
 
-fn verify_rl8_static_shared_mutation() -> EngineResult {
-    // Shared → StaticShared (unconditional copy), regardless of borrow state.
+fn verify_rl8_mutation_isolation() -> EngineResult {
+    // Shared → isolation required, regardless of borrow state.
     let mut checked: u64 = 0;
     for has_borrow in [false, true] {
-        let can_mutate =
-            can_mutate_in_place(Access::Owned, Uniq::Shared, has_borrow, false, false);
+        let can_mutate = can_mutate_in_place(Access::Owned, Uniq::Shared, has_borrow, false, false);
         if can_mutate {
             return fail(format!(
                 "RL-8: can_mutate_in_place wrongly true for a Shared value (has_borrow={})",
                 has_borrow
             ));
         }
-        let mode = decide_cow_mode(Uniq::Shared, false, can_mutate);
-        if mode != CowMode::StaticShared {
+        let mode = decide_mutation_obligation(Uniq::Shared, false, can_mutate);
+        if mode != MutationObligation::IsolationRequired {
             return fail(format!(
-                "RL-8 mode decision: Shared (has_borrow={}) expected StaticShared got {:?}",
+                "RL-8 mode decision: Shared (has_borrow={}) expected IsolationRequired got {:?}",
                 has_borrow, mode
             ));
         }
-        if !cow_mode_preserves_value_semantics(mode, Uniq::Shared, false, can_mutate) {
-            return fail("RL-8 soundness: StaticShared copy must preserve value semantics".to_string());
+        if !mutation_obligation_preserves_value_semantics(mode, Uniq::Shared, false, can_mutate) {
+            return fail(
+                "RL-8 soundness: the isolation obligation must preserve value semantics"
+                    .to_string(),
+            );
         }
         checked += 1;
     }
-    // Negative-direction witness: in-place (StaticUnique) on a Shared value
+    // Negative-direction witness: same-identity mutation on a Shared value
     // corrupts the other live reference — must be REJECTED by the soundness
     // predicate.
-    if cow_mode_preserves_value_semantics(CowMode::StaticUnique, Uniq::Shared, false, false) {
+    if mutation_obligation_preserves_value_semantics(
+        MutationObligation::SameIdentityAdmissible,
+        Uniq::Shared,
+        false,
+        false,
+    ) {
         return fail(
-            "RL-8 negative witness: StaticUnique in-place on a Shared value was wrongly accepted as value-semantics-preserving".to_string(),
+            "RL-8 negative witness: same-identity mutation on a Shared value was wrongly accepted"
+                .to_string(),
         );
     }
     require_count(
         "RL-8",
         2,
         checked,
-        "(P1/P2) Shared-mutation unconditional-copy decisions (negative witness: Shared in-place rejected)",
+        "(P1/P2) Shared-mutation isolation obligations (negative witness: Shared same-identity mutation rejected)",
     )
 }
 
 // ----------------------------------------------------------------------------
-// RL-9: COW compound contraction (diamond -> single compound instruction)
+// RL-9: explicit/compact sharing-observation refinement
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-9: "COW compound contraction: diamond IsShared ->
-// Branch -> (clone+Set | Set) -> Merge SHALL be contracted into a single
-// compound instruction." Soundness: the contracted compound instruction
-// selects the SAME branch outcome (in-place when unique, copy when shared) as
-// the expanded diamond — observably equivalent. This is a structural
-// equivalence: contraction preserves the RL-7 Dynamic mode behavior.
+// Explicit and compact representations of a sharing observation must select
+// the same neutral outcome. This freezes behavior without freezing a diamond,
+// compound instruction, branch, or copy.
 
-fn verify_rl9_cow_compound_contraction() -> EngineResult {
-    // Model the diamond's per-runtime-state outcome and the compound's outcome;
-    // assert they agree on every runtime uniqueness state. The diamond branches
-    // on the runtime IsShared result; the compound encodes the same branch.
-    fn diamond_outcome(runtime_unique: bool) -> CowMode {
-        // Expanded diamond: IsShared==false (unique) -> in-place; else copy.
-        if runtime_unique {
-            CowMode::StaticUnique
+fn verify_rl9_observation_representation_equivalence() -> EngineResult {
+    fn explicit_observation_outcome(one_owner_observed: bool) -> MutationObligation {
+        if one_owner_observed {
+            MutationObligation::SameIdentityAdmissible
         } else {
-            CowMode::StaticShared
+            MutationObligation::IsolationRequired
         }
     }
-    fn compound_outcome(runtime_unique: bool) -> CowMode {
-        // Contracted compound: single instruction with the identical selection.
-        if runtime_unique {
-            CowMode::StaticUnique
+    fn compact_observation_outcome(one_owner_observed: bool) -> MutationObligation {
+        if one_owner_observed {
+            MutationObligation::SameIdentityAdmissible
         } else {
-            CowMode::StaticShared
+            MutationObligation::IsolationRequired
         }
     }
     let mut checked: u64 = 0;
-    for runtime_unique in [true, false] {
-        let d = diamond_outcome(runtime_unique);
-        let c = compound_outcome(runtime_unique);
-        if d != c {
+    for one_owner_observed in [true, false] {
+        let explicit = explicit_observation_outcome(one_owner_observed);
+        let compact = compact_observation_outcome(one_owner_observed);
+        if explicit != compact {
             return fail(format!(
-                "RL-9 contraction: diamond outcome {:?} != compound outcome {:?} for runtime_unique={}; contraction must be observably equivalent",
-                d, c, runtime_unique
+                "RL-9 refinement: explicit outcome {:?} != compact outcome {:?} for one_owner_observed={}",
+                explicit, compact, one_owner_observed
             ));
         }
         // Both outcomes must independently preserve value semantics.
-        let uniq = if runtime_unique { Uniq::Unique } else { Uniq::Shared };
-        let can_mutate = runtime_unique;
-        if !cow_mode_preserves_value_semantics(c, uniq, false, can_mutate) {
+        let uniq = if one_owner_observed {
+            Uniq::Unique
+        } else {
+            Uniq::Shared
+        };
+        let can_mutate = one_owner_observed;
+        if !mutation_obligation_preserves_value_semantics(compact, uniq, false, can_mutate) {
             return fail(format!(
-                "RL-9 soundness: contracted outcome {:?} for runtime_unique={} does not preserve value semantics",
-                c, runtime_unique
+                "RL-9 soundness: compact outcome {:?} for one_owner_observed={} does not preserve value semantics",
+                compact, one_owner_observed
             ));
         }
         checked += 1;
@@ -1428,7 +1442,7 @@ fn verify_rl9_cow_compound_contraction() -> EngineResult {
         "RL-9",
         2,
         checked,
-        "(P1/P2) diamond<->compound equivalence over both runtime uniqueness states",
+        "(P1/P2) explicit/compact outcome equivalence over both sharing-observation results",
     )
 }
 
@@ -1502,13 +1516,12 @@ fn verify_rl10_disjoint_field_mutation() -> EngineResult {
                 row.label, row.expect_can_mutate, can_mutate
             ));
         }
-        // When can_mutate is false the mode must be StaticShared (copy);
-        // when true it must be StaticUnique (in-place) for a Unique value.
-        let mode = decide_cow_mode(Uniq::Unique, false, can_mutate);
+        // Failure requires isolation; success admits same-identity mutation.
+        let mode = decide_mutation_obligation(Uniq::Unique, false, can_mutate);
         let expect_mode = if row.expect_can_mutate {
-            CowMode::StaticUnique
+            MutationObligation::SameIdentityAdmissible
         } else {
-            CowMode::StaticShared
+            MutationObligation::IsolationRequired
         };
         if mode != expect_mode {
             return fail(format!(
@@ -1516,7 +1529,7 @@ fn verify_rl10_disjoint_field_mutation() -> EngineResult {
                 row.label, expect_mode, mode
             ));
         }
-        if !cow_mode_preserves_value_semantics(mode, Uniq::Unique, false, can_mutate) {
+        if !mutation_obligation_preserves_value_semantics(mode, Uniq::Unique, false, can_mutate) {
             return fail(format!(
                 "RL-10 (P2) soundness: '{}' selected {:?} but it does not preserve value semantics",
                 row.label, mode
@@ -1527,8 +1540,7 @@ fn verify_rl10_disjoint_field_mutation() -> EngineResult {
     // Negative-direction witness: in-place on a SetTag with ANY active borrow
     // (even disjoint) corrupts the borrow via the variant-layout change — the
     // field-aware DP-5 must REFUSE in-place.
-    let settag_can_mutate =
-        can_mutate_in_place(Access::Owned, Uniq::Unique, true, true, true);
+    let settag_can_mutate = can_mutate_in_place(Access::Owned, Uniq::Unique, true, true, true);
     if settag_can_mutate {
         return fail(
             "RL-10 negative witness: SetTag with a disjoint-field borrow was wrongly allowed in-place (SetTag must overlap ALL fields)".to_string(),
@@ -1543,17 +1555,13 @@ fn verify_rl10_disjoint_field_mutation() -> EngineResult {
 }
 
 // ============================================================================
-// §08.3 Allocation-reuse substrate — DP-6 eligibility + structural conditions
+// §08.3 donor/recipient owner-credit transfer
 // ============================================================================
 //
-// Per Annex E §AIMS Allocation Reuse (RL-11 / RL-11a / RL-12, RL-13
-// REMOVED), a dying value's allocation may be reused for a fresh same-type
-// allocation iff the dying value is the provable sole owner at death AND no
-// live alias observes the reused memory. Reuse eligibility is DP-6
-// (is_reuse_candidate); the structural conditions (Reset-precedes-Reuse,
-// no-intervening-hazard, dominance / post-dominance / no-throw) gate WHERE
-// the reuse is sound. The case_analysis engine enumerates the condition grid
-// per branch with a closed-world coverage check.
+// RL-11/RL-12 freeze when a dying donor's owner credit may transfer to a fresh
+// recipient: one-owner evidence, donor-before-recipient ordering, and no path
+// hazard. Storage identity, Reset/Reuse instructions, and allocation placement
+// are projection details checked separately.
 //
 // Shipped: emit_reuse/detect.rs + emit_reuse/planner.rs + emit_reuse/fip.rs +
 // emit_reuse/dynamic.rs (RL-11a IsShared branch); realize/mod.rs::realize_rc_reuse
@@ -1563,246 +1571,247 @@ fn verify_rl10_disjoint_field_mutation() -> EngineResult {
 /// Shape ≠ NonReusable` (Appendix C DP-6). A Shared value can never be reused
 /// (an alias would observe the reused memory); a NonReusable shape (Tuple /
 /// Closure) has no constructor to reuse.
-fn is_reuse_candidate(access: Access, uniqueness: Uniq, shape_reusable: bool) -> bool {
+fn is_credit_transfer_candidate(access: Access, uniqueness: Uniq, shape_reusable: bool) -> bool {
     access == Access::Owned && uniqueness != Uniq::Shared && shape_reusable
 }
 
 // ----------------------------------------------------------------------------
-// RL-11: same-block reuse — conditions (a) + (b) + (c)
+// RL-11: same-block donor/recipient credit transfer
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-11: same-block reuse SHALL fire iff
-// (a) a Reset precedes the Reuse,
+// The neutral relation holds iff
+// (a) the donor precedes the recipient,
 // (b) no intervening instruction may throw, may allocate, or may use the
 // dying value or any alias of it (project_alias_sources), AND
 // (c) the dying value's Uniqueness = Unique (non-unique reuse corrupts
 // aliases).
-// Soundness: when (a)+(b)+(c) hold, the dying allocation is the provable sole
-// owner with no live alias observing the reused bytes, so reusing it for the
-// fresh same-type allocation is observably equivalent to a fresh allocation +
-// separate free.
+// Soundness: the donor has exactly one credit and no observer can distinguish
+// credit transfer from independent donor cleanup plus recipient birth.
 
 fn verify_rl11_same_block_reuse() -> EngineResult {
     struct Row {
         label: &'static str,
-        reset_precedes_reuse: bool,
+        donor_precedes_recipient: bool,
         no_intervening_hazard: bool,
         dying_unique: bool,
-        expect_reuse: bool,
+        expect_credit_transfer: bool,
     }
     let grid: &[Row] = &[
         // All three conditions hold -> reuse fires (sound).
         Row {
-            label: "abc_all_hold_reuse",
-            reset_precedes_reuse: true,
+            label: "abc_all_hold_credit_transfer",
+            donor_precedes_recipient: true,
             no_intervening_hazard: true,
             dying_unique: true,
-            expect_reuse: true,
+            expect_credit_transfer: true,
         },
-        // (a) violated: Reuse without a preceding Reset -> no reuse.
+        // (a) violated: recipient can precede donor -> no transfer.
         Row {
-            label: "no_reset_no_reuse",
-            reset_precedes_reuse: false,
+            label: "recipient_before_donor_no_transfer",
+            donor_precedes_recipient: false,
             no_intervening_hazard: true,
             dying_unique: true,
-            expect_reuse: false,
+            expect_credit_transfer: false,
         },
         // (b) violated: an intervening hazard (throw / alloc / alias use) ->
         // no reuse (the dying value or an alias may still be observed).
         Row {
-            label: "intervening_hazard_no_reuse",
-            reset_precedes_reuse: true,
+            label: "intervening_hazard_no_transfer",
+            donor_precedes_recipient: true,
             no_intervening_hazard: false,
             dying_unique: true,
-            expect_reuse: false,
+            expect_credit_transfer: false,
         },
         // (c) violated: dying value not Unique -> no reuse (an alias would be
         // corrupted by the in-place reuse).
         Row {
-            label: "non_unique_no_reuse",
-            reset_precedes_reuse: true,
+            label: "non_unique_no_transfer",
+            donor_precedes_recipient: true,
             no_intervening_hazard: true,
             dying_unique: false,
-            expect_reuse: false,
+            expect_credit_transfer: false,
         },
     ];
     let mut checked: u64 = 0;
     for row in grid {
         // DP-6 eligibility: Owned + (Unique => not Shared) + reusable shape.
-        let uniqueness = if row.dying_unique { Uniq::Unique } else { Uniq::MaybeShared };
-        let dp6 = is_reuse_candidate(Access::Owned, uniqueness, true);
-        let fires = dp6 && row.reset_precedes_reuse && row.no_intervening_hazard && row.dying_unique;
-        if fires != row.expect_reuse {
+        let uniqueness = if row.dying_unique {
+            Uniq::Unique
+        } else {
+            Uniq::MaybeShared
+        };
+        let dp6 = is_credit_transfer_candidate(Access::Owned, uniqueness, true);
+        let transfer_fires =
+            dp6 && row.donor_precedes_recipient && row.no_intervening_hazard && row.dying_unique;
+        if transfer_fires != row.expect_credit_transfer {
             return fail(format!(
-                "RL-11: '{}' expected reuse={} but conditions (a)+(b)+(c)+DP-6 yield {}",
-                row.label, row.expect_reuse, fires
+                "RL-11: '{}' expected credit_transfer={} but conditions (a)+(b)+(c)+DP-6 yield {}",
+                row.label, row.expect_credit_transfer, transfer_fires
             ));
         }
         checked += 1;
     }
     // Negative-direction witness: a non-Unique dying value with (a)+(b) holding
     // must NOT reuse — a live alias would observe the reused bytes.
-    let neg = is_reuse_candidate(Access::Owned, Uniq::Shared, true) && true && true && false;
+    let neg =
+        is_credit_transfer_candidate(Access::Owned, Uniq::Shared, true) && true && true && false;
     if neg {
         return fail(
-            "RL-11 negative witness: a Shared dying value was wrongly marked reuse-eligible".to_string(),
+            "RL-11 negative witness: a Shared donor was wrongly marked credit-transfer-eligible"
+                .to_string(),
         );
     }
     require_count(
         "RL-11",
         4,
         checked,
-        "(P1/P2) same-block reuse conditions (a)+(b)+(c) over the eligibility grid + DP-6; negative witness: non-unique never reuses",
+        "(P1/P2) same-block donor/recipient credit-transfer conditions; negative witness: non-unique donor never transfers",
     )
 }
 
 // ----------------------------------------------------------------------------
-// RL-11a: dynamic reuse for MaybeShared — IsShared check; unique fast / shared slow
+// RL-11a: sharing-observation outcomes for a MaybeShared donor
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-11a: "Dynamic reuse for MaybeShared: emit
-// IsShared check; unique -> Reset/Reuse fast path, shared -> fresh allocation
-// slow path. Requires DP-6 eligibility." Soundness: the runtime IsShared
-// check selects reuse only on the RC == 1 branch (sole owner) and a fresh
-// allocation on the RC > 1 branch (an alias exists), preserving correctness
-// on both branches.
+// The sharing observation admits donor/recipient credit transfer only on the
+// one-owner outcome. Multiple owners require an independent logical birth.
 
 fn verify_rl11a_dynamic_reuse() -> EngineResult {
     // DP-6 eligibility for MaybeShared (Owned, not Shared, reusable shape).
-    if !is_reuse_candidate(Access::Owned, Uniq::MaybeShared, true) {
-        return fail("RL-11a: MaybeShared owned reusable value must be DP-6 reuse-eligible".to_string());
+    if !is_credit_transfer_candidate(Access::Owned, Uniq::MaybeShared, true) {
+        return fail(
+            "RL-11a: MaybeShared owned reusable value must be DP-6 reuse-eligible".to_string(),
+        );
     }
-    // Model the runtime IsShared branch: unique (RC==1) -> reuse fast path;
-    // shared (RC>1) -> fresh-allocation slow path. Both branches sound.
+    // Model the sharing-observation branch: one owner -> reuse fast path;
+    // multiple owners -> independent-birth slow path. Both branches are sound.
     let mut checked: u64 = 0;
-    for runtime_unique in [true, false] {
-        // reuse fires only on the unique runtime branch.
-        let reuse_fires = runtime_unique;
-        // Soundness: reuse only when sole owner; fresh alloc otherwise.
-        let sound = if runtime_unique { reuse_fires } else { !reuse_fires };
+    for one_owner_observed in [true, false] {
+        let credit_transfer_fires = one_owner_observed;
+        let sound = if one_owner_observed {
+            credit_transfer_fires
+        } else {
+            !credit_transfer_fires
+        };
         if !sound {
             return fail(format!(
-                "RL-11a: dynamic-reuse branch unsound for runtime_unique={} (reuse_fires={})",
-                runtime_unique, reuse_fires
+                "RL-11a: observation outcome unsound for one_owner_observed={} (credit_transfer_fires={})",
+                one_owner_observed, credit_transfer_fires
             ));
         }
         checked += 1;
     }
-    // Negative-direction witness: reusing on the shared runtime branch (RC>1)
+    // Negative-direction witness: reusing on the multiple-owner branch
     // would corrupt the alias — must NOT fire.
-    let shared_branch_reuses = false; // RL-11a takes the fresh-alloc slow path.
-    if shared_branch_reuses {
+    let multiple_owner_outcome_transfers = false;
+    if multiple_owner_outcome_transfers {
         return fail(
-            "RL-11a negative witness: reuse fired on the shared (RC>1) runtime branch".to_string(),
+            "RL-11a negative witness: credit transfer fired for multiple logical owners"
+                .to_string(),
         );
     }
     require_count(
         "RL-11a",
         2,
         checked,
-        "(P1/P2) dynamic-reuse runtime branches (unique fast path reuses; shared slow path fresh-allocates)",
+        "(P1/P2) sharing-observation outcomes (one owner may transfer; multiple owners require independent birth)",
     )
 }
 
 // ----------------------------------------------------------------------------
-// RL-12: cross-block reuse — dominance + post-dominance + same loop + no-throw
+// RL-12: cross-block donor/recipient credit transfer
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-12: cross-block reuse SHALL fire iff the death
-// block DOMINATES the allocation block AND the allocation block
-// POST-DOMINATES the death block (EXCLUDING unwind edges) AND both share the
-// same innermost loop header (or neither is in a loop) AND the dying value is
-// statically Unique AND no block on the path between Reset and Reuse contains
-// a potentially-throwing instruction (token leak prevention). Soundness: the
-// dominance + post-dominance pair guarantees the reuse executes exactly when
-// the death did; the same-loop constraint prevents multiplicity mismatch; the
-// no-throw constraint prevents the reuse token leaking on an unwind.
+// The donor must dominate the recipient, the recipient must post-dominate the
+// donor on normal paths, both must share loop multiplicity, the donor must have
+// one owner, and no unwind may strand the transfer. Physical storage reuse is
+// a later projection of this relation.
 
 fn verify_rl12_cross_block_reuse() -> EngineResult {
     struct Row {
         label: &'static str,
-        death_dominates_alloc: bool,
-        alloc_postdominates_death: bool,
+        donor_dominates_recipient: bool,
+        recipient_postdominates_donor: bool,
         same_innermost_loop: bool,
         dying_unique: bool,
         no_throw_on_path: bool,
-        expect_reuse: bool,
+        expect_credit_transfer: bool,
     }
     let grid: &[Row] = &[
         // All constraints hold -> cross-block reuse fires (sound).
         Row {
-            label: "all_constraints_hold_reuse",
-            death_dominates_alloc: true,
-            alloc_postdominates_death: true,
+            label: "all_constraints_hold_credit_transfer",
+            donor_dominates_recipient: true,
+            recipient_postdominates_donor: true,
             same_innermost_loop: true,
             dying_unique: true,
             no_throw_on_path: true,
-            expect_reuse: true,
+            expect_credit_transfer: true,
         },
         // Dominance violated -> no reuse (the reuse may execute without the
         // death having happened).
         Row {
-            label: "no_dominance_no_reuse",
-            death_dominates_alloc: false,
-            alloc_postdominates_death: true,
+            label: "no_dominance_no_transfer",
+            donor_dominates_recipient: false,
+            recipient_postdominates_donor: true,
             same_innermost_loop: true,
             dying_unique: true,
             no_throw_on_path: true,
-            expect_reuse: false,
+            expect_credit_transfer: false,
         },
         // Post-dominance violated -> no reuse (the death may execute without
         // the reuse).
         Row {
-            label: "no_postdominance_no_reuse",
-            death_dominates_alloc: true,
-            alloc_postdominates_death: false,
+            label: "no_postdominance_no_transfer",
+            donor_dominates_recipient: true,
+            recipient_postdominates_donor: false,
             same_innermost_loop: true,
             dying_unique: true,
             no_throw_on_path: true,
-            expect_reuse: false,
+            expect_credit_transfer: false,
         },
         // Different loop -> no reuse (multiplicity mismatch).
         Row {
-            label: "different_loop_no_reuse",
-            death_dominates_alloc: true,
-            alloc_postdominates_death: true,
+            label: "different_loop_no_transfer",
+            donor_dominates_recipient: true,
+            recipient_postdominates_donor: true,
             same_innermost_loop: false,
             dying_unique: true,
             no_throw_on_path: true,
-            expect_reuse: false,
+            expect_credit_transfer: false,
         },
         // Throw on path -> no reuse (token leak on unwind).
         Row {
-            label: "throw_on_path_no_reuse",
-            death_dominates_alloc: true,
-            alloc_postdominates_death: true,
+            label: "throw_on_path_no_transfer",
+            donor_dominates_recipient: true,
+            recipient_postdominates_donor: true,
             same_innermost_loop: true,
             dying_unique: true,
             no_throw_on_path: false,
-            expect_reuse: false,
+            expect_credit_transfer: false,
         },
         // Non-unique -> no reuse (alias corruption).
         Row {
-            label: "non_unique_no_reuse",
-            death_dominates_alloc: true,
-            alloc_postdominates_death: true,
+            label: "non_unique_no_transfer",
+            donor_dominates_recipient: true,
+            recipient_postdominates_donor: true,
             same_innermost_loop: true,
             dying_unique: false,
             no_throw_on_path: true,
-            expect_reuse: false,
+            expect_credit_transfer: false,
         },
     ];
     let mut checked: u64 = 0;
     for row in grid {
-        let fires = row.death_dominates_alloc
-            && row.alloc_postdominates_death
+        let transfer_fires = row.donor_dominates_recipient
+            && row.recipient_postdominates_donor
             && row.same_innermost_loop
             && row.dying_unique
             && row.no_throw_on_path;
-        if fires != row.expect_reuse {
+        if transfer_fires != row.expect_credit_transfer {
             return fail(format!(
-                "RL-12: '{}' expected reuse={} but the dominance/post-dominance/loop/unique/no-throw conjunction yields {}",
-                row.label, row.expect_reuse, fires
+                "RL-12: '{}' expected credit_transfer={} but the dominance/post-dominance/loop/unique/no-throw conjunction yields {}",
+                row.label, row.expect_credit_transfer, transfer_fires
             ));
         }
         checked += 1;
@@ -1811,16 +1820,16 @@ fn verify_rl12_cross_block_reuse() -> EngineResult {
         "RL-12",
         6,
         checked,
-        "(P1/P2) cross-block reuse constraint conjunction (1 fires + 5 each-constraint-violated suppressions)",
+        "(P1/P2) cross-block donor/recipient transfer conjunction (1 fires + 5 each-constraint-violated suppressions)",
     )
 }
 
 // ----------------------------------------------------------------------------
-// RL-13: REMOVED — Construct + Once does NOT imply RC == 1 at death
+// RL-13: REMOVED — Construct + Once does NOT imply one logical owner at death
 // ----------------------------------------------------------------------------
 //
 // Per Annex E §AIMS RL-13 (REMOVED, same root cause as DP-10): the
-// former rule claimed `Construct + Cardinality = Once => RC == 1 at death`.
+// former rule claimed `Construct + Cardinality = Once => one logical owner at death`.
 // This is UNSOUND — one use may be "store into a data structure" (which
 // creates an alias via RcInc), so Construct + Once alone does not guarantee
 // the value is the sole owner at death. Reuse eligibility is established
@@ -1841,7 +1850,10 @@ fn verify_rl13_removal_confirmation() -> EngineResult {
     // reuse-eligible-as-unique (RL-11 requires dying_unique = Unique).
     let aliased_unique = Uniq::MaybeShared == Uniq::Unique; // false — aliased.
     if aliased_unique {
-        return fail("RL-13 removal: an aliased (MaybeShared) Construct+Once value must not be Unique".to_string());
+        return fail(
+            "RL-13 removal: an aliased (MaybeShared) Construct+Once value must not be Unique"
+                .to_string(),
+        );
     }
     checked += 1;
 
@@ -1853,7 +1865,8 @@ fn verify_rl13_removal_confirmation() -> EngineResult {
     let construct_once_implies_unique = false; // the REMOVED (unsound) claim.
     if construct_once_implies_unique {
         return fail(
-            "RL-13 removal: Construct + Once must NOT imply RC == 1 / Unique at death (the DP-10 root-cause unsoundness)".to_string(),
+            "RL-13 removal: Construct + Once must not imply one logical owner / Unique at death"
+                .to_string(),
         );
     }
     checked += 1;
@@ -1867,19 +1880,13 @@ fn verify_rl13_removal_confirmation() -> EngineResult {
 }
 
 // ============================================================================
-// §08.4 Stack-promotion substrate — Locality-driven allocation strategy
+// §08.4 Backend-neutral allocation facts
 // ============================================================================
 //
-// Per Annex E §AIMS Stack Promotion (RL-14 / RL-14a / RL-15 / RL-15a /
-// RL-16), the allocation strategy is driven by the Locality dimension
-// (§AIMS §3.5) per DP-8 (is_local) + CN-8 (Borrowed locality ceiling). The
-// case_analysis engine enumerates the Locality x Uniqueness x size grid and
-// the RL-15a 4-category callee-contract grid, discharging that each chosen
-// strategy correctly handles RC ownership.
-//
-// Shipped: realize/project_escape.rs (escape-driven field RcDec) +
-// realize/decide.rs (Locality consumption); repr.md sec-RH-3 heap-vs-stack
-// classification. RL-15a is the CRITICAL rule sec-11 + the burden-prototype C5 build on.
+// AIMS freezes logical allocation identity, lifetime, owner bounds, exact
+// ownership-observation and cleanup events, thread reachability, and visibility. Extent is
+// separate representation evidence. Physical planners prove capability
+// satisfaction before selecting target mechanisms.
 
 /// Locality dimension (Annex E §AIMS.5).
 /// BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping < Unknown.
@@ -1892,579 +1899,504 @@ enum Loc {
     Unknown,
 }
 
-impl Loc {
-    fn rank(self) -> u32 {
-        match self {
-            Loc::BlockLocal => 0,
-            Loc::FunctionLocal => 1,
-            Loc::ArgEscaping => 2,
-            Loc::HeapEscaping => 3,
-            Loc::Unknown => 4,
-        }
-    }
-}
-
-/// DP-8: `is_local(s) ⟺ Locality ∈ {BlockLocal, FunctionLocal}` (Appendix C
-/// DP-8). ArgEscaping is NOT local (it escapes into the callee).
-fn is_local(loc: Loc) -> bool {
-    matches!(loc, Loc::BlockLocal | Loc::FunctionLocal)
-}
-
-/// CN-8: `Access = Borrowed ∧ Locality > FunctionLocal ⟹ Locality :=
-/// FunctionLocal` (Annex E §AIMS CN-8 + Appendix B). A Borrowed value
-/// is clamped to at most FunctionLocal — it can NEVER reach ArgEscaping.
-fn cn8_clamp(access: Access, loc: Loc) -> Loc {
-    if access == Access::Borrowed && loc.rank() > Loc::FunctionLocal.rank() {
-        Loc::FunctionLocal
-    } else {
-        loc
-    }
-}
-
-/// Allocation strategy selected by the stack-promotion rules.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum AllocStrategy {
-    /// RL-14: headerless `alloca`, no RC header, no RC ops.
-    HeaderlessStack,
-    /// RL-14a: `alloca` WITH RC header initialized to MAX_REFCOUNT (immortal).
-    ImmortalHeaderStack,
-    /// RL-15: function-local bump allocator (dynamic size).
-    BumpAlloc,
-    /// RL-15a category 1: caller-stack, headerless (Borrowed+Unique+!may_share).
-    CallerStackHeaderless,
-    /// RL-15a categories 2/3: caller-stack WITH immortal RC header.
-    CallerStackImmortal,
-    /// RL-16: heap allocation with full RC header.
-    Heap,
+enum CallerProtocol {
+    BorrowOnly,
+    MayShare,
+    OwnershipTransfer,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct CallerUse {
+    site: u32,
+    protocol: CallerProtocol,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum LifetimeBound {
+    Block(u32),
+    Function,
+    CallerExtent(Vec<CallerUse>),
+    Escaping,
+    Unknown,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum OwnerBound {
+    /// `Bounded(extra)` means at most `extra + 1` simultaneous owners.
+    Bounded(u64),
+    Unbounded,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct ExactOwnershipObservationFacts {
+    sharing_observation_events: Vec<u32>,
+    additional_credit_events: Vec<u32>,
+    release_events: Vec<u32>,
+    externally_observable: bool,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum OwnershipObservationFacts {
+    Exact(ExactOwnershipObservationFacts),
+    Unknown,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct ExactCleanupObligation {
+    release_events: Vec<u32>,
+    drop_plan: Option<u32>,
+    field_order: Vec<u32>,
+    normal_exit_events: Vec<u32>,
+    unwind_exit_events: Vec<u32>,
+    lifetime_end_events: Vec<u32>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum CleanupObligation {
+    Exact(ExactCleanupObligation),
+    Unknown,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ThreadReachability {
+    Confined,
+    PotentiallyShared,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ExternalVisibility {
+    Internal,
+    CrossModule,
+    ForeignOrOpaque,
+    Unknown,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct AllocationFacts {
+    /// Stable logical allocation/birth-site identity, never a storage site.
+    site: u32,
+    locality: Loc,
+    lifetime: LifetimeBound,
+    owners: OwnerBound,
+    ownership_observations: OwnershipObservationFacts,
+    cleanup: CleanupObligation,
+    thread: ThreadReachability,
+    visibility: ExternalVisibility,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ExtentClass {
+    StaticShape(u32),
+    RuntimeSized(u32),
+}
+
+fn lifetime_from_locality(loc: Loc, block: u32, caller_uses: Vec<CallerUse>) -> LifetimeBound {
+    match loc {
+        Loc::BlockLocal => LifetimeBound::Block(block),
+        Loc::FunctionLocal => LifetimeBound::Function,
+        Loc::ArgEscaping if caller_uses.is_empty() => LifetimeBound::Unknown,
+        Loc::ArgEscaping => LifetimeBound::CallerExtent(caller_uses),
+        Loc::HeapEscaping => LifetimeBound::Escaping,
+        Loc::Unknown => LifetimeBound::Unknown,
+    }
+}
+
+fn owner_bound(
+    is_local_unique: bool,
+    additional_credit_events: &[u32],
+    loop_or_global: bool,
+    externally_retainable: bool,
+) -> OwnerBound {
+    if loop_or_global || externally_retainable {
+        OwnerBound::Unbounded
+    } else if is_local_unique {
+        OwnerBound::Bounded(0)
+    } else {
+        OwnerBound::Bounded(additional_credit_events.len() as u64)
+    }
+}
+
+fn thread_reachability_from(loc: Loc, crosses_thread_boundary: bool) -> ThreadReachability {
+    if loc == Loc::Unknown || crosses_thread_boundary {
+        ThreadReachability::PotentiallyShared
+    } else {
+        ThreadReachability::Confined
+    }
+}
+
+fn unknown_allocation_facts(site: u32) -> AllocationFacts {
+    AllocationFacts {
+        site,
+        locality: Loc::Unknown,
+        lifetime: LifetimeBound::Unknown,
+        owners: OwnerBound::Unbounded,
+        ownership_observations: OwnershipObservationFacts::Unknown,
+        cleanup: CleanupObligation::Unknown,
+        thread: ThreadReachability::PotentiallyShared,
+        visibility: ExternalVisibility::Unknown,
+    }
 }
 
 // ----------------------------------------------------------------------------
-// RL-14: non-escaping headerless allocation (Locality <= FunctionLocal, Unique)
+// RL-14: lifetime from the converged Locality fact
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-14: non-escaping allocations
-// (Locality <= FunctionLocal AND Uniqueness = Unique) with fixed size SHALL
-// be stack-allocated via alloca with NO RC header and NO RC ops; stack
-// dealloc at scope exit. Owned reference-type FIELDS receive explicit RcDec
-// in REVERSE declaration order at scope exit (VF-1 exempts these field-drop
-// Project+RcDec from DecOnBorrowed). Uniqueness = Unique is load-bearing: a
-// MaybeShared headerless stack value crashes on IsShared (DP-4).
+// Block, function, caller, escaping, and unknown lifetimes are logical bounds.
 
-fn verify_rl14_headerless_stack() -> EngineResult {
-    struct Row {
-        label: &'static str,
-        loc: Loc,
-        uniqueness: Uniq,
-        fixed_size: bool,
-        expect: AllocStrategy,
-    }
-    let grid: &[Row] = &[
-        // BlockLocal + Unique + fixed -> headerless stack.
-        Row {
-            label: "blocklocal_unique_fixed_headerless",
-            loc: Loc::BlockLocal,
-            uniqueness: Uniq::Unique,
-            fixed_size: true,
-            expect: AllocStrategy::HeaderlessStack,
-        },
-        // FunctionLocal + Unique + fixed -> headerless stack.
-        Row {
-            label: "functionlocal_unique_fixed_headerless",
-            loc: Loc::FunctionLocal,
-            uniqueness: Uniq::Unique,
-            fixed_size: true,
-            expect: AllocStrategy::HeaderlessStack,
-        },
-        // Local + NON-unique -> RL-14a immortal-header stack (NOT headerless;
-        // MaybeShared headerless would crash on IsShared).
-        Row {
-            label: "local_maybeshared_immortal_header",
-            loc: Loc::FunctionLocal,
-            uniqueness: Uniq::MaybeShared,
-            fixed_size: true,
-            expect: AllocStrategy::ImmortalHeaderStack,
-        },
-        // Local + Unique + DYNAMIC size -> RL-15 bump allocator.
-        Row {
-            label: "local_unique_dynamic_bump",
-            loc: Loc::BlockLocal,
-            uniqueness: Uniq::Unique,
-            fixed_size: false,
-            expect: AllocStrategy::BumpAlloc,
-        },
-        // Escaping -> RL-16 heap (not local).
-        Row {
-            label: "heapescaping_heap",
-            loc: Loc::HeapEscaping,
-            uniqueness: Uniq::Unique,
-            fixed_size: true,
-            expect: AllocStrategy::Heap,
-        },
+fn verify_rl14_lifetime_facts() -> EngineResult {
+    let caller_use = CallerUse {
+        site: 31,
+        protocol: CallerProtocol::BorrowOnly,
+    };
+    let rows = [
+        (
+            "block_lifetime",
+            lifetime_from_locality(Loc::BlockLocal, 7, vec![]),
+            LifetimeBound::Block(7),
+        ),
+        (
+            "function_lifetime",
+            lifetime_from_locality(Loc::FunctionLocal, 7, vec![]),
+            LifetimeBound::Function,
+        ),
+        (
+            "caller_extent_lifetime",
+            lifetime_from_locality(Loc::ArgEscaping, 7, vec![caller_use.clone()]),
+            LifetimeBound::CallerExtent(vec![caller_use]),
+        ),
+        (
+            "escaping_lifetime",
+            lifetime_from_locality(Loc::HeapEscaping, 7, vec![]),
+            LifetimeBound::Escaping,
+        ),
+        (
+            "unknown_lifetime",
+            lifetime_from_locality(Loc::Unknown, 7, vec![]),
+            LifetimeBound::Unknown,
+        ),
     ];
-    let mut checked: u64 = 0;
-    for row in grid {
-        let strategy = stack_strategy(row.loc, row.uniqueness, row.fixed_size);
-        if strategy != row.expect {
+    let mut checked = 0;
+    for (label, got, expected) in rows {
+        if got != expected {
             return fail(format!(
-                "RL-14: '{}' expected {:?} got {:?}",
-                row.label, row.expect, strategy
+                "RL-14: '{label}' expected {expected:?} got {got:?}"
             ));
         }
         checked += 1;
-    }
-    // Negative-direction witness: a headerless stack for a MaybeShared local
-    // would crash on IsShared (DP-4) — the strategy MUST be immortal-header,
-    // never headerless.
-    if stack_strategy(Loc::FunctionLocal, Uniq::MaybeShared, true) == AllocStrategy::HeaderlessStack {
-        return fail(
-            "RL-14 negative witness: a MaybeShared local was wrongly assigned a headerless stack (would crash on IsShared)".to_string(),
-        );
     }
     require_count(
         "RL-14",
         5,
         checked,
-        "(P1/P2) Locality x Uniqueness x size strategy grid (headerless only for local+Unique+fixed)",
+        "Locality derives a conservative logical LifetimeBound without selecting physical placement",
     )
 }
 
-/// The non-escaping (`is_local`) allocation-strategy selector covering
-/// RL-14 / RL-14a / RL-15 / RL-16. ArgEscaping is handled separately by
-/// RL-15a (see `rl15a_strategy`).
-fn stack_strategy(loc: Loc, uniqueness: Uniq, fixed_size: bool) -> AllocStrategy {
-    if !is_local(loc) {
-        // ArgEscaping is RL-15a's domain; HeapEscaping/Unknown -> RL-16 heap.
-        return if loc == Loc::ArgEscaping {
-            // Caller-side promotion is RL-15a; modeled there. For the
-            // non-RL-15a selector, ArgEscaping falls back to heap.
-            AllocStrategy::Heap
-        } else {
-            AllocStrategy::Heap
-        };
-    }
-    if !fixed_size {
-        // RL-15: dynamic-size non-escaping -> function-local bump allocator.
-        return AllocStrategy::BumpAlloc;
-    }
-    match uniqueness {
-        // RL-14: fixed-size, local, Unique -> headerless stack.
-        Uniq::Unique => AllocStrategy::HeaderlessStack,
-        // RL-14a: fixed-size, local, non-Unique -> immortal-header stack.
-        Uniq::MaybeShared | Uniq::Shared => AllocStrategy::ImmortalHeaderStack,
-    }
-}
-
 // ----------------------------------------------------------------------------
-// RL-14a: non-escaping fixed-size NON-unique -> alloca with immortal RC header
+// RL-14a: exact cleanup obligation
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-14a: a non-escaping fixed-size value with
-// Uniqueness != Unique (Locality <= FunctionLocal) SHALL be alloca'd WITH an
-// RC header initialized to MAX_REFCOUNT (immortal — prevents a free on the
-// stack pointer). Heap children receive field-level RcDec per RL-14. The
-// immortal header lets the value answer IsShared (DP-4) without a heap
-// allocation while preventing the stack pointer from being freed.
+// Release-event, drop-plan, traversal-order, and exit identities remain exact.
 
-fn verify_rl14a_immortal_header_stack() -> EngineResult {
-    let mut checked: u64 = 0;
-    for uniqueness in [Uniq::MaybeShared, Uniq::Shared] {
-        let strategy = stack_strategy(Loc::FunctionLocal, uniqueness, true);
-        if strategy != AllocStrategy::ImmortalHeaderStack {
-            return fail(format!(
-                "RL-14a: local non-unique ({:?}) expected ImmortalHeaderStack got {:?}",
-                uniqueness, strategy
-            ));
-        }
-        checked += 1;
+fn verify_rl14a_cleanup_obligation() -> EngineResult {
+    let cleanup = ExactCleanupObligation {
+        release_events: vec![41, 42],
+        drop_plan: Some(9),
+        field_order: vec![3, 2, 1],
+        normal_exit_events: vec![41, 42],
+        unwind_exit_events: vec![41, 42],
+        lifetime_end_events: vec![42],
+    };
+    let mut checked = 0;
+    if cleanup
+        .release_events
+        .iter()
+        .any(|event| !cleanup.normal_exit_events.contains(event))
+    {
+        return fail("RL-14a: normal-exit cleanup omits a logical release event".to_string());
     }
-    // Soundness: the immortal MAX_REFCOUNT header means a callee/consumer RcDec
-    // is a no-op (never reaches 0 -> never frees the stack pointer), and an
-    // IsShared check reads a valid header. A headerless alternative would
-    // crash on IsShared. Negative witness:
-    if stack_strategy(Loc::FunctionLocal, Uniq::MaybeShared, true) == AllocStrategy::HeaderlessStack {
-        return fail(
-            "RL-14a negative witness: non-unique local must NOT be headerless".to_string(),
-        );
+    checked += 1;
+    if cleanup
+        .release_events
+        .iter()
+        .any(|event| !cleanup.unwind_exit_events.contains(event))
+    {
+        return fail("RL-14a: unwind cleanup omits a logical release event".to_string());
     }
+    checked += 1;
+    if cleanup.field_order != [3, 2, 1] || cleanup.drop_plan != Some(9) {
+        return fail("RL-14a: cleanup changed drop-plan or field-order identity".to_string());
+    }
+    checked += 1;
+    if cleanup.lifetime_end_events != [42] {
+        return fail("RL-14a: cleanup changed logical lifetime-end identity".to_string());
+    }
+    checked += 1;
     require_count(
         "RL-14a",
-        2,
+        4,
         checked,
-        "(P1/P2) non-unique local fixed-size -> immortal-header stack (MaybeShared + Shared)",
+        "exact release, drop-plan, order, and lifetime-end identities cover normal and unwind exits",
     )
 }
 
 // ----------------------------------------------------------------------------
-// RL-15: non-escaping dynamic-size -> function-local bump allocator
+// RL-15: representation-owned extent evidence
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-15: non-escaping dynamic-size values
-// (Locality <= FunctionLocal) SHALL use a function-local bump allocator;
-// bump objects retain RC headers if Uniqueness != Unique; the bump region is
-// freed at function return. Soundness: a function-local bump region cannot
-// outlive the function (non-escaping), so freeing it at return releases every
-// bump object exactly once.
+// StaticShape and RuntimeSized evidence are projection inputs, not AIMS facts.
 
-fn verify_rl15_bump_allocator() -> EngineResult {
-    let mut checked: u64 = 0;
-    for loc in [Loc::BlockLocal, Loc::FunctionLocal] {
-        for uniqueness in [Uniq::Unique, Uniq::MaybeShared] {
-            let strategy = stack_strategy(loc, uniqueness, false);
-            if strategy != AllocStrategy::BumpAlloc {
-                return fail(format!(
-                    "RL-15: local dynamic-size ({:?}, {:?}) expected BumpAlloc got {:?}",
-                    loc, uniqueness, strategy
-                ));
-            }
-            checked += 1;
+fn verify_rl15_extent_seam() -> EngineResult {
+    let facts = unknown_allocation_facts(17);
+    let extents = [ExtentClass::StaticShape(5), ExtentClass::RuntimeSized(8)];
+    let mut checked = 0;
+    for extent in extents {
+        let projection_input = (facts.clone(), extent);
+        if projection_input.0 != facts {
+            return fail("RL-15: representation extent changed frozen AIMS facts".to_string());
         }
-    }
-    // Negative witness: an ESCAPING dynamic-size value must NOT use the
-    // function-local bump (it would dangle after the bump region is freed at
-    // return) -> heap.
-    if stack_strategy(Loc::HeapEscaping, Uniq::Unique, false) == AllocStrategy::BumpAlloc {
-        return fail(
-            "RL-15 negative witness: an escaping dynamic-size value was wrongly bump-allocated (dangles after return)".to_string(),
-        );
+        checked += 1;
     }
     require_count(
         "RL-15",
-        4,
+        2,
         checked,
-        "(P1/P2) local dynamic-size -> bump allocator (Block/Function x Unique/MaybeShared)",
+        "ExtentClass is separate representation evidence and cannot mutate AllocationFacts",
     )
 }
 
 // ----------------------------------------------------------------------------
-// RL-15a (CRITICAL): ArgEscaping caller-stack allocation — 4 categories
+// RL-15a: exact nonempty caller-use extent
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-15a: ArgEscaping values (Locality = ArgEscaping)
-// SHALL be stack-allocated in the CALLER. The header decision depends on the
-// CALLEE's parameter contract (NOT the caller's Access, which is
-// Owned+ArgEscaping):
-// (1) callee Borrowed + Unique + may_share=false -> headerless caller-stack
-// (no RC ops; heap children field-RcDec at caller scope exit, VF-1
-// exemption). If may_share=true, escalates to category 2.
-// (2) callee Borrowed + != Unique (MaybeShared/Shared), OR Borrowed +
-// may_share=true -> caller-stack WITH immortal RC header (MAX_REFCOUNT);
-// the callee may emit IsShared (DP-4) reading the header.
-// (3) callee Owned -> caller-stack WITH immortal RC header; the callee may
-// emit RcDec (no-op on immortal); the caller owns field cleanup.
-// (4) closure-capture (PartialApply) -> TF-13 promotes Access to Owned only
-// for >= HeapEscaping; CN-8 clamps Borrowed+ArgEscaping ->
-// Borrowed+FunctionLocal, routing the captured variable to RL-14, NOT
-// RL-15a.
-// Two explicit proof obligations:
-// (TF-13) No Borrowed value ever satisfies RL-15a's Locality = ArgEscaping
-// antecedent (CN-8 clamps Borrowed to <= FunctionLocal).
-// (CN-8) "Borrowed callee parameter" in RL-15a refers to the CALLEE's
-// contract, not the value's Access at the caller (caller value =
-// Owned + ArgEscaping; callee receives as Borrowed).
-// CRITICAL: sec-11 coexistence + the burden-prototype C5 build on RL-15a.
+// ArgEscaping freezes stable call-site identities and the protocol exercised
+// at each caller use. Missing caller-use evidence fails closed to Unknown.
 
-/// Callee parameter contract dimensions consumed by RL-15a's category split.
-#[derive(Clone, Copy)]
-struct CalleeContract {
-    access: Access,
-    uniqueness: Uniq,
-    may_share: bool,
-    is_closure_capture: bool,
-}
-
-/// RL-15a strategy for an ArgEscaping caller value, by callee contract.
-fn rl15a_strategy(c: CalleeContract) -> AllocStrategy {
-    // Category 4: closure-capture is routed away from RL-15a entirely.
-    if c.is_closure_capture {
-        // CN-8 clamps Borrowed+ArgEscaping -> Borrowed+FunctionLocal -> RL-14.
-        return AllocStrategy::HeaderlessStack;
-    }
-    match c.access {
-        Access::Borrowed => {
-            // Category 1: Borrowed + Unique + !may_share -> headerless.
-            if c.uniqueness == Uniq::Unique && !c.may_share {
-                AllocStrategy::CallerStackHeaderless
-            } else {
-                // Category 2: Borrowed + !=Unique OR may_share -> immortal.
-                AllocStrategy::CallerStackImmortal
-            }
-        }
-        // Category 3: Owned -> immortal header.
-        Access::Owned => AllocStrategy::CallerStackImmortal,
-    }
-}
-
-fn verify_rl15a_argescaping_caller_stack() -> EngineResult {
-    struct Row {
-        label: &'static str,
-        contract: CalleeContract,
-        expect: AllocStrategy,
-    }
-    let grid: &[Row] = &[
-        // Category 1: Borrowed + Unique + !may_share -> headerless caller-stack.
-        Row {
-            label: "cat1_borrowed_unique_no_share_headerless",
-            contract: CalleeContract {
-                access: Access::Borrowed,
-                uniqueness: Uniq::Unique,
-                may_share: false,
-                is_closure_capture: false,
-            },
-            expect: AllocStrategy::CallerStackHeaderless,
+fn verify_rl15a_caller_extent() -> EngineResult {
+    let uses = vec![
+        CallerUse {
+            site: 11,
+            protocol: CallerProtocol::BorrowOnly,
         },
-        // Category 1 upgrade: Borrowed + Unique + may_share=true -> immortal.
-        Row {
-            label: "cat1_upgrade_borrowed_unique_may_share_immortal",
-            contract: CalleeContract {
-                access: Access::Borrowed,
-                uniqueness: Uniq::Unique,
-                may_share: true,
-                is_closure_capture: false,
-            },
-            expect: AllocStrategy::CallerStackImmortal,
+        CallerUse {
+            site: 17,
+            protocol: CallerProtocol::MayShare,
         },
-        // Category 2: Borrowed + MaybeShared -> immortal caller-stack.
-        Row {
-            label: "cat2_borrowed_maybeshared_immortal",
-            contract: CalleeContract {
-                access: Access::Borrowed,
-                uniqueness: Uniq::MaybeShared,
-                may_share: false,
-                is_closure_capture: false,
-            },
-            expect: AllocStrategy::CallerStackImmortal,
-        },
-        // Category 2: Borrowed + Shared -> immortal caller-stack.
-        Row {
-            label: "cat2_borrowed_shared_immortal",
-            contract: CalleeContract {
-                access: Access::Borrowed,
-                uniqueness: Uniq::Shared,
-                may_share: false,
-                is_closure_capture: false,
-            },
-            expect: AllocStrategy::CallerStackImmortal,
-        },
-        // Category 3: Owned -> immortal caller-stack (callee RcDec no-op).
-        Row {
-            label: "cat3_owned_immortal",
-            contract: CalleeContract {
-                access: Access::Owned,
-                uniqueness: Uniq::Unique,
-                may_share: false,
-                is_closure_capture: false,
-            },
-            expect: AllocStrategy::CallerStackImmortal,
-        },
-        // Category 4: closure-capture -> routed to RL-14 (headerless via CN-8
-        // clamp), NOT RL-15a.
-        Row {
-            label: "cat4_closure_capture_routed_to_rl14",
-            contract: CalleeContract {
-                access: Access::Borrowed,
-                uniqueness: Uniq::Unique,
-                may_share: false,
-                is_closure_capture: true,
-            },
-            expect: AllocStrategy::HeaderlessStack,
+        CallerUse {
+            site: 23,
+            protocol: CallerProtocol::OwnershipTransfer,
         },
     ];
-    let mut checked: u64 = 0;
-    for row in grid {
-        let strategy = rl15a_strategy(row.contract);
-        if strategy != row.expect {
-            return fail(format!(
-                "RL-15a (4-category) : '{}' expected {:?} got {:?}",
-                row.label, row.expect, strategy
-            ));
-        }
-        checked += 1;
+    let lifetime = lifetime_from_locality(Loc::ArgEscaping, 0, uses.clone());
+    if lifetime != LifetimeBound::CallerExtent(uses.clone()) {
+        return fail("RL-15a: caller extent changed call-site or protocol identity".to_string());
     }
-    if let EngineResult {
-        verdict: EngineVerdict::Fail,
-        ..
-    } = require_count(
+    let mut checked = uses.len() as u64;
+    if lifetime_from_locality(Loc::ArgEscaping, 0, vec![]) != LifetimeBound::Unknown {
+        return fail("RL-15a: empty caller-use evidence must fail closed to Unknown".to_string());
+    }
+    checked += 1;
+    require_count(
         "RL-15a",
-        6,
+        4,
         checked,
-        "4-category caller-stack grid (cat1 headerless + cat1-upgrade + cat2 x2 + cat3 + cat4 closure-capture)",
-    ) {
-        return fail(format!(
-            "RL-15a coverage mismatch: expected 6 category cases; verified {}",
-            checked
-        ));
-    }
-
-    // TF-13 / CN-8 proof obligation: no Borrowed value ever satisfies the
-    // RL-15a Locality = ArgEscaping antecedent — CN-8 clamps a
-    // Borrowed+ArgEscaping caller value down to Borrowed+FunctionLocal, which
-    // DP-8 marks local (-> RL-14), so it never reaches RL-15a.
-    let clamped = cn8_clamp(Access::Borrowed, Loc::ArgEscaping);
-    if clamped != Loc::FunctionLocal {
-        return fail(format!(
-            "RL-15a TF-13/CN-8 obligation: a Borrowed+ArgEscaping caller value must clamp to FunctionLocal, got {:?}",
-            clamped
-        ));
-    }
-    if !is_local(clamped) {
-        return fail(
-            "RL-15a TF-13/CN-8 obligation: the CN-8-clamped Borrowed value must be is_local (routed to RL-14, never RL-15a)".to_string(),
-        );
-    }
-    // Confirm the Appendix-B infeasible-state entry: Borrowed ∧ ArgEscaping is
-    // eliminated by CN-8 (never a converged AimsStateMap state).
-    valid()
+        "nonempty CallerExtent preserves borrow, share, and ownership-transfer call-site identities",
+    )
 }
 
 // ----------------------------------------------------------------------------
-// RL-16: escaping heap allocation (Locality >= HeapEscaping)
+// RL-16: conservative unknown facts
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-16: escaping values (Locality >= HeapEscaping)
-// SHALL be heap-allocated with a full RC header. Soundness: a value that
-// outlives its function frame cannot live on the stack; the heap allocation
-// with a full RC header tracks its (possibly shared, possibly multi-frame)
-// lifetime correctly.
+// Missing or conflicting evidence freezes Unknown lifetime and visibility,
+// Unbounded owners, and PotentiallyShared reachability.
 
-fn verify_rl16_escaping_heap() -> EngineResult {
-    let mut checked: u64 = 0;
-    for loc in [Loc::HeapEscaping, Loc::Unknown] {
-        for uniqueness in [Uniq::Unique, Uniq::MaybeShared, Uniq::Shared] {
-            for fixed in [true, false] {
-                let strategy = stack_strategy(loc, uniqueness, fixed);
-                if strategy != AllocStrategy::Heap {
-                    return fail(format!(
-                        "RL-16: escaping ({:?}, {:?}, fixed={}) expected Heap got {:?}",
-                        loc, uniqueness, fixed, strategy
-                    ));
-                }
-                checked += 1;
-            }
-        }
+fn verify_rl16_conservative_unknown() -> EngineResult {
+    let facts = unknown_allocation_facts(77);
+    let mut checked = 0;
+    if facts.lifetime != LifetimeBound::Unknown
+        || facts.owners != OwnerBound::Unbounded
+        || facts.thread != ThreadReachability::PotentiallyShared
+        || facts.visibility != ExternalVisibility::Unknown
+    {
+        return fail("RL-16: missing evidence did not produce conservative facts".to_string());
     }
-    // Negative witness: a heap-escaping value must NOT be stack-promoted (it
-    // would dangle after the frame is popped).
-    if matches!(
-        stack_strategy(Loc::HeapEscaping, Uniq::Unique, true),
-        AllocStrategy::HeaderlessStack | AllocStrategy::ImmortalHeaderStack | AllocStrategy::BumpAlloc
-    ) {
-        return fail(
-            "RL-16 negative witness: a heap-escaping value was wrongly stack-promoted".to_string(),
-        );
+    checked += 1;
+    if facts.ownership_observations != OwnershipObservationFacts::Unknown
+        || facts.cleanup != CleanupObligation::Unknown
+        || facts.locality != Loc::Unknown
+    {
+        return fail("RL-16: unknown logical event or locality evidence was invented".to_string());
     }
+    checked += 1;
     require_count(
         "RL-16",
-        12,
+        2,
         checked,
-        "(P1/P2) escaping (HeapEscaping/Unknown) x Uniqueness x size -> heap allocation",
+        "unknown evidence maps to Unknown/Unbounded/PotentiallyShared without physical defaults",
     )
 }
 
 // ============================================================================
-// §08.5 RC header compression — RL-17 sharing bound + RL-18 width narrowing
+// §08.5 Owner bounds and layout-capability satisfaction
 // ============================================================================
 //
-// Per Annex E §AIMS RC Header Compression (RL-17 / RL-18), the RC header
-// width is narrowed from the proven maximum-simultaneous-RC bound. Shipped:
-// repr.md sec-RH (RC header geometry is CG:RT-2; width policy here);
-// realize/decide.rs sharing-bound inputs. (ori_repr compress_arc_headers is a
-// stubbed pass per repr.md; this is the target-system rule.)
+// RL-17 freezes a dynamic owner upper bound. RL-18 validates a physical
+// planner's capabilities against every frozen fact without selecting the
+// planner's mechanism.
 
-/// RL-17 sharing bound: the maximum simultaneous reference count.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum SharingBound {
-    /// is_local AND Unique -> no header at all (RL-14 headerless).
-    NoHeader,
-    /// Straight-line code with N incs -> at most N + 1 references.
-    Bounded(u64),
-    /// Loops / recursion / global -> unbounded.
-    Unbounded,
+enum ExtentCapability {
+    StaticOnly,
+    RuntimeSized,
 }
 
-/// RL-17: `is_local(s) ∧ Unique → NoHeader`; straight-line N incs ->
-/// Bounded(N + 1); loops / recursion / global reachability -> Unbounded.
-fn rl17_sharing_bound(
-    is_local_unique: bool,
-    straight_line_incs: u64,
-    loop_recursion_or_global: bool,
-) -> SharingBound {
-    if is_local_unique {
-        return SharingBound::NoHeader;
-    }
-    if loop_recursion_or_global {
-        return SharingBound::Unbounded;
-    }
-    SharingBound::Bounded(straight_line_incs + 1)
-}
-
-/// RC header width narrowed per the RL-17 result.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum HeaderWidth {
-    None,
-    I8,
-    I16,
-    I32,
-    I64,
+enum ThreadCapability {
+    ConfinedOnly,
+    SharedSafe,
 }
 
-/// RL-18: header width from the RL-17 bound. ABI-visible types
-/// (dyn Trait / FFI / cross-compilation-unit) ALWAYS use full-width i64.
-fn rl18_header_width(bound: SharingBound, abi_visible: bool) -> HeaderWidth {
-    if abi_visible {
-        // Types observable across the compilation-unit boundary always use
-        // the full-width header (RL-18 ABI-visibility carve-out).
-        return HeaderWidth::I64;
-    }
-    match bound {
-        SharingBound::NoHeader => HeaderWidth::None,
-        SharingBound::Bounded(n) if n <= 127 => HeaderWidth::I8,
-        SharingBound::Bounded(n) if n <= 32_767 => HeaderWidth::I16,
-        SharingBound::Bounded(n) if n <= 2_147_483_647 => HeaderWidth::I32,
-        SharingBound::Bounded(_) => HeaderWidth::I64,
-        SharingBound::Unbounded => HeaderWidth::I64,
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct LayoutCapabilities {
+    site: u32,
+    lifetime_coverage: LifetimeBound,
+    extent_coverage: ExtentCapability,
+    owner_capacity: OwnerBound,
+    ownership_observation_protocol: OwnershipObservationFacts,
+    cleanup_coverage: CleanupObligation,
+    unwind_coverage: bool,
+    thread_safety: ThreadCapability,
+    visibility_coverage: ExternalVisibility,
+    external_contract_id: u32,
+}
+
+fn lifetime_covers(required: &LifetimeBound, provided: &LifetimeBound) -> bool {
+    match (required, provided) {
+        (LifetimeBound::Block(required), LifetimeBound::Block(provided)) => required == provided,
+        (LifetimeBound::Block(_), _) => true,
+        (LifetimeBound::Function, LifetimeBound::Block(_)) => false,
+        (LifetimeBound::Function, _) => true,
+        (LifetimeBound::CallerExtent(required), LifetimeBound::CallerExtent(provided)) => {
+            required == provided
+        }
+        (LifetimeBound::CallerExtent(_), LifetimeBound::Escaping | LifetimeBound::Unknown) => true,
+        (LifetimeBound::CallerExtent(_), _) => false,
+        (LifetimeBound::Escaping, LifetimeBound::Escaping | LifetimeBound::Unknown) => true,
+        (LifetimeBound::Escaping, _) => false,
+        (LifetimeBound::Unknown, LifetimeBound::Unknown) => true,
+        (LifetimeBound::Unknown, _) => false,
     }
 }
 
-fn verify_rl17_sharing_bound() -> EngineResult {
+fn extent_covers(required: ExtentClass, provided: ExtentCapability) -> bool {
+    matches!(required, ExtentClass::StaticShape(_)) || provided == ExtentCapability::RuntimeSized
+}
+
+fn owner_covers(required: OwnerBound, provided: OwnerBound) -> bool {
+    match (required, provided) {
+        (OwnerBound::Bounded(required), OwnerBound::Bounded(provided)) => required <= provided,
+        (OwnerBound::Bounded(_), OwnerBound::Unbounded)
+        | (OwnerBound::Unbounded, OwnerBound::Unbounded) => true,
+        (OwnerBound::Unbounded, OwnerBound::Bounded(_)) => false,
+    }
+}
+
+fn thread_covers(required: ThreadReachability, provided: ThreadCapability) -> bool {
+    required == ThreadReachability::Confined || provided == ThreadCapability::SharedSafe
+}
+
+fn visibility_covers(required: ExternalVisibility, provided: ExternalVisibility) -> bool {
+    match required {
+        ExternalVisibility::Internal => true,
+        ExternalVisibility::CrossModule => matches!(
+            provided,
+            ExternalVisibility::CrossModule
+                | ExternalVisibility::ForeignOrOpaque
+                | ExternalVisibility::Unknown
+        ),
+        ExternalVisibility::ForeignOrOpaque => matches!(
+            provided,
+            ExternalVisibility::ForeignOrOpaque | ExternalVisibility::Unknown
+        ),
+        ExternalVisibility::Unknown => provided == ExternalVisibility::Unknown,
+    }
+}
+
+fn cleanup_needs_unwind(cleanup: &CleanupObligation) -> bool {
+    match cleanup {
+        CleanupObligation::Unknown => true,
+        CleanupObligation::Exact(exact) => !exact.unwind_exit_events.is_empty(),
+    }
+}
+
+fn satisfies(
+    facts: &AllocationFacts,
+    extent: ExtentClass,
+    capabilities: &LayoutCapabilities,
+) -> bool {
+    capabilities.site == facts.site
+        && lifetime_covers(&facts.lifetime, &capabilities.lifetime_coverage)
+        && extent_covers(extent, capabilities.extent_coverage)
+        && owner_covers(facts.owners, capabilities.owner_capacity)
+        && capabilities.ownership_observation_protocol == facts.ownership_observations
+        && capabilities.cleanup_coverage == facts.cleanup
+        && (!cleanup_needs_unwind(&facts.cleanup) || capabilities.unwind_coverage)
+        && thread_covers(facts.thread, capabilities.thread_safety)
+        && visibility_covers(facts.visibility, capabilities.visibility_coverage)
+}
+
+fn verify_rl17_owner_bound() -> EngineResult {
     struct Row {
         label: &'static str,
         is_local_unique: bool,
-        straight_line_incs: u64,
-        loop_recursion_or_global: bool,
-        expect: SharingBound,
+        additional_credit_events: &'static [u32],
+        loop_or_global: bool,
+        externally_retainable: bool,
+        expect: OwnerBound,
     }
     let grid: &[Row] = &[
-        // Local + Unique -> no header.
         Row {
-            label: "local_unique_no_header",
+            label: "local_unique_one_owner",
             is_local_unique: true,
-            straight_line_incs: 0,
-            loop_recursion_or_global: false,
-            expect: SharingBound::NoHeader,
+            additional_credit_events: &[],
+            loop_or_global: false,
+            externally_retainable: false,
+            expect: OwnerBound::Bounded(0),
         },
-        // Straight-line 3 incs -> Bounded(4).
         Row {
-            label: "straight_line_3_incs_bounded_4",
+            label: "three_additional_credits_four_owners",
             is_local_unique: false,
-            straight_line_incs: 3,
-            loop_recursion_or_global: false,
-            expect: SharingBound::Bounded(4),
+            additional_credit_events: &[10, 11, 12],
+            loop_or_global: false,
+            externally_retainable: false,
+            expect: OwnerBound::Bounded(3),
         },
-        // Loop / recursion / global -> Unbounded.
         Row {
-            label: "loop_recursion_global_unbounded",
+            label: "local_unique_loop_unbounded",
+            is_local_unique: true,
+            additional_credit_events: &[],
+            loop_or_global: true,
+            externally_retainable: false,
+            expect: OwnerBound::Unbounded,
+        },
+        Row {
+            label: "external_credit_creation_unbounded",
             is_local_unique: false,
-            straight_line_incs: 5,
-            loop_recursion_or_global: true,
-            expect: SharingBound::Unbounded,
+            additional_credit_events: &[14],
+            loop_or_global: false,
+            externally_retainable: true,
+            expect: OwnerBound::Unbounded,
         },
     ];
-    let mut checked: u64 = 0;
+    let mut checked = 0;
     for row in grid {
-        let got = rl17_sharing_bound(
+        let got = owner_bound(
             row.is_local_unique,
-            row.straight_line_incs,
-            row.loop_recursion_or_global,
+            row.additional_credit_events,
+            row.loop_or_global,
+            row.externally_retainable,
         );
         if got != row.expect {
             return fail(format!(
@@ -2476,400 +2408,438 @@ fn verify_rl17_sharing_bound() -> EngineResult {
     }
     require_count(
         "RL-17",
-        3,
+        4,
         checked,
-        "(P1) sharing-bound classification (no-header / bounded / unbounded)",
+        "dynamic OwnerBound with loop/global and external-retain precedence over local uniqueness",
     )
 }
 
-fn verify_rl18_header_width_narrowing() -> EngineResult {
-    struct Row {
-        label: &'static str,
-        bound: SharingBound,
-        abi_visible: bool,
-        expect: HeaderWidth,
-    }
-    let grid: &[Row] = &[
-        // No header.
-        Row {
-            label: "no_header_none",
-            bound: SharingBound::NoHeader,
-            abi_visible: false,
-            expect: HeaderWidth::None,
-        },
-        // Bounded(4) -> i8.
-        Row {
-            label: "bounded_4_i8",
-            bound: SharingBound::Bounded(4),
-            abi_visible: false,
-            expect: HeaderWidth::I8,
-        },
-        // Bounded(127) boundary -> i8.
-        Row {
-            label: "bounded_127_i8",
-            bound: SharingBound::Bounded(127),
-            abi_visible: false,
-            expect: HeaderWidth::I8,
-        },
-        // Bounded(128) -> i16.
-        Row {
-            label: "bounded_128_i16",
-            bound: SharingBound::Bounded(128),
-            abi_visible: false,
-            expect: HeaderWidth::I16,
-        },
-        // Bounded(40000) -> i32.
-        Row {
-            label: "bounded_40000_i32",
-            bound: SharingBound::Bounded(40_000),
-            abi_visible: false,
-            expect: HeaderWidth::I32,
-        },
-        // Unbounded -> i64.
-        Row {
-            label: "unbounded_i64",
-            bound: SharingBound::Unbounded,
-            abi_visible: false,
-            expect: HeaderWidth::I64,
-        },
-        // ABI-visible ALWAYS full-width i64 regardless of bound.
-        Row {
-            label: "abi_visible_bounded_still_i64",
-            bound: SharingBound::Bounded(4),
-            abi_visible: true,
-            expect: HeaderWidth::I64,
-        },
+fn sample_layout_contract() -> (AllocationFacts, ExtentClass, LayoutCapabilities) {
+    let ownership_observations = OwnershipObservationFacts::Exact(ExactOwnershipObservationFacts {
+        sharing_observation_events: vec![20],
+        additional_credit_events: vec![21],
+        release_events: vec![22],
+        externally_observable: true,
+    });
+    let cleanup = CleanupObligation::Exact(ExactCleanupObligation {
+        release_events: vec![22],
+        drop_plan: Some(4),
+        field_order: vec![2, 1],
+        normal_exit_events: vec![22],
+        unwind_exit_events: vec![22],
+        lifetime_end_events: vec![],
+    });
+    let facts = AllocationFacts {
+        site: 9,
+        locality: Loc::FunctionLocal,
+        lifetime: LifetimeBound::Function,
+        owners: OwnerBound::Bounded(1),
+        ownership_observations: ownership_observations.clone(),
+        cleanup: cleanup.clone(),
+        thread: ThreadReachability::PotentiallyShared,
+        visibility: ExternalVisibility::CrossModule,
+    };
+    let capabilities = LayoutCapabilities {
+        site: 9,
+        lifetime_coverage: LifetimeBound::Escaping,
+        extent_coverage: ExtentCapability::RuntimeSized,
+        owner_capacity: OwnerBound::Bounded(2),
+        ownership_observation_protocol: ownership_observations,
+        cleanup_coverage: cleanup,
+        unwind_coverage: true,
+        thread_safety: ThreadCapability::SharedSafe,
+        visibility_coverage: ExternalVisibility::CrossModule,
+        external_contract_id: 55,
+    };
+    (facts, ExtentClass::RuntimeSized(3), capabilities)
+}
+
+fn verify_rl18_layout_satisfaction() -> EngineResult {
+    let (facts, extent, capabilities) = sample_layout_contract();
+    // Exercise the complete visibility seam, including the conservative and
+    // foreign/opaque cases that this particular sample contract does not use.
+    let visibility_surface = [
+        ExternalVisibility::Internal,
+        ExternalVisibility::CrossModule,
+        ExternalVisibility::ForeignOrOpaque,
+        ExternalVisibility::Unknown,
     ];
-    let mut checked: u64 = 0;
-    for row in grid {
-        let got = rl18_header_width(row.bound, row.abi_visible);
-        if got != row.expect {
-            return fail(format!(
-                "RL-18: '{}' expected {:?} got {:?}",
-                row.label, row.expect, got
-            ));
-        }
-        checked += 1;
+    if !visibility_surface.contains(&facts.visibility)
+        || !visibility_surface.contains(&capabilities.visibility_coverage)
+    {
+        return fail("RL-18: projection visibility escaped the declared fact domain".to_string());
     }
-    // Negative-direction witness: a narrowed (i8) header for an ABI-visible
-    // type would mismatch the cross-compilation-unit ABI -> MUST be i64.
-    if rl18_header_width(SharingBound::Bounded(4), true) != HeaderWidth::I64 {
+    let mut checked = 0;
+    if !satisfies(&facts, extent, &capabilities) {
         return fail(
-            "RL-18 negative witness: an ABI-visible type was wrongly narrowed below i64".to_string(),
+            "RL-18: adequate layout capabilities did not satisfy frozen facts".to_string(),
         );
     }
+    checked += 1;
+    let mut insufficient_owner = capabilities.clone();
+    insufficient_owner.owner_capacity = OwnerBound::Bounded(0);
+    if satisfies(&facts, extent, &insufficient_owner) {
+        return fail("RL-18: insufficient owner capacity was accepted".to_string());
+    }
+    checked += 1;
+    let mut missing_extent = capabilities.clone();
+    missing_extent.extent_coverage = ExtentCapability::StaticOnly;
+    if satisfies(&facts, extent, &missing_extent) {
+        return fail("RL-18: runtime extent without runtime support was accepted".to_string());
+    }
+    checked += 1;
+    let mut changed_events = capabilities.clone();
+    changed_events.ownership_observation_protocol = OwnershipObservationFacts::Unknown;
+    if satisfies(&facts, extent, &changed_events) {
+        return fail("RL-18: a projection changed logical event identities".to_string());
+    }
+    checked += 1;
+    let mut stronger = capabilities.clone();
+    stronger.owner_capacity = OwnerBound::Unbounded;
+    stronger.visibility_coverage = ExternalVisibility::Unknown;
+    if stronger.external_contract_id != capabilities.external_contract_id
+        || !satisfies(&facts, extent, &stronger)
+    {
+        return fail(
+            "RL-18: stronger capability under the same contract lost satisfaction".to_string(),
+        );
+    }
+    checked += 1;
     require_count(
         "RL-18",
-        7,
+        5,
         checked,
-        "(P1/P2) header-width narrowing (none / i8 / i16 / i32 / i64 + ABI-visible carve-out)",
+        "Satisfies checks lifetime, extent, owners, events, cleanup, thread, and visibility; refinement separately pins contract identity",
     )
 }
 
 // ============================================================================
-// §08.6 Unified representation — RL-18a Locality as escape SSOT
+// §08.6 Separate VM and compiled projections with one logical trace
 // ============================================================================
 //
-// Per Annex E §AIMS RL-18a: all escape-driven decisions SHALL consume
-// Locality as primary input; thread-boundary analysis (RL-19) is a
-// program-wide DERIVED property layered on Locality + call-graph, NOT a
-// separate per-variable escape dimension. Parallel per-variable escape enums
-// are FORBIDDEN (Locality = SSOT). This enforces AIMS Invariant 5 (the unified
-// model stays unified) per Annex E §AIMS §2.
-
-/// Thread-locality DERIVED from Locality + call-graph (RL-18a / RL-19): a
-/// value is thread-shared iff it escapes (Locality >= HeapEscaping) AND a
-/// call-graph path carries it across a thread boundary (spawn / channel /
-/// FFI export). This is a pure function of Locality + the call-graph signal —
-/// NO independent per-variable escape enum.
-fn derives_thread_shared(loc: Loc, crosses_thread_boundary: bool) -> bool {
-    loc.rank() >= Loc::HeapEscaping.rank() && crosses_thread_boundary
-}
-
-fn verify_rl18a_locality_escape_ssot() -> EngineResult {
-    // (P1) Single-SSOT: BOTH the stack-promotion strategy (RL-14..16, via
-    // stack_strategy / rl15a_strategy) AND thread-locality (RL-19, via
-    // derives_thread_shared) consume Locality as their primary input. The
-    // verifier confirms they agree on a shared Locality value — there is no
-    // second escape classification that could disagree.
-    struct Row {
-        label: &'static str,
-        loc: Loc,
-        crosses_thread_boundary: bool,
-        // The single Locality value must yield a consistent escape verdict for
-        // both the stack-promotion decision and the thread-locality decision.
-        expect_stack_promotable: bool,
-        expect_thread_shared: bool,
-    }
-    let grid: &[Row] = &[
-        // FunctionLocal: stack-promotable AND thread-local (never shared).
-        Row {
-            label: "functionlocal_promotable_threadlocal",
-            loc: Loc::FunctionLocal,
-            crosses_thread_boundary: true,
-            expect_stack_promotable: true,
-            expect_thread_shared: false,
-        },
-        // HeapEscaping + crosses thread boundary: not promotable, thread-shared.
-        Row {
-            label: "heapescaping_crossing_threadshared",
-            loc: Loc::HeapEscaping,
-            crosses_thread_boundary: true,
-            expect_stack_promotable: false,
-            expect_thread_shared: true,
-        },
-        // HeapEscaping but NOT crossing a thread boundary: not promotable, but
-        // thread-LOCAL (derived from the call-graph signal, not a shadow enum).
-        Row {
-            label: "heapescaping_no_crossing_threadlocal",
-            loc: Loc::HeapEscaping,
-            crosses_thread_boundary: false,
-            expect_stack_promotable: false,
-            expect_thread_shared: false,
-        },
-    ];
-    let mut checked: u64 = 0;
-    for row in grid {
-        // Stack-promotability is derived from Locality alone (is_local).
-        let promotable = is_local(row.loc);
-        if promotable != row.expect_stack_promotable {
-            return fail(format!(
-                "RL-18a (P1) Locality-SSOT: '{}' stack-promotable expected {} got {} (must derive from Locality alone)",
-                row.label, row.expect_stack_promotable, promotable
-            ));
-        }
-        // Thread-locality is derived from Locality + call-graph, NOT a shadow.
-        let shared = derives_thread_shared(row.loc, row.crosses_thread_boundary);
-        if shared != row.expect_thread_shared {
-            return fail(format!(
-                "RL-18a (P1) Locality-SSOT: '{}' thread-shared expected {} got {} (must derive from Locality + call-graph)",
-                row.label, row.expect_thread_shared, shared
-            ));
-        }
-        // Consistency: a thread-shared value MUST also be non-promotable (an
-        // escaping value is never stack-promoted) — the two Locality-derived
-        // verdicts cannot disagree (which a parallel escape enum could cause).
-        if shared && promotable {
-            return fail(format!(
-                "RL-18a (P1) Locality-SSOT: '{}' is both thread-shared and stack-promotable — a parallel escape enum disagreement (FORBIDDEN)",
-                row.label
-            ));
-        }
-        checked += 1;
-    }
-    require_count(
-        "RL-18a",
-        3,
-        checked,
-        "(P1) Locality as escape SSOT — stack-promotion + thread-locality both derive from Locality with no parallel-enum disagreement",
-    )
-}
-
-// ============================================================================
-// §08.7 Non-atomic RC — RL-19 / RL-20 / RL-21
-// ============================================================================
-//
-// Per Annex E §AIMS Non-Atomic RC: thread-local values use non-atomic RC
-// (plain load/store); thread-shared values use atomic RC (CAS); a program with
-// no spawn / channel / FFI export makes ALL values thread-local hence ALL RC
-// non-atomic. Thread-locality is the RL-18a-derived property (Locality +
-// call-graph). Shipped: target-system rule (ori_repr apply_thread_local_arc
-// stubbed per repr.md); realize/decide.rs consumes Locality.
+// Layout mechanisms remain outside AllocationFacts. Validation erases either
+// plan to the same exact AIMS event trace.
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum RcAtomicity {
-    NonAtomic,
-    Atomic,
+enum VmPlacement {
+    Frame,
+    Arena,
+    Managed,
 }
 
-/// RL-19 / RL-20: a thread-local value uses non-atomic RC; a thread-shared
-/// value uses atomic RC.
-fn rc_atomicity(thread_shared: bool) -> RcAtomicity {
-    if thread_shared {
-        RcAtomicity::Atomic
-    } else {
-        RcAtomicity::NonAtomic
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum VmOwnershipMechanism {
+    Omitted,
+    SlotCount,
+    SideTable,
+    SynchronizedSlot,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct VmLayoutPlan {
+    capabilities: LayoutCapabilities,
+    placement: VmPlacement,
+    ownership: VmOwnershipMechanism,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CompiledPlacement {
+    Register,
+    Stack,
+    Region,
+    Managed,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CompiledOwnershipMechanism {
+    Omitted,
+    InlineMetadata,
+    RuntimeHandle,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct CompiledLayoutPlan {
+    capabilities: LayoutCapabilities,
+    placement: CompiledPlacement,
+    ownership: CompiledOwnershipMechanism,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct LogicalTrace {
+    ownership_observations: OwnershipObservationFacts,
+    cleanup: CleanupObligation,
+}
+
+fn aims_trace(facts: &AllocationFacts) -> LogicalTrace {
+    LogicalTrace {
+        ownership_observations: facts.ownership_observations.clone(),
+        cleanup: facts.cleanup.clone(),
     }
 }
 
-fn verify_rl19_thread_local_nonatomic() -> EngineResult {
-    // RL-19: thread-local (no cross-thread escape) -> non-atomic. Thread-
-    // locality derived per RL-18a from Locality + call-graph.
-    let mut checked: u64 = 0;
-    // A FunctionLocal value never crosses a thread boundary -> thread-local.
-    for (loc, crosses) in [(Loc::FunctionLocal, false), (Loc::HeapEscaping, false)] {
-        let shared = derives_thread_shared(loc, crosses);
-        if shared {
+fn capability_trace(capabilities: &LayoutCapabilities) -> LogicalTrace {
+    LogicalTrace {
+        ownership_observations: capabilities.ownership_observation_protocol.clone(),
+        cleanup: capabilities.cleanup_coverage.clone(),
+    }
+}
+
+fn verify_rl18a_projection_parity() -> EngineResult {
+    let (facts, extent, capabilities) = sample_layout_contract();
+    // Keep the checker honest about the physical choice surfaces while
+    // keeping those choices outside AllocationFacts.
+    let vm_placements = [VmPlacement::Frame, VmPlacement::Arena, VmPlacement::Managed];
+    let vm_ownership = [
+        VmOwnershipMechanism::Omitted,
+        VmOwnershipMechanism::SlotCount,
+        VmOwnershipMechanism::SideTable,
+        VmOwnershipMechanism::SynchronizedSlot,
+    ];
+    let compiled_placements = [
+        CompiledPlacement::Register,
+        CompiledPlacement::Stack,
+        CompiledPlacement::Region,
+        CompiledPlacement::Managed,
+    ];
+    let compiled_ownership = [
+        CompiledOwnershipMechanism::Omitted,
+        CompiledOwnershipMechanism::InlineMetadata,
+        CompiledOwnershipMechanism::RuntimeHandle,
+    ];
+    let vm = VmLayoutPlan {
+        capabilities: capabilities.clone(),
+        placement: VmPlacement::Arena,
+        ownership: VmOwnershipMechanism::SideTable,
+    };
+    let compiled = CompiledLayoutPlan {
+        capabilities,
+        placement: CompiledPlacement::Managed,
+        ownership: CompiledOwnershipMechanism::InlineMetadata,
+    };
+    let mut checked = 0;
+    if !vm_placements.contains(&vm.placement)
+        || !vm_ownership.contains(&vm.ownership)
+        || !compiled_placements.contains(&compiled.placement)
+        || !compiled_ownership.contains(&compiled.ownership)
+    {
+        return fail(
+            "RL-18a: a projection selected a mechanism outside its target-owned domain".to_string(),
+        );
+    }
+    if !satisfies(&facts, extent, &vm.capabilities) {
+        return fail("RL-18a: validated VM plan does not satisfy frozen facts".to_string());
+    }
+    checked += 1;
+    if !satisfies(&facts, extent, &compiled.capabilities) {
+        return fail("RL-18a: validated compiled plan does not satisfy frozen facts".to_string());
+    }
+    checked += 1;
+    let expected_trace = aims_trace(&facts);
+    if capability_trace(&vm.capabilities) != expected_trace
+        || capability_trace(&compiled.capabilities) != expected_trace
+    {
+        return fail(
+            "RL-18a: a VM or compiled projection changed the exact AIMS logical trace".to_string(),
+        );
+    }
+    checked += 1;
+    if vm.placement != VmPlacement::Arena
+        || vm.ownership != VmOwnershipMechanism::SideTable
+        || compiled.placement != CompiledPlacement::Managed
+        || compiled.ownership != CompiledOwnershipMechanism::InlineMetadata
+    {
+        return fail("RL-18a: projection mechanisms were not independently selectable".to_string());
+    }
+    checked += 1;
+    require_count(
+        "RL-18a",
+        4,
+        checked,
+        "different VM and compiled mechanisms satisfy one fact set and erase to identical event traces",
+    )
+}
+
+// ============================================================================
+// §08.7 Thread reachability facts — RL-19 / RL-20 / RL-21
+// ============================================================================
+//
+// PotentiallyShared requires a concurrency-safe capability but never dictates
+// how a planner supplies it. Confined permits either a specialized or a
+// conservative shared-safe capability.
+
+fn program_thread_reachability(
+    no_thread_boundary: bool,
+    loc: Loc,
+    crosses_thread_boundary: bool,
+) -> ThreadReachability {
+    if no_thread_boundary {
+        ThreadReachability::Confined
+    } else {
+        thread_reachability_from(loc, crosses_thread_boundary)
+    }
+}
+
+fn verify_rl19_thread_reachability() -> EngineResult {
+    let rows = [
+        (Loc::FunctionLocal, false, ThreadReachability::Confined),
+        (Loc::HeapEscaping, false, ThreadReachability::Confined),
+        (
+            Loc::HeapEscaping,
+            true,
+            ThreadReachability::PotentiallyShared,
+        ),
+        (Loc::Unknown, false, ThreadReachability::PotentiallyShared),
+    ];
+    let mut checked = 0;
+    for (loc, crosses, expected) in rows {
+        let got = thread_reachability_from(loc, crosses);
+        if got != expected {
             return fail(format!(
-                "RL-19: value at {:?} (crosses={}) wrongly classified thread-shared",
-                loc, crosses
+                "RL-19: ({loc:?}, crosses={crosses}) expected {expected:?} got {got:?}"
             ));
-        }
-        if rc_atomicity(shared) != RcAtomicity::NonAtomic {
-            return fail("RL-19: thread-local value must use non-atomic RC".to_string());
         }
         checked += 1;
     }
     require_count(
         "RL-19",
-        2,
+        4,
         checked,
-        "(P1/P2) thread-local values -> non-atomic RC (no cross-thread escape)",
+        "ThreadReachability derives from Locality and call-graph boundary evidence with Unknown fail-closed",
     )
 }
 
-fn verify_rl20_thread_shared_atomic() -> EngineResult {
-    // RL-20: thread-shared (escapes across a thread boundary) -> atomic RC.
-    let shared = derives_thread_shared(Loc::HeapEscaping, true);
-    if !shared {
-        return fail("RL-20: a HeapEscaping value crossing a thread boundary must be thread-shared".to_string());
-    }
-    if rc_atomicity(shared) != RcAtomicity::Atomic {
-        return fail("RL-20: thread-shared value must use atomic RC".to_string());
-    }
-    // Negative-direction witness: a thread-shared value MUST NOT use non-atomic
-    // RC (a data race on the count would corrupt it).
-    if rc_atomicity(true) == RcAtomicity::NonAtomic {
-        return fail(
-            "RL-20 negative witness: a thread-shared value was wrongly assigned non-atomic RC (data race)".to_string(),
-        );
+fn verify_rl20_thread_capability() -> EngineResult {
+    let rows = [
+        (
+            ThreadReachability::PotentiallyShared,
+            ThreadCapability::ConfinedOnly,
+            false,
+        ),
+        (
+            ThreadReachability::PotentiallyShared,
+            ThreadCapability::SharedSafe,
+            true,
+        ),
+        (
+            ThreadReachability::Confined,
+            ThreadCapability::ConfinedOnly,
+            true,
+        ),
+        (
+            ThreadReachability::Confined,
+            ThreadCapability::SharedSafe,
+            true,
+        ),
+    ];
+    let mut checked = 0;
+    for (required, provided, expected) in rows {
+        let got = thread_covers(required, provided);
+        if got != expected {
+            return fail(format!(
+                "RL-20: {required:?} with {provided:?} expected covers={expected} got {got}"
+            ));
+        }
+        checked += 1;
     }
     require_count(
         "RL-20",
-        1,
-        1,
-        "(P1/P2) thread-shared value -> atomic RC (negative witness: never non-atomic)",
+        4,
+        checked,
+        "PotentiallyShared requires shared-safe capability; Confined admits either capability",
     )
 }
 
-fn verify_rl21_program_wide_nonatomic() -> EngineResult {
-    // RL-21: a program with no spawn AND no channel AND no FFI-export makes
-    // ALL values thread-local -> ALL RC non-atomic.
-    struct Program {
-        label: &'static str,
-        has_spawn: bool,
-        has_channel: bool,
-        has_ffi_export: bool,
-        expect_all_nonatomic: bool,
-    }
-    let programs: &[Program] = &[
-        // No concurrency primitives -> all non-atomic.
-        Program {
-            label: "no_concurrency_all_nonatomic",
-            has_spawn: false,
-            has_channel: false,
-            has_ffi_export: false,
-            expect_all_nonatomic: true,
-        },
-        // Has spawn -> NOT all non-atomic (some values may be thread-shared).
-        Program {
-            label: "has_spawn_not_all_nonatomic",
-            has_spawn: true,
-            has_channel: false,
-            has_ffi_export: false,
-            expect_all_nonatomic: false,
-        },
-        // Has channel -> NOT all non-atomic.
-        Program {
-            label: "has_channel_not_all_nonatomic",
-            has_spawn: false,
-            has_channel: true,
-            has_ffi_export: false,
-            expect_all_nonatomic: false,
-        },
-        // Has FFI export (foreign code may hand the pointer to another thread)
-        // -> NOT all non-atomic.
-        Program {
-            label: "has_ffi_export_not_all_nonatomic",
-            has_spawn: false,
-            has_channel: false,
-            has_ffi_export: true,
-            expect_all_nonatomic: false,
-        },
+fn verify_rl21_no_thread_boundary() -> EngineResult {
+    let rows = [
+        (Loc::BlockLocal, false),
+        (Loc::BlockLocal, true),
+        (Loc::FunctionLocal, false),
+        (Loc::FunctionLocal, true),
+        (Loc::ArgEscaping, false),
+        (Loc::ArgEscaping, true),
+        (Loc::HeapEscaping, false),
+        (Loc::HeapEscaping, true),
+        (Loc::Unknown, false),
+        (Loc::Unknown, true),
     ];
-    let mut checked: u64 = 0;
-    for p in programs {
-        let all_nonatomic = !p.has_spawn && !p.has_channel && !p.has_ffi_export;
-        if all_nonatomic != p.expect_all_nonatomic {
+    let expected = rows.len() as u64;
+    let mut checked = 0;
+    for (loc, crosses) in rows {
+        let got = program_thread_reachability(true, loc, crosses);
+        if got != ThreadReachability::Confined {
             return fail(format!(
-                "RL-21: '{}' expected all_nonatomic={} got {}",
-                p.label, p.expect_all_nonatomic, all_nonatomic
+                "RL-21: no-thread-boundary proof did not confine ({loc:?}, crosses={crosses})"
             ));
         }
         checked += 1;
     }
     require_count(
         "RL-21",
-        4,
+        expected,
         checked,
-        "(P1/P2) program-wide non-atomic when no spawn / channel / FFI-export (FFI included per RL-21)",
+        "whole-program no-thread-boundary proof freezes every value as Confined",
     )
 }
 
 // ============================================================================
-// §08.8 KnownSafe + PRE-style RC motion — RL-22 / RL-23 / RL-24 / RL-25 / RL-26
+// §08.8 KnownSafe + logical event refinement — RL-22 / RL-23 / RL-24 / RL-25 / RL-26
 // ============================================================================
 //
-// Per Annex E §AIMS KnownSafe Pair Elimination + PRE-Style Global RC
-// Motion, these are POST-PIPELINE passes operating on realized IR. The
-// rc_counting engine discharges them as RC-balance-preserving rewrites: an
-// eliminated KnownSafe pair removes one inc + one matched dec (net 0), and
-// RC motion across a barrier is forbidden because the barrier observes the
-// count. Shipped: target-system rules (RL-22..26 are post-pipeline per
-// Annex E §AIMS + Annex E §AIMS §8 — Swift ARC
-// optimizer lineage); VF-7 tier (a)+(b)+(c) applies when implemented.
+// These rules refine logical owner-credit/release pairs and preserve their
+// ordering at observation boundaries. A physical backend may subsequently
+// project the refinement as counter-instruction motion.
 
-/// KnownSafe(v) at a point: there exists a DOMINATING RcInc with no
-/// intervening RcDec (Annex E §AIMS RL-22). Physical RC >= 2, so an
-/// inner RcDec cannot trigger a free.
-fn known_safe(has_dominating_inc: bool, has_intervening_dec: bool) -> bool {
-    has_dominating_inc && !has_intervening_dec
+/// KnownSafe(v) at a point: a DOMINATING logical owner credit remains
+/// outstanding because no intervening release discharged it (Annex E §AIMS
+/// RL-22). This is ownership-observation evidence, independent of any physical counter.
+fn known_safe(has_dominating_credit: bool, has_intervening_release: bool) -> bool {
+    has_dominating_credit && !has_intervening_release
 }
 
 // ----------------------------------------------------------------------------
 // RL-22: KnownSafe inner pair elimination
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-22: when the physical RC is provably positive
-// (an outer RcInc in scope with no intervening dec), inner RcInc/RcDec pairs
-// on the same variable SHALL be eliminated. Soundness: KnownSafe means RC >=
-// 2, so the inner dec cannot reach 0 (cannot free); removing the matched
-// inner inc+dec pair is net-0 on the balance and observably equivalent.
+// Per Annex E §AIMS RL-22: when an outer logical owner credit dominates and no
+// intervening debit discharged it, inner credit/debit pairs on the same
+// variable SHALL be eliminated. Soundness: the outstanding credit protects the
+// later owner-credit floor; removing the matched inner pair is net-0 on the logical
+// ledger. A target may realize this with a counter, but AIMS does not require it.
 
 fn verify_rl22_knownsafe_pair_elimination() -> EngineResult {
     struct Row {
         label: &'static str,
-        has_dominating_inc: bool,
-        has_intervening_dec: bool,
+        has_dominating_credit: bool,
+        has_intervening_release: bool,
         expect_eliminate: bool,
     }
     let grid: &[Row] = &[
         // Dominating inc, no intervening dec -> KnownSafe -> eliminate pair.
         Row {
-            label: "dominating_inc_no_dec_eliminate",
-            has_dominating_inc: true,
-            has_intervening_dec: false,
+            label: "dominating_credit_no_release_eliminate",
+            has_dominating_credit: true,
+            has_intervening_release: false,
             expect_eliminate: true,
         },
-        // Dominating inc BUT intervening dec -> NOT KnownSafe (RC may be 1) ->
-        // keep the pair.
+        // Dominating credit BUT intervening debit -> its evidence is discharged
+        // -> keep the pair.
         Row {
-            label: "intervening_dec_keep_pair",
-            has_dominating_inc: true,
-            has_intervening_dec: true,
+            label: "intervening_release_keep_pair",
+            has_dominating_credit: true,
+            has_intervening_release: true,
             expect_eliminate: false,
         },
         // No dominating inc -> NOT KnownSafe -> keep the pair.
         Row {
-            label: "no_dominating_inc_keep_pair",
-            has_dominating_inc: false,
-            has_intervening_dec: false,
+            label: "no_dominating_credit_keep_pair",
+            has_dominating_credit: false,
+            has_intervening_release: false,
             expect_eliminate: false,
         },
     ];
     let mut checked: u64 = 0;
     for row in grid {
-        let ks = known_safe(row.has_dominating_inc, row.has_intervening_dec);
+        let ks = known_safe(row.has_dominating_credit, row.has_intervening_release);
         if ks != row.expect_eliminate {
             return fail(format!(
                 "RL-22 (P1) KnownSafe decision: '{}' expected eliminate={} got {}",
@@ -2879,9 +2849,9 @@ fn verify_rl22_knownsafe_pair_elimination() -> EngineResult {
         checked += 1;
     }
     // (P2) Balance preservation: a KnownSafe lifecycle with the inner pair
-    // present and with it eliminated both balance to net 0. The alloc
-    // reference (RC=1) plus the two incs (RC->3) are released by three decs;
-    // eliminating the inner inc+dec pair leaves one inc + two decs + the alloc.
+    // present and with it eliminated both balance to net 0. The birth credit
+    // plus two added credits are discharged by three debits; eliminating the
+    // inner credit/debit pair leaves the birth, outer credit, and two debits.
     let with_inner = [
         RcEvent::Alloc,
         RcEvent::IncLiveDup, // outer (dominating)
@@ -2896,16 +2866,16 @@ fn verify_rl22_knownsafe_pair_elimination() -> EngineResult {
         RcEvent::DecLastUse, // outer
         RcEvent::DecLastUse, // final (scope exit)
     ];
-    if ledger_net(&with_inner) != 0 || ledger_net(&without_inner) != 0 {
+    if owner_credit_balance(&with_inner) != 0 || owner_credit_balance(&without_inner) != 0 {
         return fail(
             "RL-22 (P2): KnownSafe inner-pair elimination must be net-0-preserving on the balance ledger".to_string(),
         );
     }
     // Negative-direction witness: eliminating a pair when NOT KnownSafe (no
-    // dominating inc) could let the dec free a still-referenced value.
+    // outstanding dominating credit) could violate a later owner-credit floor.
     if known_safe(false, false) {
         return fail(
-            "RL-22 negative witness: pair elimination must NOT fire without a dominating inc (RC may be 1)".to_string(),
+            "RL-22 negative witness: pair elimination must NOT fire without an outstanding dominating owner credit".to_string(),
         );
     }
     require_count(
@@ -2920,10 +2890,10 @@ fn verify_rl22_knownsafe_pair_elimination() -> EngineResult {
 // RL-23: KnownSafe flag propagation at joins (AND across predecessors)
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-23: the KnownSafe flag at a CFG join is true ONLY
-// if ALL predecessors agree it is true. Soundness: if any predecessor path can
-// reach the join with RC == 1, the inner dec could free on that path, so the
-// join must be conservatively NOT KnownSafe.
+// Per Annex E §AIMS RL-23: the KnownSafe flag at a CFG join is true ONLY if ALL
+// predecessors carry the outstanding-credit evidence. If any path lacks it,
+// pair removal is not proven floor-preserving, so the join is conservatively
+// NOT KnownSafe.
 
 fn verify_rl23_knownsafe_join_propagation() -> EngineResult {
     // Join KnownSafe = AND over predecessors.
@@ -2965,15 +2935,11 @@ fn verify_rl23_knownsafe_join_propagation() -> EngineResult {
 }
 
 // ----------------------------------------------------------------------------
-// RL-24: bidirectional dataflow identifies matching (Inc, Dec) pairs
+// RL-24: bidirectional dataflow identifies owner-credit/release pairs
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-24: bidirectional dataflow (bottom-up release +
-// top-down retain) SHALL identify matching (Inc, Dec) pairs across blocks.
-// Soundness: an (inc-block, dec-block) pair is a genuine match iff the dec is
-// forward-reachable from the inc (the inc's reference reaches the dec) AND the
-// inc is backward-reachable from the dec (the dec releases that inc's
-// reference) — both directions confirm the pairing.
+// A pair is genuine only when forward and backward analyses agree that the
+// same logical credit reaches and is discharged by the release.
 
 fn verify_rl24_bidirectional_pair_matching() -> EngineResult {
     fn is_matched_pair(forward_reachable: bool, backward_reachable: bool) -> bool {
@@ -2987,13 +2953,33 @@ fn verify_rl24_bidirectional_pair_matching() -> EngineResult {
     }
     let grid: &[Row] = &[
         // Both directions reachable -> matched pair.
-        Row { label: "both_directions_matched", forward_reachable: true, backward_reachable: true, expect_matched: true },
+        Row {
+            label: "both_directions_matched",
+            forward_reachable: true,
+            backward_reachable: true,
+            expect_matched: true,
+        },
         // Forward only -> NOT matched (the dec does not release this inc).
-        Row { label: "forward_only_unmatched", forward_reachable: true, backward_reachable: false, expect_matched: false },
+        Row {
+            label: "forward_only_unmatched",
+            forward_reachable: true,
+            backward_reachable: false,
+            expect_matched: false,
+        },
         // Backward only -> NOT matched (the inc's ref does not reach this dec).
-        Row { label: "backward_only_unmatched", forward_reachable: false, backward_reachable: true, expect_matched: false },
+        Row {
+            label: "backward_only_unmatched",
+            forward_reachable: false,
+            backward_reachable: true,
+            expect_matched: false,
+        },
         // Neither -> NOT matched.
-        Row { label: "neither_unmatched", forward_reachable: false, backward_reachable: false, expect_matched: false },
+        Row {
+            label: "neither_unmatched",
+            forward_reachable: false,
+            backward_reachable: false,
+            expect_matched: false,
+        },
     ];
     let mut checked: u64 = 0;
     for row in grid {
@@ -3018,14 +3004,20 @@ fn verify_rl24_bidirectional_pair_matching() -> EngineResult {
 // RL-25: pair eliminable conditions
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-25: an (Inc, Dec) pair is eliminable when
+// Per Annex E §AIMS RL-25: an owner-credit/release pair is eliminable when
 // KnownSafe = true OR both forward/backward paths are safe AND there is no CFG
-// hazard (path-count alignment). Soundness: either the physical RC guarantees
-// the dec cannot free (KnownSafe), or the bidirectional path analysis proves
-// the inc and dec are matched on every path with no hazard.
+// hazard (path-count alignment). Soundness: either the KnownSafe logical
+// outstanding-credit evidence proves the pair is floor-preserving, or the
+// bidirectional path analysis proves the credit and release are matched on every
+// path with no hazard.
 
 fn verify_rl25_pair_eliminable_conditions() -> EngineResult {
-    fn eliminable(known_safe_flag: bool, forward_safe: bool, backward_safe: bool, no_cfg_hazard: bool) -> bool {
+    fn eliminable(
+        known_safe_flag: bool,
+        forward_safe: bool,
+        backward_safe: bool,
+        no_cfg_hazard: bool,
+    ) -> bool {
         known_safe_flag || (forward_safe && backward_safe && no_cfg_hazard)
     }
     struct Row {
@@ -3038,17 +3030,50 @@ fn verify_rl25_pair_eliminable_conditions() -> EngineResult {
     }
     let grid: &[Row] = &[
         // KnownSafe alone -> eliminable.
-        Row { label: "knownsafe_eliminable", known_safe_flag: true, forward_safe: false, backward_safe: false, no_cfg_hazard: false, expect: true },
+        Row {
+            label: "knownsafe_eliminable",
+            known_safe_flag: true,
+            forward_safe: false,
+            backward_safe: false,
+            no_cfg_hazard: false,
+            expect: true,
+        },
         // Both paths safe + no hazard -> eliminable.
-        Row { label: "both_paths_safe_no_hazard_eliminable", known_safe_flag: false, forward_safe: true, backward_safe: true, no_cfg_hazard: true, expect: true },
+        Row {
+            label: "both_paths_safe_no_hazard_eliminable",
+            known_safe_flag: false,
+            forward_safe: true,
+            backward_safe: true,
+            no_cfg_hazard: true,
+            expect: true,
+        },
         // Both paths safe BUT CFG hazard -> NOT eliminable (path-count mismatch).
-        Row { label: "cfg_hazard_not_eliminable", known_safe_flag: false, forward_safe: true, backward_safe: true, no_cfg_hazard: false, expect: false },
+        Row {
+            label: "cfg_hazard_not_eliminable",
+            known_safe_flag: false,
+            forward_safe: true,
+            backward_safe: true,
+            no_cfg_hazard: false,
+            expect: false,
+        },
         // One path unsafe, not KnownSafe -> NOT eliminable.
-        Row { label: "one_path_unsafe_not_eliminable", known_safe_flag: false, forward_safe: true, backward_safe: false, no_cfg_hazard: true, expect: false },
+        Row {
+            label: "one_path_unsafe_not_eliminable",
+            known_safe_flag: false,
+            forward_safe: true,
+            backward_safe: false,
+            no_cfg_hazard: true,
+            expect: false,
+        },
     ];
     let mut checked: u64 = 0;
     for row in grid {
-        let got = eliminable(row.known_safe_flag, row.forward_safe, row.backward_safe, row.no_cfg_hazard);
+        let got = eliminable(
+            row.known_safe_flag,
+            row.forward_safe,
+            row.backward_safe,
+            row.no_cfg_hazard,
+        );
         if got != row.expect {
             return fail(format!(
                 "RL-25: '{}' expected eliminable={} got {}",
@@ -3062,7 +3087,8 @@ fn verify_rl25_pair_eliminable_conditions() -> EngineResult {
     // double-free).
     if eliminable(false, true, true, false) {
         return fail(
-            "RL-25 negative witness: a CFG hazard must block pair elimination despite safe paths".to_string(),
+            "RL-25 negative witness: a CFG hazard must block pair elimination despite safe paths"
+                .to_string(),
         );
     }
     require_count(
@@ -3074,21 +3100,15 @@ fn verify_rl25_pair_eliminable_conditions() -> EngineResult {
 }
 
 // ----------------------------------------------------------------------------
-// RL-26: RC motion barriers
+// RL-26: logical ownership-event ordering barriers
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-26: RC motion SHALL NOT move RcInc(v) / RcDec(v)
-// across RC-observable barriers FOR v: (a) calls passing v to an Owned or
-// may_share=true parameter; (b) IsShared(v) (reads v's RC header); (c)
-// Set/SetTag on v or any aggregate containing v (implicit field drops). Calls
-// where v is NOT an argument (or Borrowed + no-may_share) are transparent for
-// v's motion. RcDec(v) additionally cannot move past any use of v or its
-// aliases. Soundness: a barrier observes v's reference count, so moving an RC
-// op across it would change the observed count at the barrier.
+// RL-26 freezes ownership-event order across a contract boundary, sharing
+// observation, or containing-value mutation. Physical counter motion is a
+// projection-level optimization that must refine this ordering.
 
-fn verify_rl26_rc_motion_barriers() -> EngineResult {
-    /// Whether RC motion for v is BLOCKED across the given instruction.
-    fn motion_blocked_for_v(
+fn verify_rl26_event_ordering_barriers() -> EngineResult {
+    fn event_order_blocked_for_v(
         is_call_passing_v_owned_or_may_share: bool,
         is_isshared_v: bool,
         is_set_settag_on_v_or_aggregate: bool,
@@ -3104,114 +3124,158 @@ fn verify_rl26_rc_motion_barriers() -> EngineResult {
     }
     let grid: &[Row] = &[
         // (a) call passing v to Owned/may_share -> barrier (blocked).
-        Row { label: "call_owned_param_barrier", call_owned_or_share: true, isshared: false, set_settag: false, expect_blocked: true },
-        // (b) IsShared(v) -> barrier (reads v's header).
-        Row { label: "isshared_barrier", call_owned_or_share: false, isshared: true, set_settag: false, expect_blocked: true },
+        Row {
+            label: "call_owned_param_barrier",
+            call_owned_or_share: true,
+            isshared: false,
+            set_settag: false,
+            expect_blocked: true,
+        },
+        // (b) IsShared(v) -> barrier (observes v's logical count state).
+        Row {
+            label: "isshared_barrier",
+            call_owned_or_share: false,
+            isshared: true,
+            set_settag: false,
+            expect_blocked: true,
+        },
         // (c) Set/SetTag on v or aggregate -> barrier (implicit field drops).
-        Row { label: "set_settag_barrier", call_owned_or_share: false, isshared: false, set_settag: true, expect_blocked: true },
+        Row {
+            label: "set_settag_barrier",
+            call_owned_or_share: false,
+            isshared: false,
+            set_settag: true,
+            expect_blocked: true,
+        },
         // Transparent: a call where v is NOT an argument (Borrowed + no
         // may_share) -> NOT a barrier for v's motion.
-        Row { label: "transparent_call_no_barrier", call_owned_or_share: false, isshared: false, set_settag: false, expect_blocked: false },
+        Row {
+            label: "transparent_call_no_barrier",
+            call_owned_or_share: false,
+            isshared: false,
+            set_settag: false,
+            expect_blocked: false,
+        },
     ];
     let mut checked: u64 = 0;
     for row in grid {
-        let blocked = motion_blocked_for_v(row.call_owned_or_share, row.isshared, row.set_settag);
+        let blocked =
+            event_order_blocked_for_v(row.call_owned_or_share, row.isshared, row.set_settag);
         if blocked != row.expect_blocked {
             return fail(format!(
-                "RL-26: '{}' expected motion-blocked={} got {}",
+                "RL-26: '{}' expected event-order-blocked={} got {}",
                 row.label, row.expect_blocked, blocked
             ));
         }
         checked += 1;
     }
-    // Negative-direction witness: moving an RC op across an IsShared(v) barrier
-    // would change the count IsShared observes -> motion MUST be blocked.
-    if !motion_blocked_for_v(false, true, false) {
+    // A sharing observation must see the logically preceding credit state.
+    if !event_order_blocked_for_v(false, true, false) {
         return fail(
-            "RL-26 negative witness: RC motion across an IsShared(v) barrier must be blocked".to_string(),
+            "RL-26 negative witness: event reordering across a sharing observation must be blocked"
+                .to_string(),
         );
     }
-    // RcDec additionally cannot move past a use of v: a use is a barrier for
-    // RcDec motion (the value must still be live at the use).
-    let dec_blocked_past_use = true;
-    if !dec_blocked_past_use {
-        return fail(
-            "RL-26: RcDec(v) must not move past a use of v".to_string(),
-        );
+    let release_ordered_after_last_use = true;
+    if !release_ordered_after_last_use {
+        return fail("RL-26: a logical release must remain after the last use".to_string());
     }
     require_count(
         "RL-26",
         4,
         checked,
-        "(P1/P2) RC-motion barrier enumeration (call-to-Owned/may_share / IsShared / Set-SetTag block; transparent call does not) + RcDec-past-use",
+        "(P1/P2) ownership-event ordering barriers plus release-after-last-use",
     )
 }
 
 // ============================================================================
-// §08.9 Selective barriers — RL-27 / RL-28
+// §08.9 selective ownership-event ordering — RL-27 / RL-28
 // ============================================================================
 //
-// Per Annex E §AIMS Selective Barriers, RC ops are flushed at call sites
-// whose callee may observe / mutate the count. The case_analysis engine
+// Pending logical ownership events are ordered before call sites whose callee
+// may observe or change ownership state. The case_analysis engine
 // enumerates the callee-contract grid. Shipped: emit_rc/ arg_ownership +
 // realize/decide.rs barrier consumption.
 
-/// RL-27: a call site is a barrier requiring an RC flush iff the callee
+/// RL-27: a call site requires prior ownership-event ordering iff the callee
 /// parameter is Owned + non-Dead, OR Borrowed + may_share = true (the callee
-/// may write the RC header). Borrowed + may_share = false + pure -> no barrier.
-fn rl27_needs_flush(param_access: Access, param_dead: bool, may_share: bool) -> bool {
-    (param_access == Access::Owned && !param_dead) || (param_access == Access::Borrowed && may_share)
+/// may mutate the logical count state). Borrowed + may_share = false + pure -> no barrier.
+fn rl27_requires_event_ordering(param_access: Access, param_dead: bool, may_share: bool) -> bool {
+    (param_access == Access::Owned && !param_dead)
+        || (param_access == Access::Borrowed && may_share)
 }
 
-fn verify_rl27_selective_flush() -> EngineResult {
+fn verify_rl27_selective_event_ordering() -> EngineResult {
     struct Row {
         label: &'static str,
         access: Access,
         dead: bool,
         may_share: bool,
-        expect_flush: bool,
+        expect_ordering: bool,
     }
     let grid: &[Row] = &[
         // Owned + non-Dead -> flush (callee may inc/dec).
-        Row { label: "owned_nondead_flush", access: Access::Owned, dead: false, may_share: false, expect_flush: true },
+        Row {
+            label: "owned_nondead_flush",
+            access: Access::Owned,
+            dead: false,
+            may_share: false,
+            expect_ordering: true,
+        },
         // Owned + Dead -> NO flush (callee never uses it).
-        Row { label: "owned_dead_no_flush", access: Access::Owned, dead: true, may_share: false, expect_flush: false },
-        // Borrowed + may_share -> flush (callee may write RC header).
-        Row { label: "borrowed_may_share_flush", access: Access::Borrowed, dead: false, may_share: true, expect_flush: true },
+        Row {
+            label: "owned_dead_no_flush",
+            access: Access::Owned,
+            dead: true,
+            may_share: false,
+            expect_ordering: false,
+        },
+        // Borrowed + may_share -> flush (callee may mutate the logical count state).
+        Row {
+            label: "borrowed_may_share_flush",
+            access: Access::Borrowed,
+            dead: false,
+            may_share: true,
+            expect_ordering: true,
+        },
         // Borrowed + no may_share (pure) -> NO flush.
-        Row { label: "borrowed_pure_no_flush", access: Access::Borrowed, dead: false, may_share: false, expect_flush: false },
+        Row {
+            label: "borrowed_pure_no_flush",
+            access: Access::Borrowed,
+            dead: false,
+            may_share: false,
+            expect_ordering: false,
+        },
     ];
     let mut checked: u64 = 0;
     for row in grid {
-        let flush = rl27_needs_flush(row.access, row.dead, row.may_share);
-        if flush != row.expect_flush {
+        let ordering = rl27_requires_event_ordering(row.access, row.dead, row.may_share);
+        if ordering != row.expect_ordering {
             return fail(format!(
-                "RL-27: '{}' expected flush={} got {}",
-                row.label, row.expect_flush, flush
+                "RL-27: '{}' expected event_ordering={} got {}",
+                row.label, row.expect_ordering, ordering
             ));
         }
         checked += 1;
     }
     // Negative-direction witness: a Borrowed + pure (may_share=false) call is
     // transparent — flushing there is unnecessary; NOT flushing is sound.
-    if rl27_needs_flush(Access::Borrowed, false, false) {
+    if rl27_requires_event_ordering(Access::Borrowed, false, false) {
         return fail(
-            "RL-27 negative witness: a Borrowed + pure call must NOT require a flush".to_string(),
+            "RL-27 negative witness: a Borrowed + pure call must not force ownership-event ordering".to_string(),
         );
     }
     require_count(
         "RL-27",
         4,
         checked,
-        "(P1/P2) selective-flush conditions (Owned+non-Dead / Borrowed+may_share flush; Owned+Dead / Borrowed+pure do not)",
+        "(P1/P2) selective event-ordering conditions at call boundaries",
     )
 }
 
-// RL-28: unknown callees (FFI, indirect, no contract) require a CONSERVATIVE
-// flush of ALL pending RC ops — the callee's effect on the count is unknown.
-fn verify_rl28_unknown_callee_flush() -> EngineResult {
-    /// An unknown callee (no contract) forces a conservative all-flush.
-    fn unknown_callee_flushes_all(has_contract: bool) -> bool {
+// RL-28: unknown callees conservatively order every pending ownership event.
+fn verify_rl28_unknown_callee_event_ordering() -> EngineResult {
+    fn unknown_callee_orders_all_events(has_contract: bool) -> bool {
         !has_contract
     }
     let mut checked: u64 = 0;
@@ -3222,257 +3286,349 @@ fn verify_rl28_unknown_callee_flush() -> EngineResult {
         ("apply_no_contract", false),
         ("known_contract_selective", true),
     ] {
-        let flush_all = unknown_callee_flushes_all(has_contract);
+        let orders_all = unknown_callee_orders_all_events(has_contract);
         let expect = !has_contract;
-        if flush_all != expect {
+        if orders_all != expect {
             return fail(format!(
-                "RL-28: '{}' expected flush_all={} got {}",
-                label, expect, flush_all
+                "RL-28: '{}' expected orders_all_events={} got {}",
+                label, expect, orders_all
             ));
         }
         checked += 1;
     }
-    // Negative-direction witness: an unknown callee must NOT skip the flush
-    // (its RC effect is unknown; skipping could leave the count stale).
-    if !unknown_callee_flushes_all(false) {
+    if !unknown_callee_orders_all_events(false) {
         return fail(
-            "RL-28 negative witness: an unknown (no-contract) callee must conservatively flush all pending RC ops".to_string(),
+            "RL-28 negative witness: an unknown callee must order all pending ownership events before the call".to_string(),
         );
     }
     require_count(
         "RL-28",
         4,
         checked,
-        "(P1/P2) unknown-callee conservative all-flush (FFI / indirect / no-contract flush all; known-contract uses RL-27 selective)",
+        "(P1/P2) unknown-callee conservative ordering (known contracts use RL-27 selective ordering)",
     )
 }
 
 // ============================================================================
-// §08.10 AIMS -> LLVM fact export — RL-29 / RL-30 / RL-31 (refinement PRIMARY)
+// §08.11 backend-neutral AIMS facts — RL-29 / RL-30 / RL-31 (refinement PRIMARY)
 // ============================================================================
 //
-// Per Annex E §AIMS AIMS -> LLVM Fact Export, the LLVM attributes
-// (noalias / memory(...) / !alias.scope) are a REFINEMENT of the IC-3 / IC-4 /
-// IC-5 interprocedural contracts. The refinement engine discharges that each
-// emitted attribute is sound against the contract it derives from. RL-31 is
-// CRITICAL (burden-prototype C5). Shipped: target-system rules (LLVM fact export per
-// the semantic-optimization-pipeline plan); VF-2 (b)/(c)/(d) consume these.
+// Per Annex E §8.11, AIMS freezes neutral facts first. LLVM attributes are one
+// later physical projection. The refinement engine discharges the neutral fact
+// against IC-3 / IC-4 / IC-5, then separately checks projection fidelity.
+// RL-31 is CRITICAL (burden-prototype C5); VF-2 (b)/(c)/(d) consume the neutral
+// derivations.
 
 // ----------------------------------------------------------------------------
-// RL-29: noalias under preserves_freshness AND Unique
+// RL-29: fresh-self-allocation fact, then target noalias projection
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-29: fresh allocation returns
-// (ReturnContract.preserves_freshness = true AND uniqueness = Unique) SHALL be
-// marked LLVM noalias. The gate is preserves_freshness, NOT uniqueness alone —
-// a Unique parameter passthrough may alias the caller's copy. Soundness:
-// preserves_freshness proves the return is produced by a fresh allocation (or
-// a callee whose return contract also preserves freshness), so the returned
-// pointer aliases nothing the caller holds.
+// `preserves_freshness` and uniqueness do not establish provenance: a return
+// may forward caller-owned or consumed storage. The neutral fact is proven iff
+// IC-4's path-universal `returns_fresh_self_alloc` field is true. LLVM may then
+// emit return noalias only for a direct-pointer ABI.
 
-fn verify_rl29_noalias_fresh_unique() -> EngineResult {
-    /// noalias is emitted iff preserves_freshness AND uniqueness = Unique.
-    fn emit_noalias(preserves_freshness: bool, uniqueness: Uniq) -> bool {
-        preserves_freshness && uniqueness == Uniq::Unique
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FreshSelfAllocationFact {
+    NotProven,
+    Proven,
+}
+
+fn rl29_fresh_self_allocation_fact(returns_fresh_self_alloc: bool) -> FreshSelfAllocationFact {
+    if returns_fresh_self_alloc {
+        FreshSelfAllocationFact::Proven
+    } else {
+        FreshSelfAllocationFact::NotProven
     }
+}
+
+fn rl29_llvm_return_noalias(fact: FreshSelfAllocationFact, direct_pointer: bool) -> bool {
+    fact == FreshSelfAllocationFact::Proven && direct_pointer
+}
+
+fn verify_rl29_neutral_fresh_self_allocation() -> EngineResult {
     struct Row {
         label: &'static str,
-        preserves_freshness: bool,
-        uniqueness: Uniq,
+        returns_fresh_self_alloc: bool,
+        direct_pointer: bool,
+        expect_fact: FreshSelfAllocationFact,
         expect_noalias: bool,
     }
     let grid: &[Row] = &[
-        // Fresh + Unique -> noalias.
-        Row { label: "fresh_unique_noalias", preserves_freshness: true, uniqueness: Uniq::Unique, expect_noalias: true },
-        // Unique but NOT fresh (param passthrough) -> NO noalias (may alias
-        // caller's copy) — the load-bearing distinction.
-        Row { label: "unique_not_fresh_no_noalias", preserves_freshness: false, uniqueness: Uniq::Unique, expect_noalias: false },
-        // Fresh but MaybeShared -> NO noalias.
-        Row { label: "fresh_maybeshared_no_noalias", preserves_freshness: true, uniqueness: Uniq::MaybeShared, expect_noalias: false },
+        Row {
+            label: "fresh_self_alloc_direct_pointer_noalias",
+            returns_fresh_self_alloc: true,
+            direct_pointer: true,
+            expect_fact: FreshSelfAllocationFact::Proven,
+            expect_noalias: true,
+        },
+        Row {
+            label: "parameter_passthrough_not_proven",
+            returns_fresh_self_alloc: false,
+            direct_pointer: true,
+            expect_fact: FreshSelfAllocationFact::NotProven,
+            expect_noalias: false,
+        },
+        Row {
+            label: "consumed_storage_not_proven",
+            returns_fresh_self_alloc: false,
+            direct_pointer: true,
+            expect_fact: FreshSelfAllocationFact::NotProven,
+            expect_noalias: false,
+        },
+        Row {
+            label: "fresh_self_alloc_non_pointer_abi_omits_noalias",
+            returns_fresh_self_alloc: true,
+            direct_pointer: false,
+            expect_fact: FreshSelfAllocationFact::Proven,
+            expect_noalias: false,
+        },
     ];
     let mut checked: u64 = 0;
     for row in grid {
-        let got = emit_noalias(row.preserves_freshness, row.uniqueness);
-        if got != row.expect_noalias {
+        let fact = rl29_fresh_self_allocation_fact(row.returns_fresh_self_alloc);
+        if fact != row.expect_fact {
             return fail(format!(
-                "RL-29: '{}' expected noalias={} got {}",
-                row.label, row.expect_noalias, got
+                "RL-29: '{}' expected neutral fact {:?} got {:?}",
+                row.label, row.expect_fact, fact
+            ));
+        }
+        let noalias = rl29_llvm_return_noalias(fact, row.direct_pointer);
+        if noalias != row.expect_noalias {
+            return fail(format!(
+                "RL-29 LLVM projection: '{}' expected noalias={} got {}",
+                row.label, row.expect_noalias, noalias
             ));
         }
         checked += 1;
     }
-    // Negative-direction witness: a Unique-but-not-fresh return (param
-    // passthrough) must NOT get noalias — it may alias the caller's copy.
-    if emit_noalias(false, Uniq::Unique) {
+    let consumed = rl29_fresh_self_allocation_fact(false);
+    if consumed != FreshSelfAllocationFact::NotProven || rl29_llvm_return_noalias(consumed, true) {
         return fail(
-            "RL-29 negative witness: a Unique-but-not-fresh (passthrough) return was wrongly marked noalias".to_string(),
+            "RL-29 negative witness: consumed or forwarded storage received a fresh-self-allocation fact or LLVM noalias".to_string(),
         );
     }
     require_count(
         "RL-29",
-        3,
+        4,
         checked,
-        "(P1/P2) noalias gated on preserves_freshness AND Unique (not uniqueness alone)",
+        "(P1/P2) neutral fresh-self-allocation fact gated on returns_fresh_self_alloc, followed by direct-pointer LLVM projection",
     )
 }
 
 // ----------------------------------------------------------------------------
-// RL-30: memory(...) attribute derivation from IC-3 + IC-5
+// RL-30: backend-neutral memory-access fact from IC-3 + IC-5 + realized ops
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-30: function-level LLVM memory(...) attributes are
-// derived from the IC-5 EffectSummary + IC-3 ParamContract. Soundness: each
-// emitted memory attribute is an over-approximation of the function's actual
-// memory effects (it never claims FEWER effects than the contract proves), so
-// LLVM's alias analysis remains sound.
+// Per Annex E §AIMS RL-30, AIMS first freezes a neutral whole-function fact.
+// LLVM spelling is a separate fidelity projection. Untyped calls and runtime
+// effects set may_write_inaccessible and therefore fail closed.
 
-/// LLVM memory(...) attribute (the subset RL-30 derives).
+/// Backend-neutral whole-function memory-access fact.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum MemoryAttr {
-    /// memory(none) — pure, no memory access.
-    None,
-    /// memory(argmem: read) — pure read-only over arguments.
-    ArgmemRead,
-    /// memory(argmem: readwrite, inaccessiblemem: readwrite) — allocating +
-    /// arg access.
-    ArgmemRwInaccessibleRw,
-    /// memory(inaccessiblemem: readwrite) — deallocating / pure allocator.
-    InaccessibleRw,
+enum MemoryAccessFact {
+    ReadOnly,
+    ReadWrite,
 }
 
-/// RL-30 derivation (the core branches of the Annex E §AIMS RL-30 table).
-fn rl30_memory_attr(
+/// LLVM's conservative projection of the neutral fact.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LlvmMemoryProjection {
+    MemoryRead,
+    Omit,
+}
+
+/// RL-30 neutral derivation. Reads never strengthen read-only into no-access;
+/// the shipped carrier deliberately has no memory(none) fact.
+fn rl30_memory_fact(
     may_allocate: bool,
     may_deallocate: bool,
     may_share: bool,
-    may_read_inaccessible: bool,
-    all_params_dead: bool,
-    all_nondead_params_borrowed_no_share: bool,
-) -> MemoryAttr {
-    // Pure: all memory-relevant IC-5 false AND no arg access -> memory(none).
-    if !may_allocate
-        && !may_deallocate
-        && !may_share
-        && !may_read_inaccessible
-        && all_params_dead
+    may_throw: bool,
+    _may_read_inaccessible: bool,
+    may_write_inaccessible: bool,
+    any_arg_written: bool,
+) -> MemoryAccessFact {
+    if may_allocate
+        || may_deallocate
+        || may_share
+        || may_throw
+        || may_write_inaccessible
+        || any_arg_written
     {
-        return MemoryAttr::None;
+        MemoryAccessFact::ReadWrite
+    } else {
+        MemoryAccessFact::ReadOnly
     }
-    // Allocating + arg access -> argmem rw + inaccessiblemem rw.
-    if may_allocate && !all_params_dead {
-        return MemoryAttr::ArgmemRwInaccessibleRw;
-    }
-    // Pure allocator (no arg access) -> inaccessiblemem rw.
-    if may_allocate && all_params_dead {
-        return MemoryAttr::InaccessibleRw;
-    }
-    // Deallocating -> inaccessiblemem rw.
-    if may_deallocate {
-        return MemoryAttr::InaccessibleRw;
-    }
-    // Pure read-only (no alloc/dealloc/share; all non-dead params Borrowed +
-    // no may_share) + no inaccessible read -> memory(argmem: read).
-    if all_nondead_params_borrowed_no_share && !may_read_inaccessible {
-        return MemoryAttr::ArgmemRead;
-    }
-    // Fallback (any uncovered combination) -> the conservative argmem rw +
-    // inaccessiblemem rw.
-    MemoryAttr::ArgmemRwInaccessibleRw
 }
 
-fn verify_rl30_memory_attribute_derivation() -> EngineResult {
+fn llvm_memory_projection(fact: MemoryAccessFact) -> LlvmMemoryProjection {
+    match fact {
+        MemoryAccessFact::ReadOnly => LlvmMemoryProjection::MemoryRead,
+        MemoryAccessFact::ReadWrite => LlvmMemoryProjection::Omit,
+    }
+}
+
+fn verify_rl30_neutral_memory_fact() -> EngineResult {
     struct Row {
         label: &'static str,
         may_allocate: bool,
         may_deallocate: bool,
         may_share: bool,
+        may_throw: bool,
         may_read_inaccessible: bool,
-        all_params_dead: bool,
-        all_nondead_params_borrowed_no_share: bool,
-        expect: MemoryAttr,
+        may_write_inaccessible: bool,
+        any_arg_written: bool,
+        expect_fact: MemoryAccessFact,
+        expect_llvm: LlvmMemoryProjection,
     }
     let grid: &[Row] = &[
-        // Pure, no arg access -> memory(none).
         Row {
-            label: "pure_no_access_none",
-            may_allocate: false, may_deallocate: false, may_share: false,
-            may_read_inaccessible: false, all_params_dead: true,
-            all_nondead_params_borrowed_no_share: true,
-            expect: MemoryAttr::None,
+            label: "call_free_no_write_readonly",
+            may_allocate: false,
+            may_deallocate: false,
+            may_share: false,
+            may_throw: false,
+            may_read_inaccessible: false,
+            may_write_inaccessible: false,
+            any_arg_written: false,
+            expect_fact: MemoryAccessFact::ReadOnly,
+            expect_llvm: LlvmMemoryProjection::MemoryRead,
         },
-        // Pure read-only over Borrowed args -> memory(argmem: read).
         Row {
-            label: "pure_readonly_argmem_read",
-            may_allocate: false, may_deallocate: false, may_share: false,
-            may_read_inaccessible: false, all_params_dead: false,
-            all_nondead_params_borrowed_no_share: true,
-            expect: MemoryAttr::ArgmemRead,
+            label: "inaccessible_read_stays_generic_readonly",
+            may_allocate: false,
+            may_deallocate: false,
+            may_share: false,
+            may_throw: false,
+            may_read_inaccessible: true,
+            may_write_inaccessible: false,
+            any_arg_written: false,
+            expect_fact: MemoryAccessFact::ReadOnly,
+            expect_llvm: LlvmMemoryProjection::MemoryRead,
         },
-        // Allocating + arg access -> argmem rw + inaccessiblemem rw.
         Row {
-            label: "allocating_arg_access_rw",
-            may_allocate: true, may_deallocate: false, may_share: false,
-            may_read_inaccessible: false, all_params_dead: false,
-            all_nondead_params_borrowed_no_share: false,
-            expect: MemoryAttr::ArgmemRwInaccessibleRw,
+            label: "allocation_is_readwrite",
+            may_allocate: true,
+            may_deallocate: false,
+            may_share: false,
+            may_throw: false,
+            may_read_inaccessible: false,
+            may_write_inaccessible: false,
+            any_arg_written: false,
+            expect_fact: MemoryAccessFact::ReadWrite,
+            expect_llvm: LlvmMemoryProjection::Omit,
         },
-        // Pure allocator (no arg access) -> inaccessiblemem rw.
         Row {
-            label: "pure_allocator_inaccessible_rw",
-            may_allocate: true, may_deallocate: false, may_share: false,
-            may_read_inaccessible: false, all_params_dead: true,
-            all_nondead_params_borrowed_no_share: true,
-            expect: MemoryAttr::InaccessibleRw,
+            label: "deallocation_is_readwrite",
+            may_allocate: false,
+            may_deallocate: true,
+            may_share: false,
+            may_throw: false,
+            may_read_inaccessible: false,
+            may_write_inaccessible: false,
+            any_arg_written: false,
+            expect_fact: MemoryAccessFact::ReadWrite,
+            expect_llvm: LlvmMemoryProjection::Omit,
         },
-        // Deallocating -> inaccessiblemem rw.
         Row {
-            label: "deallocating_inaccessible_rw",
-            may_allocate: false, may_deallocate: true, may_share: false,
-            may_read_inaccessible: false, all_params_dead: true,
-            all_nondead_params_borrowed_no_share: true,
-            expect: MemoryAttr::InaccessibleRw,
+            label: "sharing_is_readwrite",
+            may_allocate: false,
+            may_deallocate: false,
+            may_share: true,
+            may_throw: false,
+            may_read_inaccessible: false,
+            may_write_inaccessible: false,
+            any_arg_written: false,
+            expect_fact: MemoryAccessFact::ReadWrite,
+            expect_llvm: LlvmMemoryProjection::Omit,
+        },
+        Row {
+            label: "argument_write_is_readwrite",
+            may_allocate: false,
+            may_deallocate: false,
+            may_share: false,
+            may_throw: false,
+            may_read_inaccessible: false,
+            may_write_inaccessible: false,
+            any_arg_written: true,
+            expect_fact: MemoryAccessFact::ReadWrite,
+            expect_llvm: LlvmMemoryProjection::Omit,
+        },
+        Row {
+            label: "untyped_call_inaccessible_write_is_readwrite",
+            may_allocate: false,
+            may_deallocate: false,
+            may_share: false,
+            may_throw: false,
+            may_read_inaccessible: false,
+            may_write_inaccessible: true,
+            any_arg_written: false,
+            expect_fact: MemoryAccessFact::ReadWrite,
+            expect_llvm: LlvmMemoryProjection::Omit,
+        },
+        Row {
+            label: "throwing_runtime_state_is_readwrite",
+            may_allocate: false,
+            may_deallocate: false,
+            may_share: false,
+            may_throw: true,
+            may_read_inaccessible: false,
+            may_write_inaccessible: false,
+            any_arg_written: false,
+            expect_fact: MemoryAccessFact::ReadWrite,
+            expect_llvm: LlvmMemoryProjection::Omit,
         },
     ];
     let mut checked: u64 = 0;
     for row in grid {
-        let got = rl30_memory_attr(
+        let fact = rl30_memory_fact(
             row.may_allocate,
             row.may_deallocate,
             row.may_share,
+            row.may_throw,
             row.may_read_inaccessible,
-            row.all_params_dead,
-            row.all_nondead_params_borrowed_no_share,
+            row.may_write_inaccessible,
+            row.any_arg_written,
         );
-        if got != row.expect {
+        if fact != row.expect_fact {
             return fail(format!(
                 "RL-30: '{}' expected {:?} got {:?}",
-                row.label, row.expect, got
+                row.label, row.expect_fact, fact
+            ));
+        }
+        let llvm = llvm_memory_projection(fact);
+        if llvm != row.expect_llvm {
+            return fail(format!(
+                "RL-30 LLVM projection: '{}' expected {:?} got {:?}",
+                row.label, row.expect_llvm, llvm
             ));
         }
         checked += 1;
     }
-    // Negative-direction witness: an allocating function must NOT be marked
-    // memory(none) (it accesses inaccessible memory via the allocator).
-    if rl30_memory_attr(true, false, false, false, false, false) == MemoryAttr::None {
+    let inaccessible_write = rl30_memory_fact(false, false, false, false, false, true, false);
+    if inaccessible_write != MemoryAccessFact::ReadWrite
+        || llvm_memory_projection(inaccessible_write) != LlvmMemoryProjection::Omit
+    {
         return fail(
-            "RL-30 negative witness: an allocating function was wrongly marked memory(none)".to_string(),
+            "RL-30 negative witness: an inaccessible-memory writer received a read-only neutral fact or restrictive LLVM projection".to_string(),
         );
     }
     require_count(
         "RL-30",
-        5,
+        8,
         checked,
-        "(P1/P2) memory(...) derivation from IC-5 EffectSummary + IC-3 (none / argmem:read / argmem+inaccessible rw / inaccessible rw)",
+        "(P1/P2) neutral access facts from IC-5 + IC-3 + inaccessible writes, followed by separate LLVM projection fidelity",
     )
 }
 
 // ----------------------------------------------------------------------------
-// RL-31 (CRITICAL): disjoint Borrowed params -> !alias.scope + !noalias
+// RL-31 (CRITICAL): neutral disjoint-Borrowed-parameter fact
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS RL-31: disjoint Borrowed parameters SHALL receive
-// !alias.scope + !noalias metadata pairs. "Disjoint" = no two Borrowed params
-// can alias the same memory at runtime. The proof requires a cross-function
+// Per Annex E §AIMS RL-31, final realization freezes a backend-neutral fact
+// proving that two Borrowed parameters cannot alias the same memory at runtime.
+// The proof requires a cross-function
 // provenance summary (NOT IC-2/IC-3 alone): each call site proves the actual
 // arguments to distinct Borrowed params trace to different source aggregates
 // or disjoint fields. CRITICAL — directly addresses the burden-prototype C5; the Ori-novel
@@ -3480,10 +3636,10 @@ fn verify_rl30_memory_attribute_derivation() -> EngineResult {
 // (the burden-prototype C5 proven_by line 90) is enumerated as explicit theorem antecedents,
 // across BOTH disjointness facets: (a) call-site provenance + (b) type-level.
 
-fn verify_rl31_disjoint_borrowed_alias_metadata() -> EngineResult {
+fn verify_rl31_neutral_parameter_disjointness() -> EngineResult {
     // The 8-clause SUFFICIENT condition. Each clause is a named antecedent; the
-    // verifier confirms metadata is emitted iff disjointness is PROVEN and
-    // conservatively withheld otherwise.
+    // verifier confirms the neutral fact is proven iff disjointness is PROVEN
+    // and conservatively remains unproven otherwise.
     //
     // Clause (1) both params Borrowed; (2) per-call-site across ALL sites;
     // (3) root-set extraction = filter project_alias_sources to no-upstream
@@ -3491,8 +3647,7 @@ fn verify_rl31_disjoint_borrowed_alias_metadata() -> EngineResult {
     // (6) untraceable -> FAIL conservatively; (7) same-root disjoint-fields
     // (nested-projection prefix test); (8) borrow_sources function-local.
 
-    /// Decide whether !alias.scope + !noalias is EMITTED for a (p_i, p_j) pair
-    /// at one call site, per the 8-clause procedure.
+    /// Decide whether a `(p_i, p_j)` pair is proven disjoint at one call site.
     struct CallSiteArg {
         /// (1) the param is Borrowed.
         param_borrowed: bool,
@@ -3512,8 +3667,8 @@ fn verify_rl31_disjoint_borrowed_alias_metadata() -> EngineResult {
         a[..common] != b[..common]
     }
 
-    /// The 8-clause emit decision for a (p_i, p_j) pair at one call site.
-    fn emit_metadata_at_site(pi: &CallSiteArg, pj: &CallSiteArg) -> bool {
+    /// The 8-clause neutral proof decision for one call site.
+    fn prove_disjoint_at_site(pi: &CallSiteArg, pj: &CallSiteArg) -> bool {
         // (1) both params Borrowed.
         if !pi.param_borrowed || !pj.param_borrowed {
             return false;
@@ -3547,59 +3702,119 @@ fn verify_rl31_disjoint_borrowed_alias_metadata() -> EngineResult {
         label: &'static str,
         pi: CallSiteArg,
         pj: CallSiteArg,
-        expect_emit: bool,
+        expect_proven: bool,
     }
     let grid: &[Row] = &[
-        // Clause (4): disjoint root sets {2} vs {3} -> emit.
+        // Clause (4): disjoint root sets {2} vs {3} -> proven.
         Row {
-            label: "clause4_disjoint_roots_emit",
-            pi: CallSiteArg { param_borrowed: true, root_set: &[2], is_fresh: false, field_path: &[] },
-            pj: CallSiteArg { param_borrowed: true, root_set: &[3], is_fresh: false, field_path: &[] },
-            expect_emit: true,
+            label: "clause4_disjoint_roots_proven",
+            pi: CallSiteArg {
+                param_borrowed: true,
+                root_set: &[2],
+                is_fresh: false,
+                field_path: &[],
+            },
+            pj: CallSiteArg {
+                param_borrowed: true,
+                root_set: &[3],
+                is_fresh: false,
+                field_path: &[],
+            },
+            expect_proven: true,
         },
-        // Clause (5): FRESH allocation -> own root -> emit.
+        // Clause (5): FRESH allocation -> own root -> proven.
         Row {
-            label: "clause5_fresh_alloc_emit",
-            pi: CallSiteArg { param_borrowed: true, root_set: &[], is_fresh: true, field_path: &[] },
-            pj: CallSiteArg { param_borrowed: true, root_set: &[3], is_fresh: false, field_path: &[] },
-            expect_emit: true,
+            label: "clause5_fresh_alloc_proven",
+            pi: CallSiteArg {
+                param_borrowed: true,
+                root_set: &[],
+                is_fresh: true,
+                field_path: &[],
+            },
+            pj: CallSiteArg {
+                param_borrowed: true,
+                root_set: &[3],
+                is_fresh: false,
+                field_path: &[],
+            },
+            expect_proven: true,
         },
         // Clause (6): untraceable arg (no root, not fresh) -> FAIL conservatively.
         Row {
             label: "clause6_untraceable_fail",
-            pi: CallSiteArg { param_borrowed: true, root_set: &[], is_fresh: false, field_path: &[] },
-            pj: CallSiteArg { param_borrowed: true, root_set: &[3], is_fresh: false, field_path: &[] },
-            expect_emit: false,
+            pi: CallSiteArg {
+                param_borrowed: true,
+                root_set: &[],
+                is_fresh: false,
+                field_path: &[],
+            },
+            pj: CallSiteArg {
+                param_borrowed: true,
+                root_set: &[3],
+                is_fresh: false,
+                field_path: &[],
+            },
+            expect_proven: false,
         },
-        // Clause (7): same root {2}, disjoint fields [0] vs [1] -> emit.
+        // Clause (7): same root {2}, disjoint fields [0] vs [1] -> proven.
         Row {
-            label: "clause7_same_root_disjoint_fields_emit",
-            pi: CallSiteArg { param_borrowed: true, root_set: &[2], is_fresh: false, field_path: &[0] },
-            pj: CallSiteArg { param_borrowed: true, root_set: &[2], is_fresh: false, field_path: &[1] },
-            expect_emit: true,
+            label: "clause7_same_root_disjoint_fields_proven",
+            pi: CallSiteArg {
+                param_borrowed: true,
+                root_set: &[2],
+                is_fresh: false,
+                field_path: &[0],
+            },
+            pj: CallSiteArg {
+                param_borrowed: true,
+                root_set: &[2],
+                is_fresh: false,
+                field_path: &[1],
+            },
+            expect_proven: true,
         },
         // Clause (7) negative: same root {2}, OVERLAPPING fields [0] vs [0,1]
-        // ([0] is a prefix of [0,1]) -> NO emit.
+        // ([0] is a prefix of [0,1]) -> unproven.
         Row {
-            label: "clause7_prefix_overlap_no_emit",
-            pi: CallSiteArg { param_borrowed: true, root_set: &[2], is_fresh: false, field_path: &[0] },
-            pj: CallSiteArg { param_borrowed: true, root_set: &[2], is_fresh: false, field_path: &[0, 1] },
-            expect_emit: false,
+            label: "clause7_prefix_overlap_unproven",
+            pi: CallSiteArg {
+                param_borrowed: true,
+                root_set: &[2],
+                is_fresh: false,
+                field_path: &[0],
+            },
+            pj: CallSiteArg {
+                param_borrowed: true,
+                root_set: &[2],
+                is_fresh: false,
+                field_path: &[0, 1],
+            },
+            expect_proven: false,
         },
-        // Clause (1): a non-Borrowed param -> NO emit.
+        // Clause (1): a non-Borrowed param -> unproven.
         Row {
-            label: "clause1_non_borrowed_no_emit",
-            pi: CallSiteArg { param_borrowed: false, root_set: &[2], is_fresh: false, field_path: &[] },
-            pj: CallSiteArg { param_borrowed: true, root_set: &[3], is_fresh: false, field_path: &[] },
-            expect_emit: false,
+            label: "clause1_non_borrowed_unproven",
+            pi: CallSiteArg {
+                param_borrowed: false,
+                root_set: &[2],
+                is_fresh: false,
+                field_path: &[],
+            },
+            pj: CallSiteArg {
+                param_borrowed: true,
+                root_set: &[3],
+                is_fresh: false,
+                field_path: &[],
+            },
+            expect_proven: false,
         },
     ];
     for row in grid {
-        let got = emit_metadata_at_site(&row.pi, &row.pj);
-        if got != row.expect_emit {
+        let got = prove_disjoint_at_site(&row.pi, &row.pj);
+        if got != row.expect_proven {
             return fail(format!(
-                "RL-31 (facet a, 8-clause): '{}' expected emit={} got {}",
-                row.label, row.expect_emit, got
+                "RL-31 (facet a, 8-clause): '{}' expected proven={} got {}",
+                row.label, row.expect_proven, got
             ));
         }
         checked += 1;
@@ -3611,7 +3826,7 @@ fn verify_rl31_disjoint_borrowed_alias_metadata() -> EngineResult {
         "RL-31",
         6,
         checked,
-        "facet (a) call-site provenance 8-clause grid (clauses 1/4/5/6/7-emit/7-overlap)",
+        "facet (a) call-site provenance 8-clause grid (clauses 1/4/5/6/7-proven/7-overlap)",
     ) {
         return fail(format!(
             "RL-31 facet (a) coverage mismatch: expected 6 clause cases; verified {}",
@@ -3620,19 +3835,19 @@ fn verify_rl31_disjoint_borrowed_alias_metadata() -> EngineResult {
     }
 
     // Clause (2): per-call-site across ALL sites — ANY site failing -> no
-    // metadata. The verifier confirms the all-sites conjunction: metadata is
-    // emitted iff EVERY call site proves disjointness.
-    fn emit_across_all_sites(site_verdicts: &[bool]) -> bool {
+    // fact. The verifier confirms the all-sites conjunction: the provenance
+    // facet is proven iff EVERY call site proves disjointness.
+    fn prove_across_all_sites(site_verdicts: &[bool]) -> bool {
         site_verdicts.iter().all(|&v| v)
     }
-    if emit_across_all_sites(&[true, false, true]) {
+    if prove_across_all_sites(&[true, false, true]) {
         return fail(
-            "RL-31 (facet a, clause 2): metadata must NOT be emitted when ANY call site fails disjointness".to_string(),
+            "RL-31 (facet a, clause 2): the neutral fact must remain unproven when ANY call site fails disjointness".to_string(),
         );
     }
-    if !emit_across_all_sites(&[true, true, true]) {
+    if !prove_across_all_sites(&[true, true, true]) {
         return fail(
-            "RL-31 (facet a, clause 2): metadata MUST be emitted when EVERY call site proves disjointness".to_string(),
+            "RL-31 (facet a, clause 2): the provenance facet must be proven when EVERY call site proves disjointness".to_string(),
         );
     }
 
@@ -3641,20 +3856,47 @@ fn verify_rl31_disjoint_borrowed_alias_metadata() -> EngineResult {
     // (§AIMS §7), NOT callee IC-2/IC-3 alone. Facet (b) adds a type-level
     // disjointness check via BurdenSpec.field_type chains, which is
     // demonstrably MORE precise than the contract-layer encoding for the
-    // BUG-04-118 shape. Both facets must hold for the metadata to be sound.
-    fn dual_facet_sound(call_site_provenance_disjoint: bool, type_level_disjoint: bool) -> bool {
-        call_site_provenance_disjoint && type_level_disjoint
+    // BUG-04-118 shape. Both facets must hold for the neutral fact.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum ParameterDisjointnessFact {
+        NotProven,
+        Proven,
     }
-    // Both facets hold -> sound.
-    if !dual_facet_sound(true, true) {
-        return fail("RL-31 (dual facet): both call-site and type-level disjointness holding must be sound".to_string());
+    fn freeze_fact(
+        call_site_provenance_disjoint: bool,
+        type_level_disjoint: bool,
+    ) -> ParameterDisjointnessFact {
+        if call_site_provenance_disjoint && type_level_disjoint {
+            ParameterDisjointnessFact::Proven
+        } else {
+            ParameterDisjointnessFact::NotProven
+        }
+    }
+    if freeze_fact(true, true) != ParameterDisjointnessFact::Proven {
+        return fail("RL-31 (dual facet): both call-site and type-level disjointness must freeze a proven neutral fact".to_string());
     }
     // Type-level facet alone (without the per-call-site provenance facet) is
     // NOT sufficient — the VF-2 (b) contract-consistency check would be
     // unproven.
-    if dual_facet_sound(false, true) {
+    if freeze_fact(false, true) != ParameterDisjointnessFact::NotProven {
         return fail(
-            "RL-31 (dual facet) negative witness: type-level disjointness ALONE (without call-site provenance) was wrongly accepted as sufficient".to_string(),
+            "RL-31 (dual facet) negative witness: type-level disjointness ALONE was wrongly frozen as proven".to_string(),
+        );
+    }
+
+    // LLVM metadata is one target projection and does not define the fact.
+    fn llvm_projects_noalias(
+        fact: ParameterDisjointnessFact,
+        placement_preserves_proof: bool,
+    ) -> bool {
+        fact == ParameterDisjointnessFact::Proven && placement_preserves_proof
+    }
+    if !llvm_projects_noalias(ParameterDisjointnessFact::Proven, true)
+        || llvm_projects_noalias(ParameterDisjointnessFact::NotProven, true)
+        || llvm_projects_noalias(ParameterDisjointnessFact::Proven, false)
+    {
+        return fail(
+            "RL-31 target corollary: LLVM noalias requires both the frozen neutral fact and sound ABI/metadata placement".to_string(),
         );
     }
 
@@ -3698,11 +3940,26 @@ fn verify_rl32_borrowed_init_owned_promotion() -> EngineResult {
     }
     let grid: &[Row] = &[
         // Non-scalar, not consumed -> stays Borrowed (init value).
-        Row { label: "nonscalar_borrowed_init", is_scalar: false, consumes_value: false, expect: Access::Borrowed },
+        Row {
+            label: "nonscalar_borrowed_init",
+            is_scalar: false,
+            consumes_value: false,
+            expect: Access::Borrowed,
+        },
         // Non-scalar, consumed -> promoted Owned.
-        Row { label: "nonscalar_consumed_owned", is_scalar: false, consumes_value: true, expect: Access::Owned },
+        Row {
+            label: "nonscalar_consumed_owned",
+            is_scalar: false,
+            consumes_value: true,
+            expect: Access::Owned,
+        },
         // Scalar -> Borrowed (no RC; never promoted).
-        Row { label: "scalar_borrowed", is_scalar: true, consumes_value: true, expect: Access::Borrowed },
+        Row {
+            label: "scalar_borrowed",
+            is_scalar: true,
+            consumes_value: true,
+            expect: Access::Borrowed,
+        },
     ];
     for row in grid {
         let got = infer_param_access(row.is_scalar, row.consumes_value);
@@ -3738,7 +3995,9 @@ fn verify_rl33_projection_owned_propagation() -> EngineResult {
     let mut checked: u64 = 0;
     // Field Owned -> source promoted to Owned (even if it started Borrowed).
     if propagate_to_source(Access::Owned, Access::Borrowed) != Access::Owned {
-        return fail("RL-33: an Owned projected field must promote its source to Owned".to_string());
+        return fail(
+            "RL-33: an Owned projected field must promote its source to Owned".to_string(),
+        );
     }
     checked += 1;
     // Field Borrowed -> source stays at its initial access.
@@ -3762,51 +4021,48 @@ fn verify_rl33_projection_owned_propagation() -> EngineResult {
     )
 }
 
-// RL-34: tail-call preservation — never insert RcDec after a tail call;
-// transfer ownership instead, but ONLY when the callee parameter is Owned. A
-// Borrowed callee param means the caller must dec BEFORE the call (ownership
-// transfer to a Borrowed param would leak — the callee never decs). Soundness:
-// an RcDec after a tail call breaks TCO; ownership transfer is correct only
-// when the callee will dec (Owned param).
+// RL-34 freezes the pre-tail-call logical action: hand off the credit when the
+// callee owns the parameter, otherwise release before the call. A physical
+// post-call action is neither required nor permitted by this relation.
 fn verify_rl34_tail_call_preservation() -> EngineResult {
     #[derive(PartialEq, Eq, Debug)]
     enum TailAction {
-        /// Transfer ownership to the callee (no dec, TCO preserved).
-        TransferOwnership,
-        /// Caller must dec BEFORE the call (callee Borrowed; cannot transfer).
-        DecBeforeCall,
+        HandoffBeforeTail,
+        ReleaseBeforeTail,
     }
     /// Tail-call ownership action by callee parameter access.
     fn tail_action(callee_param: Access) -> TailAction {
         match callee_param {
-            // Callee Owned -> transfer ownership (callee will dec).
-            Access::Owned => TailAction::TransferOwnership,
-            // Callee Borrowed -> caller must dec before the call (the callee
-            // never decs a Borrowed param; transferring would leak).
-            Access::Borrowed => TailAction::DecBeforeCall,
+            Access::Owned => TailAction::HandoffBeforeTail,
+            Access::Borrowed => TailAction::ReleaseBeforeTail,
         }
     }
     let mut checked: u64 = 0;
-    if tail_action(Access::Owned) != TailAction::TransferOwnership {
-        return fail("RL-34: a tail call to an Owned param must transfer ownership (no post-call dec)".to_string());
+    if tail_action(Access::Owned) != TailAction::HandoffBeforeTail {
+        return fail(
+            "RL-34: a tail call to an Owned param must hand off ownership before the tail call"
+                .to_string(),
+        );
     }
     checked += 1;
-    if tail_action(Access::Borrowed) != TailAction::DecBeforeCall {
-        return fail("RL-34: a tail call to a Borrowed param must dec BEFORE the call (cannot transfer)".to_string());
+    if tail_action(Access::Borrowed) != TailAction::ReleaseBeforeTail {
+        return fail(
+            "RL-34: a tail call to a Borrowed param must record release before the call"
+                .to_string(),
+        );
     }
     checked += 1;
-    // Negative-direction witness: NEVER insert an RcDec AFTER a tail call (it
-    // breaks TCO). The action is always either pre-call transfer or pre-call
-    // dec — never a post-call dec. Confirm no branch yields a post-call dec.
-    let post_call_dec_ever = false;
-    if post_call_dec_ever {
-        return fail("RL-34 negative witness: an RcDec must NEVER be inserted after a tail call (breaks TCO)".to_string());
+    let post_call_release_ever = false;
+    if post_call_release_ever {
+        return fail(
+            "RL-34 negative witness: logical release must never follow a tail call".to_string(),
+        );
     }
     require_count(
         "RL-34",
         2,
         checked,
-        "(P1/P2) tail-call ownership (Owned param -> transfer; Borrowed param -> dec-before-call; never post-call dec)",
+        "(P1/P2) tail-call ownership (Owned -> handoff; Borrowed -> pre-call release; never post-call release)",
     )
 }
 
@@ -3816,20 +4072,20 @@ fn verify_rl34_tail_call_preservation() -> EngineResult {
 //
 // Per Annex E §AIMS + the sec-08 success_criteria: the composition
 // theorem proves RL-1..RL-34 applied to a realized ArcFunction produce
-// observably equivalent behavior to plain ARC. The named RL-1/RL-2
-// composition obligation proves the multi-use Let Var RC-balance shape
-// (BUG-04-120) — every RL-1 inc matched by exactly one RL-2 dec across all
-// CFG paths. rc_counting is PRIMARY (RC-balance composition).
+// preserve canonical evaluator behavior and the exact AIMS logical trace. The
+// named RL-1/RL-2 obligation proves the multi-use Let Var ownership-event
+// balance shape (BUG-04-120). Projection capability satisfaction is checked
+// separately from behavior and trace equality.
 
 // ----------------------------------------------------------------------------
 // RL-1/RL-2 composition (BUG-04-120 multi-use Let Var RC-balance shape)
 // ----------------------------------------------------------------------------
 //
 // Per the sec-08 success_criteria + the known failure modes: RL-1 (RC
-// inc on duplication to a live Owned param) and RL-2 (RC dec at last use /
+// additional credit on duplication) and RL-2 (release at terminal use /
 // scope exit) are proved separately by their own theorems; this obligation
-// proves their COMPOSITION on the multi-use Let Var shape preserves RC
-// balance — every inc emitted by RL-1 is matched by exactly one dec emitted by
+// proves their COMPOSITION on the multi-use Let Var shape preserves logical
+// balance — every additional credit is matched by exactly one release
 // RL-2 across all CFG paths, including the BUG-04-120 alias-chain where a Let
 // Var binding is used more than once before scope exit. Without this
 // composition proof, RL-1 and RL-2 each prove balance in isolation while the
@@ -3857,22 +4113,28 @@ fn verify_rl1_rl2_composition() -> EngineResult {
         }
         // Final use at scope exit releases the alloc reference.
         events.push(RcEvent::DecLastUse);
-        let net = ledger_net(&events);
+        let net = owner_credit_balance(&events);
         if net != 0 {
             return fail(format!(
-                "RL-1/RL-2 composition (BUG-04-120): multi-use Let Var with {} uses does not balance (net RC = {}); every RL-1 inc must be matched by exactly one RL-2 dec",
+                "RL-1/RL-2 composition (BUG-04-120): multi-use Let Var with {} uses does not balance (net owner credit = {}); every additional credit must be matched by a release",
                 n_uses, net
             ));
         }
         // Count check: (N-1) RL-1 incs must equal (N-1) callee decs (the
         // matched-pair invariant), plus the alloc balanced by the final dec.
-        let incs = events.iter().filter(|e| matches!(e, RcEvent::IncLiveDup)).count();
-        let decs = events.iter().filter(|e| matches!(e, RcEvent::DecLastUse)).count();
+        let incs = events
+            .iter()
+            .filter(|event| **event == OwnershipEvent::AdditionalCredit)
+            .count();
+        let decs = events
+            .iter()
+            .filter(|event| **event == OwnershipEvent::Release)
+            .count();
         // decs = (N-1) callee + 1 final = N; incs = N-1; alloc = 1; so
         // incs + 1 (alloc) == decs.
         if incs + 1 != decs {
             return fail(format!(
-                "RL-1/RL-2 composition: multi-use Let Var with {} uses has {} incs + 1 alloc != {} decs (matched-pair invariant violated)",
+                "RL-1/RL-2 composition: multi-use Let Var with {} uses has {} additional credits + 1 birth credit != {} releases",
                 n_uses, incs, decs
             ));
         }
@@ -3881,16 +4143,16 @@ fn verify_rl1_rl2_composition() -> EngineResult {
     // Negative-direction witness: a multi-use shape MISSING the final
     // scope-exit dec leaks the alloc reference (net = +1).
     let leaky = [RcEvent::Alloc, RcEvent::IncLiveDup, RcEvent::DecLastUse];
-    if ledger_net(&leaky) == 0 {
+    if owner_credit_balance(&leaky) == 0 {
         return fail(
-            "RL-1/RL-2 composition negative witness: a multi-use Let Var missing the scope-exit dec must NOT balance".to_string(),
+            "RL-1/RL-2 composition negative witness: a multi-use Let Var missing its terminal release must not balance".to_string(),
         );
     }
     require_count(
         "RL-1-RL-2-composition",
         5,
         checked,
-        "multi-use Let Var RC-balance shapes (1..5 uses) — every RL-1 inc matched by exactly one RL-2 dec (BUG-04-120)",
+        "multi-use Let Var ownership-event balance shapes (1..5 uses)",
     )
 }
 
@@ -3898,12 +4160,46 @@ fn verify_rl1_rl2_composition() -> EngineResult {
 // RL-comp: whole-suite composition theorem
 // ----------------------------------------------------------------------------
 //
-// Per the sec-08 success_criteria: RL-1..RL-34 applied to a realized
-// ArcFunction produce observably equivalent behavior to plain ARC. The
-// verifier composes every discharged RL constituent — re-run each, assert
+// RL-comp has three independent obligations: canonical evaluator behavior,
+// exact AIMS logical trace equality, and projection `Satisfies`. The verifier
+// also composes every discharged RL constituent — re-run each, assert
 // Valid, assert the count is exactly the full active-rule set. RL-comp is
 // exactly as strong as the conjunction; it never gracious-accepts over a
 // failing or missing premise (mirrors pipeline_ordering::verify_pl_composition).
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct EvaluatorBehavior {
+    result: i64,
+    alias_view: i64,
+    cleanup_calls: u8,
+}
+
+fn canonical_evaluator_behavior(input: i64, has_alias: bool) -> EvaluatorBehavior {
+    let result = input + 1;
+    EvaluatorBehavior {
+        result,
+        alias_view: if has_alias { input } else { result },
+        cleanup_calls: 1,
+    }
+}
+
+fn realized_evaluator_behavior(input: i64, has_alias: bool) -> EvaluatorBehavior {
+    let obligation = if has_alias {
+        MutationObligation::IsolationRequired
+    } else {
+        MutationObligation::SameIdentityAdmissible
+    };
+    let result = input + 1;
+    EvaluatorBehavior {
+        result,
+        alias_view: match obligation {
+            MutationObligation::IsolationRequired => input,
+            MutationObligation::SameIdentityAdmissible
+            | MutationObligation::SharingObservationRequired => result,
+        },
+        cleanup_calls: 1,
+    }
+}
 
 fn verify_rl_composition() -> EngineResult {
     let constituents: [(&str, fn() -> EngineResult); 38] = [
@@ -3912,36 +4208,36 @@ fn verify_rl_composition() -> EngineResult {
         ("RL-3", verify_rl3_rc_op_elision),
         ("RL-4", verify_rl4_edge_specific_decs),
         ("RL-5", verify_rl5_dead_at_entry_cleanup),
-        ("RL-6", verify_rl6_static_unique_mutation),
-        ("RL-7", verify_rl7_dynamic_cow),
-        ("RL-8", verify_rl8_static_shared_mutation),
-        ("RL-9", verify_rl9_cow_compound_contraction),
+        ("RL-6", verify_rl6_same_identity_mutation),
+        ("RL-7", verify_rl7_sharing_observation),
+        ("RL-8", verify_rl8_mutation_isolation),
+        ("RL-9", verify_rl9_observation_representation_equivalence),
         ("RL-10", verify_rl10_disjoint_field_mutation),
         ("RL-11", verify_rl11_same_block_reuse),
         ("RL-11a", verify_rl11a_dynamic_reuse),
         ("RL-12", verify_rl12_cross_block_reuse),
         ("RL-13", verify_rl13_removal_confirmation),
-        ("RL-14", verify_rl14_headerless_stack),
-        ("RL-14a", verify_rl14a_immortal_header_stack),
-        ("RL-15", verify_rl15_bump_allocator),
-        ("RL-15a", verify_rl15a_argescaping_caller_stack),
-        ("RL-16", verify_rl16_escaping_heap),
-        ("RL-17", verify_rl17_sharing_bound),
-        ("RL-18", verify_rl18_header_width_narrowing),
-        ("RL-18a", verify_rl18a_locality_escape_ssot),
-        ("RL-19", verify_rl19_thread_local_nonatomic),
-        ("RL-20", verify_rl20_thread_shared_atomic),
-        ("RL-21", verify_rl21_program_wide_nonatomic),
+        ("RL-14", verify_rl14_lifetime_facts),
+        ("RL-14a", verify_rl14a_cleanup_obligation),
+        ("RL-15", verify_rl15_extent_seam),
+        ("RL-15a", verify_rl15a_caller_extent),
+        ("RL-16", verify_rl16_conservative_unknown),
+        ("RL-17", verify_rl17_owner_bound),
+        ("RL-18", verify_rl18_layout_satisfaction),
+        ("RL-18a", verify_rl18a_projection_parity),
+        ("RL-19", verify_rl19_thread_reachability),
+        ("RL-20", verify_rl20_thread_capability),
+        ("RL-21", verify_rl21_no_thread_boundary),
         ("RL-22", verify_rl22_knownsafe_pair_elimination),
         ("RL-23", verify_rl23_knownsafe_join_propagation),
         ("RL-24", verify_rl24_bidirectional_pair_matching),
         ("RL-25", verify_rl25_pair_eliminable_conditions),
-        ("RL-26", verify_rl26_rc_motion_barriers),
-        ("RL-27", verify_rl27_selective_flush),
-        ("RL-28", verify_rl28_unknown_callee_flush),
-        ("RL-29", verify_rl29_noalias_fresh_unique),
-        ("RL-30", verify_rl30_memory_attribute_derivation),
-        ("RL-31", verify_rl31_disjoint_borrowed_alias_metadata),
+        ("RL-26", verify_rl26_event_ordering_barriers),
+        ("RL-27", verify_rl27_selective_event_ordering),
+        ("RL-28", verify_rl28_unknown_callee_event_ordering),
+        ("RL-29", verify_rl29_neutral_fresh_self_allocation),
+        ("RL-30", verify_rl30_neutral_memory_fact),
+        ("RL-31", verify_rl31_neutral_parameter_disjointness),
         ("RL-32", verify_rl32_borrowed_init_owned_promotion),
         ("RL-33", verify_rl33_projection_owned_propagation),
         ("RL-34", verify_rl34_tail_call_preservation),
@@ -3957,6 +4253,31 @@ fn verify_rl_composition() -> EngineResult {
             ));
         }
         checked += 1;
+    }
+
+    // Behavior parity is defined against the canonical evaluator, not against
+    // a physical ownership mechanism. Include aliased and unaliased mutations.
+    for input in [0, 7] {
+        for has_alias in [false, true] {
+            let expected = canonical_evaluator_behavior(input, has_alias);
+            let actual = realized_evaluator_behavior(input, has_alias);
+            if actual != expected {
+                return fail(format!(
+                    "RL-comp evaluator behavior mismatch for input={}, has_alias={}: expected {:?}, got {:?}",
+                    input, has_alias, expected, actual
+                ));
+            }
+        }
+    }
+
+    // Exact logical trace equality and physical capability satisfaction are
+    // deliberately separate obligations.
+    let (facts, extent, capabilities) = sample_layout_contract();
+    if capability_trace(&capabilities) != aims_trace(&facts) {
+        return fail("RL-comp: projection changed the exact AIMS logical trace".to_string());
+    }
+    if !satisfies(&facts, extent, &capabilities) {
+        return fail("RL-comp: projection failed Satisfies despite trace equality".to_string());
     }
     // Also compose the named RL-1/RL-2 multi-use Let Var obligation.
     let rl1_rl2 = verify_rl1_rl2_composition();
@@ -3974,7 +4295,7 @@ fn verify_rl_composition() -> EngineResult {
         "RL-comp",
         38,
         checked,
-        "discharged RL constituents composed into the joined realization-equals-plain-ARC claim",
+        "discharged RL constituents composed with evaluator behavior, exact trace, and Satisfies",
     )
 }
 
@@ -4118,7 +4439,10 @@ mod tests {
             ledger_net(&[RcEvent::Alloc, RcEvent::TransferOut, RcEvent::DecLastUse]),
             -1
         );
-        assert_eq!(ledger_net(&[RcEvent::Alloc, RcEvent::ElideIncMove, RcEvent::TransferOut]), 0);
+        assert_eq!(
+            ledger_net(&[RcEvent::Alloc, RcEvent::ElideIncMove, RcEvent::TransferOut]),
+            0
+        );
     }
 
     #[test]
@@ -4132,8 +4456,29 @@ mod tests {
         assert!(dp2_dec_unnecessary(Card::Many, Cons::Dead));
         assert!(!dp2_dec_unnecessary(Card::Many, Cons::Unrestricted));
         // DP-7: full conjunction.
-        assert!(dp7_skip_eligible(true, Access::Owned, Cons::Linear, Card::Once, Uniq::Unique, false));
-        assert!(!dp7_skip_eligible(true, Access::Owned, Cons::Linear, Card::Once, Uniq::MaybeShared, false));
-        assert!(!dp7_skip_eligible(false, Access::Owned, Cons::Linear, Card::Once, Uniq::Unique, false));
+        assert!(dp7_skip_eligible(
+            true,
+            Access::Owned,
+            Cons::Linear,
+            Card::Once,
+            Uniq::Unique,
+            false
+        ));
+        assert!(!dp7_skip_eligible(
+            true,
+            Access::Owned,
+            Cons::Linear,
+            Card::Once,
+            Uniq::MaybeShared,
+            false
+        ));
+        assert!(!dp7_skip_eligible(
+            false,
+            Access::Owned,
+            Cons::Linear,
+            Card::Once,
+            Uniq::Unique,
+            false
+        ));
     }
 }

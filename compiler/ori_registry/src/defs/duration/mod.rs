@@ -1,7 +1,7 @@
 //! `Duration` type definition.
 //!
 //! Duration is stored as `i64` nanoseconds. Copy type with full arithmetic
-//! operator support via `IntInstr`. Has heterogeneous `mul`/`div` operators
+//! operator support via `SignedInteger`. Has heterogeneous `mul`/`div` operators
 //! (take `int`, not `Self`). Includes `format` (explicit Formattable entry).
 
 use crate::{
@@ -148,19 +148,19 @@ pub static DURATION: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(0),
     methods: DURATION_METHODS,
     operators: OpDefs {
-        add: OpStrategy::IntInstr,
-        sub: OpStrategy::IntInstr,
-        mul: OpStrategy::IntInstr,
-        div: OpStrategy::IntInstr,
-        rem: OpStrategy::IntInstr,
+        add: OpStrategy::SignedInteger,
+        sub: OpStrategy::SignedInteger,
+        mul: OpStrategy::SignedInteger,
+        div: OpStrategy::SignedInteger,
+        rem: OpStrategy::SignedInteger,
         floor_div: OpStrategy::Unsupported,
-        eq: OpStrategy::IntInstr,
-        neq: OpStrategy::IntInstr,
-        lt: OpStrategy::IntInstr,
-        gt: OpStrategy::IntInstr,
-        lt_eq: OpStrategy::IntInstr,
-        gt_eq: OpStrategy::IntInstr,
-        neg: OpStrategy::IntInstr,
+        eq: OpStrategy::SignedInteger,
+        neq: OpStrategy::SignedInteger,
+        lt: OpStrategy::SignedInteger,
+        gt: OpStrategy::SignedInteger,
+        lt_eq: OpStrategy::SignedInteger,
+        gt_eq: OpStrategy::SignedInteger,
+        neg: OpStrategy::SignedInteger,
         not: OpStrategy::Unsupported,
         bit_and: OpStrategy::Unsupported,
         bit_or: OpStrategy::Unsupported,

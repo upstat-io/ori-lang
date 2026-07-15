@@ -13,8 +13,8 @@
 //!   `FunctionValue`, `BasicBlock`) are lifetime-bound to an LLVM `Context`
 //!   and do not satisfy Salsa's `Clone + Eq + Hash` requirements.
 //!
-//! - **ARC borrow inference** is fully Salsa-tracked via per-SCC queries.
-//!   See [`run_borrow_inference`] for the Salsa integration point.
+//! - **ARC/AIMS realization** closes one complete body batch before any
+//!   physical backend projects it.
 
 #[cfg(feature = "llvm")]
 use std::path::Path;
@@ -54,6 +54,8 @@ pub struct ImportedFunctionInfo {
     pub param_types: Vec<Idx>,
     /// Return type.
     pub return_type: Idx,
+    /// Required producer-authored ownership/effect compatibility facts.
+    pub metadata: ori_repr::executable::ExternalCallableMetadata,
 }
 
 /// Check a source file for parse and type errors, then canonicalize.
@@ -155,7 +157,10 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
         imported,
     });
 
-    backend.compile(&program).map_err(|e| e.0)
+    backend
+        .compile(&program)
+        .map(|output| output.module)
+        .map_err(|e| e.0)
 }
 
 /// Compile source to LLVM IR with explicit module name and import
@@ -185,7 +190,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     imported: super::ImportedSurfaces<'_>,
     target_triple: Option<&str>,
     narrowing_policy: ori_repr::NarrowingPolicy,
-) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
+) -> Result<super::codegen_pipeline::LlvmCodegenOutput<'ctx>, String> {
     let interner = db.interner();
     // Registration key = the call-site local/aliased name (matching the ARC
     // IR callee Name resolve_callee probes); the LLVM extern symbol stays the
@@ -211,6 +216,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
                 name,
                 symbol: info.mangled_name.clone(),
                 sig,
+                metadata: info.metadata.clone(),
             }
         })
         .collect();

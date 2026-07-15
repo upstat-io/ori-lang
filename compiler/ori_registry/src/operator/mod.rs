@@ -83,13 +83,8 @@ pub struct OpDefs {
     pub shr: OpStrategy,
 }
 
-// 20 fields x sizeof(OpStrategy).
-// 64-bit: 20 x 24 = 480 bytes.
-// 32-bit (WASM): 20 x 12 = 240 bytes.
-#[cfg(target_pointer_width = "64")]
-const _: () = assert!(core::mem::size_of::<OpDefs>() == 480);
-#[cfg(target_pointer_width = "32")]
-const _: () = assert!(core::mem::size_of::<OpDefs>() == 240);
+// 20 fields x 1-byte niche-packed typed strategy.
+const _: () = assert!(core::mem::size_of::<OpDefs>() == 20);
 
 impl OpDefs {
     /// All operators unsupported.

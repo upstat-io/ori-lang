@@ -15,11 +15,11 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
     - IC-8 SPEC STATUS — REMOVED per Annex E §AIMS IC-8
       removal note: "Former rule derived parameter uniqueness
       from caller consumption patterns. Unsound: caller w/
-      MaybeShared arg used linearly may still hold RC > 1 from
-      upstream aliases. Parameter uniqueness established by
+      a MaybeShared argument used linearly may still carry multiple logical
+      owner credits through upstream aliases. Parameter uniqueness is established by
       SCC fixpoint (IC-2/IC-3) — natural convergence."
     - Companion REMOVAL: DP-10 (sec-4 DP-10 removal note) —
-      former rule claimed `Owned ∧ Linear ∧ Once ⟹ RC == 1`.
+      former rule claimed `Owned ∧ Linear ∧ Once ⟹ one logical owner`.
       False: backward analysis proves "no future duplication"
       but NOT "no existing aliases". Same root cause shared
       with IC-8.
@@ -34,9 +34,9 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
       `(Owned, Linear, Once)` is a BACKWARD-DEMAND property
       proving "this caller will not duplicate the argument
       beyond this single linear use". The conclusion
-      "callee parameter Uniqueness = Unique" is a PAST-RC
-      property requiring proof that the caller's argument has
-      RC = 1 at the call site. The two are not equivalent —
+      "callee parameter Uniqueness = Unique" is a past logical-ownership
+      property requiring proof that the caller's argument has exactly one
+      owner credit at the call site. The two are not equivalent —
       backward demand says nothing about upstream aliases.
     - Sound alternative paths (per Annex E §AIMS IC-2 +
       IC-3 + sec-3 TF-3 + sec-3 TF-9 / TF-9a):
@@ -87,12 +87,12 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
         There exists a caller state `c_counter` such that:
           c_counter.argument_to_callee_f =
             (Owned, Linear, Once, MaybeShared, FunctionLocal)
-        with caller-side RC > 1 (upstream alias) at the call
+        with multiple caller-side logical owner credits (upstream alias) at the call
         site, for which the former IC-8 derivation produces
         callee_param.uniqueness = Unique. The conclusion does
         not follow from the antecedent — the antecedent
         (Owned, Linear, Once) is a backward-demand property,
-        the conclusion (Unique) requires PAST-RC proof. The
+        the conclusion (Unique) requires a past owner-multiplicity proof. The
         actual sound state for the callee parameter under
         c_counter is MaybeShared (the caller-side uniqueness
         carried unchanged by IC-3 max-join).
@@ -125,7 +125,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
   Proof obligation:
     Three-part discharge corresponding to (P1)..(P3); counter-
     example existence (P1) grounds in the construction of a
-    concrete CallerArgState carrying caller-side RC > 1 with
+    concrete CallerArgState carrying multiple caller-side owner credits with
     backward-demand (Owned, Linear, Once); alternative-paths
     enumeration (P2) grounds in the three sound paths IC-2/
     IC-3, TF-3, TF-9/TF-9a; negative pin (P3) grounds in
@@ -137,10 +137,10 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
       Construct caller `caller_outer` containing:
 
         let v = Construct(SomeStruct); // TF-3: v: Unique
-        let alias = v; // TF-2: alias: Unique
-        // BOTH v and alias share RC = 2 at this point
-        // (caller-side AimsState carries Unique because TF-2
-        // is transparent alias; but the PHYSICAL RC is 2)
+        let alias = v; // TF-2: alias view
+        // BOTH v and alias carry two logical owner credits at this point.
+        // A counter-based projection is one possible witness; the proof
+        // obligation is independent of that mechanism.
         f(v); // callee invocation
 
       At the call site `f(v)`:
@@ -149,7 +149,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
         - Forward state at the call site is access=Owned,
           consumption=Linear, cardinality=Once.
         - Uniqueness IS NOT Unique at the call site because
-          `alias` is still live and carries RC=1; the lattice's
+          `alias` is still live and carries an owner credit; the lattice's
           IC-3 max-join across all caller-side uses converges
           to MaybeShared (CN-6 may also fire if alias escapes;
           IC-3's converged Uniqueness = MaybeShared regardless
@@ -171,14 +171,14 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
       Per Annex E §AIMS §2 invariant 1 ("contracts and
       realization must agree"): emitting Unique for the
       callee parameter while the realized IR carries
-      RC=2 at the call site is a soundness regression. The
+      two logical owner credits at the call site is a soundness regression. The
       callee may then emit COW-skip via DP-5 (`Unique ∧
       can_mutate_in_place ⟹ StaticUnique`), mutate the value
       in place, and corrupt the still-live `alias` in the
       caller. (P1) discharged.
 
       Mechanical witness — enumerated over the 5-element
-      caller-side uniqueness × {RC = 1, RC > 1} grid:
+      caller-side uniqueness × {one owner, multiple owners} grid:
 
         (Uniqueness, has_alias) | former_IC_8 | sound_IC_2_IC_3 | violation
         Unique, false | Unique | Unique | none
@@ -191,7 +191,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
       Five of six rows produce false-precision conclusions
       via the former IC-8 derivation. The single sound row
       (Unique, no alias) is the ONLY shape where (Owned,
-      Linear, Once) coincides with RC=1; the other five
+      Linear, Once) coincides with one logical owner; the other five
       shapes prove the derivation unsound.
 
     Part (P2) — Alternative-paths enumeration:
@@ -262,12 +262,12 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
       derivation produces MaybeShared. The compiler MUST
       emit MaybeShared for the callee parameter (correctness
       floor); emitting Unique violates Annex E §AIMS.4
-      Uniqueness semantics ("provably RC == 1") because the
-      caller-side RC = 2 (v + alias live at call site).
+      Uniqueness semantics ("provably exactly one logical owner") because
+      v and alias carry two owner credits at the call site.
 
       Per Annex E §AIMS VF-3 (oracle cross-check): the
       oracle re-derives the contract from realized IR;
-      observing RC = 2 at the call site contradicts a
+      observing two owner credits at the call site contradicts a
       Certified Unique claim. The former IC-8 derivation
       would propagate the wrong claim into IC-3's converged
       contract, which the VF-3 oracle would reject as a
@@ -280,7 +280,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
       - Counterexample minimality (P1): the c_counter
         construction uses exactly two caller-side variables
         (v + alias); smaller is impossible (one variable
-        cannot carry RC > 1 at definition under TF-3). The
+        cannot carry multiple owner credits at definition under TF-3). The
         minimality is the load-bearing structural pin.
 
       - Alternative-path completeness (P2): every sound
@@ -302,10 +302,10 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
         commutativity/associativity/idempotence).
 
       - Companion DP-10 removal (sec-4 DP-10): the former
-        DP-10 claimed `Owned ∧ Linear ∧ Once ⟹ RC == 1`,
+        DP-10 claimed `Owned ∧ Linear ∧ Once ⟹ one logical owner`,
         the exact same antecedent → conclusion shape as
         IC-8. Both removals share root cause: backward
-        demand does not constrain past RC. The DP-10
+        demand does not constrain past owner multiplicity. The DP-10
         removal proof (sec-04 of this plan, proven
         separately) provides the symmetric counterexample
         on the intraprocedural side; IC-8 removal covers
@@ -415,14 +415,14 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
       produces Unique. Downstream consumers (DP-5 via
       DP-9 `Unique ∧ can_mutate_in_place ⟹ StaticUnique`,
       RL-6 in-place mutation) emit unconditional in-place
-      mutation. The caller-side `alias` (still live, RC=1)
+      mutation. The caller-side `alias` (still carrying one owner credit)
       is corrupted by the in-place mutation — soundness
       regression per Annex E §AIMS.4 Uniqueness
       semantics + Annex E §AIMS §2 invariant 1
       ("contracts and realization must agree").
 
       Per Annex E §AIMS VF-3 (oracle cross-check),
-      the realized IR carries RC=2 at the call site
+      the realized IR carries two logical owner credits at the call site
       (alias still live); the oracle re-derives the
       contract and rejects the Unique claim. The fast
       path is therefore caught at VF-3, but only AFTER
@@ -520,7 +520,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
                            rule's output. Counterexample =
                            caller-side state where (Owned,
                            Linear, Once) coincides with
-                           caller-side RC > 1 via Let Var
+                           multiple caller-side owner credits via a Let Var
                            alias; alternative paths = IC-2/
                            IC-3 SCC fixpoint via fresh
                            origin, caller-side TF-3 FRESH,
@@ -625,7 +625,7 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
         through IC-2 + IC-3 SCC fixpoint post-IC-8 removal;
         consumed by Step 5 emission to drive DP-4 cow_mode
         + DP-5 can_mutate_in_place gating; consumed by
-        RL-29 / RL-30 LLVM fact-export gates)
+        RL-29 / RL-30 neutral fact derivation)
       case_analysis (3-path alternative-path table:
         IC-2/IC-3 SCC fixpoint via fresh origin, caller-
         side TF-3 FRESH, caller-side TF-9 / TF-9a Reuse;
@@ -638,4 +638,4 @@ Theorem IC-8-REMOVED: Removal soundness via constructive counterexample + altern
 
   Expected:
     status: valid
-    reason: section_06 fixpoint engine discharges IC-8-REMOVED via three-conjunct verification ((P1) counterexample existence via c_counter construction with caller-side RC > 1 under (Owned, Linear, Once) backward demand + (P2) alternative-paths enumeration over the 3-path set (IC-2/IC-3 SCC fixpoint via fresh origin, caller-side TF-3 FRESH at definition, caller-side TF-9 / TF-9a Reuse) + (P3) negative pin via structural inequality former_IC_8_output (Unique) != sound_IC_2_IC_3_output (MaybeShared) on counterexample) over an 8-row test corpus covering counterexample / former-output / sound-output / Path-A / Path-B / Path-C / companion-DP-10 / enumeration-grid cases; removal soundness inherited from Tarski 1955 (monotone fixpoint as canonical sound derivation) + Perceus (Reinking et al. PLDI 2021 Section 5 uniqueness-as-PAST-RC) + Cousot/Cousot 1977 (shadow non-lattice paths break soundness guarantee); former IC-8 rule REMOVED from compiler/ori_arc/src/aims/interprocedural/mod.rs (no surviving derivation code); sound alternative paths implemented via IC-2 init_optimistic + IC-3 ParamContract::join + TF-3 Construct transfer + TF-9 / TF-9a Reuse transfer in compiler/ori_arc/src/aims/transfer/; companion DP-10 removal in sec-4 truth tables shares root cause (backward demand does not constrain past RC); per Annex E §AIMS §2 invariant 5 ("the unified model must stay unified") the IC-8 removal restores unified-model discipline by eliminating a shadow uniqueness tracker bypassing the lattice + IC-2/IC-3 SCC fixpoint; per Annex E §AIMS §2 invariant 1 ("contracts and realization must agree") the negative pin establishes that the former IC-8 derivation could not satisfy the contract-realization agreement on the counterexample
+    reason: section_06 fixpoint engine discharges IC-8-REMOVED via three-conjunct verification ((P1) counterexample existence via c_counter construction with multiple caller-side logical owner credits under (Owned, Linear, Once) backward demand + (P2) alternative-paths enumeration over the 3-path set (IC-2/IC-3 SCC fixpoint via fresh origin, caller-side TF-3 FRESH at definition, caller-side TF-9 / TF-9a Reuse) + (P3) negative pin via structural inequality former_IC_8_output (Unique) != sound_IC_2_IC_3_output (MaybeShared) on counterexample) over an 8-row test corpus covering counterexample / former-output / sound-output / Path-A / Path-B / Path-C / companion-DP-10 / enumeration-grid cases; removal soundness inherited from Tarski 1955 (monotone fixpoint as canonical sound derivation) + Perceus (Reinking et al. PLDI 2021 Section 5 uniqueness as a past owner-multiplicity guarantee) + Cousot/Cousot 1977 (shadow non-lattice paths break soundness guarantee); former IC-8 rule REMOVED from compiler/ori_arc/src/aims/interprocedural/mod.rs (no surviving derivation code); sound alternative paths implemented via IC-2 init_optimistic + IC-3 ParamContract::join + TF-3 Construct transfer + TF-9 / TF-9a Reuse transfer in compiler/ori_arc/src/aims/transfer/; companion DP-10 removal in sec-4 truth tables shares root cause (backward demand does not constrain past owner multiplicity); per Annex E §AIMS §2 invariant 5 ("the unified model must stay unified") the IC-8 removal restores unified-model discipline by eliminating a shadow uniqueness tracker bypassing the lattice + IC-2/IC-3 SCC fixpoint; per Annex E §AIMS §2 invariant 1 ("contracts and realization must agree") the negative pin establishes that the former IC-8 derivation could not satisfy the contract-realization agreement on the counterexample

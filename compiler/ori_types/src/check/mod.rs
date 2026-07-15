@@ -257,6 +257,14 @@ pub struct ModuleChecker<'a> {
     /// needs these to compute ABI (calling convention, sret, parameter
     /// passing) AND to key mono-collection dispatch on the receiver.
     impl_sigs: Vec<crate::ImplSig>,
+    /// Compiler-generated implementations accepted by validation and
+    /// coherence. Downstream generated-body construction consumes this exact
+    /// inventory rather than rescanning source attributes.
+    accepted_derives: Vec<crate::AcceptedDerivedImpl>,
+    /// Frontend-owned semantic roles keyed by exact impl-method identity.
+    /// Populated during impl registration, where the resolved trait identity
+    /// and logical burden operation coexist; consumed unchanged by body export.
+    impl_method_roles: FxHashMap<crate::ImplMethodId, crate::ImplMethodRole>,
     /// Trait impl method identities (for unconstrained function detection).
     /// Each entry is `(self_type_idx, method_name)` for disambiguation.
     trait_impl_fn_names: Vec<(Idx, Name)>,
@@ -356,6 +364,8 @@ impl<'a> ModuleChecker<'a> {
             module_alias_calls: Vec::new(),
             iter_route_desugars: Vec::new(),
             impl_sigs: Vec::new(),
+            accepted_derives: Vec::new(),
+            impl_method_roles: FxHashMap::default(),
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
             mono_dispatch_pre_dedup: Vec::new(),
@@ -588,6 +598,15 @@ impl<'a> ModuleChecker<'a> {
             &self.imported_collection_surfaces,
         );
 
+        let mut accepted_derives = self.accepted_derives;
+        accepted_derives.sort_unstable_by_key(|accepted| accepted.id);
+        debug_assert!(
+            accepted_derives
+                .windows(2)
+                .all(|pair| pair[0].id != pair[1].id),
+            "accepted derived implementation identities must be unique"
+        );
+
         let typed = TypedModule {
             expr_types: self.expr_types,
             functions,
@@ -596,6 +615,7 @@ impl<'a> ModuleChecker<'a> {
             warnings: self.warnings,
             pattern_resolutions: SparseSideTable::from_unsorted(pattern_resolutions),
             impl_sigs: self.impl_sigs,
+            accepted_derives,
             trait_impl_fn_names: self.trait_impl_fn_names,
             mono_instances,
             // Populated from `mono_dispatch_pre_dedup` after remapping

@@ -184,7 +184,7 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Type info cache (`Idx` → `TypeInfo`).
     type_info: &'a TypeInfoStore<'tcx>,
     /// Recursive type layout resolver.
-    type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
+    type_resolver: &'a TypeLayoutResolver<'a, 'ctx, 'tcx>,
     /// String interner for `Name` → `&str`.
     interner: &'a StringInterner,
     /// Pre-interned list-runtime-symbol names for emission-site identity checks.
@@ -367,7 +367,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     pub fn new(
         builder: &'a mut IrBuilder<'scx, 'ctx>,
         type_info: &'a TypeInfoStore<'tcx>,
-        type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
+        type_resolver: &'a TypeLayoutResolver<'a, 'ctx, 'tcx>,
         interner: &'a StringInterner,
         pool: &'a Pool,
         classifier: &'a dyn ArcClassification,

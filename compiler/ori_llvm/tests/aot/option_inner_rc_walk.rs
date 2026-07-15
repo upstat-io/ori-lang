@@ -2,8 +2,8 @@
 //!
 //! Corroborates the deterministic IR-shape pins (`tests/codegen/rc/
 //! option_*_field_*_tag_guarded.ori`) with end-to-end runs of the
-//! `Option<RC-inner>` dec-walk matrix under the sole valid RC/AOT verdict
-//! surface: the gated burden probe (`ORI_DISABLE_PREDICATE_STACK_RC=1`
+//! `Option<RC-inner>` dec-walk matrix under the current compiled-counter
+//! adapter's gated verdict surface (`ORI_DISABLE_PREDICATE_STACK_RC=1`
 //! `ORI_VERIFY_ARC=1` `ORI_VERIFY_EACH=1`), run under `ORI_CHECK_LEAKS=1`
 //! (leak -> exit 2). The plain default path is FALSE-GREEN and is never a
 //! verdict.
@@ -22,8 +22,9 @@
 
 use crate::util::compile_and_run_with_build_env;
 
-/// Gated burden probe — the sole valid RC/AOT verdict surface (the predicate
-/// stack is legacy; the plain default path is false-green for RC/AOT).
+/// Gated burden probe — the valid current-adapter RC/AOT verdict surface (the
+/// predicate stack is legacy; the plain default path is false-green for this
+/// adapter). It does not establish shared-calculus or cross-executor parity.
 const GATED_PROBE: &[(&str, &str)] = &[
     ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
     ("ORI_VERIFY_ARC", "1"),

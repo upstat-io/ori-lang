@@ -1,0 +1,32 @@
+@run_doors (n: int) -> int = {
+    let doors: [bool] = for _ in 0..n yield false;
+    let pass = 1;
+    loop {
+        if pass > n then break;
+        let idx = pass - 1;
+        loop {
+            if idx >= n then break;
+            doors[idx] = !doors[idx];
+            idx = idx + pass;
+        };
+        pass = pass + 1;
+    };
+    let open = 0;
+    for d in doors do {
+        open = open + (if d then 1 else 0);
+    };
+    open
+}
+
+@main () -> int = {
+    let n = 10000;
+    let repeats = 1;
+    let total = 0;
+    let r = 0;
+    loop {
+        if r >= repeats then break;
+        total = total + run_doors(n: n);
+        r = r + 1;
+    };
+    total
+}

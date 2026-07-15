@@ -2,9 +2,10 @@
 //!
 //! Mechanizes the soundness argument for AIMS rules cited in
 //! `Annex E §AIMS` sec1-sec9, where the constitutional
-//! mission per Annex E §AIMS ("RC rare, not RC ops
-//! faster") demands every surviving RC op trace to a specific proof
-//! failure.
+//! mission per Annex E §AIMS minimizes logical ownership-management work while
+//! preserving evaluator behavior. Every physical ownership action must trace
+//! to a logical event and every projection must separately satisfy the frozen
+//! AIMS fact; a reference counter is only one possible realization.
 //!
 //! Top-level module layout per
 //! `the proof-checker design`

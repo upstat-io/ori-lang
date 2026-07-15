@@ -1,13 +1,15 @@
-Theorem DP-9: cow_mode 5-row classification with row (c) joint DP-5 refinement
+Theorem DP-9: mutation-obligation classification with row (c) joint DP-5 refinement
 
   Preconditions:
     - s is a canonical AimsState per Annex E §AIMS product lattice
-    - cow_mode :
-        AimsState x ArcVarId x FieldPath x ProgramPoint -> CowMode
+    - mutation_obligation (historical artifact alias: cow_mode) :
+        AimsState x ArcVarId x FieldPath x ProgramPoint
+          -> MutationObligation
       per Annex E §AIMS DP-9 + Appendix C truth table
-    - CowMode is the closed sum type
-        CowMode = StaticUnique | StaticShared | Dynamic
-      per aims-proof/proofs/01-decisions/Decision.proof lines 58-59
+    - The obligation is the closed sum type
+        MutationObligation = SameIdentityAdmissible | IsolationRequired |
+          SharingObservationRequired
+      per aims-proof/proofs/01-decisions/Decision.proof
     - DP-9 is context-dependent — it consults FOUR pre-pass inputs:
         (i) borrow_sources (per §AIMS §7)
         (ii) project_alias_sources (per §AIMS §7)
@@ -26,24 +28,24 @@ Theorem DP-9: cow_mode 5-row classification with row (c) joint DP-5 refinement
     - Row (c) safety per agy blind-spot 6 (cured): IC-3.uniqueness = u
       proves the value is NOT shared at function entry; it does NOT
       prove the value has no active LOCAL borrows at the mutation
-      point. Row (c) StaticUnique is sound IFF DP-5 ALSO returns true
+      point. Row (c) SameIdentityAdmissible is sound IFF DP-5 ALSO returns true
       locally; when DP-5 returns false the configuration falls through
-      to Dynamic (row c-prime)
+      to SharingObservationRequired (row c-prime)
 
   Soundness property:
     Forall (s, var, field, point, instruction_kind, ic3_uniqueness).
-      cow_mode(s, var, field, point, instruction_kind, ic3_uniqueness)
+      mutation_obligation(s, var, field, point, instruction_kind, ic3_uniqueness)
        = match (s.uniqueness,
                 can_mutate_in_place(s, var, field, point,
                                     instruction_kind),
                 ic3_uniqueness)
          with
-         | (u, true, any) -> StaticUnique -- row (a)
-         | (u, false, any) -> StaticShared -- row (b)
-         | (ms, true, u) -> StaticUnique -- row (c)
-         | (ms, false, u) -> Dynamic -- row (c-prime)
-         | (ms, any, non-u) -> Dynamic -- row (d)
-         | (s, any, any) -> StaticShared -- row (e)
+         | (u, true, any) -> SameIdentityAdmissible -- row (a)
+         | (u, false, any) -> IsolationRequired -- row (b)
+         | (ms, true, u) -> SameIdentityAdmissible -- row (c)
+         | (ms, false, u) -> SharingObservationRequired -- row (c-prime)
+         | (ms, any, non-u) -> SharingObservationRequired -- row (d)
+         | (s, any, any) -> IsolationRequired -- row (e)
 
   Proof obligation:
     Two-part discharge:
@@ -57,22 +59,19 @@ Theorem DP-9: cow_mode 5-row classification with row (c) joint DP-5 refinement
     Part (a) — Appendix C DP-9 row partition (6 rows post (c) /
     (c-prime) refinement, exhaustive):
 
-      Row (a): Uniqueness = u AND DP-5 = true -> StaticUnique
-        Soundness: RC = 1 + no active overlapping borrow locally ->
-        in-place mutation safe with NO runtime check. DP-5 already
+      Row (a): Uniqueness = u AND DP-5 = true -> SameIdentityAdmissible
+        Soundness: exactly one logical owner credit + no active overlapping borrow locally ->
+        same-identity mutation is admissible. DP-5 already
         proved the local borrow-safety obligation.
 
-      Row (b): Uniqueness = u AND DP-5 = false -> StaticShared
-        Soundness: RC = 1 (IsShared on Unique always returns false)
-        but active overlapping borrow forbids in-place mutation. A
-        runtime IsShared check would return false and incorrectly
-        route to the in-place arm; therefore the runtime check is
-        UNSOUND with active borrows. Static copy is the only correct
-        discharge.
+      Row (b): Uniqueness = u AND DP-5 = false -> IsolationRequired
+        Soundness: exactly one logical owner credit exists, but an active
+        overlapping borrow forbids same-identity mutation. The calculus
+        therefore freezes an isolation obligation without choosing a copy.
 
       Row (c): Uniqueness = ms AND DP-5 = true AND
-                IC-3.uniqueness = u -> StaticUnique
-        Soundness: caller proved RC == 1 (past guarantee from
+                IC-3.uniqueness = u -> SameIdentityAdmissible
+        Soundness: caller proved exactly one logical owner credit (past guarantee from
         interprocedural contract per Annex E §AIMS IC-3) AND
         local borrow-safety holds (DP-5 = true). Both checks compose:
         IC-3 eliminates the inter-procedural sharing risk; DP-5
@@ -83,28 +82,28 @@ Theorem DP-9: cow_mode 5-row classification with row (c) joint DP-5 refinement
         to ms, NOT u.
 
       Row (c-prime): Uniqueness = ms AND DP-5 = false AND
-                 IC-3.uniqueness = u -> Dynamic
+                 IC-3.uniqueness = u -> SharingObservationRequired
         Soundness: IC-3 proves not shared at entry but DP-5 reveals
         local borrow blocks in-place; the joint check refinement (per
         agy blind-spot 6 cure) forces
-        fall-through to Dynamic. The Dynamic runtime IsShared check is
+        fall-through to SharingObservationRequired. The observation is
         sound here because IC-3.uniqueness = u combined with backward
         analysis preserving ms at the local point means the local
-        refcount may have grown via caller-retained aliases; the
-        runtime check resolves the dynamic case.
+        logical owner multiplicity may have grown via caller-retained aliases;
+        the dynamic sharing observation resolves the case.
 
       Row (d): Uniqueness = ms AND IC-3.uniqueness != u (or row (c)
-                precondition otherwise unmet) -> Dynamic
+                precondition otherwise unmet) -> SharingObservationRequired
         Soundness: no interprocedural guarantee + no static local
-        guarantee -> runtime IsShared check is required.
+        guarantee -> a sharing observation is required.
 
-      Row (e): Uniqueness = s -> StaticShared
-        Soundness: RC > 1 proved statically -> unconditional copy. The
+      Row (e): Uniqueness = s -> IsolationRequired
+        Soundness: more than one logical owner credit proved statically -> mutation isolation. The
         IC-3 + DP-5 sub-predicate values are non-load-bearing for this
         row.
 
     Part (b) — Coverage gate:
-      Per the verifier section_05::verify_dp9_cow_mode_classification:
+      Per section_05::verify_dp9_mutation_obligation_classification:
         Uniqueness axis: 3 values (u, ms, s).
         DP-5 result axis: 2 (true, false).
         IC-3 uniqueness axis: 3 (u, ms, s).
@@ -121,17 +120,18 @@ Theorem DP-9: cow_mode 5-row classification with row (c) joint DP-5 refinement
         Row (e): s x any x any IC-3 = 1 x 2 x 3 = 6 cases
         Total: 3 + 3 + 1 + 1 + 4 + 6 = 18 cases — exhaustive.
 
-      Outcome partition (CowMode):
-        StaticUnique: 3 (row a) + 1 (row c) = 4
-        StaticShared: 3 (row b) + 6 (row e) = 9
-        Dynamic: 1 (row c-prime) + 4 (row d) = 5
+      Outcome partition (MutationObligation):
+        SameIdentityAdmissible: 3 (row a) + 1 (row c) = 4
+        IsolationRequired: 3 (row b) + 6 (row e) = 9
+        SharingObservationRequired: 1 (row c-prime) + 4 (row d) = 5
         Total: 4 + 9 + 5 = 18 — exhaustive.
 
     Joint-DP-5 refinement witness (row (c) vs row (c-prime)
     discrimination):
       Take s with Uniqueness = ms and IC-3.uniqueness = u.
-        If DP-5 = true: cow_mode = StaticUnique (row c).
-        If DP-5 = false: cow_mode = Dynamic (row c-prime).
+        If DP-5 = true: mutation_obligation = SameIdentityAdmissible (row c).
+        If DP-5 = false: mutation_obligation = SharingObservationRequired
+          (row c-prime).
       Two-case split is the closure of the agy blind-spot 6 gap: IC-3
       alone could not prove local borrow safety; row (c) discharges
       ONLY when DP-5 also holds locally.
@@ -139,26 +139,25 @@ Theorem DP-9: cow_mode 5-row classification with row (c) joint DP-5 refinement
     Negative-direction witness — Unique + DP-5 false counterexample:
       Consider s with Uniqueness = u; DP-5 returns false because a
       live overlapping borrow exists. Per the predicate row (b) ->
-      cow_mode = StaticShared. Sound: runtime IsShared on Unique
-      would always return false; the in-place arm would corrupt the
-      borrowed view; static copy is the only correct discharge.
+      mutation_obligation = IsolationRequired. Sound: the borrowed view forbids
+      same-identity mutation, so isolation is required.
 
     Negative-direction witness — MaybeShared + IC-3.uniqueness = u +
     DP-5 false:
       Consider s with Uniqueness = ms, IC-3.uniqueness = u, DP-5 =
-      false. Per the predicate row (c-prime) -> cow_mode = Dynamic.
+      false. Per row (c-prime), mutation_obligation =
+      SharingObservationRequired.
       Sound: IC-3 proves not-shared at entry but the local DP-5 check
-      forces fall-through; the Dynamic runtime IsShared check
-      resolves the case at runtime — closure of the agy blind-spot 6
+      forces fall-through; a sharing observation resolves the outcome — closure of the agy blind-spot 6
       gap.
 
     Negative-direction witness — Shared + DP-5 + IC-3 irrelevant:
       Consider s with Uniqueness = s, any DP-5 value, any IC-3
-      uniqueness. Per the predicate row (e) -> cow_mode = StaticShared.
-      Sound: RC > 1 proven statically; the DP-5 and IC-3 sub-predicate
+      uniqueness. Per row (e), mutation_obligation = IsolationRequired.
+      Sound: multiple logical owner credits proven statically; the DP-5 and IC-3 sub-predicate
       values are non-load-bearing for this row.
 
-    cow_mode classification declaration:
+    mutation-obligation classification declaration:
       rows: a, b, c, c-prime, d, e
       row_c_joint_dp5_refinement: required
       upstream_inputs: borrow_sources, project_alias_sources,
@@ -175,14 +174,14 @@ Theorem DP-9: cow_mode 5-row classification with row (c) joint DP-5 refinement
     the proof-checker design Engine-per-Category-Inventory
     DP-row line 99). The verifier constructs synthetic (DP-5-result,
     IC-3.uniqueness) fixtures per row of the truth table; the fixture
-    suite is encoded in section_05::verify_dp9_cow_mode_classification.
+    suite is encoded in section_05::verify_dp9_mutation_obligation_classification.
 
     Engines dispatched:
       case_analysis (PRIMARY — Appendix C 6-row enumeration over
         (Uniqueness x DP-5-result x IC-3.uniqueness) product with the
         row (c) / (c-prime) joint-DP-5 refinement axis per
-        section_05::verify_dp9_cow_mode_classification; the verifier
-        checks the soundness equality cow_mode-vs-row-partition on
+        section_05::verify_dp9_mutation_obligation_classification; the verifier
+        checks mutation-obligation equality against the row partition on
         every enumerated case and emits Fail on any divergence)
 
   Expected:

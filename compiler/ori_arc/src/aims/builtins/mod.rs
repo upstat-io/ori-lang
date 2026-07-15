@@ -119,8 +119,9 @@ pub fn seed_builtin_contracts(
     // Internal runtime functions called by ARC IR lowering (not user-facing).
     // These are `ori_*` C functions that would otherwise default to all-borrowed
     // in `compute_arg_ownership`. Where the runtime copies element bytes into a
-    // collection buffer (creating a new reference), the element arg must be Owned
-    // so AIMS emits RcInc for fat pointer elements.
+    // collection buffer (creating another logical owner), the element arg must be
+    // Owned so AIMS records the exact transfer/sharing obligation. An RC-backed
+    // physical plan may satisfy that obligation with a retain.
     seed_internal_runtime_contracts(sigs, interner);
 }
 
@@ -128,10 +129,11 @@ pub fn seed_builtin_contracts(
 ///
 /// `ori_list_push(list_ptr, elem, elem_size)` — used by for-yield lowering.
 /// The element bytes are copied into the list buffer, creating a new reference
-/// to any RC-managed data (e.g., str data pointers). Without an Owned contract
-/// on the element arg, the AIMS pipeline treats it as borrowed and doesn't emit
-/// `RcInc`, causing double-frees when both the source collection and the yield
-/// result list try to drop the same element.
+/// to ownership-bearing data (for example string storage). Without an Owned
+/// contract on the element arg, AIMS records a borrow rather than the additional
+/// logical owner, so both collections can later discharge a credit that the plan
+/// never established. In the current RC projection this appears as a missing
+/// retain and can cause a double-free.
 fn seed_internal_runtime_contracts(
     sigs: &mut FxHashMap<Name, MemoryContract>,
     interner: &StringInterner,
@@ -168,14 +170,14 @@ fn seed_internal_runtime_contracts(
         });
     }
 
-    // __ori_inject_trace(err: Owned) — the compiler-injected `?`-hop trace call
-    // (ori_llvm intercepts it at codegen; never a real callee). RL-34
+    // __ori_inject_trace(err: Owned) — the compiler-injected `?`-hop trace
+    // operation. It is a closed logical runtime-call identity; each physical
+    // adapter must realize it without changing this contract. RL-34
     // forwarder-identity: the receiver Error is consumed and transfers through
     // the by-value return (returns the receiver type directly), so the caller
     // emits NO dec on the arg and exactly one release on the result. The
-    // EffectSummary sets may_allocate + may_deallocate because the runtime
-    // `_ori_inject_trace_entry` COW-pushes onto `error.trace` (may realloc a new
-    // buffer + free the old); a default EffectSummary would under-approximate.
+    // EffectSummary sets may_allocate + may_deallocate because trace extension
+    // may replace owned trace storage; a default summary would under-approximate.
     // Spec: Annex E §AIMS RL-2 (ApplyToOwnedParam transfer) + RL-34.
     let ori_inject_trace = interner.intern("__ori_inject_trace");
     sigs.entry(ori_inject_trace)
@@ -197,8 +199,8 @@ fn seed_internal_runtime_contracts(
         });
 
     // ori_print(s: Borrowed READ-ONLY) — a pure stdout read of the string's
-    // bytes (`ori_rt::io::ori_print`): never touches the RC header, never
-    // COW-mutates, never retains. The `borrowed_read_only` claim keeps the
+    // bytes (`ori_rt::io::ori_print`): never observes or changes ownership
+    // state, never COW-mutates, never retains. The `borrowed_read_only` claim keeps the
     // may-COW conservative over-approximation (`callee_may_cow_arg`) from
     // flagging a fresh str borrowed by `print` as COW-mutated — which would
     // block the Phase-7 surplus fresh-inc elision and leak one allocation per
@@ -373,12 +375,12 @@ fn cow_indexed_update_contract() -> MemoryContract {
     }
 }
 
-/// Method returning a value that shares receiver's backing storage.
+/// Method returning a value that shares the receiver's logical storage identity.
 ///
-/// E.g., `slice`, `substring` — the returned value references the receiver's
-/// heap data, so its uniqueness is `MaybeShared`. The receiver is **borrowed**:
-/// the runtime Inc's the original buffer for the slice/view but doesn't
-/// consume the receiver. The caller retains ownership and must Dec.
+/// E.g., `slice`, `substring` — the returned value aliases the receiver's
+/// storage identity, so its uniqueness is `MaybeShared`. The receiver is
+/// **borrowed**; the result receives its own logical credit while the caller
+/// retains the receiver credit. A physical plan chooses how to realize both.
 fn sharing_return_contract() -> MemoryContract {
     MemoryContract {
         params: vec![PARAM_BORROWED],
@@ -447,7 +449,7 @@ const PARAM_BORROWED: ParamContract = ParamContract {
 };
 
 /// Borrowed parameter PROVEN read-only: the runtime function reads the value's
-/// bytes and never touches its RC header, never COW-mutates, never retains
+/// bytes, never observes or changes ownership state, never COW-mutates, and never retains
 /// (`ori_print`). The `borrowed_read_only: true` claim is consulted by
 /// `callee_may_cow_arg`; seed it ONLY for runtime functions whose `ori_rt`
 /// implementation provably performs no RC operation on the param.

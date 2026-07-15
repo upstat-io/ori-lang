@@ -1,4 +1,4 @@
-//! Heap-backed burden specifications for user-defined types.
+//! Owned-vector burden specifications for user-defined types.
 //!
 //! Mirrors `ori_registry::burden::BuiltinBurdenSpec` but uses `Vec<...>` and
 //! `Idx` (instead of `&'static [...]` and the registry-local `TypeId`).
@@ -39,12 +39,16 @@ pub struct UserVariantBurden {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct UserBurdenSpec {
-    pub self_heap_alloc: bool,
+    /// Whether the value introduces a distinct logical ownership identity of
+    /// its own. Physical storage and count mechanics are projection-owned.
+    pub self_owned_identity: bool,
     pub owned_fields: Vec<UserOwnedField>,
     pub borrowed_fields: Vec<UserBorrowedField>,
     pub variant_burdens: Vec<UserVariantBurden>,
     pub element_burden: Option<Idx>,
-    pub compiled_drop: Option<FnSym>,
+    /// Stable logical cleanup-operation identity. It is not a compiled helper
+    /// symbol or a mandate to emit a standalone function.
+    pub drop_operation: Option<FnSym>,
     pub user_drop: Option<FnSym>,
 }
 
@@ -56,12 +60,12 @@ mod tests {
     #[test]
     fn user_burden_spec_default_yields_empty_spec() {
         let spec = UserBurdenSpec::default();
-        assert!(!spec.self_heap_alloc);
+        assert!(!spec.self_owned_identity);
         assert!(spec.owned_fields.is_empty());
         assert!(spec.borrowed_fields.is_empty());
         assert!(spec.variant_burdens.is_empty());
         assert!(spec.element_burden.is_none());
-        assert!(spec.compiled_drop.is_none());
+        assert!(spec.drop_operation.is_none());
         assert!(spec.user_drop.is_none());
     }
 
@@ -69,16 +73,16 @@ mod tests {
     fn test_user_burden_spec_with_data() {
         let one = NonZeroU32::MIN;
         let spec = UserBurdenSpec {
-            self_heap_alloc: true,
+            self_owned_identity: true,
             owned_fields: vec![UserOwnedField {
                 field_path: vec![0],
                 field_type: Idx::STR,
             }],
             element_burden: Some(Idx::INT),
-            compiled_drop: Some(FnSym::new(one)),
+            drop_operation: Some(FnSym::new(one)),
             ..UserBurdenSpec::default()
         };
-        assert!(spec.self_heap_alloc);
+        assert!(spec.self_owned_identity);
         assert_eq!(spec.owned_fields.len(), 1);
         assert_eq!(spec.owned_fields[0].field_type, Idx::STR);
         assert_eq!(spec.element_burden, Some(Idx::INT));

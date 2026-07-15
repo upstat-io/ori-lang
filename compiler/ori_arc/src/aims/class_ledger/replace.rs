@@ -1,8 +1,9 @@
 //! Per-function application of the class-ledger plan at Step-4b, behind the
-//! readiness gate — the sole production burden-op emitter.
+//! readiness gate — the sole burden-op producer for the current
+//! compiled-counter adapter.
 //!
 //! Replacement gate — ALL must hold; any failure declines replacement, which
-//! is fail-loud (an ICE — no fallback emitter exists) except when burden-op
+//! is fail-loud (an ICE — no fallback adapter input exists) except when burden-op
 //! emission itself is disabled via `ORI_DISABLE_BURDEN_OPS=1`:
 //!
 //! - the analysis reports FULLY CLEAN readiness (no declined class, every

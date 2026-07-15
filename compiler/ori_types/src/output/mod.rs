@@ -11,18 +11,21 @@
 //!
 //! Uses [`Idx`](crate::Idx) (pool-based) instead of `TypeId` (legacy interning).
 
+mod derived;
 mod mono;
 mod result;
 mod sig;
 mod typed_module;
 
+pub use derived::AcceptedDerivedImpl;
 pub use mono::{
     ConstValue, DeferredMonoCall, DeferredVarBinding, GenericArg, MonoInstance, MonoInstanceId,
 };
 pub use result::TypeCheckResult;
 pub use sig::{ConstParamInfo, EffectClass, FnWhereClause, FunctionSig};
 pub use typed_module::{
-    AssignDesugar, ExportedTypeMetadata, FormatSpecTypes, ImplSig, TypedModule,
+    AssignDesugar, ExportedTypeMetadata, FormatSpecTypes, ImplMethodId, ImplMethodRole, ImplSig,
+    TypedModule,
 };
 
 // Test-support imports: the sibling `tests.rs` uses `use super::*;` and relies

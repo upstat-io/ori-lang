@@ -1,15 +1,21 @@
 //! Representation optimization IR for the Ori compiler.
 //!
-//! This crate provides the `MachineRepr` type and `ReprPlan` data structure
-//! that records all narrowing decisions between type checking and codegen.
-//! The type checker never sees machine representations; codegen never makes
-//! narrowing decisions. Historical influence: the Lean 4 LCNF phase-separation
-//! SHAPE.
+//! This crate currently provides the compiled-shaped `MachineRepr` and
+//! `ReprPlan` carriers used by LLVM, while also owning the migration seam for
+//! backend-neutral executable and representation evidence. The type checker
+//! never sees machine representations, and a physical emitter never invents
+//! narrowing decisions. Historical influence: the Lean 4 LCNF
+//! phase-separation shape.
 //!
 //! # Architecture
 //!
 //! ```text
-//! ori_types (Pool, Tag, Idx) → ori_arc (ArcFunction) → ori_repr (ReprPlan) → ori_llvm
+//! ori_arc + ori_types → ori_repr::ExecutableProgram + ReprEvidence
+//!                                  ├─ VmLayoutPlan → ori_vm
+//!                                  └─ CompiledLayoutPlan(TargetSpec)
+//!                                             ├─ ori_llvm
+//!                                             ├─ ori_backend native
+//!                                             └─ direct compiled WebAssembly
 //! ```
 //!
 //! `ori_repr` reads from `ori_types` and `ori_arc` but neither depends on it.
@@ -19,9 +25,12 @@
 //! [`compute_repr_plan()`] is **not** a Salsa query. It is a pure function
 //! that runs imperatively after type checking and ARC borrow inference:
 //!
-//! - **AOT path** (`codegen_pipeline.rs`): called once, result passed as
+//! The following are shipped LLVM migration paths, not the production crate
+//! boundary:
+//!
+//! - **LLVM AOT path** (`codegen_pipeline.rs`): called once, result passed as
 //!   `&ReprPlan` to `TypeLayoutResolver` and then to codegen.
-//! - **JIT path** (`evaluator/compile.rs`): called per compilation unit,
+//! - **LLVM JIT path** (`evaluator/compile.rs`): called per compilation unit,
 //!   same ownership model.
 //!
 //! The `ReprPlan` is recomputed on every compilation. It has no interior

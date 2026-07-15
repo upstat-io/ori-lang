@@ -47,7 +47,7 @@ type Node = { value: int, next: Option<Node> }
 /// every node exactly once. A composition defect surfaces as either a leak
 /// (`user_drop` ran but the recursive child-walk was skipped → exit code 2) or a
 /// double-free abort (children traversed more than once). Clean exit proves
-/// the AUGMENT `user_drop` + SCC `compiled_drop` compose: drop body runs once per
+/// the AUGMENT `user_drop` + SCC `drop_operation` compose: drop body runs once per
 /// node, children traversed once, no double-free.
 ///
 /// Regression: recursive-type × Drop-AUGMENT cross-case composition.

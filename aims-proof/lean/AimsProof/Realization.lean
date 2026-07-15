@@ -12,78 +12,110 @@ Correspondence: `docs/ori_lang/v2026/spec/annex-e-system-considerations.md §AIM
 (Realization & Post-Lattice Optimization RL-1..RL-34) + §3 (lattice dimensions).
 
 These are STRUCTURAL theorems — the realization decisions are modeled over the
-minimal faithful structure each property is defined over (RC counts as an `Int`
-ledger; an edge / use-kind abstraction for RL-2 / RL-4; a `Locality × Uniqueness`
-strategy grid for stack promotion; a KnownSafe flag lattice for RL-22 / RL-23;
-disjoint root-sets with a prefix test for RL-31) and proven as real
+minimal faithful structure each property is defined over (logical ownership
+events form an `Int` credit ledger; an edge / use-kind abstraction for RL-2 /
+RL-4; an `AllocationFacts`
+freeze plus target capability relation for RL-14..RL-21; a KnownSafe flag
+lattice for RL-22 / RL-23; disjoint root-sets with a prefix test for RL-31) and
+proven as real
 kernel-checked theorems, NOT vacuous `by decide` over a single product. The
 lattice dimension carriers (`AccessClass`, `Uniqueness`, `Locality`, `Shape`)
 are reused from `Model.lean`.
 
-The unifying soundness invariant for the RC-emission + COW + reuse + post-pipeline
-families is RC-BALANCE PRESERVATION: every owned non-scalar heap value is
-released exactly once — the net reference-count delta over its lifecycle is 0.
-Each rule's theorem states its emission/strategy decision AND proves the balance
-property the decision preserves.
+The unifying soundness invariant for ownership realization, mutation isolation,
+transfer, and post-pipeline refinement is LOGICAL OWNERSHIP-EVENT BALANCE: every
+owned non-scalar allocation
+identity starts with one ownership credit and discharges it exactly once. The
+abstract credit/debit ledger balances to 0; it does not require a physical
+counter or prescribe reclamation. Each rule's theorem states its emission/fact
+decision AND proves the balance property the decision preserves.
 
 Rule index (per §AIMS §8):
-  RC emission       RL-1..RL-5  : inc on duplication, dec at last-use / scope-exit,
-                                  elision via DP-2/DP-3/DP-7, edge-specific decs +
+  Ownership events  RL-1..RL-5  : credit on duplication, release at terminal use,
+                                  elision via DP-2/DP-3/DP-7, edge releases +
                                   Jump-arg exemption, dead-at-entry cleanup.
-  COW               RL-6..RL-10 : static-unique / dynamic / static-shared mutation,
-                                  compound contraction, disjoint-field no-COW +
+  Mutation isolation RL-6..RL-10: admissible outcomes, sharing observations,
+                                  compound contraction, disjoint-field isolation +
                                   SetTag whole-payload exclusion.
-  Reuse             RL-11..RL-12: same-block + dynamic + cross-block (RL-13 REMOVED).
-  Stack promotion   RL-14..RL-16: headerless / immortal-RC / bump / ArgEscaping
-                                  caller-stack / heap.
-  Header compress   RL-17..RL-18: sharing bound -> RC header width.
-  Non-atomic RC     RL-19..RL-21: thread-local / thread-shared / program-wide.
+  Credit transfer  RL-11..RL-12 : donor/recipient transfer in same block or
+                                  across blocks (RL-13 REMOVED).
+  Allocation facts RL-14..RL-16: logical lifetime, caller-use, cleanup, and
+                                  representation-owned extent evidence.
+  Owner/projection RL-17..RL-18a: owner bounds, exact ownership-observation identities,
+                                  capability satisfaction, and trace parity.
+  Thread facts     RL-19..RL-21: conservative thread reachability and the
+                                  no-thread-boundary whole-program corollary.
   KnownSafe pair    RL-22..RL-23: dominating-inc elimination + AND-join.
-  PRE motion        RL-24..RL-26: pair matching + eliminability + motion barriers.
-  Selective barrier RL-27..RL-28: call-site flush + unknown-callee conservative flush.
-  Fact export       RL-29..RL-31: noalias on fresh+unique returns, effect-based
-                                  memory attributes, RL-31 (CRITICAL) disjoint
-                                  Borrowed -> noalias metadata (the Ori-novel theorem).
+  Event refinement RL-24..RL-26 : pair matching + eliminability + ordering barriers.
+  Selective barrier RL-27..RL-28: call-site ordering + unknown-callee ordering.
+  Fact export       RL-29..RL-31: fresh-self-allocation, memory-access, and
+                                  parameter-disjointness facts. Target attributes
+                                  and metadata are separate projections.
   Borrow inference  RL-32..RL-34: Borrowed-default, projection promotion,
                                   tail-call ownership transfer.
 -/
 
-import AimsProof.Model
+import AimsProof.Decision
 
 set_option maxHeartbeats 1000000
 
 namespace AimsProof
 
-/-! ## §8 RC ledger — the shared RC-balance substrate (annex-e §AIMS §8 RC Emission)
+/-! ## §8 logical ownership-event substrate (annex-e §AIMS §8 realization)
 
     The unifying soundness property of the RC-emission + post-pipeline families is
-    RC-BALANCE PRESERVATION. An RC operation is an `Int`-valued delta on a value's
-    reference count: `+1` for an `RcInc`, `-1` for an `RcDec`, `0` for a non-RC
-    instruction. A lifecycle is a list of ops; its NET balance is the sum of the
-    deltas. The realization rules must each preserve net-0 over a complete
-    lifecycle (allocate to RC=1, release back to RC=0). -/
+    LOGICAL OWNERSHIP-EVENT BALANCE. An event has an `Int`-valued credit delta:
+    `+1` for an owner credit, `-1` for release or cleanup, and `0` for a neutral
+    operation or user-level drop body.
+    A lifecycle is a list of events; its NET balance is their sum. The realization
+    rules preserve net-0 from initial credit through final discharge. A target may
+    realize the proof with a counter, static lifetime, uniqueness, or another
+    validated mechanism; the ledger does not choose one. -/
 
-/-- §8 an RC operation on a value: a single inc, a single dec, or a non-RC op. -/
-inductive RcOp
-  | inc      -- RcInc: +1
-  | dec      -- RcDec: -1
-  | noop     -- any non-RC instruction: 0
-  | userDrop -- scope-exit user @drop call: 0 (drop-glue, NOT an RC ref-count op)
+/-- §8 canonical logical ownership event. Physical retains, releases, counters,
+    tracing, regions, and static discharge are projection mechanisms. -/
+inductive OwnershipEvent
+  | ownerCredit -- one additional logical owner credit: +1
+  | release     -- one logical owner releases its credit: -1
+  | cleanup     -- terminal cleanup discharges the final credit: -1
+  | neutral     -- an operation with no ownership-credit effect: 0
+  | userDrop    -- user `@drop` body; distinct from credit discharge: 0
 deriving Repr, DecidableEq
 
-/-- §8 the net reference-count delta of one RC op. A `userDrop` runs the type's
-    user `@drop` body; it is a drop-glue CALL, not an RC inc/dec, so it carries a
-    ref-count delta of 0 (RC-balance-neutral). -/
-def RcOp.delta : RcOp → Int
-  | .inc      => 1
-  | .dec      => -1
-  | .noop     => 0
+/-- §8 the net logical ownership-credit delta of one event. -/
+def OwnershipEvent.delta : OwnershipEvent → Int
+  | .ownerCredit => 1
+  | .release     => -1
+  | .cleanup     => -1
+  | .neutral     => 0
   | .userDrop => 0
 
-/-- §8 the net balance of a lifecycle = the sum of its op deltas. A value
-    allocated at RC = 1 is released exactly once iff its lifecycle (excluding the
-    allocation) nets to `-1` (the single release), or — counting the allocation
-    `+1` — nets to `0`. We model the balance over the op list. -/
+/-- Historical proof-carrier alias retained for theorem/map compatibility.
+    `inc`, `dec`, and `noop` below are aliases, not canonical calculus terms. -/
+abbrev RcOp := OwnershipEvent
+
+namespace RcOp
+abbrev inc : RcOp := OwnershipEvent.ownerCredit
+abbrev dec : RcOp := OwnershipEvent.release
+abbrev noop : RcOp := OwnershipEvent.neutral
+abbrev userDrop : RcOp := OwnershipEvent.userDrop
+def delta : RcOp → Int
+  | .ownerCredit => 1
+  | .release => -1
+  | .cleanup => -1
+  | .neutral => 0
+  | .userDrop => 0
+end RcOp
+
+/-- §8 the net balance of a lifecycle = the sum of its event deltas. A value born
+    with one logical ownership credit discharges that credit exactly once iff its
+    lifecycle (excluding birth) nets to `-1`, or — including the initial `+1` —
+    nets to `0`. -/
+def ownerCreditBalance (ops : List OwnershipEvent) : Int :=
+  (ops.map OwnershipEvent.delta).foldr (· + ·) 0
+
+/-- Historical compatibility function for the original ledger name. The body
+    is definitionally the canonical balance over the compatibility carrier. -/
 def rcBalance (ops : List RcOp) : Int :=
   (ops.map RcOp.delta).foldr (· + ·) 0
 
@@ -100,15 +132,27 @@ theorem rcBalance_append (xs ys : List RcOp) :
       rw [ih]
       omega
 
+/-- Canonical name for the append law; the historical theorem above remains in
+    the proof map for compatibility. -/
+theorem ownerCreditBalance_append (xs ys : List OwnershipEvent) :
+    ownerCreditBalance (xs ++ ys) =
+      ownerCreditBalance xs + ownerCreditBalance ys :=
+  rcBalance_append xs ys
+
 /-- §8 a matched inc+dec pair is net-0 on the ledger — the foundational
     balance fact RL-1..RL-5 + RL-22..RL-26 all reduce to: adding (or removing) a
     matched `[inc, dec]` pair leaves the net balance unchanged. -/
 theorem rcBalance_matched_pair : rcBalance [RcOp.inc, RcOp.dec] = 0 := by decide
 
+/-- A logical owner-credit/release pair is balance-neutral. -/
+theorem ownerCreditRelease_pair_balanced :
+    ownerCreditBalance [OwnershipEvent.ownerCredit, OwnershipEvent.release] = 0 := by
+  decide
+
 /-- §8 the empty lifecycle balances to 0. -/
 theorem rcBalance_nil : rcBalance [] = 0 := by decide
 
-/-! ## §8.1 RL-1 — RC inc on duplication (annex-e §AIMS §8 RL-1)
+/-! ## §8.1 RL-1 — owner credit on duplication (annex-e §AIMS §8 RL-1)
 
     RL-1 emits an `RcInc` for a duplicating use iff `¬is_rc_inc_elidable(state)`,
     i.e. iff NOT (Cardinality = Once ∧ Consumption = Linear). A move-once linear
@@ -116,15 +160,17 @@ theorem rcBalance_nil : rcBalance [] = 0 := by decide
     (inc). The balance: a duplication that incs is later matched by the consumer's
     dec — net 0 per `rcBalance_matched_pair`. -/
 
-/-- §8.1 RL-1 emission predicate over the elidability flag (the DP-3 result):
-    emit an inc iff the inc is NOT elidable. -/
-def rl1_emits_inc (incElidable : Bool) : Bool := !incElidable
+/-- §8.1 RL-1 records an additional owner credit iff it is not elidable. -/
+def rl1_records_additional_credit (creditElidable : Bool) : Bool := !creditElidable
+
+/-- Historical compatibility alias for the physical-counter spelling. -/
+abbrev rl1_emits_inc := rl1_records_additional_credit
 
 /-- §8.1 RL-1 (P1) emission decision: an inc is emitted on a duplicating use iff
     the inc is not elidable (NOT move-once-linear). The single `true` case is the
     non-elidable (duplicating) one. -/
 theorem RL1_emit_iff_not_elidable (incElidable : Bool) :
-    rl1_emits_inc incElidable = !incElidable := by rfl
+    rl1_records_additional_credit incElidable = !incElidable := by rfl
 
 /-- §8.1 RL-1 (P2) balance: a duplication that emits an inc is balanced by the
     duplicate's later dec — the `[inc, dec]` pair nets to 0 (no leak, no
@@ -134,7 +180,7 @@ theorem RL1_duplication_balanced (incElidable : Bool) :
     rcBalance (if rl1_emits_inc incElidable then [RcOp.inc, RcOp.dec] else []) = 0 := by
   cases incElidable <;> decide
 
-/-! ## §8.1 RL-2 — RC dec at last use / scope exit (annex-e §AIMS §8 RL-2)
+/-! ## §8.1 RL-2 — release at terminal use / scope exit (annex-e §AIMS §8 RL-2)
 
     RL-2 emits an `RcDec` at an owned non-scalar value's terminal use iff the use
     is NOT ownership-transferring. The 12 terminal-use kinds partition into 9
@@ -189,25 +235,28 @@ def rl2_use_transfers_ownership : TerminalUse → Bool
   | .ScopeExit               => false
   | .ApplyToBorrowedParam    => false
 
-/-- §8.1 RL-2 emission: a dec is emitted iff the use does NOT transfer ownership. -/
-def rl2_emits_dec (use : TerminalUse) : Bool := !rl2_use_transfers_ownership use
+/-- §8.1 RL-2 records a release iff the use does NOT transfer ownership. -/
+def rl2_records_release (use : TerminalUse) : Bool := !rl2_use_transfers_ownership use
+
+/-- Historical compatibility alias for the physical-counter spelling. -/
+abbrev rl2_emits_dec := rl2_records_release
 
 /-- §8.1 RL-2 (P1) emission decision: RL-2's emit-dec decision equals NOT
     `rl2_use_transfers_ownership` on every one of the 12 terminal-use kinds (the
     coverage grid). -/
 theorem RL2_dec_at_last_use (use : TerminalUse) :
-    rl2_emits_dec use = !rl2_use_transfers_ownership use := by rfl
+    rl2_records_release use = !rl2_use_transfers_ownership use := by rfl
 
 /-- §8.1 RL-2 the 9 transfer kinds emit NO dec (the consumer inherits the
     obligation; a dec here would double-release). -/
 theorem RL2_transfer_kinds_no_dec (use : TerminalUse)
     (h : rl2_use_transfers_ownership use = true) : rl2_emits_dec use = false := by
-  unfold rl2_emits_dec; rw [h]; rfl
+  unfold rl2_emits_dec rl2_records_release; rw [h]; rfl
 
 /-- §8.1 RL-2 the 3 non-transfer terminal kinds emit a dec (release). -/
 theorem RL2_nontransfer_kinds_dec (use : TerminalUse)
     (h : rl2_use_transfers_ownership use = false) : rl2_emits_dec use = true := by
-  unfold rl2_emits_dec; rw [h]; rfl
+  unfold rl2_emits_dec rl2_records_release; rw [h]; rfl
 
 /-- §8.1 RL-2 iter-consume transfer: `ApplyToIterConsumingParam` is a transfer
     kind, so the caller emits NO dec — the callee's `ori_iter_drop` releases the
@@ -234,7 +283,8 @@ theorem RL2_iter_consuming_caller_dec_splits :
     rl2_emits_dec TerminalUse.ApplyToIterConsumingParam = false
     ∧ rl2_emits_dec TerminalUse.ApplyToBorrowedParam = true := by decide
 
-/-- §8.1 RL-2 (P2) balance: an owned non-scalar value allocated at RC = 1 is
+/-- §8.1 RL-2 (P2) balance: an owned non-scalar value born with one logical
+    owner credit is
     released exactly once — either by an RL-2 last-use dec (`[inc-from-alloc-as
     modeled, dec]`) or by an ownership handoff to a consumer who decs. We model
     the alloc as the implicit `+1` and the lifecycle release as the single `-1`;
@@ -252,25 +302,25 @@ theorem RL2_release_exactly_once (use : TerminalUse) :
     transfer kind ONLY when the iter-consumed value does NOT also survive as the
     Return value. When the SAME allocation is BOTH iter-consumed AND transferred
     through Return — `@f(x) = { let _ = x.iter().count(); x }` — the pure-transfer
-    model frees the allocation the Return hands to the caller (UAF). The cure is
-    one keep-alive inc before the iter-consume: the `ori_iter_drop` cancels the
-    inc, and the original allocation survives as the live Return value. -/
+    model discharges the owner handed to the caller (UAF). The cure is one
+    keep-alive logical credit before the iter-consume: its discharge balances
+    the consumer and the original owner survives in the Return value. -/
 
-/-- §8.1 RL-2 overlap balance: a param allocated owned (+1) that is iter-consumed
-    (`ori_iter_drop`, −1) and ALSO transferred through Return must carry exactly
-    one live reference out. We model the body as the optional keep-alive inc; the
-    returned refcount = alloc(+1) + body + iterDrop(−1). -/
+/-- §8.1 RL-2 overlap balance: a param born owned (+1) that is iter-consumed
+    (−1) and ALSO transferred through Return must carry exactly one logical
+    owner out. `RcOp` is the established proof-carrier name for credit/debit;
+    a physical reference counter is only one projection corollary. -/
 def rl2_overlap_returned_rc (keepAliveInc : Bool) : Int :=
   rcBalance ([RcOp.inc] ++ (if keepAliveInc then [RcOp.inc] else []) ++ [RcOp.dec])
 
-/-- §8.1 RL-2 overlap GAP: without the keep-alive inc the returned allocation has
-    refcount 0 — a freed value handed to the caller (the UAF the pure-transfer
+/-- §8.1 RL-2 overlap GAP: without the keep-alive credit the returned allocation has
+    zero logical owners — a cleaned value handed to the caller (the UAF the pure-transfer
     model cannot prevent on the overlap shape). -/
 theorem RL2_iter_consume_return_overlap_gap :
     rl2_overlap_returned_rc false = 0 := by decide
 
-/-- §8.1 RL-2 overlap CURE: one keep-alive inc before the iter-consume restores a
-    live (+1) reference in the Return value. -/
+/-- §8.1 RL-2 overlap CURE: one keep-alive credit before the iter-consume restores a
+    live (+1) logical owner in the Return value. -/
 theorem RL2_iter_consume_return_overlap_cured :
     rl2_overlap_returned_rc true = 1 := by decide
 
@@ -385,21 +435,23 @@ theorem RL5_borrowed_absent_no_dec (p : EntryParamInputs)
   unfold rl5_emits_entry_dec; rw [h]; rfl
 
 /-- §8.1 RL-5 (P2) balance: an owned non-scalar Absent param entered the block
-    with a live reference (RC = 1) that is never used; the immediate cleanup dec
+    with one logical owner credit that is never used; the immediate cleanup dec
     releases it exactly once — `[inc, dec]` nets to 0. -/
 theorem RL5_cleanup_balanced : rcBalance [RcOp.inc, RcOp.dec] = 0 := by decide
 
 /-! ## §8.1 RL-DROP — scope-exit user `@drop` for a drop-glue value (annex-e §AIMS §8)
 
     The RC realization rules (RL-2 / RL-4 / RL-5) all gate dec emission on
-    `!isScalar`: a value whose monomorphized repr is `Scalar` carries no RC header
-    and provably receives NO `RcDec` (that gating is the soundness basis VF-1's
+    `!isScalar`: a value whose monomorphized repr is `Scalar` carries no logical
+    logical owner-credit obligation and provably receives NO `RcDec` (that gating is
+    the soundness basis VF-1's
     `RcOnScalar` invariant enforces). But a value's TYPE may carry a user `@drop`
     (drop-glue) INDEPENDENT of its RC repr — a `Scalar`-repr struct
-    (`type Guard = { id: int }` with `impl Guard: Drop`) has drop-glue yet no RC
-    field. Such a value still needs its `@drop` run exactly once at its death
-    point. The RC ops cannot express this (an `RcDec` on a `Scalar` is rejected by
-    VF-1), so the realization op set carries a SEPARATE `userDrop` op: a drop-glue
+    (`type Guard = { id: int }` with `impl Guard: Drop`) has drop-glue yet no
+    logical ownership-credit event. Such a value still needs its `@drop` run exactly
+    once at its death point. The RC ops cannot express this (an `RcDec` on a
+    `Scalar` is rejected by VF-1), so the realization op set carries a SEPARATE
+    `userDrop` op: a drop-glue
     CALL with ref-count delta 0. RL-DROP emits exactly one `userDrop` at the death
     point iff the type has drop-glue, gated on drop-glue existence INDEPENDENT of
     `isScalar`; because `userDrop` is RC-balance-neutral, the `!isScalar` RcDec
@@ -408,7 +460,7 @@ theorem RL5_cleanup_balanced : rcBalance [RcOp.inc, RcOp.dec] = 0 := by decide
 
 /-- §8.1 RL-DROP the death-point drop inputs for a value. `hasUserDrop` = the
     value's type carries a user `@drop`; `isScalar` = its monomorphized repr is
-    `Scalar` (RC-headerless). -/
+    `Scalar` and therefore carries no logical RC obligation. -/
 structure DropInputs where
   hasUserDrop : Bool
   isScalar : Bool
@@ -521,89 +573,101 @@ theorem RLDROP_copyout_balanced (h : Bool) :
       = 0 := by
   cases h <;> decide
 
-/-! ## §8.2 COW — mode selection over Uniqueness (annex-e §AIMS §8 RL-6 / RL-7 / RL-8)
+/-! ## §8.2 mutation isolation — admissible outcomes and obligations
+    (annex-e §AIMS §8 RL-6 / RL-7 / RL-8)
 
-    A mutation of an owned value selects one of three COW modes from the
+    A mutation of an owned value selects one of three neutral states from the
     Uniqueness dimension + the local-safety check:
-      RL-6 StaticUnique  (Unique ∧ can_mutate_in_place): in-place, no IsShared.
-      RL-7 Dynamic       (MaybeShared, no caller proof): runtime IsShared branch.
-      RL-8 StaticShared  (Shared): unconditional copy.
+      RL-6 SameIdentityAdmissible: mutation may preserve allocation identity.
+      RL-7 SharingObservationRequired: observe sharing, then satisfy the outcome.
+      RL-8 IsolationRequired: mutation must be isolated from existing owners.
     All three preserve VALUE SEMANTICS — the mutation is observed only on the
-    holder's own copy, never on an alias. -/
+    holder's result, never through an existing alias. A physical `IsShared`,
+    branch, copy, or storage operation is a projection, not a theorem premise. -/
 
-inductive CowEmit
-  | StaticUnique  -- RL-6 in-place, no check
-  | Dynamic       -- RL-7 runtime IsShared check
-  | StaticShared  -- RL-8 unconditional copy
-deriving Repr, DecidableEq
+/-- Historical COW carrier retained for theorem/map compatibility. -/
+abbrev CowEmit := MutationObligation
 
-/-- §8.2 COW mode selection from Uniqueness + the DP-5 local-safety result.
-    Unique ∧ safe → in-place; Unique ∧ ¬safe → must copy (StaticShared, since a
-    Unique IsShared check is always false yet an active borrow makes in-place
-    unsound); MaybeShared → Dynamic; Shared → StaticShared. -/
-def cow_emit (u : Uniqueness) (canInPlace : Bool) : CowEmit :=
+namespace CowEmit
+abbrev StaticUnique : CowEmit := MutationObligation.SameIdentityAdmissible
+abbrev Dynamic : CowEmit := MutationObligation.SharingObservationRequired
+abbrev StaticShared : CowEmit := MutationObligation.IsolationRequired
+end CowEmit
+
+/-- §8.2 neutral mutation-obligation selection from Uniqueness + DP-5.
+    Unique ∧ safe admits same identity; Unique ∧ ¬safe and Shared require
+    isolation; MaybeShared requires a sharing observation. -/
+def realize_mutation_obligation (u : Uniqueness)
+    (canInPlace : Bool) : MutationObligation :=
   match u with
-  | .Unique      => if canInPlace then .StaticUnique else .StaticShared
-  | .MaybeShared => .Dynamic
-  | .Shared      => .StaticShared
+  | .Unique      => if canInPlace then .SameIdentityAdmissible else .IsolationRequired
+  | .MaybeShared => .SharingObservationRequired
+  | .Shared      => .IsolationRequired
 
-/-- §8.2 RL-6 (P1) static-unique mutation: a Unique value with a safe local
-    in-place check selects StaticUnique (in-place write, no IsShared). -/
+/-- Historical compatibility alias for the COW-emission classifier name. -/
+abbrev cow_emit := realize_mutation_obligation
+
+/-- §8.2 RL-6 (P1): a Unique value with a safe local check admits a
+    same-identity mutation outcome. -/
 theorem RL6_static_unique_in_place (_rest : AimsState) :
-    cow_emit .Unique true = CowEmit.StaticUnique := by rfl
+    realize_mutation_obligation .Unique true = .SameIdentityAdmissible := by rfl
 
-/-- §8.2 RL-6 (P2) value-semantics: a Unique value has RC = 1, so an in-place
-    write is observed by NO other holder — the negative case (Unique but unsafe
-    local borrow) correctly falls back to a copy, never an unsound in-place. -/
+/-- §8.2 RL-6 (P2): one logical owner permits same-identity mutation only when
+    local borrows also permit it. The negative case freezes an isolation
+    obligation without prescribing how a projection satisfies it. -/
 theorem RL6_unique_unsafe_falls_back :
-    cow_emit .Unique false = CowEmit.StaticShared := by rfl
+    realize_mutation_obligation .Unique false = .IsolationRequired := by rfl
 
-/-- §8.2 RL-7 (P1) dynamic COW: a MaybeShared value selects Dynamic (runtime
-    IsShared branch) regardless of the local check — no static proof of RC. -/
+/-- §8.2 RL-7 (P1): MaybeShared requires a sharing observation regardless of
+    the local check. The calculus does not prescribe how that fact is observed. -/
 theorem RL7_dynamic_cow (canInPlace : Bool) :
-    cow_emit .MaybeShared canInPlace = CowEmit.Dynamic := by
+    realize_mutation_obligation .MaybeShared canInPlace
+      = .SharingObservationRequired := by
   cases canInPlace <;> rfl
 
-/-- §8.2 RL-8 (P1) static-shared copy: a Shared value (RC > 1 proven) selects
-    StaticShared (unconditional copy) regardless of the local check. -/
+/-- §8.2 RL-8 (P1): Shared requires mutation isolation regardless of the local
+    check. Copying is one possible projection, not the frozen outcome. -/
 theorem RL8_static_shared_copy (canInPlace : Bool) :
-    cow_emit .Shared canInPlace = CowEmit.StaticShared := by
+    realize_mutation_obligation .Shared canInPlace = .IsolationRequired := by
   cases canInPlace <;> rfl
 
-/-- §8.2 COW mode is total + decidable over the Uniqueness × safety inputs (the
-    3 RL-6/7/8 cases cover every Uniqueness value — no mutation is left without a
-    mode). -/
+/-- §8.2 the mutation obligation is total and decidable over the Uniqueness ×
+    safety inputs. The RL-6/7/8 cases cover every Uniqueness value. -/
 theorem cow_emit_total (u : Uniqueness) (canInPlace : Bool) :
-    cow_emit u canInPlace = .StaticUnique ∨ cow_emit u canInPlace = .Dynamic
-      ∨ cow_emit u canInPlace = .StaticShared := by
-  cases u <;> cases canInPlace <;> simp [cow_emit]
+    realize_mutation_obligation u canInPlace = .SameIdentityAdmissible
+      ∨ realize_mutation_obligation u canInPlace = .SharingObservationRequired
+      ∨ realize_mutation_obligation u canInPlace = .IsolationRequired := by
+  cases u <;> cases canInPlace <;> simp [realize_mutation_obligation]
 
-/-! ## §8.2 RL-9 — COW compound contraction (annex-e §AIMS §8 RL-9)
+/-! ## §8.2 RL-9 — sharing-observation refinement (annex-e §AIMS §8 RL-9)
 
-    The COW diamond `IsShared → Branch → {in-place | clone+Set} → Merge` is
-    contracted into a single compound instruction. The contraction is
-    OBSERVATIONALLY EQUIVALENT: for each runtime uniqueness state the contracted
-    form selects the same outcome the diamond would. -/
+    An explicit and a compact representation of the sharing observation must
+    select the same admissible outcome. The theorem freezes that equivalence;
+    it does not freeze the physical diamond or compact instruction. -/
 
-/-- §8.2 RL-9 the runtime uniqueness state observed by the IsShared check. -/
+/-- §8.2 RL-9 the neutral result of a sharing observation. -/
 inductive RuntimeUniq
-  | unique   -- IsShared = false
-  | shared   -- IsShared = true
+  | unique   -- exactly one logical owner observed
+  | shared   -- multiple logical owners observed
 deriving Repr, DecidableEq
 
-/-- §8.2 RL-9 the diamond outcome: in-place on unique, clone+Set on shared. -/
-def cowDiamondOutcome : RuntimeUniq → CowEmit
-  | .unique => .StaticUnique
-  | .shared => .StaticShared
+/-- §8.2 RL-9 explicit observation outcome. -/
+def explicitObservationOutcome : RuntimeUniq → MutationObligation
+  | .unique => .SameIdentityAdmissible
+  | .shared => .IsolationRequired
 
-/-- §8.2 RL-9 the contracted compound selects the identical outcome per runtime
-    state — definitionally the same function as the diamond. -/
-def cowCompactOutcome : RuntimeUniq → CowEmit := cowDiamondOutcome
+/-- §8.2 RL-9 a compact representation selects the identical outcome. -/
+def compactObservationOutcome : RuntimeUniq → MutationObligation :=
+  explicitObservationOutcome
+
+/-- Historical compatibility aliases for the original physical-form names. -/
+abbrev cowDiamondOutcome := explicitObservationOutcome
+abbrev cowCompactOutcome := compactObservationOutcome
 
 /-- §8.2 RL-9 (P1) observational equivalence: the contracted compound and the
     expanded diamond yield the same outcome for every runtime uniqueness state. -/
 theorem RL9_contraction_equiv (r : RuntimeUniq) :
-    cowCompactOutcome r = cowDiamondOutcome r := by rfl
+    compactObservationOutcome r = explicitObservationOutcome r := by rfl
 
 /-! ## §8.2 RL-10 — disjoint-field no-COW + SetTag whole-payload exclusion
     (annex-e §AIMS §8 RL-10)
@@ -673,60 +737,67 @@ theorem RL10_dead_borrow_allows (instr : MutInstrKind) (mf bf : FieldPath) :
     rl10_can_in_place instr mf bf false = true := by
   cases instr <;> simp [rl10_can_in_place]
 
-/-! ## §8.3 Reuse — DP-6 eligibility + no-throw constraint (annex-e §AIMS §8 RL-11 / RL-11a / RL-12)
+/-! ## §8.3 donor/recipient credit transfer
+    (annex-e §AIMS §8 RL-11 / RL-11a / RL-12)
 
-    RL-13 is REMOVED (doc-comment below). RL-11 (same-block) reuses a dying
-    value's allocation for a fresh same-type allocation iff the value is a reuse
-    candidate (Owned ∧ ≠Shared ∧ reusable-shape), Reset precedes Reuse, the dying
-    value is Unique, and NO intervening instruction may throw / allocate / use an
-    alias. RL-11a adds a dynamic IsShared branch for MaybeShared. RL-12 lifts to
-    cross-block via dominance + post-dominance + same-loop + no-throw. -/
+    RL-13 is REMOVED (doc-comment below). RL-11 freezes when a dying donor's
+    credit may transfer to a fresh recipient: eligibility, donor-before-recipient
+    ordering, one-owner evidence, and no intervening hazard. RL-11a states the
+    two sharing-observation outcomes. RL-12 lifts the relation across blocks.
+    `Reset`, `Reuse`, allocation identity, and storage are transitional carrier
+    or projection details, not logical premises. -/
 
 /-- §8.3 RL-11 the same-block reuse inputs. -/
 structure ReuseInputs where
   reuseCandidate : Bool    -- DP-6 (Owned ∧ ≠Shared ∧ reusable-shape)
-  resetPrecedesReuse : Bool
+  resetPrecedesReuse : Bool -- historical carrier name: donor precedes recipient
   dyingUnique : Bool       -- §8.3 (c): the dying value is statically Unique
   noInterveningHazard : Bool  -- §8.3 (b): no throw / alloc / alias-use between
 deriving Repr, DecidableEq
 
-/-- §8.3 RL-11 same-block reuse fires iff ALL four conditions hold. -/
-def rl11_reuses (r : ReuseInputs) : Bool :=
+/-- §8.3 RL-11 freezes donor/recipient credit transfer iff all conditions hold. -/
+def rl11_freezes_credit_transfer (r : ReuseInputs) : Bool :=
   r.reuseCandidate && r.resetPrecedesReuse && r.dyingUnique && r.noInterveningHazard
+
+/-- Historical compatibility alias for the storage-reuse spelling. -/
+abbrev rl11_reuses := rl11_freezes_credit_transfer
 
 /-- §8.3 RL-11 (P1) reuse decision: same-block reuse fires iff DP-6 ∧
     Reset-precedes-Reuse ∧ Unique ∧ no-intervening-hazard (the full
     AND-conjunction). -/
 theorem RL11_same_block_reuse (r : ReuseInputs) :
-    rl11_reuses r
+    rl11_freezes_credit_transfer r
       = (r.reuseCandidate && r.resetPrecedesReuse && r.dyingUnique
           && r.noInterveningHazard) := by rfl
 
 /-- §8.3 RL-11 (P2) a non-unique dying value never reuses (reusing a non-unique
     allocation corrupts the alias). The negative witness. -/
 theorem RL11_non_unique_no_reuse (r : ReuseInputs) (h : r.dyingUnique = false) :
-    rl11_reuses r = false := by
-  unfold rl11_reuses; rw [h]; simp
+    rl11_freezes_credit_transfer r = false := by
+  unfold rl11_freezes_credit_transfer; rw [h]; simp
 
 /-- §8.3 RL-11 a throwing / allocating intervening instruction blocks reuse
     (`noInterveningHazard = false` ⟹ no reuse) — prevents a leaked token or an
     invalid reuse opportunity. -/
 theorem RL11_intervening_hazard_blocks (r : ReuseInputs)
-    (h : r.noInterveningHazard = false) : rl11_reuses r = false := by
-  unfold rl11_reuses; rw [h]; simp
+    (h : r.noInterveningHazard = false) : rl11_freezes_credit_transfer r = false := by
+  unfold rl11_freezes_credit_transfer; rw [h]; simp
 
-/-- §8.3 RL-11a (P1) dynamic reuse: a MaybeShared owned reusable value emits a
-    runtime IsShared branch — reuse fires ONLY on the unique runtime arm; the
-    shared arm falls back to a fresh allocation. Modeled by the runtime branch
-    over `RuntimeUniq`. -/
-def rl11a_branch (dp6 : Bool) : RuntimeUniq → Bool
-  | .unique => dp6   -- reuse fires on the unique arm iff DP-6 holds
-  | .shared => false -- shared arm: fresh allocation, no reuse
+/-- §8.3 RL-11a: a sharing observation admits donor/recipient credit transfer
+    only on the one-owner outcome. Multiple owners require an independent
+    logical birth for the recipient. -/
+def rl11a_transfer_outcome (dp6 : Bool) : RuntimeUniq → Bool
+  | .unique => dp6
+  | .shared => false
+
+/-- Historical compatibility alias for the branch-specific spelling. -/
+abbrev rl11a_branch := rl11a_transfer_outcome
 
 /-- §8.3 RL-11a reuse fires on the unique runtime arm (DP-6 eligible) but never
     on the shared arm. -/
 theorem RL11a_dynamic_unique_arm (dp6 : Bool) :
-    rl11a_branch dp6 .unique = dp6 ∧ rl11a_branch dp6 .shared = false := by
+    rl11a_transfer_outcome dp6 .unique = dp6
+      ∧ rl11a_transfer_outcome dp6 .shared = false := by
   constructor <;> rfl
 
 /-- §8.3 RL-12 the cross-block reuse inputs: dominance, post-dominance, same
@@ -753,8 +824,8 @@ theorem RL12_cross_block_reuse (r : CrossBlockReuseInputs) :
           && r.dyingUnique && r.noThrowOnPath) := by rfl
 
 /-- §8.3 RL-12 (P2) a throwing instruction on the Reset→Reuse path blocks reuse —
-    prevents a token leak on unwind (the token is SCALAR, not RC-tracked, so an
-    exception before Reuse would leak it permanently). -/
+    prevents an orphaned logical transfer witness on unwind. The SCALAR witness
+    carries no owner credit and is not a physical allocation or handle. -/
 theorem RL12_throw_on_path_blocks (r : CrossBlockReuseInputs)
     (h : r.noThrowOnPath = false) : rl12_reuses r = false := by
   unfold rl12_reuses; rw [h]; simp
@@ -762,10 +833,10 @@ theorem RL12_throw_on_path_blocks (r : CrossBlockReuseInputs)
 /-! ## §8.3 RL-13 — REMOVED (annex-e §AIMS §8 RL-13 removal note)
 
     RL-13 is REMOVED. The former rule claimed `Construct + Cardinality = Once ⟹
-    RC == 1 at death`. This is UNSOUND for the same root cause as DP-10
+    exactly one logical owner at death`. This is UNSOUND for the same root cause as DP-10
     (`Decision.lean` §DP-10): one use of a `Construct + Once` value may be "store
     into a data structure", which creates an alias via `RcInc` — so `Construct +
-    Once` alone does NOT guarantee the value is the sole owner (RC == 1) at death.
+    Once` alone does NOT guarantee that the value has one logical owner at death.
     Reuse eligibility is established SOLELY via the Uniqueness dimension (§3.4)
     through DP-6 + RL-11 + RL-12, never derived from the substructural
     Consumption / Cardinality dimensions. The faithful encoding is the ABSENCE of
@@ -773,301 +844,481 @@ theorem RL12_throw_on_path_blocks (r : CrossBlockReuseInputs)
     the removed rule, so it provably cannot be applied. The sound replacement
     (DP-6 / RL-11 / RL-12 via `dyingUnique`) is present and kernel-checked above. -/
 
-/-! ## §8.4 Stack promotion — strategy grid (annex-e §AIMS §8 RL-14..RL-16)
+/-! ## §8.4 Backend-neutral allocation facts (annex-e §AIMS RL-14..RL-16)
 
-    A value's allocation strategy is selected from its Locality + Uniqueness +
-    size:
-      RL-14  headerless stack    : Locality ≤ FunctionLocal ∧ Unique ∧ fixed-size.
-      RL-14a immortal-RC stack   : Locality ≤ FunctionLocal ∧ ¬Unique ∧ fixed-size.
-      RL-15  function-local bump : Locality ≤ FunctionLocal ∧ dynamic-size.
-      RL-16  heap                : Locality ≥ HeapEscaping. -/
+    AIMS freezes logical facts. Representation analysis supplies extent
+    evidence separately. Physical planners select placement, metadata,
+    synchronization, and ABI mechanisms after this seam. -/
 
-inductive AllocStrategy
-  | HeaderlessStack    -- RL-14
-  | ImmortalHeaderStack-- RL-14a
-  | BumpAlloc          -- RL-15
-  | Heap               -- RL-16
+/-- Stable logical allocation/birth-site identity; never a target storage site. -/
+abbrev AllocationSiteId := Nat
+abbrev BlockId := Nat
+abbrev CallSiteId := Nat
+abbrev EventId := Nat
+abbrev DropPlanId := Nat
+abbrev FieldId := Nat
+abbrev StorageSiteId := Nat
+abbrev TypeId := Nat
+
+inductive CallerProtocol
+  | borrowOnly
+  | mayShare
+  | ownershipTransfer
 deriving Repr, DecidableEq
 
-/-- §8.4 `is_local` reused as the §3.5 DP-8 predicate (Locality ≤ FunctionLocal).
-    ArgEscaping and wider are NOT local. -/
-def localityIsLocal (l : Locality) : Bool :=
-  (l = .BlockLocal) || (l = .FunctionLocal)
-
-/-- §8.4 the stack-promotion strategy grid (RL-14 / RL-14a / RL-15 / RL-16).
-    `fixedSize = true` is a fixed-size value; `false` is dynamic-size. -/
-def allocStrategy (l : Locality) (u : Uniqueness) (fixedSize : Bool) : AllocStrategy :=
-  if localityIsLocal l then
-    if fixedSize then
-      (if u = .Unique then .HeaderlessStack else .ImmortalHeaderStack)
-    else .BumpAlloc
-  else .Heap
-
-/-- §8.4 RL-14 (P1) headerless stack: a local (≤ FunctionLocal) Unique fixed-size
-    value selects a headerless stack allocation (no RC header, no RC ops). -/
-theorem RL14_headerless_stack (l : Locality) (h : localityIsLocal l = true) :
-    allocStrategy l .Unique true = AllocStrategy.HeaderlessStack := by
-  unfold allocStrategy; rw [h]; rfl
-
-/-- §8.4 RL-14 (P2) the load-bearing negative witness: a MaybeShared local
-    fixed-size value must NOT be headerless (it would crash on a later IsShared) —
-    it routes to RL-14a's immortal-RC stack. -/
-theorem RL14_maybeshared_not_headerless (l : Locality) (h : localityIsLocal l = true) :
-    allocStrategy l .MaybeShared true = AllocStrategy.ImmortalHeaderStack := by
-  unfold allocStrategy; rw [h]; rfl
-
-/-- §8.4 RL-14a (P1) immortal-RC stack: a local ≠Unique fixed-size value gets a
-    stack allocation WITH an immortal MAX_REFCOUNT header (so an IsShared reads a
-    valid header and an RcDec is a no-op on the stack pointer). -/
-theorem RL14a_immortal_header_stack (l : Locality) (u : Uniqueness)
-    (hl : localityIsLocal l = true) (hu : u ≠ .Unique) :
-    allocStrategy l u true = AllocStrategy.ImmortalHeaderStack := by
-  unfold allocStrategy; rw [hl]
-  cases u <;> first | rfl | exact absurd rfl hu
-
-/-- §8.4 RL-15 (P1) function-local bump allocator: a local dynamic-size value
-    uses a function-local bump region (freed at function return). -/
-theorem RL15_bump_alloc (l : Locality) (u : Uniqueness)
-    (h : localityIsLocal l = true) :
-    allocStrategy l u false = AllocStrategy.BumpAlloc := by
-  unfold allocStrategy; rw [h]; rfl
-
-/-- §8.4 RL-16 (P1) heap allocation: an escaping value (Locality ≥ HeapEscaping,
-    i.e. not local) is heap-allocated with a full RC header. -/
-theorem RL16_heap_alloc (l : Locality) (u : Uniqueness) (fixedSize : Bool)
-    (h : localityIsLocal l = false) :
-    allocStrategy l u fixedSize = AllocStrategy.Heap := by
-  unfold allocStrategy; rw [h]; rfl
-
-/-- §8.4 the strategy grid is total over Locality — every value gets exactly one
-    strategy (no value is left unallocated). -/
-theorem allocStrategy_total (l : Locality) (u : Uniqueness) (fixedSize : Bool) :
-    allocStrategy l u fixedSize = .HeaderlessStack
-      ∨ allocStrategy l u fixedSize = .ImmortalHeaderStack
-      ∨ allocStrategy l u fixedSize = .BumpAlloc
-      ∨ allocStrategy l u fixedSize = .Heap := by
-  cases l <;> cases u <;> cases fixedSize <;> simp [allocStrategy, localityIsLocal]
-
-/-! ## §8.4 RL-15a — ArgEscaping caller-stack (annex-e §AIMS §8 RL-15a)
-
-    An ArgEscaping value (escapes into a callee, not heap) is stack-allocated in
-    the CALLER. The 4-clause SUFFICIENT enumeration selects the caller-stack
-    discipline by the callee's parameter contract:
-      cat1: callee Borrowed ∧ Unique ∧ ¬may_share → CallerStackHeaderless.
-      cat2: callee Borrowed ∧ (¬Unique ∨ may_share) → CallerStackImmortal.
-      cat3: callee Owned → CallerStackImmortal.
-      cat4: closure capture (PartialApply) → routed to RL-14 (CN-8 clamps
-            Borrowed+ArgEscaping → FunctionLocal). -/
-
-inductive ArgEscapingCategory
-  | CallerStackHeaderless  -- cat1
-  | CallerStackImmortal    -- cat2 / cat3
-  | RoutedToRL14           -- cat4
+structure CallerUse where
+  site : CallSiteId
+  protocol : CallerProtocol
 deriving Repr, DecidableEq
 
-/-- §8.4 RL-15a the caller-stack category from the callee param contract. -/
-def rl15a_category (calleeAccess : AccessClass) (calleeUnique : Bool)
-    (calleeMayShare : Bool) (isClosure : Bool) : ArgEscapingCategory :=
-  if isClosure then .RoutedToRL14
-  else match calleeAccess with
-    | .Borrowed => if calleeUnique && (!calleeMayShare)
-                   then .CallerStackHeaderless else .CallerStackImmortal
-    | .Owned    => .CallerStackImmortal
+/-- A nonempty caller extent stores its first use separately. -/
+inductive LifetimeBound
+  | block (block : BlockId)
+  | function
+  | callerExtent (first : CallerUse) (rest : List CallerUse)
+  | escaping
+  | unknown
+deriving Repr, DecidableEq
 
-/-- §8.4 RL-15a (P1) cat1: a callee that borrows the param uniquely and does NOT
-    share gets a headerless caller-stack allocation (no RC ops). -/
-theorem RL15a_cat1_borrowed_unique_headerless :
-    rl15a_category .Borrowed true false false = ArgEscapingCategory.CallerStackHeaderless := by
-  rfl
-
-/-- §8.4 RL-15a (P1) cat2: a callee that borrows but may share gets an immortal
-    header (the callee may RcInc, writing the header — headerless would corrupt). -/
-theorem RL15a_cat2_borrowed_mayshare_immortal :
-    rl15a_category .Borrowed true true false = ArgEscapingCategory.CallerStackImmortal := by
-  rfl
-
-/-- §8.4 RL-15a (P1) cat3: a callee that takes Owned gets an immortal header (the
-    callee may RcDec; immortal makes the dec a no-op on the stack pointer). -/
-theorem RL15a_cat3_owned_immortal (calleeUnique calleeMayShare : Bool) :
-    rl15a_category .Owned calleeUnique calleeMayShare false
-      = ArgEscapingCategory.CallerStackImmortal := by
-  cases calleeUnique <;> cases calleeMayShare <;> rfl
-
-/-- §8.4 RL-15a (P1) cat4: a closure capture routes to RL-14 (CN-8 clamps
-    Borrowed+ArgEscaping to FunctionLocal). -/
-theorem RL15a_cat4_closure_routed (calleeAccess : AccessClass)
-    (calleeUnique calleeMayShare : Bool) :
-    rl15a_category calleeAccess calleeUnique calleeMayShare true
-      = ArgEscapingCategory.RoutedToRL14 := by rfl
-
-/-! ## §8 RC header compression — bound → width (annex-e §AIMS §8 RL-17 / RL-18)
-
-    RL-17 computes an UPPER bound on simultaneous RC; RL-18 narrows the header
-    width from the bound (and ABI-visibility). The width must HOLD the bound
-    (soundness) and ABI-visible types always use full width. -/
-
-/-- §8 RL-17 sharing bound. `none` = Unique local (no header). `Bounded n` =
-    straight-line incs. `unbounded` = loops / recursion / global. -/
-inductive ShareBound
-  | none
-  | bounded (n : Nat)
+/-- `bounded extra` means at most `extra + 1` simultaneous owners. -/
+inductive OwnerBound
+  | bounded (extra : Nat)
   | unbounded
 deriving Repr, DecidableEq
 
-/-- §8 RL-17 the sharing-bound classification from the value's profile: a
-    Unique local value with no inc gets `none` (no header); a value with `n`
-    straight-line incs gets `Bounded (n + 1)` (the `+1` is the original
-    reference); a value reached by a loop / recursion / global gets `unbounded`. -/
-def shareBound (isLocalUnique : Bool) (straightLineIncs : Nat)
-    (loopOrGlobal : Bool) : ShareBound :=
-  if loopOrGlobal then .unbounded
-  else if isLocalUnique then .none
-  else .bounded (straightLineIncs + 1)
-
-/-- §8 RL-17 (P1) bound classification: a local-unique no-share value gets the
-    `none` bound (RL-18 then selects no header). -/
-theorem RL17_local_unique_none :
-    shareBound true 0 false = ShareBound.none := by rfl
-
-/-- §8 RL-17 (P1) a finite straight-line value gets a `Bounded` bound covering
-    the `n` incs plus the original reference. -/
-theorem RL17_straight_line_bounded (n : Nat) :
-    shareBound false n false = ShareBound.bounded (n + 1) := by rfl
-
-/-- §8 RL-17 (P1/P2) a loop / recursion / global value is `unbounded` — the
-    conservative bound when the inc count cannot be statically bounded. The
-    `unbounded` classification dominates (loops checked first), so even a value
-    that looks local-unique gets `unbounded` when reached by a loop. -/
-theorem RL17_loop_unbounded (isLocalUnique : Bool) (n : Nat) :
-    shareBound isLocalUnique n true = ShareBound.unbounded := by
-  cases isLocalUnique <;> rfl
-
-/-- §8 RL-18 RC header widths. -/
-inductive HeaderWidth
-  | noHeader
-  | i8
-  | i16
-  | i32
-  | i64
+structure ExactOwnershipObservationFacts where
+  sharingObservationEvents : List EventId
+  additionalCreditEvents : List EventId
+  releaseEvents : List EventId
+  externallyObservable : Bool
 deriving Repr, DecidableEq
 
-/-- §8 RL-18 width selection from the RL-17 bound. ABI-visible types short-circuit
-    to `i64` (observable across compilation unit / dyn Trait / FFI). -/
-def headerWidth (b : ShareBound) (abiVisible : Bool) : HeaderWidth :=
-  if abiVisible then .i64
-  else match b with
-    | .none        => .noHeader
-    | .bounded n   => if n ≤ 127 then .i8
-                      else if n ≤ 32767 then .i16
-                      else if n ≤ 2147483647 then .i32
-                      else .i64
-    | .unbounded   => .i64
-
-/-- §8 the maximum count a width can hold (the soundness budget). `noHeader`
-    holds only the Unique-local no-share case (bound 0 / `none`). -/
-def widthCapacity : HeaderWidth → Nat
-  | .noHeader => 0
-  | .i8       => 127
-  | .i16      => 32767
-  | .i32      => 2147483647
-  | .i64      => 9223372036854775807
-
-/-- §8 RL-18 (P1/P2) soundness for the bounded case: the selected width's
-    capacity HOLDS the RL-17 upper bound — `n ≤ widthCapacity (headerWidth ...)`
-    for any non-ABI-visible `Bounded n` whose count fits the representable RC
-    range (`n ≤ 2^63 - 1`; RL-17 emits `unbounded`, not a finite `Bounded n`,
-    for counts beyond i64). The width never under-allocates within that range. -/
-theorem RL18_width_holds_bound (n : Nat) (hfits : n ≤ 9223372036854775807) :
-    n ≤ widthCapacity (headerWidth (.bounded n) false) := by
-  unfold headerWidth widthCapacity
-  simp only [Bool.false_eq_true, if_false]
-  by_cases h1 : n ≤ 127
-  · simp [h1]
-  · by_cases h2 : n ≤ 32767
-    · simp [h1, h2]
-    · by_cases h3 : n ≤ 2147483647
-      · simp [h1, h2, h3]
-      · simp only [h1, h2, h3, if_false]
-        exact hfits
-
-/-- §8 RL-18 (P1) the `none` bound (Unique local) selects no header. -/
-theorem RL18_none_no_header : headerWidth .none false = HeaderWidth.noHeader := by rfl
-
-/-- §8 RL-18 the unbounded bound selects full i64. -/
-theorem RL18_unbounded_i64 : headerWidth .unbounded false = HeaderWidth.i64 := by rfl
-
-/-- §8 RL-18 ABI-visible types always use full i64 regardless of the bound (the
-    short-circuit: observable types can be shared in ways the unit cannot bound). -/
-theorem RL18_abi_visible_full_width (b : ShareBound) :
-    headerWidth b true = HeaderWidth.i64 := by
-  cases b <;> rfl
-
-/-! ## §8 RL-18a — Locality is the single SSOT for escape decisions
-
-    RL-18a: every escape-driven decision consumes `Locality` as its primary
-    input. The stack-promotion strategy (RL-14..RL-16) and the thread-locality
-    verdict (RL-19) are BOTH functions of Locality — they never disagree because
-    they read the same dimension. The faithful encoding: both verdicts are
-    defined over the SAME `Locality` argument; consistency is the structural
-    fact that a single input cannot produce contradictory single-valued
-    outputs. -/
-
-/-- §8 RL-18a the escape verdict: a value escapes the function frame iff its
-    Locality is wider than FunctionLocal. The SINGLE source of truth. -/
-def localityEscapes (l : Locality) : Bool := !localityIsLocal l
-
-/-- §8 RL-18a (P1/P2) single-SSOT consistency: the stack-promotion strategy
-    routes to Heap iff `localityEscapes` is true — the two Locality-derived
-    verdicts agree on every Locality value (no parallel escape enum can
-    disagree). -/
-theorem RL18a_strategy_agrees_escape (l : Locality) (u : Uniqueness) (fixedSize : Bool) :
-    (allocStrategy l u fixedSize = .Heap) ↔ (localityEscapes l = true) := by
-  cases l <;> cases u <;> cases fixedSize <;>
-    simp [allocStrategy, localityIsLocal, localityEscapes]
-
-/-! ## §8 Non-atomic RC — thread-locality (annex-e §AIMS §8 RL-19 / RL-20 / RL-21)
-
-    RL-19: thread-local values use non-atomic RC (plain load/store). RL-20:
-    thread-shared values use atomic RC (CAS). RL-21: a program with no
-    spawn/channel/FFI export makes ALL RC non-atomic. Thread-locality is derived
-    from Locality + the call graph (no escape path crosses a thread boundary). -/
-
-inductive RcAtomicity
-  | nonAtomic  -- RL-19 plain load/store
-  | atomic     -- RL-20 CAS
+inductive OwnershipObservationFacts
+  | exact (facts : ExactOwnershipObservationFacts)
+  | unknown
 deriving Repr, DecidableEq
 
-/-- §8 RL-19 / RL-20 atomicity selection: non-atomic iff thread-local. -/
-def rcAtomicity (threadLocal : Bool) : RcAtomicity :=
-  if threadLocal then .nonAtomic else .atomic
+structure ExactCleanupObligation where
+  releaseEvents : List EventId
+  dropPlan : Option DropPlanId
+  fieldOrder : List FieldId
+  normalExitEvents : List EventId
+  unwindExitEvents : List EventId
+  lifetimeEndEvents : List EventId
+deriving Repr, DecidableEq
 
-/-- §8 RL-19 (P1) a thread-local value uses non-atomic RC (the count is only ever
-    mutated by the owning thread). -/
-theorem RL19_thread_local_non_atomic :
-    rcAtomicity true = RcAtomicity.nonAtomic := by rfl
+inductive CleanupObligation
+  | exact (obligation : ExactCleanupObligation)
+  | unknown
+deriving Repr, DecidableEq
 
-/-- §8 RL-20 (P1) a thread-shared value uses atomic RC (the count may be mutated
-    concurrently). -/
-theorem RL20_thread_shared_atomic :
-    rcAtomicity false = RcAtomicity.atomic := by rfl
+inductive ThreadReachability
+  | confined
+  | potentiallyShared
+deriving Repr, DecidableEq
 
-/-- §8 RL-21 (P1) program-wide: a program with NO spawn / channel / FFI export
-    has every value thread-local, so ALL RC is non-atomic. Modeled: if the
-    program has no thread-boundary construct, every value's `threadLocal` is
-    forced true, so every value's atomicity is non-atomic. -/
-theorem RL21_no_thread_boundary_all_non_atomic
-    (hasThreadBoundary : Bool) (h : hasThreadBoundary = false) :
-    -- With no thread boundary, a value's thread-locality is `!hasThreadBoundary`,
-    -- which is `true`, so atomicity is non-atomic for every value.
-    rcAtomicity (!hasThreadBoundary) = RcAtomicity.nonAtomic := by
-  rw [h]; rfl
+inductive ExternalVisibility
+  | internal
+  | crossModule
+  | foreignOrOpaque
+  | unknown
+deriving Repr, DecidableEq
+
+structure AllocationFacts where
+  /-- Logical allocation/birth-site identity, distinct from `StorageSiteId`. -/
+  site : AllocationSiteId
+  locality : Locality
+  lifetime : LifetimeBound
+  owners : OwnerBound
+  ownershipObservations : OwnershipObservationFacts
+  cleanup : CleanupObligation
+  thread : ThreadReachability
+  visibility : ExternalVisibility
+deriving Repr, DecidableEq
+
+/-- Extent is representation evidence, not an AIMS fact. -/
+inductive ExtentClass
+  | staticShape (type : TypeId)
+  | runtimeSized (storage : StorageSiteId)
+deriving Repr, DecidableEq
+
+structure ProjectionInput where
+  facts : AllocationFacts
+  extent : ExtentClass
+deriving Repr, DecidableEq
+
+def lifetimeFromLocality (locality : Locality) (block : BlockId)
+    (callerUses : List CallerUse) : LifetimeBound :=
+  match locality with
+  | .BlockLocal => .block block
+  | .FunctionLocal => .function
+  | .ArgEscaping =>
+      match callerUses with
+      | [] => .unknown
+      | first :: rest => .callerExtent first rest
+  | .HeapEscaping => .escaping
+  | .Unknown => .unknown
+
+theorem lifetime_from_locality_sound (block : BlockId) :
+    lifetimeFromLocality .BlockLocal block [] = .block block ∧
+    lifetimeFromLocality .FunctionLocal block [] = .function ∧
+    lifetimeFromLocality .HeapEscaping block [] = .escaping ∧
+    lifetimeFromLocality .Unknown block [] = .unknown := by
+  exact ⟨rfl, rfl, rfl, rfl⟩
+
+theorem caller_extent_sites_complete (block : BlockId) (first : CallerUse)
+    (rest : List CallerUse) :
+    lifetimeFromLocality .ArgEscaping block (first :: rest) =
+      .callerExtent first rest := by rfl
+
+def ownerBound (isLocalUnique : Bool) (additionalCreditEvents : List EventId)
+    (loopOrGlobal externallyRetainable : Bool) : OwnerBound :=
+  if loopOrGlobal || externallyRetainable then .unbounded
+  else if isLocalUnique then .bounded 0
+  else .bounded additionalCreditEvents.length
+
+def ownerCapacity : OwnerBound → Option Nat
+  | .bounded extra => some (extra + 1)
+  | .unbounded => none
+
+theorem owner_bound_is_dynamic_upper_bound (additionalCreditEvents : List EventId) :
+    ownerCapacity (ownerBound false additionalCreditEvents false false) =
+      some (additionalCreditEvents.length + 1) := by rfl
+
+theorem loop_or_global_forces_unbounded (isLocalUnique : Bool)
+    (additionalCreditEvents : List EventId) (externallyRetainable : Bool) :
+    ownerBound isLocalUnique additionalCreditEvents true externallyRetainable =
+      OwnerBound.unbounded := by
+  simp [ownerBound]
+
+def cleanupCoversNormalAndUnwind : CleanupObligation → Bool
+  | .unknown => false
+  | .exact obligation =>
+      obligation.releaseEvents.all fun event =>
+        obligation.normalExitEvents.contains event &&
+          obligation.unwindExitEvents.contains event
+
+theorem cleanup_complete_on_normal_and_unwind (event : EventId)
+    (dropPlan : DropPlanId) (field : FieldId) :
+    let obligation : ExactCleanupObligation := {
+      releaseEvents := [event]
+      dropPlan := some dropPlan
+      fieldOrder := [field]
+      normalExitEvents := [event]
+      unwindExitEvents := [event]
+      lifetimeEndEvents := [event]
+    }
+    cleanupCoversNormalAndUnwind (.exact obligation) = true ∧
+      obligation.dropPlan = some dropPlan ∧
+      obligation.fieldOrder = [field] ∧
+      obligation.lifetimeEndEvents = [event] := by
+  simp [cleanupCoversNormalAndUnwind]
+
+def threadReachabilityFrom (locality : Locality)
+    (crossesThreadBoundary : Bool) : ThreadReachability :=
+  if locality = .Unknown then .potentiallyShared
+  else if crossesThreadBoundary then .potentiallyShared
+  else .confined
+
+theorem thread_reachability_from_locality_callgraph
+    (locality : Locality) (crossesThreadBoundary : Bool) :
+    threadReachabilityFrom locality crossesThreadBoundary =
+      (if locality = .Unknown then .potentiallyShared
+       else if crossesThreadBoundary then .potentiallyShared
+       else .confined) := by rfl
+
+def programThreadReachability (noThreadBoundary : Bool) (locality : Locality)
+    (crossesThreadBoundary : Bool) : ThreadReachability :=
+  if noThreadBoundary then .confined
+  else threadReachabilityFrom locality crossesThreadBoundary
+
+theorem no_thread_boundary_all_confined (locality : Locality)
+    (crossesThreadBoundary : Bool) :
+    programThreadReachability true locality crossesThreadBoundary =
+      ThreadReachability.confined := by rfl
+
+def unknownAllocationFacts (site : AllocationSiteId) : AllocationFacts := {
+  site
+  locality := .Unknown
+  lifetime := .unknown
+  owners := .unbounded
+  ownershipObservations := .unknown
+  cleanup := .unknown
+  thread := .potentiallyShared
+  visibility := .unknown
+}
+
+def freezeAllocationFacts (site : AllocationSiteId)
+    (evidence : Option AllocationFacts) : AllocationFacts :=
+  match evidence with
+  | some facts => if facts.site = site then facts else unknownAllocationFacts site
+  | none => unknownAllocationFacts site
+
+theorem freeze_allocation_facts_total_conservative (site : AllocationSiteId) :
+    freezeAllocationFacts site none = unknownAllocationFacts site ∧
+    (freezeAllocationFacts site none).lifetime = .unknown ∧
+    (freezeAllocationFacts site none).owners = .unbounded ∧
+    (freezeAllocationFacts site none).thread = .potentiallyShared ∧
+    (freezeAllocationFacts site none).visibility = .unknown := by
+  exact ⟨rfl, rfl, rfl, rfl, rfl⟩
+
+theorem extent_class_is_repr_owned (facts : AllocationFacts)
+    (left right : ExtentClass) :
+    (ProjectionInput.mk facts left).facts =
+      (ProjectionInput.mk facts right).facts := by rfl
+
+/-! ## §8.5 Physical-plan capability satisfaction (annex-e §AIMS RL-17..RL-18a) -/
+
+inductive ExtentCapability
+  | staticOnly
+  | runtimeSized
+deriving Repr, DecidableEq
+
+inductive ThreadCapability
+  | confinedOnly
+  | sharedSafe
+deriving Repr, DecidableEq
+
+def lifetimeCovers : LifetimeBound → LifetimeBound → Bool
+  | .block required, .block provided => required == provided
+  | .block _, _ => true
+  | .function, .block _ => false
+  | .function, _ => true
+  | .callerExtent first rest, .callerExtent providedFirst providedRest =>
+      first == providedFirst && rest == providedRest
+  | .callerExtent _ _, .escaping => true
+  | .callerExtent _ _, .unknown => true
+  | .callerExtent _ _, _ => false
+  | .escaping, .escaping => true
+  | .escaping, .unknown => true
+  | .escaping, _ => false
+  | .unknown, .unknown => true
+  | .unknown, _ => false
+
+def extentCovers : ExtentClass → ExtentCapability → Bool
+  | .staticShape _, _ => true
+  | .runtimeSized _, .runtimeSized => true
+  | .runtimeSized _, .staticOnly => false
+
+def ownerCovers : OwnerBound → OwnerBound → Bool
+  | .bounded required, .bounded provided => required ≤ provided
+  | .bounded _, .unbounded => true
+  | .unbounded, .unbounded => true
+  | .unbounded, .bounded _ => false
+
+def threadCovers : ThreadReachability → ThreadCapability → Bool
+  | .confined, _ => true
+  | .potentiallyShared, .sharedSafe => true
+  | .potentiallyShared, .confinedOnly => false
+
+def visibilityCovers : ExternalVisibility → ExternalVisibility → Bool
+  | .internal, _ => true
+  | .crossModule, .crossModule => true
+  | .crossModule, .foreignOrOpaque => true
+  | .crossModule, .unknown => true
+  | .foreignOrOpaque, .foreignOrOpaque => true
+  | .foreignOrOpaque, .unknown => true
+  | .unknown, .unknown => true
+  | _, _ => false
+
+def cleanupNeedsUnwind : CleanupObligation → Bool
+  | .unknown => true
+  | .exact obligation =>
+      match obligation.unwindExitEvents with
+      | [] => false
+      | _ :: _ => true
+
+structure LayoutCapabilities where
+  site : AllocationSiteId
+  lifetimeCoverage : LifetimeBound
+  extentCoverage : ExtentCapability
+  ownerCapacity : OwnerBound
+  ownershipObservationProtocol : OwnershipObservationFacts
+  cleanupCoverage : CleanupObligation
+  unwindCoverage : Bool
+  threadSafety : ThreadCapability
+  visibilityCoverage : ExternalVisibility
+  externalContractId : Nat
+deriving Repr, DecidableEq
+
+def Satisfies (facts : AllocationFacts) (extent : ExtentClass)
+    (capabilities : LayoutCapabilities) : Prop :=
+  capabilities.site = facts.site ∧
+  lifetimeCovers facts.lifetime capabilities.lifetimeCoverage = true ∧
+  extentCovers extent capabilities.extentCoverage = true ∧
+  ownerCovers facts.owners capabilities.ownerCapacity = true ∧
+  capabilities.ownershipObservationProtocol = facts.ownershipObservations ∧
+  capabilities.cleanupCoverage = facts.cleanup ∧
+  (cleanupNeedsUnwind facts.cleanup = true → capabilities.unwindCoverage = true) ∧
+  threadCovers facts.thread capabilities.threadSafety = true ∧
+  visibilityCovers facts.visibility capabilities.visibilityCoverage = true
+
+structure CapabilityRefines (strong weak : LayoutCapabilities) : Prop where
+  sameSite : strong.site = weak.site
+  lifetime : ∀ required,
+    lifetimeCovers required weak.lifetimeCoverage = true →
+      lifetimeCovers required strong.lifetimeCoverage = true
+  extent : ∀ required,
+    extentCovers required weak.extentCoverage = true →
+      extentCovers required strong.extentCoverage = true
+  owners : ∀ required,
+    ownerCovers required weak.ownerCapacity = true →
+      ownerCovers required strong.ownerCapacity = true
+  sameOwnershipObservationContract :
+    strong.ownershipObservationProtocol = weak.ownershipObservationProtocol
+  sameCleanupContract : strong.cleanupCoverage = weak.cleanupCoverage
+  unwind : weak.unwindCoverage = true → strong.unwindCoverage = true
+  thread : ∀ required,
+    threadCovers required weak.threadSafety = true →
+      threadCovers required strong.threadSafety = true
+  visibility : ∀ required,
+    visibilityCovers required weak.visibilityCoverage = true →
+      visibilityCovers required strong.visibilityCoverage = true
+  sameExternalContract : strong.externalContractId = weak.externalContractId
+
+theorem stronger_capability_preserves_satisfaction
+    (facts : AllocationFacts) (extent : ExtentClass)
+    (strong weak : LayoutCapabilities)
+    (hrefines : CapabilityRefines strong weak)
+    (hsatisfies : Satisfies facts extent weak) :
+    Satisfies facts extent strong := by
+  rcases hsatisfies with
+    ⟨hsite, hlifetime, hextent, howners, hobservations, hcleanup,
+      hunwind, hthread, hvisibility⟩
+  refine ⟨?_, hrefines.lifetime _ hlifetime, hrefines.extent _ hextent,
+    hrefines.owners _ howners, ?_, ?_, ?_, hrefines.thread _ hthread,
+    hrefines.visibility _ hvisibility⟩
+  · exact hrefines.sameSite.trans hsite
+  · exact hrefines.sameOwnershipObservationContract.trans hobservations
+  · exact hrefines.sameCleanupContract.trans hcleanup
+  · intro hneeds
+    exact hrefines.unwind (hunwind hneeds)
+
+inductive VmPlacement
+  | frame
+  | arena
+  | managed
+deriving Repr, DecidableEq
+
+inductive VmOwnershipMechanism
+  | omitted
+  | slotCount
+  | sideTable
+  | synchronizedSlot
+deriving Repr, DecidableEq
+
+structure VmLayoutPlan where
+  capabilities : LayoutCapabilities
+  placement : VmPlacement
+  ownership : VmOwnershipMechanism
+deriving Repr, DecidableEq
+
+inductive CompiledPlacement
+  | register
+  | stack
+  | region
+  | managed
+deriving Repr, DecidableEq
+
+inductive CompiledOwnershipMechanism
+  | omitted
+  | inlineMetadata
+  | runtimeHandle
+deriving Repr, DecidableEq
+
+structure CompiledLayoutPlan where
+  capabilities : LayoutCapabilities
+  placement : CompiledPlacement
+  ownership : CompiledOwnershipMechanism
+deriving Repr, DecidableEq
+
+structure ValidatedVmPlan (facts : AllocationFacts) (extent : ExtentClass) where
+  plan : VmLayoutPlan
+  evidence : Satisfies facts extent plan.capabilities
+
+structure ValidatedCompiledPlan (facts : AllocationFacts) (extent : ExtentClass) where
+  plan : CompiledLayoutPlan
+  evidence : Satisfies facts extent plan.capabilities
+
+theorem validated_vm_plan_sound (facts : AllocationFacts) (extent : ExtentClass)
+    (validated : ValidatedVmPlan facts extent) :
+    Satisfies facts extent validated.plan.capabilities := validated.evidence
+
+theorem validated_compiled_plan_sound (facts : AllocationFacts)
+    (extent : ExtentClass) (validated : ValidatedCompiledPlan facts extent) :
+    Satisfies facts extent validated.plan.capabilities := validated.evidence
+
+theorem potentially_shared_requires_safe_capability
+    (facts : AllocationFacts) (extent : ExtentClass)
+    (capabilities : LayoutCapabilities)
+    (hthread : facts.thread = .potentiallyShared)
+    (hsatisfies : Satisfies facts extent capabilities) :
+    capabilities.threadSafety = .sharedSafe := by
+  rcases hsatisfies with ⟨_, _, _, _, _, _, _, hsafe, _⟩
+  rw [hthread] at hsafe
+  cases hcap : capabilities.threadSafety with
+  | confinedOnly => simp [threadCovers, hcap] at hsafe
+  | sharedSafe => rfl
+
+structure AimsTrace where
+  ownershipObservations : OwnershipObservationFacts
+  cleanup : CleanupObligation
+deriving Repr, DecidableEq
+
+def aimsTrace (facts : AllocationFacts) : AimsTrace := {
+  ownershipObservations := facts.ownershipObservations
+  cleanup := facts.cleanup
+}
+
+def capabilityTrace (capabilities : LayoutCapabilities) : AimsTrace := {
+  ownershipObservations := capabilities.ownershipObservationProtocol
+  cleanup := capabilities.cleanupCoverage
+}
+
+def vmPlanTrace (plan : VmLayoutPlan) : AimsTrace :=
+  capabilityTrace plan.capabilities
+
+def compiledPlanTrace (plan : CompiledLayoutPlan) : AimsTrace :=
+  capabilityTrace plan.capabilities
+
+theorem projection_refines_aims_trace (facts : AllocationFacts)
+    (extent : ExtentClass) (capabilities : LayoutCapabilities)
+    (hsatisfies : Satisfies facts extent capabilities) :
+    capabilityTrace capabilities = aimsTrace facts := by
+  rcases hsatisfies with ⟨_, _, _, _, hobservations, hcleanup, _, _, _⟩
+  unfold capabilityTrace aimsTrace
+  rw [hobservations, hcleanup]
+
+theorem vm_compiled_event_parity (facts : AllocationFacts)
+    (extent : ExtentClass) (vm : ValidatedVmPlan facts extent)
+    (compiled : ValidatedCompiledPlan facts extent) :
+    vmPlanTrace vm.plan = compiledPlanTrace compiled.plan := by
+  calc
+    vmPlanTrace vm.plan = aimsTrace facts :=
+      projection_refines_aims_trace facts extent vm.plan.capabilities vm.evidence
+    _ = compiledPlanTrace compiled.plan :=
+      (projection_refines_aims_trace facts extent compiled.plan.capabilities
+        compiled.evidence).symm
+
+/-! ## §8.7 Thread reachability facts (annex-e §AIMS RL-19..RL-21)
+
+    AIMS freezes reachability. A physical plan may use any mechanism whose
+    capability satisfies the frozen fact. -/
+
+theorem unknown_thread_reachability_is_potentially_shared
+    (crossesThreadBoundary : Bool) :
+    threadReachabilityFrom .Unknown crossesThreadBoundary =
+      ThreadReachability.potentiallyShared := by
+  rfl
 
 /-! ## §8 KnownSafe pair elimination (annex-e §AIMS §8 RL-22 / RL-23)
 
-    RL-22 eliminates an inner inc/dec pair iff `KnownSafe(v)` at the point (a
-    dominating RcInc with no intervening RcDec ⟹ physical RC ≥ 2 ⟹ the inner dec
-    cannot free). The elimination is net-0 on the ledger. RL-23 is the AND-join
-    of KnownSafe across CFG merges — conservative (an OR-join would be unsound). -/
+    RL-22 eliminates an inner credit/debit pair iff `KnownSafe(v)` at the point:
+    a dominating logical owner credit remains outstanding because no intervening
+    release discharged it. That ownership-observation evidence proves the candidate pair can
+    be removed without changing the ledger net or violating a later use floor;
+    it does not require a physical reference counter. RL-23 is the AND-join of
+    KnownSafe across CFG merges — conservative (an OR-join would be unsound). -/
 
 /-- §8 RL-22 KnownSafe = a dominating RcInc with no intervening RcDec. -/
 def knownSafe (dominatingInc : Bool) (interveningDec : Bool) : Bool :=
@@ -1092,13 +1343,14 @@ theorem RL22_elimination_net_zero :
       = rcBalance [RcOp.inc, RcOp.dec, RcOp.dec] := by decide
 
 /-- §8 RL-22 (P2) the load-bearing negative witness: elimination must NOT fire
-    without a dominating inc — if `dominatingInc = false`, KnownSafe is false, so
-    the pair is KEPT (the inner dec could free a still-referenced value at RC 1). -/
+    without a dominating credit — if `dominatingInc = false`, KnownSafe is
+    false, so the pair is KEPT (the inner debit could exhaust the logical owner
+    credit needed by a later use). -/
 theorem RL22_no_eliminate_without_dominating_inc (interveningDec : Bool) :
     rl22_eliminates false interveningDec = false := by rfl
 
-/-- §8 RL-22 an intervening dec clears KnownSafe (RC may be back to 1) — keep the
-    pair. -/
+/-- §8 RL-22 an intervening debit clears KnownSafe because the dominating
+    logical credit may already be discharged — keep the pair. -/
 theorem RL22_intervening_dec_keeps_pair (dominatingInc : Bool) :
     rl22_eliminates dominatingInc true = false := by
   unfold rl22_eliminates knownSafe; simp
@@ -1125,22 +1377,24 @@ theorem RL23_join_all_preds (preds : List Bool) :
       · intro h
         exact ⟨h hd (Or.inl rfl), fun p hp => h p (Or.inr hp)⟩
 
-/-- §8 RL-23 (P2) the AND-not-OR witness: a join over `[true, false]` (one unsafe
-    predecessor) yields `false` (conservative) — an OR-join would UNSOUNDLY yield
-    `true`, marking the merge KnownSafe when a path reaches it at RC 1. -/
+/-- §8 RL-23 (P2) the AND-not-OR witness: a join over `[true, false]` (one path
+    lacks the outstanding-credit evidence) yields `false` — an OR-join would
+    UNSOUNDLY mark the merge KnownSafe from only one proven predecessor. -/
 theorem RL23_and_not_or_witness :
     rl23_join [true, false] = false ∧ ([true, false].foldr (· || ·) false = true) := by
   constructor <;> decide
 
-/-! ## §8 PRE-style global RC motion (annex-e §AIMS §8 RL-24 / RL-25 / RL-26)
+/-! ## §8 logical event-pair refinement (annex-e §AIMS §8 RL-24 / RL-25 / RL-26)
 
-    RL-24 matches an (Inc, Dec) pair across blocks (bidirectional dataflow).
+    RL-24 matches an owner-credit/release pair across blocks (bidirectional
+    dataflow).
     RL-25 eliminates a matched pair iff KnownSafe OR both paths are safe with no
-    CFG hazard. RL-26 forbids moving an RC op across an RC-observable barrier. -/
+    CFG hazard. RL-26 preserves logical event order across an ownership-observing
+    barrier. A backend may project this refinement as physical instruction
+    motion only after proving the projection preserves the frozen order. -/
 
-/-- §8 RL-24 (P1) pair matching: an (Inc, Dec) pair on the same variable is
-    matched iff it is identified in BOTH the bottom-up release and top-down retain
-    directions. -/
+/-- §8 RL-24 (P1) pair matching: an owner-credit/release pair for the same
+    logical identity is matched iff both dataflow directions identify it. -/
 def rl24_matched (forwardSafe backwardSafe : Bool) : Bool := forwardSafe && backwardSafe
 
 /-- §8 RL-24 (P1) a pair is matched iff both the forward and backward directions
@@ -1166,171 +1420,259 @@ theorem RL25_cfg_hazard_blocks (bothPathsSafe : Bool) :
     rl25_eliminable false bothPathsSafe false = false := by
   unfold rl25_eliminable; simp
 
-/-- §8 RL-26 the RC-observable barrier kinds: a call passing `v` to an
-    Owned/may_share param, an IsShared on `v`, a Set/SetTag on an aggregate
-    containing `v`. -/
-inductive MotionBarrier
-  | callOwnedOrMayShare  -- observes v's count
-  | isSharedOnV          -- reads v's RC header
-  | setOnContaining      -- implicit field drops
-  | transparent          -- v not involved: no barrier
+/-- §8 RL-26 neutral ownership-event ordering barriers. -/
+inductive EventOrderingBarrier
+  | ownershipContractBoundary
+  | sharingObservation
+  | containingValueMutation
+  | transparent
 deriving Repr, DecidableEq
 
-/-- §8 RL-26 (P1) barrier decision: motion of an RC op for `v` across `I` is
-    BLOCKED iff `I` is one of the three observing barriers; a transparent
-    instruction permits motion. -/
-def rl26_motion_blocked : MotionBarrier → Bool
-  | .callOwnedOrMayShare => true
-  | .isSharedOnV         => true
-  | .setOnContaining     => true
+/-- Historical carrier alias and spellings retained for theorem-map
+    compatibility. They describe common MIR projections, not calculus terms. -/
+abbrev MotionBarrier := EventOrderingBarrier
+
+namespace MotionBarrier
+abbrev callOwnedOrMayShare : MotionBarrier := .ownershipContractBoundary
+abbrev isSharedOnV : MotionBarrier := .sharingObservation
+abbrev setOnContaining : MotionBarrier := .containingValueMutation
+abbrev transparent : MotionBarrier := EventOrderingBarrier.transparent
+end MotionBarrier
+
+/-- §8 RL-26 (P1): preserve event order across every observing barrier. -/
+def rl26_event_order_blocked : EventOrderingBarrier → Bool
+  | .ownershipContractBoundary => true
+  | .sharingObservation => true
+  | .containingValueMutation => true
   | .transparent         => false
+
+/-- Historical compatibility alias for the physical-motion spelling. -/
+abbrev rl26_motion_blocked := rl26_event_order_blocked
 
 /-- §8 RL-26 (P1/P2) motion is blocked across exactly the three observing
     barriers and permitted across a transparent instruction (the soundness
     boundary: an RC op may not cross an instruction that observes `v`'s count). -/
 theorem RL26_barrier_blocks (b : MotionBarrier) :
-    rl26_motion_blocked b = (b != .transparent) := by
+    rl26_event_order_blocked b = (b != .transparent) := by
   cases b <;> rfl
 
-/-! ## §8 Selective barriers (annex-e §AIMS §8 RL-27 / RL-28)
+/-! ## §8 selective event-ordering barriers (annex-e §AIMS §8 RL-27 / RL-28)
 
-    RL-27 flushes pending RC ops at a call site iff the callee param is Owned +
-    non-Dead OR Borrowed + may_share (the callee may write `v`'s header). RL-28
-    conservatively flushes ALL pending RC ops at an unknown-callee (FFI /
-    indirect / no contract) call. -/
+    RL-27 orders pending logical ownership events before a call iff the callee
+    contract may observe or change the argument's ownership state. RL-28 orders
+    every pending event before an unknown-callee call. "Flush" remains only a
+    historical implementation spelling. -/
 
 /-- §8 RL-27 flush decision: flush `v`'s pending ops iff the callee param is
     (Owned ∧ non-Dead) OR (Borrowed ∧ may_share). -/
-def rl27_flushes (calleeOwned calleeNonDead calleeBorrowed calleeMayShare : Bool) : Bool :=
+def rl27_orders_before_call
+    (calleeOwned calleeNonDead calleeBorrowed calleeMayShare : Bool) : Bool :=
   (calleeOwned && calleeNonDead) || (calleeBorrowed && calleeMayShare)
+
+/-- Historical compatibility alias for the worklist-flush spelling. -/
+abbrev rl27_flushes := rl27_orders_before_call
 
 /-- §8 RL-27 (P1) flush iff Owned-non-Dead OR Borrowed-may_share. -/
 theorem RL27_flush_decision (co cnd cb cms : Bool) :
-    rl27_flushes co cnd cb cms = ((co && cnd) || (cb && cms)) := by rfl
+    rl27_orders_before_call co cnd cb cms = ((co && cnd) || (cb && cms)) := by rfl
 
 /-- §8 RL-27 (P2) a Borrowed + ¬may_share (pure) callee requires NO flush — it
-    cannot write `v`'s header. The negative witness. -/
+    cannot mutate `v`'s logical count state. The negative witness. -/
 theorem RL27_borrowed_pure_no_flush (co _cnd : Bool) :
-    rl27_flushes co false true false = (co && false) := by
-  unfold rl27_flushes; simp
+    rl27_orders_before_call co false true false = (co && false) := by
+  unfold rl27_orders_before_call; simp
 
 /-- §8 RL-28 (P1) an unknown callee (no contract) conservatively flushes ALL
     pending RC ops — modeled as the constant `true` flush decision regardless of
     any (unavailable) param contract. -/
-def rl28_flushes_all : Bool := true
+def rl28_orders_all_before_call : Bool := true
+
+/-- Historical compatibility alias for the worklist-flush spelling. -/
+abbrev rl28_flushes_all := rl28_orders_all_before_call
 
 /-- §8 RL-28 (P1/P2) the unknown-callee flush is unconditional — with no
     contract, the callee may inc / dec / share ANY argument, so every pending op
     must be flushed before the call. -/
-theorem RL28_unknown_callee_flushes_all : rl28_flushes_all = true := by rfl
+theorem RL28_unknown_callee_flushes_all : rl28_orders_all_before_call = true := by rfl
 
-/-! ## §8 RL-29 — noalias on fresh + unique returns (annex-e §AIMS §8 RL-29)
+/-! ## §8 RL-29 — backend-neutral fresh-self-allocation facts
 
-    RL-29 marks a return value `noalias` iff `preserves_freshness = true ∧
-    uniqueness = Unique`. The `preserves_freshness` gate is LOAD-BEARING: a
-    Unique-but-not-fresh (parameter passthrough) return may alias the caller's
-    copy, so uniqueness alone is insufficient. -/
+    RL-29 first freezes whether every return path yields storage allocated by
+    this function. `preserves_freshness` and uniqueness are insufficient: a
+    function can preserve uniqueness while forwarding caller-owned or consumed
+    storage. Target attributes are a later projection of the stronger fact. -/
 
-/-- §8 RL-29 noalias emission: fresh ∧ Unique. -/
-def rl29_noalias (preservesFreshness : Bool) (u : Uniqueness) : Bool :=
-  preservesFreshness && (u = .Unique)
-
-/-- §8 RL-29 (P1) emission decision: noalias iff preserves_freshness ∧ Unique. -/
-theorem RL29_noalias_decision (pf : Bool) (u : Uniqueness) :
-    rl29_noalias pf u = (pf && (u = .Unique)) := by rfl
-
-/-- §8 RL-29 (P2) the load-bearing negative witness: a Unique-but-not-fresh
-    (passthrough) return must NOT be marked noalias — `preserves_freshness =
-    false` yields `false` even though uniqueness is Unique. -/
-theorem RL29_unique_not_fresh_no_noalias :
-    rl29_noalias false .Unique = false := by rfl
-
-/-- §8 RL-29 a fresh MaybeShared return is NOT noalias (uniqueness gate fails). -/
-theorem RL29_fresh_maybeshared_no_noalias :
-    rl29_noalias true .MaybeShared = false := by rfl
-
-/-- §8 RL-29 a fresh Unique return IS noalias (the positive case). -/
-theorem RL29_fresh_unique_noalias :
-    rl29_noalias true .Unique = true := by rfl
-
-/-! ## §8 RL-30 — effect-based memory attributes (annex-e §AIMS §8 RL-30)
-
-    RL-30 selects an LLVM `memory(...)` attribute from the IC-5 EffectSummary +
-    IC-3 ParamContracts. Each attribute is an OVER-approximation: it never claims
-    FEWER effects than the contract proves. A pure function gets `memory(none)`
-    only when no alloc/dealloc/share/inaccessible-read and no arg access. -/
-
-inductive MemoryAttr
-  | none                       -- memory(none)
-  | argmemRead                 -- memory(argmem: read)
-  | inaccessibleRW             -- memory(inaccessible: rw)
-  | argmemRwInaccessibleRW     -- memory(argmem: rw, inaccessible: rw)
+inductive FreshSelfAllocationFact
+  | notProven
+  | proven
 deriving Repr, DecidableEq
 
-/-- §8 RL-30 the IC-5 + IC-3 inputs that drive attribute selection (the
-    MEMORY-relevant subset). -/
+/-- §8 RL-29 neutral derivation from IC-4's stronger return-provenance field. -/
+def freshSelfAllocationFact (returnsFreshSelfAlloc : Bool) : FreshSelfAllocationFact :=
+  if returnsFreshSelfAlloc then .proven else .notProven
+
+/-- §8 RL-29 (P1) the neutral fact depends only on the path-universal
+    fresh-self-allocation proof. -/
+theorem RL29_neutral_fresh_self_allocation_decision (returnsFreshSelfAlloc : Bool) :
+    freshSelfAllocationFact returnsFreshSelfAlloc =
+      (if returnsFreshSelfAlloc then
+        FreshSelfAllocationFact.proven
+      else FreshSelfAllocationFact.notProven) := by rfl
+
+/-- §8 RL-29 (P2) a parameter passthrough has no fresh-self-allocation proof. -/
+theorem RL29_passthrough_not_proven :
+    freshSelfAllocationFact false = FreshSelfAllocationFact.notProven := by rfl
+
+/-- §8 RL-29 (P3) a result that may reuse consumed input storage has no
+    fresh-self-allocation proof. -/
+theorem RL29_consumed_storage_not_proven :
+    freshSelfAllocationFact false = FreshSelfAllocationFact.notProven := by rfl
+
+/-! ### §8 RL-29 LLVM projection corollary
+
+    LLVM may spell a proven fact as return `noalias` only when the selected ABI
+    returns the allocation as a direct pointer. This target condition does not
+    participate in the neutral fact derivation. -/
+
+def llvmReturnNoalias (fact : FreshSelfAllocationFact) (directPointer : Bool) : Bool :=
+  match fact with
+  | .proven => directPointer
+  | .notProven => false
+
+/-- §8 RL-29 target spelling fidelity. -/
+theorem RL29_llvm_projection_fidelity
+    (fact : FreshSelfAllocationFact) (directPointer : Bool) :
+    llvmReturnNoalias fact directPointer =
+      (match fact with
+       | .proven => directPointer
+       | .notProven => false) := by rfl
+
+/-- §8 RL-29 target negative witness: unproven return provenance can never
+    receive LLVM return `noalias`, even under a direct-pointer ABI. -/
+theorem RL29_unproven_forbids_llvm_noalias :
+    llvmReturnNoalias FreshSelfAllocationFact.notProven true = false := by rfl
+
+/-! ## §8 RL-30 — backend-neutral memory-access facts (annex-e §AIMS §8 RL-30)
+
+    RL-30 first derives a backend-neutral fact from the final IC-5
+    EffectSummary, IC-3 ParamContracts, and realized operations. A backend may
+    project that fact only after applying its ABI and lowering constraints.
+    The neutral derivation never names or assumes an LLVM attribute. -/
+
+/-- §8 RL-30 the IC-5 + IC-3 + realized-operation inputs that drive the
+    backend-neutral fact. `mayThrow` fails closed for the current panic/unwind
+    runtime's TLS and diagnostic writes. `mayWriteInaccessible` independently
+    covers untyped calls, I/O, allocators, and any other non-argument write not
+    described more precisely by IC-5. -/
 structure MemoryEffectInputs where
   mayAllocate : Bool
   mayDeallocate : Bool
   mayShare : Bool
+  mayThrow : Bool
   mayReadInaccessible : Bool
+  mayWriteInaccessible : Bool
   anyArgAccess : Bool          -- some param has cardinality ≠ Absent
   anyArgWritten : Bool         -- some param Owned (writes args)
 deriving Repr, DecidableEq
 
-/-- §8 RL-30 attribute selection (the case table; `argmemRwInaccessibleRW` is the
-    conservative fallback). -/
-def memoryAttr (e : MemoryEffectInputs) : MemoryAttr :=
-  if (!e.mayAllocate) && (!e.mayDeallocate) && (!e.mayShare)
-      && (!e.mayReadInaccessible) && (!e.anyArgAccess) then
-    .none                                            -- pure, no access
-  else if (!e.mayAllocate) && (!e.mayDeallocate) && (!e.mayShare)
-      && (!e.mayReadInaccessible) && (!e.anyArgWritten) then
-    .argmemRead                                      -- pure read-only of args
-  else if e.mayAllocate || e.mayDeallocate || e.mayShare then
-    (if e.anyArgAccess then .argmemRwInaccessibleRW else .inaccessibleRW)
+/-- §8 RL-30 the neutral whole-function access classification. `readOnly`
+    permits reads from argument and inaccessible memory; it claims only that
+    no writes occur. -/
+inductive MemoryAccessFact
+  | readOnly
+  | readWrite
+deriving Repr, DecidableEq
+
+/-- §8 RL-30 neutral fact derivation. Until IC-5 supplies typed descriptors for
+    a call, the producer sets `mayWriteInaccessible`, selecting `readWrite`;
+    `mayThrow` is independently conservative for the current runtime. -/
+def memoryAccessFact (e : MemoryEffectInputs) : MemoryAccessFact :=
+  if e.mayAllocate || e.mayDeallocate || e.mayShare || e.mayThrow
+      || e.mayWriteInaccessible || e.anyArgWritten then
+    .readWrite
   else
-    .argmemRwInaccessibleRW                           -- fallback
+    .readOnly
 
-/-- §8 RL-30 (P1) a pure function with no arg access gets `memory(none)`. -/
-theorem RL30_pure_no_access_none (rest : MemoryEffectInputs)
-    (h : rest = { mayAllocate := false, mayDeallocate := false, mayShare := false,
-                  mayReadInaccessible := false, anyArgAccess := false,
-                  anyArgWritten := false }) :
-    memoryAttr rest = MemoryAttr.none := by subst h; rfl
+/-- §8 RL-30 (P1) the neutral fact is exactly the disjunction of proven write
+    sources; reads do not strengthen a no-write claim into no-access. -/
+theorem RL30_neutral_memory_access_decision (e : MemoryEffectInputs) :
+    memoryAccessFact e =
+      (if e.mayAllocate || e.mayDeallocate || e.mayShare || e.mayThrow
+          || e.mayWriteInaccessible || e.anyArgWritten then
+        MemoryAccessFact.readWrite
+      else MemoryAccessFact.readOnly) := by rfl
 
-/-- §8 RL-30 (P2) the load-bearing negative witness: an allocating function must
-    NOT get `memory(none)` — it accesses inaccessible memory via the allocator.
-    Any input with `mayAllocate = true` yields an attribute ≠ `none`. -/
-theorem RL30_allocating_not_none (e : MemoryEffectInputs) (h : e.mayAllocate = true) :
-    memoryAttr e ≠ MemoryAttr.none := by
-  obtain ⟨ma, md, ms, mri, aa, aw⟩ := e
-  -- `h : ma = true`; destructure every boolean so `memoryAttr` reduces by `rfl`
-  -- on each leaf, and the result is one of the two RW attrs or `inaccessibleRW`,
-  -- never `none`.
-  subst h
-  cases md <;> cases ms <;> cases mri <;> cases aa <;> cases aw <;> decide
+/-- §8 RL-30 (P2) load-bearing negative witness: any inaccessible-memory write
+    forces the neutral fact to `readWrite`. -/
+theorem RL30_inaccessible_write_requires_readwrite (e : MemoryEffectInputs)
+    (h : e.mayWriteInaccessible = true) :
+    memoryAccessFact e = MemoryAccessFact.readWrite := by
+  simp [memoryAccessFact, h]
 
-/-- §8 RL-30 a pure read-only-of-args function (no alloc/dealloc/share, no writes)
-    gets `memory(argmem: read)`. -/
-theorem RL30_pure_readonly_argmem_read (rest : MemoryEffectInputs)
-    (h : rest = { mayAllocate := false, mayDeallocate := false, mayShare := false,
-                  mayReadInaccessible := false, anyArgAccess := true,
-                  anyArgWritten := false }) :
-    memoryAttr rest = MemoryAttr.argmemRead := by subst h; rfl
+/-- §8 RL-30 a may-throw path fails closed because the current panic/unwind
+    runtime may write thread-local panic state or diagnostics. -/
+theorem RL30_throw_requires_readwrite (e : MemoryEffectInputs)
+    (h : e.mayThrow = true) :
+    memoryAccessFact e = MemoryAccessFact.readWrite := by
+  simp [memoryAccessFact, h]
 
-/-! ## §8 RL-31 — CRITICAL: disjoint Borrowed params → noalias metadata
+/-- §8 RL-30 reads of inaccessible memory remain representable by the generic
+    `readOnly` fact when every write source is false. -/
+theorem RL30_inaccessible_read_is_readonly :
+    memoryAccessFact {
+      mayAllocate := false, mayDeallocate := false, mayShare := false,
+      mayThrow := false,
+      mayReadInaccessible := true, mayWriteInaccessible := false,
+      anyArgAccess := false, anyArgWritten := false
+    } = MemoryAccessFact.readOnly := by rfl
+
+/-! ### §8 RL-30 LLVM projection corollary
+
+    This target corollary is separate from the neutral fact definition. The
+    shipped conservative subset projects generic `memory(read)` only; it never
+    claims `memory(none)` or `memory(argmem: read)`. A write-capable fact omits
+    the restrictive attribute. -/
+
+inductive LlvmMemoryAttr
+  | none
+  | argmemRead
+  | read
+  | omitted
+deriving Repr, DecidableEq
+
+def llvmMemoryAttr (fact : MemoryAccessFact) : LlvmMemoryAttr :=
+  match fact with
+  | .readOnly => .read
+  | .readWrite => .omitted
+
+/-- §8 RL-30 LLVM spelling fidelity for the shipped conservative projection. -/
+theorem RL30_llvm_projection_fidelity (fact : MemoryAccessFact) :
+    llvmMemoryAttr fact =
+      (match fact with
+       | .readOnly => LlvmMemoryAttr.read
+       | .readWrite => LlvmMemoryAttr.omitted) := by rfl
+
+/-- §8 RL-30 target negative corollary: an inaccessible write can receive
+    neither `memory(none)`, `memory(argmem: read)`, nor generic `memory(read)`. -/
+theorem RL30_inaccessible_write_forbids_restrictive_attrs
+    (e : MemoryEffectInputs) (h : e.mayWriteInaccessible = true) :
+    llvmMemoryAttr (memoryAccessFact e) ≠ LlvmMemoryAttr.none ∧
+    llvmMemoryAttr (memoryAccessFact e) ≠ LlvmMemoryAttr.argmemRead ∧
+    llvmMemoryAttr (memoryAccessFact e) ≠ LlvmMemoryAttr.read := by
+  simp [memoryAccessFact, llvmMemoryAttr, h]
+
+/-! ## §8 RL-31 — CRITICAL: neutral disjoint-Borrowed-parameter fact
     (annex-e §AIMS §8 RL-31)
 
-    The Ori-novel theorem. Disjoint Borrowed parameters `(p_i, p_j)` receive
-    `!alias.scope` + `!noalias` metadata iff, at EVERY call site, the args to
-    `p_i` and `p_j` are PROVABLY disjoint. The proof requires a CROSS-FUNCTION
+    The Ori-novel theorem. The fact for Borrowed parameters `(p_i, p_j)` is
+    proven only when, at EVERY call site, the args to `p_i` and `p_j` are
+    PROVABLY disjoint. The proof requires a CROSS-FUNCTION
     provenance summary on the CALLERS' function-local `borrow_sources` /
     `project_alias_sources` tables — beyond what IC-2/IC-3 contracts alone
     express. The 8-clause SUFFICIENT condition is modeled below; the soundness
     property is: disjoint ROOT SETS (or disjoint fields of a shared root via the
     nested-projection prefix test) ⟹ the two borrows cannot alias the same
-    memory ⟹ the noalias metadata is sound. -/
+    memory. Target metadata is a later projection of that neutral fact. -/
 
 /-- §8 RL-31 a root set = the set of source-aggregate variable ids an arg traces
     to (after filtering `project_alias_sources` to upstream-source-free roots).
@@ -1381,33 +1723,32 @@ def ArgProvenance.traceable : ArgProvenance → Bool
 def siteProvesDisjoint (pi pj : ArgProvenance) : Bool :=
   pi.traceable && pj.traceable && rootSetsDisjoint pi.rootSet pj.rootSet
 
-/-- §8 RL-31 clause (2): RL-31 emits the metadata iff EVERY call site proves
-    disjointness — the all-sites conjunction. Any failing site withholds the
-    metadata. Modeled as explicit recursion over the per-site (pi, pj) pairs. -/
-def rl31_emits_metadata : List (ArgProvenance × ArgProvenance) → Bool
+/-- §8 RL-31 clause (2): the provenance facet is proven iff EVERY call site
+    proves disjointness. Any failing site clears the neutral fact. -/
+def rl31AllSitesProven : List (ArgProvenance × ArgProvenance) → Bool
   | []      => true
-  | s :: ss => siteProvesDisjoint s.1 s.2 && rl31_emits_metadata ss
+  | s :: ss => siteProvesDisjoint s.1 s.2 && rl31AllSitesProven ss
 
-/-- §8 RL-31 (P1) clause 4 — DISTINCT ROOT SETS emit: two args tracing to
+/-- §8 RL-31 (P1) clause 4 — DISTINCT ROOT SETS prove the neutral fact: two args tracing to
     disjoint root sets (e.g. `{1}` and `{2}`) prove disjointness at the site. -/
-theorem RL31_clause4_disjoint_roots_emit :
+theorem RL31_clause4_disjoint_roots_prove :
     siteProvesDisjoint (.tracedRoots [1]) (.tracedRoots [2]) = true := by decide
 
 /-- §8 RL-31 (P1) clause 5 — FRESH allocation own root: a FRESH-allocated arg has
     its own disjoint root, so it is disjoint from any arg with a different root. -/
-theorem RL31_clause5_fresh_alloc_emit :
+theorem RL31_clause5_fresh_alloc_proves :
     siteProvesDisjoint (.fresh 7) (.tracedRoots [3]) = true := by decide
 
 /-- §8 RL-31 (P1) clause 6 — UNTRACEABLE arg fails conservatively: an untraceable
-    arg cannot prove disjointness, so the site (and hence the metadata) fails. -/
+    arg cannot prove disjointness, so the site (and hence the fact) fails. -/
 theorem RL31_clause6_untraceable_fail (pj : ArgProvenance) :
     siteProvesDisjoint .untraceable pj = false := by
   unfold siteProvesDisjoint ArgProvenance.traceable
   rfl
 
-/-- §8 RL-31 (P1) clause 4 — SAME root set NO emit: two args sharing a root (both
+/-- §8 RL-31 (P1) clause 4 — SAME root set remains unproven: two args sharing a root (both
     `{1}`) are NOT provably disjoint (they may alias the same aggregate). -/
-theorem RL31_same_root_no_emit :
+theorem RL31_same_root_not_proven :
     siteProvesDisjoint (.tracedRoots [1]) (.tracedRoots [1]) = false := by decide
 
 /-! ### §8 RL-31 clause 7 — same-root disjoint-fields via the nested-projection
@@ -1420,43 +1761,42 @@ theorem RL31_same_root_no_emit :
 def sameRootFieldsDisjoint (fieldI fieldJ : FieldPath) : Bool :=
   !fieldsOverlap fieldI fieldJ
 
-/-- §8 RL-31 (P1) clause 7 — same-root DISJOINT fields emit: args sharing a root
+/-- §8 RL-31 (P1) clause 7 — same-root DISJOINT fields prove disjointness: args sharing a root
     but projecting disjoint fields `[0]` and `[1]` ARE disjoint (the borrows read
     non-overlapping memory). -/
-theorem RL31_clause7_disjoint_fields_emit :
+theorem RL31_clause7_disjoint_fields_prove :
     sameRootFieldsDisjoint [0] [1] = true := by decide
 
-/-- §8 RL-31 (P1) clause 7 — PREFIX overlap NO emit: a parent field `[0]` and a
+/-- §8 RL-31 (P1) clause 7 — PREFIX overlap remains unproven: a parent field `[0]` and a
     child field `[0, 1]` of the same root OVERLAP (the parent path is a prefix),
-    so they are NOT disjoint — no metadata. The nested-projection prefix test. -/
-theorem RL31_clause7_prefix_overlap_no_emit :
+    so they are NOT disjoint. The nested-projection prefix test. -/
+theorem RL31_clause7_prefix_overlap_not_proven :
     sameRootFieldsDisjoint [0] [0, 1] = false := by decide
 
 /-! ### §8 RL-31 clause 2 — the all-sites conjunction (the core soundness gate) -/
 
-/-- §8 RL-31 (P1) clause 2 — ANY failing site withholds the metadata. If even one
+/-- §8 RL-31 (P1) clause 2 — ANY failing site clears the fact. If even one
     call site fails to prove disjointness, the all-sites conjunction is false, so
-    no metadata is emitted. Proven by induction over the site list: the failing
+    disjointness remains unproven. Proven by induction over the site list: the failing
     member sticky-clears the recursive AND. -/
-theorem RL31_any_site_fails_no_metadata
+theorem RL31_any_site_fails_unproven
     (sites : List (ArgProvenance × ArgProvenance))
     (bad : ArgProvenance × ArgProvenance) (hmem : bad ∈ sites)
     (hbad : siteProvesDisjoint bad.1 bad.2 = false) :
-    rl31_emits_metadata sites = false := by
+    rl31AllSitesProven sites = false := by
   induction sites with
   | nil => exact absurd hmem (List.not_mem_nil)
   | cons hd tl ih =>
       rw [List.mem_cons] at hmem
-      unfold rl31_emits_metadata
+      unfold rl31AllSitesProven
       rcases hmem with rfl | htl
       · rw [hbad]; rfl
       · rw [ih htl]; simp
 
-/-- §8 RL-31 (P1) clause 2 — a fully-disjoint corpus emits: when EVERY site
-    proves disjointness, the all-sites conjunction is true and the metadata is
-    emitted (the positive corpus). -/
-theorem RL31_all_sites_disjoint_emits :
-    rl31_emits_metadata
+/-- §8 RL-31 (P1) clause 2 — a fully-disjoint corpus proves the provenance
+    facet when EVERY site proves disjointness. -/
+theorem RL31_all_sites_disjoint_prove :
+    rl31AllSitesProven
       [(.tracedRoots [1], .tracedRoots [2]), (.fresh 9, .tracedRoots [1])] = true := by
   decide
 
@@ -1465,8 +1805,8 @@ theorem RL31_all_sites_disjoint_emits :
     The Ori-novel contribution: when the root sets are disjoint, the two Borrowed
     params CANNOT alias the same memory. The formal statement: if
     `rootSetsDisjoint a b = true`, then there is NO common root variable — no
-    aggregate both borrows can reach — so the LLVM `noalias` treatment is sound.
-    This is the property `siteProvesDisjoint` GUARANTEES, proven directly over the
+    aggregate both borrows can reach. This is the property `siteProvesDisjoint`
+    GUARANTEES, proven directly over the
     root-set membership. -/
 
 /-- §8 RL-31 helper: `rootMem x b = false` ⟹ `x` is NOT a member of `b` as a
@@ -1487,8 +1827,8 @@ theorem rootMem_false_not_mem (x : Nat) (b : RootSet)
 
 /-- §8 RL-31 (P3) SOUNDNESS: disjoint root sets ⟹ no common source aggregate.
     If `rootSetsDisjoint a b`, then no variable id is in BOTH `a` and `b` — the
-    two borrows provably reach disjoint memory, which is exactly the precondition
-    LLVM `noalias` requires. Proven by induction over `a` against the recursive
+    two borrows provably reach disjoint memory. Proven by induction over `a`
+    against the recursive
     `rootSetsDisjoint`, using `rootMem_false_not_mem` per head element. -/
 theorem RL31_disjoint_roots_no_common_aggregate (a b : RootSet)
     (h : rootSetsDisjoint a b = true) :
@@ -1507,11 +1847,10 @@ theorem RL31_disjoint_roots_no_common_aggregate (a b : RootSet)
 
 /-- §8 RL-31 (P3) the CRITICAL theorem under the standard name: when a call site
     proves disjointness (`siteProvesDisjoint = true`), the two Borrowed args'
-    root sets share no common source aggregate, so the emitted `!noalias`
-    metadata is SOUND — LLVM's alias analysis correctly treats `p_i` and `p_j` as
-    non-aliasing. This is the Ori-novel disjoint-Borrowed alias-metadata theorem
-    (a critical rule). -/
-theorem RL31_disjoint_borrowed_noalias (pi pj : ArgProvenance)
+    root sets share no common source aggregate. This is the neutral
+    disjoint-Borrowed soundness theorem; physical consumers may project it only
+    when their ABI and metadata placement preserve the proven relation. -/
+theorem RL31_neutral_parameter_disjointness_sound (pi pj : ArgProvenance)
     (h : siteProvesDisjoint pi pj = true) :
     (pi.traceable = true) ∧ (pj.traceable = true)
       ∧ (∀ x, x ∈ pi.rootSet → x ∉ pj.rootSet) := by
@@ -1520,35 +1859,71 @@ theorem RL31_disjoint_borrowed_noalias (pi pj : ArgProvenance)
   obtain ⟨⟨hpi, hpj⟩, hdisj⟩ := h
   exact ⟨hpi, hpj, RL31_disjoint_roots_no_common_aggregate pi.rootSet pj.rootSet hdisj⟩
 
-/-- §8 RL-31 (P2) dual-facet conjunction: the metadata is sound only when BOTH
+/-- §8 RL-31 (P2) dual-facet conjunction: the neutral fact is proven only when BOTH
     the call-site provenance facet (a) AND the type-level facet (b) hold. The
     type-level facet ALONE is REJECTED — it leaves the VF-2 (b) per-call-site
     contract-consistency check unproven. Modeled as the AND of the two facet
     flags; proving the type facet alone (`provenanceFacet = false`) yields a
-    `false` (unsound) verdict. -/
+    `false` (unproven) verdict. -/
 def rl31_dual_facet (provenanceFacet typeFacet : Bool) : Bool :=
   provenanceFacet && typeFacet
 
 /-- §8 RL-31 (P2) the type-level facet ALONE is insufficient: with the per-
     call-site provenance facet unproven (`false`), the dual-facet verdict is
-    `false` regardless of the type facet — the negative witness against emitting
-    metadata on the type facet alone. -/
+    `false` regardless of the type facet. -/
 theorem RL31_type_facet_alone_insufficient (typeFacet : Bool) :
     rl31_dual_facet false typeFacet = false := by
   unfold rl31_dual_facet; simp
 
-/-- §8 RL-31 (P2) both facets ⟹ sound: when both the provenance facet and the
-    type facet hold, the dual-facet verdict is `true` (sound metadata). -/
+/-- §8 RL-31 (P2) both facets establish the neutral disjointness fact. -/
 theorem RL31_both_facets_sound :
     rl31_dual_facet true true = true := by rfl
+
+inductive ParameterDisjointnessFact
+  | notProven
+  | proven
+deriving Repr, DecidableEq
+
+/-- Freeze the backend-neutral RL-31 fact from the dual proof facets. -/
+def parameterDisjointnessFact (provenanceFacet typeFacet : Bool) :
+    ParameterDisjointnessFact :=
+  if rl31_dual_facet provenanceFacet typeFacet then .proven else .notProven
+
+theorem RL31_neutral_parameter_disjointness_decision
+    (provenanceFacet typeFacet : Bool) :
+    parameterDisjointnessFact provenanceFacet typeFacet =
+      (if provenanceFacet && typeFacet then
+        ParameterDisjointnessFact.proven
+      else ParameterDisjointnessFact.notProven) := by rfl
+
+/-! ### §8 RL-31 LLVM projection corollary
+
+    LLVM parameter `noalias` or alias-scope metadata is a target spelling. It
+    requires both the frozen neutral fact and a placement/ABI proof. -/
+
+def llvmProjectsParameterNoalias
+    (fact : ParameterDisjointnessFact) (placementPreservesProof : Bool) : Bool :=
+  match fact with
+  | .proven => placementPreservesProof
+  | .notProven => false
+
+theorem RL31_llvm_projection_fidelity
+    (fact : ParameterDisjointnessFact) (placementPreservesProof : Bool) :
+    llvmProjectsParameterNoalias fact placementPreservesProof =
+      (fact == ParameterDisjointnessFact.proven && placementPreservesProof) := by
+  cases fact <;> simp [llvmProjectsParameterNoalias]
+
+theorem RL31_unproven_forbids_llvm_noalias (placementPreservesProof : Bool) :
+    llvmProjectsParameterNoalias .notProven placementPreservesProof = false := by rfl
 
 /-! ## §8 Borrow inference (annex-e §AIMS §8 RL-32 / RL-33 / RL-34)
 
     RL-32: non-scalar params initialize Borrowed (most optimistic); the fixpoint
     promotes to Owned on demand. RL-33: if a projected field becomes Owned, the
-    source variable is promoted to Owned. RL-34: never insert RcDec after a tail
-    call — transfer ownership when the callee param is Owned; dec BEFORE the call
-    when Borrowed. -/
+    source variable is promoted to Owned. RL-34 freezes a pre-tail-call logical
+    action: handoff when the callee owns the parameter, release before the call
+    when it only borrows. A physical post-call operation is not part of the
+    calculus. -/
 
 /-- §8 RL-32 the param access after fixpoint: Owned iff demand proves the callee
     consumes / stores the value; Borrowed otherwise (the optimistic seed). -/
@@ -1582,32 +1957,40 @@ theorem RL33_field_borrowed_keeps_source :
 
 /-- §8 RL-34 the tail-call action by callee param access. -/
 inductive TailCallAction
-  | transferOwnership  -- callee Owned: no post-call dec, TCO preserved
-  | decBeforeCall      -- callee Borrowed: dec pre-call (cannot transfer)
+  | handoffBeforeTail
+  | releaseBeforeTail
 deriving Repr, DecidableEq
+
+namespace TailCallAction
+/-- Historical spellings retained for theorem-map compatibility. -/
+abbrev transferOwnership : TailCallAction := .handoffBeforeTail
+abbrev decBeforeCall : TailCallAction := .releaseBeforeTail
+end TailCallAction
 
 /-- §8 RL-34 tail-call action: Owned param → transfer ownership; Borrowed param →
     dec before the call. NEVER a post-call dec (that would break TCO). -/
 def rl34_action (calleeAccess : AccessClass) : TailCallAction :=
   match calleeAccess with
-  | .Owned    => .transferOwnership
-  | .Borrowed => .decBeforeCall
+  | .Owned    => .handoffBeforeTail
+  | .Borrowed => .releaseBeforeTail
 
 /-- §8 RL-34 (P1) callee Owned ⟹ transfer ownership (no post-call dec, TCO
     preserved). -/
-theorem RL34_owned_transfers : rl34_action .Owned = TailCallAction.transferOwnership := by rfl
+theorem RL34_owned_transfers :
+    rl34_action .Owned = TailCallAction.handoffBeforeTail := by rfl
 
 /-- §8 RL-34 (P1) callee Borrowed ⟹ dec before the call (cannot transfer to a
     borrow; a post-call dec is forbidden, so the dec moves before the call). -/
-theorem RL34_borrowed_dec_before : rl34_action .Borrowed = TailCallAction.decBeforeCall := by rfl
+theorem RL34_borrowed_dec_before :
+    rl34_action .Borrowed = TailCallAction.releaseBeforeTail := by rfl
 
 /-- §8 RL-34 (P2) the negative witness: NO tail-call action inserts a post-call
     dec — the action is ALWAYS either a pre-call transfer or a pre-call dec
     (proven by totality: both `AccessClass` cases map to a pre-call action, never
     a post-call one). -/
 theorem RL34_never_post_call_dec (calleeAccess : AccessClass) :
-    rl34_action calleeAccess = .transferOwnership
-      ∨ rl34_action calleeAccess = .decBeforeCall := by
+    rl34_action calleeAccess = .handoffBeforeTail
+      ∨ rl34_action calleeAccess = .releaseBeforeTail := by
   cases calleeAccess <;> simp [rl34_action]
 
 end AimsProof

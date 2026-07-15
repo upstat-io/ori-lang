@@ -1,12 +1,14 @@
-//! Class-ledger owed-invariant emitter over the birth-site partition.
+//! Class-ledger logical owner-credit planner over the birth-site partition.
 //!
 //! The sole Step-4b emission path: consumes the class-ledger classifier's
 //! per-block event streams (`ledger_events`), plans per-class `BurdenInc` /
-//! `BurdenDec` insertions under the owed-count invariant (the references a
-//! class holds that must be released), and verifies every class per path
-//! before the plan is trusted. Placement per the compositional-placement
-//! calculus (`AimsProof.Ledger`): the owed count agrees on every edge into
-//! every merge block; a release is never hoisted past a merge point.
+//! `BurdenDec` insertions under the owed-owner-credit invariant (the logical
+//! credits a class must discharge), and verifies every class per path before
+//! the plan is trusted. The proof's integer `owed` value is a logical
+//! multiplicity, not a runtime reference counter. Placement follows the
+//! compositional-placement calculus (`AimsProof.Ledger`): the owed-credit
+//! total agrees on every edge into every merge block; a release is never
+//! hoisted past a merge point.
 //!
 //! The pipeline runs the analysis (classification + insertion plan +
 //! per-class readiness verdict) and, per function, EMITS the applied plan's
@@ -14,9 +16,10 @@
 //! FULLY CLEAN readiness with one
 //! class or more, no user-`@drop` type in the function, dominance-checked
 //! op placement, and a VF-1 structural check on a clone — commit-or-discard).
-//! The class-ledger plan is the SOLE RC emitter for a replaced function; a
-//! function failing a gate is FAIL-LOUD (an ICE — no fallback emitter
-//! exists), except when burden-op emission itself is disabled entirely via
+//! The class-ledger plan is the sole logical ownership-event plan for a
+//! replaced function; Phase 7 is the sole materializer of its current
+//! transitional `Rc*` carrier. A function failing a gate is FAIL-LOUD (an ICE
+//! — no fallback emitter exists), except when burden-op emission is disabled via
 //! `ORI_DISABLE_BURDEN_OPS=1`. The per-function mode + readiness verdict are
 //! reported on the `ori_arc::aims::class_ledger` tracing target. A class
 //! whose per-class net dataflow cannot be proven (non-converged,
@@ -349,9 +352,10 @@ pub(crate) fn apply_class_ledger_replacement(
         burden_ops_enabled,
     );
     report_readiness(func, interner, &outcome);
-    // Fail-loud: the class-ledger plan is the SOLE RC emitter — a decline
-    // is an ICE naming the function + failed gate, never a silent fallback
-    // (the legacy repair passes are deleted; no fallback emitter exists).
+    // Fail-loud: the class ledger is the sole logical ownership-event planner,
+    // and Phase 7 is the sole materializer of its transitional Rc* carrier. A
+    // decline is an ICE naming the function + failed gate, never a silent
+    // fallback (the legacy repair passes are deleted; none exists).
     assert!(
         !burden_ops_enabled || outcome.mode == EmissionMode::Replaced,
         "class-ledger replacement declined for `{}`: {} — every production shape must replace (the legacy Phase-5/6 walk was deleted; no fallback emitter exists)",

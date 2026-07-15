@@ -21,7 +21,7 @@ use super::{build_definition_map, build_invoke_def_map};
 /// value was produced. Results from all return paths are joined.
 pub(super) fn extract_return_info(
     func: &ArcFunction,
-    classifier: &dyn ArcClassification,
+    _classifier: &dyn ArcClassification,
     sigs: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
 ) -> ReturnContract {
@@ -36,29 +36,23 @@ pub(super) fn extract_return_info(
     let param_vars: rustc_hash::FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
 
     // The `for_yield` finalizer name: a Return of `@ori_list_take(scratch)`
-    // hands the caller a FRESH rc=1 buffer moved out of the comprehension
+    // hands the caller a fresh independently owned buffer moved out of the comprehension
     // scratch — the surface-(a) fresh-self-alloc collection return.
     let list_take_name = interner.intern("ori_list_take");
 
     let mut return_uniqueness = None::<Uniqueness>;
     let mut all_preserve_freshness = true;
     // Optimistic AND-join across return paths: every path must produce a fresh
-    // self-alloc for the contract to certify it (no path may return an existing
-    // / param-aliased / callee-borrowed buffer).
+    // invocation-owned allocation for the contract to certify it (no path may
+    // return existing, param-aliased, consumed-input, or callee-borrowed storage).
     let mut all_return_fresh_self_alloc = true;
     let mut saw_return = false;
 
     for block in &func.blocks {
         if let ArcTerminator::Return { value } = &block.terminator {
             saw_return = true;
-            let (uniq, preserves) = var_uniqueness(
-                *value,
-                &def_map,
-                &invoke_defs,
-                &param_vars,
-                classifier,
-                sigs,
-            );
+            let (uniq, preserves) =
+                var_uniqueness(*value, func, &def_map, &invoke_defs, &param_vars, sigs);
 
             return_uniqueness = Some(match return_uniqueness {
                 None => uniq,
@@ -74,7 +68,7 @@ pub(super) fn extract_return_info(
             // debug-only
             let lineage_trace_disabled =
                 std::env::var_os("ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE").is_some();
-            if !var_is_fresh_self_alloc(*value, &def_map, &param_vars, list_take_name, sigs)
+            if !var_is_fresh_self_alloc(*value, func, &def_map, &param_vars, list_take_name, sigs)
                 && (lineage_trace_disabled
                     || !fresh_lineage_vars(
                         func,
@@ -103,10 +97,10 @@ pub(super) fn extract_return_info(
     }
 }
 
-/// Receiver-rooted COW list mutators whose result is the receiver's own logical
-/// buffer (in-place at rc=1, or a fresh COW replacement at rc=1) — freshness of
-/// the receiver lineage carries to the result. Concat is excluded (two-operand).
-const COW_RECEIVER_MUTATORS: &[&str] = &["push", "pop", "set", "insert", "remove", "updated"];
+/// Legacy receiver-rooted COW mutators without a registry runtime identity.
+/// Runtime-backed persistent List mutations are selected from the registry.
+/// Concat is excluded because its result has two source operands.
+const LEGACY_COW_RECEIVER_MUTATORS: &[&str] = &["pop", "updated"];
 
 /// The fresh-lineage var set: every var whose value is provably THIS function's
 /// own fresh collection allocation (or its COW replacement), never a
@@ -115,7 +109,8 @@ const COW_RECEIVER_MUTATORS: &[&str] = &["push", "pop", "set", "insert", "remove
 ///  - seeds: collection `Construct`/`Reuse`/`CollectionReuse` dsts, the
 ///    `@ori_list_take` finalizer, callee-certified fresh returns;
 ///  - `Let { Var }` aliases of members;
-///  - receiver-rooted COW mutator results ([`COW_RECEIVER_MUTATORS`]) whose
+///  - receiver-rooted COW mutator results (registry runtime mutations plus
+///    [`LEGACY_COW_RECEIVER_MUTATORS`]) whose
 ///    receiver is a member;
 ///  - block params ALL of whose incoming `Jump`-arg feeders are members (the
 ///    loop-threaded rebuild: a self-consistent cycle stays; one non-member
@@ -130,9 +125,11 @@ fn fresh_lineage_vars(
     interner: &ori_ir::StringInterner,
 ) -> rustc_hash::FxHashSet<ArcVarId> {
     let cow_mutator = |callee: Name| {
-        interner
-            .try_lookup(callee)
-            .is_some_and(|n| COW_RECEIVER_MUTATORS.contains(&n))
+        interner.try_lookup(callee).is_some_and(|name| {
+            LEGACY_COW_RECEIVER_MUTATORS.contains(&name)
+                || crate::borrow::persistent_list_runtime_methods()
+                    .any(|method| method.name == name)
+        })
     };
     let callee_certified = |callee: Name| {
         callee == list_take_name
@@ -223,14 +220,14 @@ fn fresh_lineage_vars(
 }
 
 /// `true` iff `var` is defined (tracing through `Let { Var }` aliases) by a
-/// FRESH self-allocating instruction whose result the caller receives at rc=1:
+/// fresh producer whose result the caller receives with one logical owner:
 ///  - the `for_yield` `@ori_list_take` finalizer (moves a fresh scratch buffer
 ///    out — surface (a)'s `clone_list` return);
 ///  - a `Construct` / `Reuse` / `CollectionReuse` of a COLLECTION (the
-///    `ListLiteral`/`MapLiteral`/`SetLiteral` builders, `TF-3` FRESH rc=1);
+///    `ListLiteral`/`MapLiteral`/`SetLiteral` builders, `TF-3` fresh owner);
 ///  - an `Apply`/`Invoke` whose callee's contract ALREADY certifies
 ///    `returns_fresh_self_alloc` (transitive freshness — a forwarder returning
-///    `clone_list(..)` is itself fresh).
+///    `clone_list(..)` also returns storage with no upstream alias).
 ///
 /// Mirrors the FRESH-site set `fresh_self_alloc_dst` (`emit_unified.rs`) the
 /// caller-side burden walk treats as self-allocating, restricted to the
@@ -239,6 +236,7 @@ fn fresh_lineage_vars(
 /// returned buffer may alias a caller-visible value — NOT a fresh self-alloc).
 fn var_is_fresh_self_alloc(
     var: ArcVarId,
+    func: &ArcFunction,
     def_map: &FxHashMap<ArcVarId, &ArcInstr>,
     param_vars: &rustc_hash::FxHashSet<ArcVarId>,
     list_take_name: Name,
@@ -264,10 +262,9 @@ fn var_is_fresh_self_alloc(
         // param / alias / extracted view (`Wrapper { inner: p }` — the
         // aggregate-transfer-forwarder shape) stays uncertified: its
         // whole-var accounting composes with the caller's transfer machinery.
-        // An `EnumVariant` (niche-family sum: the payload's OWN allocation)
-        // and a `Closure` stay uncertified — their whole-var accounting is
-        // shared with the payload / env lineage. Spec: Annex E §AIMS TF-3 +
-        // §1.9.
+        // An `EnumVariant` and a `Closure` stay uncertified: their logical
+        // ownership units share payload or environment lineage. Physical
+        // enum encoding is irrelevant here. Spec: Annex E §AIMS TF-3 + §1.9.
         ArcInstr::Construct {
             ctor: crate::ir::CtorKind::Struct(_) | crate::ir::CtorKind::Tuple,
             args,
@@ -277,14 +274,20 @@ fn var_is_fresh_self_alloc(
                 Some(ArcInstr::Let {
                     value: crate::ir::ArcValue::PrimOp { .. },
                     ..
-                }) => true,
+                }) => func.primitive_facts.get(a).is_some_and(|fact| {
+                    matches!(
+                        fact.descriptor.result,
+                        ori_registry::PrimitiveResultOwnership::Scalar
+                    )
+                }),
                 Some(ArcInstr::Let {
                     value: crate::ir::ArcValue::Literal(lit),
                     ..
                 }) => !matches!(lit, crate::ir::LitValue::String(_)),
                 _ => false,
             };
-            scalar_producer || var_is_fresh_self_alloc(a, def_map, param_vars, list_take_name, sigs)
+            scalar_producer
+                || var_is_fresh_self_alloc(a, func, def_map, param_vars, list_take_name, sigs)
         }),
         ArcInstr::CollectionReuse { .. } | ArcInstr::Reuse { .. } => true,
         ArcInstr::Apply { func: callee, .. } => {
@@ -297,7 +300,7 @@ fn var_is_fresh_self_alloc(
         ArcInstr::Let {
             value: crate::ir::ArcValue::Var(source),
             ..
-        } => var_is_fresh_self_alloc(*source, def_map, param_vars, list_take_name, sigs),
+        } => var_is_fresh_self_alloc(*source, func, def_map, param_vars, list_take_name, sigs),
         _ => false,
     }
 }
@@ -307,10 +310,10 @@ fn var_is_fresh_self_alloc(
 /// Returns `(Uniqueness, preserves_freshness)`.
 fn var_uniqueness(
     var: ArcVarId,
+    func: &ArcFunction,
     def_map: &FxHashMap<ArcVarId, &ArcInstr>,
     invoke_defs: &FxHashMap<ArcVarId, Name>,
     param_vars: &rustc_hash::FxHashSet<ArcVarId>,
-    classifier: &dyn ArcClassification,
     sigs: &FxHashMap<Name, MemoryContract>,
 ) -> (Uniqueness, bool) {
     if let Some(instr) = def_map.get(&var) {
@@ -326,24 +329,38 @@ fn var_uniqueness(
             ArcInstr::Apply { func: callee, .. } => callee_return_uniqueness(*callee, sigs),
 
             // Let binding → trace through to source.
-            ArcInstr::Let { value, ty, .. } => match value {
+            ArcInstr::Let { value, .. } => match value {
                 crate::ir::ArcValue::Var(source) => {
                     if param_vars.contains(source) {
                         // Returning a parameter → preserves freshness
                         // (if caller passes unique, return is unique).
                         (Uniqueness::MaybeShared, true)
                     } else {
-                        var_uniqueness(*source, def_map, invoke_defs, param_vars, classifier, sigs)
+                        var_uniqueness(*source, func, def_map, invoke_defs, param_vars, sigs)
                     }
                 }
                 crate::ir::ArcValue::Literal(_) => (Uniqueness::Unique, true),
-                crate::ir::ArcValue::PrimOp { .. } => {
-                    if classifier.is_scalar(*ty) {
-                        (Uniqueness::Unique, true)
-                    } else {
-                        (Uniqueness::MaybeShared, false)
+                crate::ir::ArcValue::PrimOp { args, .. } => match func
+                    .primitive_facts
+                    .get(var)
+                    .unwrap_or_else(|| {
+                        panic!("validated PrimOp v{} is missing its frozen fact", var.raw())
+                    })
+                    .descriptor
+                    .result
+                {
+                    ori_registry::PrimitiveResultOwnership::Scalar
+                    | ori_registry::PrimitiveResultOwnership::IndependentOwned
+                    | ori_registry::PrimitiveResultOwnership::OwnedFromConsumedOrIndependent {
+                        ..
+                    } => (Uniqueness::Unique, true),
+                    ori_registry::PrimitiveResultOwnership::Alias { operand } => {
+                        let source = args.get(usize::from(operand)).copied().unwrap_or_else(|| {
+                            panic!("validated primitive alias operand {operand} is out of bounds")
+                        });
+                        var_uniqueness(source, func, def_map, invoke_defs, param_vars, sigs)
                     }
-                }
+                },
             },
 
             // Indirect call, projection, select, RC/mutation ops → conservative.

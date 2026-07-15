@@ -4,7 +4,7 @@
 //! transforms the [`AimsState`] of variables it touches:
 //!
 //! - **Forward (definition)**: what state does the destination variable get?
-//! - **Backward (demand)**: what cardinality demand does each use add?
+//! - **Backward (demand)**: what cardinality and consumption does each use add?
 //!
 //! The dataflow analysis engine applies these functions in
 //! its worklist iteration. This module defines only the mathematical rules.
@@ -23,7 +23,11 @@ mod tests;
 
 use smallvec::SmallVec;
 
-use crate::ir::{ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind};
+use crate::ir::{
+    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, PrimitiveFact,
+};
+
+use ori_registry::{PrimitiveAllocationEffect, PrimitiveResultOwnership};
 
 use super::lattice::{
     AccessClass, AimsState, BorrowSource, Cardinality, Consumption, EffectClass, Locality,
@@ -68,12 +72,93 @@ impl DefTransfer {
 ///
 /// The `get_state` closure retrieves the current state of any variable.
 /// For unconstrained variables, it should return [`AimsState::TOP`].
+#[cfg(test)]
 pub fn transfer_def(
     instr: &ArcInstr,
     get_state: &impl Fn(ArcVarId) -> AimsState,
 ) -> Option<DefTransfer> {
+    transfer_def_impl(
+        instr,
+        get_state,
+        &|_| None,
+        PrimitiveFactRequirement::OptionalForUnitTransfer,
+    )
+}
+
+/// Compute a definition transfer from the exact primitive facts frozen on the
+/// ARC artifact.
+///
+/// Production analysis uses this entry point. Primitive facts are validated at
+/// the AIMS input seam; a missing fact here is therefore an internal phase-order
+/// violation and cannot fall back to scalar behavior.
+pub(crate) fn transfer_def_resolved(
+    func: &ArcFunction,
+    instr: &ArcInstr,
+    get_state: &impl Fn(ArcVarId) -> AimsState,
+) -> Option<DefTransfer> {
+    if let ArcInstr::Let {
+        dst,
+        value: ArcValue::PrimOp { .. },
+        ..
+    } = instr
+    {
+        if func.primitive_facts.get(*dst).is_none() {
+            let frozen_destinations = func
+                .primitive_facts
+                .iter()
+                .map(|(destination, _)| destination.raw())
+                .collect::<Vec<_>>();
+            panic!(
+                "validated PrimOp v{} in function {:?} is missing its frozen fact; frozen destinations: {frozen_destinations:?}; rerun whole-program AIMS primitive-fact freezing before analysis",
+                dst.raw(),
+                func.name
+            );
+        }
+    }
+    transfer_def_impl(
+        instr,
+        get_state,
+        &|dst| func.primitive_facts.get(dst),
+        PrimitiveFactRequirement::Required,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum PrimitiveFactRequirement {
+    #[cfg(test)]
+    OptionalForUnitTransfer,
+    Required,
+}
+
+fn transfer_def_impl(
+    instr: &ArcInstr,
+    get_state: &impl Fn(ArcVarId) -> AimsState,
+    get_primitive_fact: &impl Fn(ArcVarId) -> Option<PrimitiveFact>,
+    primitive_fact_requirement: PrimitiveFactRequirement,
+) -> Option<DefTransfer> {
     match instr {
-        ArcInstr::Let { value, .. } => Some(transfer_let(value, get_state)),
+        ArcInstr::Let { dst, value, .. } => Some(match value {
+            ArcValue::Var(v) => DefTransfer::state(get_state(*v)),
+            ArcValue::Literal(_) => DefTransfer::state(AimsState::SCALAR),
+            ArcValue::PrimOp { .. } => {
+                if let Some(fact) = get_primitive_fact(*dst) {
+                    transfer_primitive(value, fact, get_state)
+                } else {
+                    match primitive_fact_requirement {
+                        #[cfg(test)]
+                        PrimitiveFactRequirement::OptionalForUnitTransfer => {
+                            transfer_let(value, get_state)
+                        }
+                        PrimitiveFactRequirement::Required => {
+                            panic!(
+                                "validated PrimOp v{} is missing its frozen fact; rerun whole-program AIMS primitive-fact freezing before analysis",
+                                dst.raw()
+                            )
+                        }
+                    }
+                }
+            }
+        }),
         ArcInstr::Construct { ctor, .. } => Some(transfer_construct(ctor)),
         ArcInstr::Project { value, field, .. } => Some(transfer_project(*value, *field, get_state)),
         ArcInstr::Apply { .. } => Some(transfer_apply_conservative()),
@@ -89,12 +174,6 @@ pub fn transfer_def(
             Some(DefTransfer::state(AimsState::SCALAR))
         }
         ArcInstr::Reuse { ctor, .. } => Some(transfer_reuse(ctor)),
-
-        // Side-effect-only — no defined variable.
-        // BurdenInc/BurdenDec are trivial burden-tracking annotations
-        // emitted by Phase 5 ARC lowering (Phase 5); they carry only a var
-        // and define nothing, so they fall through this side-effect-only
-        // arm exactly like RcInc/RcDec.
         ArcInstr::RcInc { .. }
         | ArcInstr::RcDec { .. }
         | ArcInstr::RcDecPartial { .. }
@@ -110,11 +189,42 @@ pub fn transfer_def(
     }
 }
 
+fn transfer_primitive(
+    value: &ArcValue,
+    fact: PrimitiveFact,
+    get_state: &impl Fn(ArcVarId) -> AimsState,
+) -> DefTransfer {
+    let ArcValue::PrimOp { args, .. } = value else {
+        unreachable!("primitive transfer requires PrimOp")
+    };
+    match fact.descriptor.result {
+        PrimitiveResultOwnership::Scalar => DefTransfer::state(AimsState::SCALAR),
+        PrimitiveResultOwnership::IndependentOwned
+        | PrimitiveResultOwnership::OwnedFromConsumedOrIndependent { .. } => {
+            let mut state = AimsState::FRESH;
+            state.shape = ShapeClass::NonReusable;
+            state.effect = EffectClass {
+                may_alloc: !matches!(fact.descriptor.allocation, PrimitiveAllocationEffect::None),
+                ..EffectClass::NONE
+            };
+            state.canonicalize();
+            DefTransfer::state(state)
+        }
+        PrimitiveResultOwnership::Alias { operand } => {
+            let source = args.get(usize::from(operand)).copied().unwrap_or_else(|| {
+                panic!("validated primitive alias operand {operand} is out of bounds")
+            });
+            DefTransfer::state(get_state(source))
+        }
+    }
+}
+
 /// `Let { value }` — bind a value to a variable.
 ///
 /// - `Var(v)` → inherit source state
 /// - `Literal(_)` → `SCALAR` (no RC)
 /// - `PrimOp { .. }` → `SCALAR` (arithmetic on primitives)
+#[cfg(test)]
 fn transfer_let(value: &ArcValue, get_state: &impl Fn(ArcVarId) -> AimsState) -> DefTransfer {
     match value {
         ArcValue::Var(v) => DefTransfer::state(get_state(*v)),
@@ -252,35 +362,67 @@ pub fn transfer_terminator_def(term: &ArcTerminator) -> Option<DefTransfer> {
 
 // Backward demand
 
+/// One explicit TF-11 operand demand.
+///
+/// Cardinality and consumption are independent lattice dimensions. Keeping
+/// both in the carrier prevents consumers from reconstructing one from the
+/// other and preserves valid states such as `Many + Affine`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BackwardDemand {
+    /// Operand receiving the demand.
+    pub var: ArcVarId,
+    /// Quantitative use count contributed by this instruction.
+    pub cardinality: Cardinality,
+    /// Ownership-consumption mode contributed by this instruction.
+    pub consumption: Consumption,
+}
+
+impl BackwardDemand {
+    fn linear_once(var: ArcVarId) -> Self {
+        Self {
+            var,
+            cardinality: Cardinality::Once,
+            consumption: Consumption::Linear,
+        }
+    }
+}
+
 /// Compute backward demand contributions for an instruction.
 ///
-/// Each `(var, cardinality)` pair means the instruction adds that much
-/// demand on the variable. The analysis engine applies this via
-/// [`Cardinality::seq_add`] when walking backward.
+/// Each returned value carries both TF-11 demand dimensions. The analysis
+/// engine composes each dimension with its own `seq_add` operation.
 ///
 /// Historical influence: GHC demand analysis SHAPE (Sergey et al., POPL 2014):
 /// - Sequential: `seq_add` along one execution path
 /// - Alternative: `alt_join` at control-flow merge points
-pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 4]> {
+pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[BackwardDemand; 4]> {
     match instr {
         ArcInstr::Let { value, .. } => match value {
             // Var: transparent-alias transfer — dst's accumulated demand
             // transfers to v in block.rs::analyze_block before dst is removed;
             // returning (v, Once) here would double-count. Literal: no var demand.
             ArcValue::Var(_) | ArcValue::Literal(_) => SmallVec::new(),
-            ArcValue::PrimOp { args, .. } => args.iter().map(|v| (*v, Cardinality::Once)).collect(),
+            ArcValue::PrimOp { args, .. } => args
+                .iter()
+                .map(|&var| BackwardDemand::linear_once(var))
+                .collect(),
         },
 
         // Construct/Apply: each arg consumed once.
         ArcInstr::Construct { args, .. } | ArcInstr::Apply { args, .. } => {
-            args.iter().map(|v| (*v, Cardinality::Once)).collect()
+            args.iter()
+                .map(|&var| BackwardDemand::linear_once(var))
+                .collect()
         }
 
         // ApplyIndirect: closure + all args demanded once.
         ArcInstr::ApplyIndirect { closure, args, .. } => {
             let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push((*closure, Cardinality::Once));
-            d.extend(args.iter().map(|v| (*v, Cardinality::Once)));
+            d.push(BackwardDemand::linear_once(*closure));
+            d.extend(
+                args.iter()
+                    .map(|&var| BackwardDemand::linear_once(var)),
+            );
             d
         }
 
@@ -288,10 +430,10 @@ pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 
         // `capture_state_update` in block.rs, which sets precise
         // access/consumption/cardinality/locality based on the closure's
         // own demand state. Returning demand here would double-count.
-        // RC operations: AIMS outputs. During migration, no demand.
-        // BurdenInc/BurdenDec (Phase 5): trivial Phase 5 markers — emitted
-        // outputs of burden lowering, not user-code uses; the AIMS lattice
-        // does not consume them. No backward demand contributed.
+        // Current-carrier RC/burden operations are already-realized ownership
+        // events, not user-code uses. The AIMS lattice does not consume them,
+        // and their counter-shaped spelling belongs to the compiled adapter.
+        // No backward demand is contributed.
         ArcInstr::PartialApply { .. }
         | ArcInstr::RcInc { .. }
         | ArcInstr::RcDec { .. }
@@ -302,98 +444,96 @@ pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 
         | ArcInstr::BurdenDec { .. }
         | ArcInstr::BurdenDecPartial { .. }
         | ArcInstr::BurdenDecField { .. }
-        | ArcInstr::BurdenDecVariant { .. } => SmallVec::new(),
+        | ArcInstr::BurdenDecVariant { .. }
+        // Project is a borrow whose destination demand transfers through
+        // TF-14. Adding a standard demand here would double-count it.
+        | ArcInstr::Project { .. } => SmallVec::new(),
 
-        // Project: one read of the source.
-        ArcInstr::Project { value, .. } => {
-            SmallVec::from_buf_and_len([(*value, Cardinality::Once); 4], 1)
-        }
-
-        // Select: cond + both branches each read once.
-        // When true_val == false_val, emit one demand to avoid double-counting
-        // (seq_add would produce Many instead of the correct Once).
-        ArcInstr::Select {
-            cond,
-            true_val,
-            false_val,
-            ..
-        } => {
-            let mut d = SmallVec::new();
-            d.push((*cond, Cardinality::Once));
-            d.push((*true_val, Cardinality::Once));
-            if true_val != false_val {
-                d.push((*false_val, Cardinality::Once));
-            }
-            d
-        }
+        // Select operands are conditional aliases. Only the condition has a
+        // standard demand; destination demand transfers to both values in
+        // IA-5 step (1).
+        ArcInstr::Select { cond, .. } => SmallVec::from_buf_and_len(
+            [BackwardDemand::linear_once(*cond); 4],
+            1,
+        ),
 
         // CollectionReuse: old_var consumed + args consumed once.
         ArcInstr::CollectionReuse { old_var, args, .. } => {
             let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push((*old_var, Cardinality::Once));
-            d.extend(args.iter().map(|v| (*v, Cardinality::Once)));
+            d.push(BackwardDemand::linear_once(*old_var));
+            d.extend(
+                args.iter()
+                    .map(|&var| BackwardDemand::linear_once(var)),
+            );
             d
         }
 
-        // IsShared/Reset: one read (refcount check / var consumed).
+        // IsShared observes logical sharing; Reset consumes the source owner.
         ArcInstr::IsShared { var, .. } | ArcInstr::Reset { var, .. } => {
-            SmallVec::from_buf_and_len([(*var, Cardinality::Once); 4], 1)
+            SmallVec::from_buf_and_len([BackwardDemand::linear_once(*var); 4], 1)
         }
 
         // Set: base + value each read once.
         ArcInstr::Set { base, value, .. } => {
             let mut d = SmallVec::new();
-            d.push((*base, Cardinality::Once));
-            d.push((*value, Cardinality::Once));
+            d.push(BackwardDemand::linear_once(*base));
+            d.push(BackwardDemand::linear_once(*value));
             d
         }
 
         // SetTag: base read once.
         ArcInstr::SetTag { base, .. } => {
-            SmallVec::from_buf_and_len([(*base, Cardinality::Once); 4], 1)
+            SmallVec::from_buf_and_len([BackwardDemand::linear_once(*base); 4], 1)
         }
 
         // Reuse: token consumed + args consumed once.
         ArcInstr::Reuse { token, args, .. } => {
             let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push((*token, Cardinality::Once));
-            d.extend(args.iter().map(|v| (*v, Cardinality::Once)));
+            d.push(BackwardDemand::linear_once(*token));
+            d.extend(
+                args.iter()
+                    .map(|&var| BackwardDemand::linear_once(var)),
+            );
             d
         }
     }
 }
 
 /// Compute backward demand contributions for a terminator.
-pub fn backward_terminator_demands(term: &ArcTerminator) -> SmallVec<[(ArcVarId, Cardinality); 4]> {
+pub fn backward_terminator_demands(term: &ArcTerminator) -> SmallVec<[BackwardDemand; 4]> {
     match term {
         // Return: value demanded once.
         ArcTerminator::Return { value } => {
-            SmallVec::from_buf_and_len([(*value, Cardinality::Once); 4], 1)
+            SmallVec::from_buf_and_len([BackwardDemand::linear_once(*value); 4], 1)
         }
 
         // Jump: args flow to target block params.
-        ArcTerminator::Jump { args, .. } => args.iter().map(|v| (*v, Cardinality::Once)).collect(),
+        ArcTerminator::Jump { args, .. } => args
+            .iter()
+            .map(|&var| BackwardDemand::linear_once(var))
+            .collect(),
 
         // Branch: cond read once.
         ArcTerminator::Branch { cond, .. } => {
-            SmallVec::from_buf_and_len([(*cond, Cardinality::Once); 4], 1)
+            SmallVec::from_buf_and_len([BackwardDemand::linear_once(*cond); 4], 1)
         }
 
         // Switch: scrutinee read once (tag check).
         ArcTerminator::Switch { scrutinee, .. } => {
-            SmallVec::from_buf_and_len([(*scrutinee, Cardinality::Once); 4], 1)
+            SmallVec::from_buf_and_len([BackwardDemand::linear_once(*scrutinee); 4], 1)
         }
 
         // Invoke: all args demanded once (conservative).
-        ArcTerminator::Invoke { args, .. } => {
-            args.iter().map(|v| (*v, Cardinality::Once)).collect()
-        }
+        ArcTerminator::Invoke { args, .. } => args
+            .iter()
+            .map(|&var| BackwardDemand::linear_once(var))
+            .collect(),
 
         // InvokeIndirect: closure + all args demanded once.
         ArcTerminator::InvokeIndirect { closure, args, .. } => {
             let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push((*closure, Cardinality::Once));
-            d.extend(args.iter().map(|v| (*v, Cardinality::Once)));
+            d.push(BackwardDemand::linear_once(*closure));
+            d.extend(args.iter().map(|&var| BackwardDemand::linear_once(var)));
             d
         }
 
@@ -402,56 +542,54 @@ pub fn backward_terminator_demands(term: &ArcTerminator) -> SmallVec<[(ArcVarId,
     }
 }
 
-// RC reasoning predicates
+// Logical ownership-event predicates
 
-/// Whether an RC decrement is unnecessary at this program point.
+/// Whether a logical release event is unnecessary at this program point.
 ///
 /// If cardinality is `Absent` or consumption is `Dead`, the value has
-/// no future uses — a dec would be redundant.
-pub fn is_rc_dec_unnecessary(state: &AimsState) -> bool {
+/// no future uses and no surviving ownership obligation at this point.
+pub fn is_release_event_unnecessary(state: &AimsState) -> bool {
     state.cardinality == Cardinality::Absent || state.consumption == Consumption::Dead
 }
 
-/// Whether an RC increment can be elided at a use site.
+/// Whether an additional logical owner-credit event can be elided at a use
+/// site.
 ///
 /// DP-3: `cardinality = Once ∧ consumption ∈ {Linear, Affine}`. A value used
-/// EXACTLY ONCE is not duplicated, so the duplicate-inc at its single use is
-/// unnecessary — whether that use MOVES it (`Linear`: the consumer takes
-/// ownership and decs) or BORROWS it (`Affine`: read non-consumingly, then
-/// released by its own RL-2 scope-exit dec). Neither creates a new owned
-/// reference. `Unrestricted` is excluded (co-occurs only with `Many`); `Dead`
-/// is excluded by the `Once` gate. Kernel-proven `DP3_is_rc_inc_elidable_table`.
-pub fn is_rc_inc_elidable(state: &AimsState) -> bool {
+/// exactly once is not duplicated, so no additional credit is required at its
+/// single use, whether that use MOVES it (`Linear`: the consumer takes
+/// ownership and assumes its release) or BORROWS it (`Affine`: read
+/// non-consumingly, then released by its own RL-2 scope-exit event). Neither
+/// creates a new owner. `Unrestricted` is excluded (co-occurs only with
+/// `Many`); `Dead` is excluded by the `Once` gate. The historical proof name
+/// is `DP3_is_rc_inc_elidable_table`.
+pub fn is_additional_credit_elidable(state: &AimsState) -> bool {
     state.cardinality == Cardinality::Once
         && (state.consumption == Consumption::Linear || state.consumption == Consumption::Affine)
 }
 
-/// Determine COW mode from the uniqueness dimension.
+/// Determine the logical COW mutation obligation from uniqueness.
 ///
-/// - `Unique` → static unique (no runtime check)
-/// - `MaybeShared` → dynamic (runtime uniqueness check)
-/// - `Shared` → static shared (always copy)
-pub fn cow_mode_from_uniqueness(uniqueness: Uniqueness) -> CowModeFromAims {
+/// - `Unique` → same-identity mutation is permitted
+/// - `MaybeShared` → a physical sharing observation is required
+/// - `Shared` → mutation must be isolated from aliases
+pub fn cow_obligation_from_uniqueness(uniqueness: Uniqueness) -> CowMutationObligation {
     match uniqueness {
-        Uniqueness::Unique => CowModeFromAims::StaticUnique,
-        Uniqueness::MaybeShared => CowModeFromAims::Dynamic,
-        Uniqueness::Shared => CowModeFromAims::StaticShared,
+        Uniqueness::Unique => CowMutationObligation::SameIdentityPermitted,
+        Uniqueness::MaybeShared => CowMutationObligation::SharingObservationRequired,
+        Uniqueness::Shared => CowMutationObligation::AliasIsolationRequired,
     }
 }
 
-/// COW mode as determined by AIMS analysis.
-///
-/// Maps to [`crate::uniqueness::CowMode`] at pipeline integration.
-/// Defined separately to avoid coupling the lattice
-/// module to the existing uniqueness pass.
+/// Backend-neutral COW obligation frozen by AIMS.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CowModeFromAims {
-    /// RC provably 1 — mutate in place, no check.
-    StaticUnique,
-    /// Runtime uniqueness check needed.
-    Dynamic,
-    /// RC provably > 1 — always copy.
-    StaticShared,
+pub enum CowMutationObligation {
+    /// The facts permit mutation while preserving the same logical identity.
+    SameIdentityPermitted,
+    /// The physical plan must observe sharing before selecting an action.
+    SharingObservationRequired,
+    /// The physical plan must isolate the mutation from existing aliases.
+    AliasIsolationRequired,
 }
 
 // Constraint predicates

@@ -1,6 +1,6 @@
 //! Tests for [`AimsStateMap`].
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 
@@ -91,6 +91,27 @@ fn non_scalar_variables_default_to_bottom() {
     assert_eq!(
         map.var_state_at_block_exit(block(1), var(2)),
         AimsState::BOTTOM
+    );
+}
+
+#[test]
+fn scalar_liveness_updates_are_monotone_or_joins() {
+    let mut map = make_state_map(1, 3);
+
+    assert!(map.update_scalar_live_at_entry(block(0), FxHashSet::from_iter([var(0)])));
+    assert!(map.update_scalar_live_at_entry(block(0), FxHashSet::from_iter([var(1)])));
+    assert!(!map.update_scalar_live_at_entry(block(0), FxHashSet::default()));
+    assert_eq!(
+        map.scalar_live_at_entry(block(0)),
+        Some(&FxHashSet::from_iter([var(0), var(1)]))
+    );
+
+    assert!(map.update_scalar_live_at_exit(block(0), FxHashSet::from_iter([var(1)])));
+    assert!(map.update_scalar_live_at_exit(block(0), FxHashSet::from_iter([var(2)])));
+    assert!(!map.update_scalar_live_at_exit(block(0), FxHashSet::from_iter([var(1)])));
+    assert_eq!(
+        map.scalar_live_at_exit(block(0)),
+        Some(&FxHashSet::from_iter([var(1), var(2)]))
     );
 }
 
@@ -276,7 +297,7 @@ fn record_event_appends_to_block() {
         instr: 2,
         var: var(0),
     });
-    map.record_event(AimsEvent::LocalAllocCandidate {
+    map.record_event(AimsEvent::PlacementEligibilityCandidate {
         block: block(1),
         instr: 5,
         var: var(1),

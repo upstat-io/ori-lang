@@ -538,7 +538,7 @@ impl ArcLowerer<'_> {
         // Div / Mod / FloorDiv / Shl / Shr panic on div-by-zero, overflow, or
         // out-of-range shift count; Add / Sub / Mul panic on overflow (Spec:
         // Clause 14.3). On the checked-integer-arithmetic LLVM path (int,
-        // byte, Duration, Size — see codegen-rules.md OpStrategy::IntInstr)
+        // byte, Duration, Size — see codegen-rules.md OpStrategy::SignedInteger)
         // these lower to a checked op that may unwind. Float/bool/char ops
         // never panic.
         if op.may_panic_on_int()
@@ -580,7 +580,7 @@ impl ArcLowerer<'_> {
         );
         // Negation panics on overflow (`-i64::MIN`, Spec: Clause 14.3); on the
         // checked-integer-arithmetic LLVM path (int, byte, Duration, Size —
-        // see codegen-rules.md OpStrategy::IntInstr) it lowers to
+        // see codegen-rules.md OpStrategy::SignedInteger) it lowers to
         // `checked_neg` which may unwind.
         if op.may_panic_on_int()
             && self

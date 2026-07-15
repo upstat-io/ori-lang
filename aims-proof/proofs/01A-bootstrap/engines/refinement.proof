@@ -42,7 +42,7 @@ Theorem CH-102: refinement engine bootstrap (DP-10 removal soundness)
         parameter boundary per RL-32.
         Former DP-10 would conclude Uniqueness = Unique; this
         is unsound because the caller's upstream RcInc means
-        RC > 1 at the call site. Therefore DP-10 is rejected.
+        multiple logical owner credits at the call site. Therefore DP-10 is rejected.
 
       Remaining derivation paths (proof that uniqueness is still
       derivable when genuinely true):

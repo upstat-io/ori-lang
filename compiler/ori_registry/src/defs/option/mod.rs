@@ -8,8 +8,8 @@
 //! conversion to `Result` via `ok_or`.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag, ONE_SELF_OWNED,
+    MemoryStrategy, MethodDef, MethodRuntime, OpDefs, OptionRuntime, Ownership, ParamDef,
+    ReturnTag, TypeDef, TypeParamArity, TypeProjection, TypeTag, ONE_SELF_OWNED,
 };
 
 use super::params::{CLOSURE_PARAM, MESSAGE_PARAM};
@@ -55,8 +55,10 @@ static OPTION_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
-    MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false),
+    )
+    .with_runtime(MethodRuntime::Option(OptionRuntime::AndThen)),
+    MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Option(OptionRuntime::Clone)),
     MethodDef::compound(
         "compare",
         &ONE_SELF_OWNED,
@@ -64,8 +66,10 @@ static OPTION_METHODS: &[MethodDef] = &[
         Some("Comparable"),
         Ownership::Borrow,
         false,
-    ),
-    MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false),
+    )
+    .with_runtime(MethodRuntime::Option(OptionRuntime::Compare)),
+    MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Option(OptionRuntime::Debug)),
     MethodDef::compound(
         "equals",
         &ONE_SELF_OWNED,
@@ -73,7 +77,8 @@ static OPTION_METHODS: &[MethodDef] = &[
         Some("Eq"),
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Option(OptionRuntime::Equals)),
     MethodDef::compound(
         "expect",
         &MESSAGE_PARAM,
@@ -81,7 +86,8 @@ static OPTION_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Option(OptionRuntime::Expect)),
     MethodDef::compound(
         "filter",
         &CLOSURE_PARAM,
@@ -89,7 +95,8 @@ static OPTION_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Option(OptionRuntime::Filter)),
     MethodDef::compound(
         "flat_map",
         &CLOSURE_PARAM,
@@ -97,10 +104,14 @@ static OPTION_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
-    MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, false),
-    MethodDef::compound("is_none", &[], BOOL, None, Ownership::Borrow, false),
-    MethodDef::compound("is_some", &[], BOOL, None, Ownership::Borrow, false),
+    )
+    .with_runtime(MethodRuntime::Option(OptionRuntime::AndThen)),
+    MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Option(OptionRuntime::Hash)),
+    MethodDef::compound("is_none", &[], BOOL, None, Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Option(OptionRuntime::IsNone)),
+    MethodDef::compound("is_some", &[], BOOL, None, Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Option(OptionRuntime::IsSome)),
     MethodDef::compound(
         "iter",
         &[],
@@ -108,8 +119,10 @@ static OPTION_METHODS: &[MethodDef] = &[
         Some("Iterable"),
         Ownership::Borrow,
         false,
-    ),
-    MethodDef::compound("map", &CLOSURE_PARAM, FRESH, None, Ownership::Borrow, false),
+    )
+    .with_runtime(MethodRuntime::Iter),
+    MethodDef::compound("map", &CLOSURE_PARAM, FRESH, None, Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Option(OptionRuntime::Map)),
     MethodDef::compound(
         "ok_or",
         &ERR_PARAM,
@@ -117,8 +130,10 @@ static OPTION_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
-    MethodDef::compound("or", &OR_PARAM, SELF, None, Ownership::Borrow, false),
+    )
+    .with_runtime(MethodRuntime::Option(OptionRuntime::OkOr)),
+    MethodDef::compound("or", &OR_PARAM, SELF, None, Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Option(OptionRuntime::Or)),
     MethodDef::compound(
         "or_else",
         &CLOSURE_PARAM,
@@ -126,7 +141,8 @@ static OPTION_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Option(OptionRuntime::OrElse)),
     MethodDef::compound(
         "to_str",
         &[],
@@ -134,8 +150,10 @@ static OPTION_METHODS: &[MethodDef] = &[
         Some("Printable"),
         Ownership::Borrow,
         false,
-    ),
-    MethodDef::compound("unwrap", &[], ELEM, None, Ownership::Borrow, false),
+    )
+    .with_runtime(MethodRuntime::ToString),
+    MethodDef::compound("unwrap", &[], ELEM, None, Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Option(OptionRuntime::Unwrap)),
     MethodDef::compound(
         "unwrap_or",
         &DEFAULT_PARAM,
@@ -143,7 +161,8 @@ static OPTION_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Option(OptionRuntime::UnwrapOr)),
 ];
 
 pub static OPTION: TypeDef = TypeDef {

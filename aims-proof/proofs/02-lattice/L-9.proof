@@ -54,8 +54,8 @@ Theorem L-9: SCALAR sentinel excluded from lattice operations
       DP-1 is_rc_needed = false on is_scalar()).
 
     Pipeline-level enforcement per sec-6 IA-8:
-      Immortal variables (heap-allocated constants, MAX_REFCOUNT) and
-      SCALAR variables are excluded from the AimsStateMap. The map's
+      Variables carrying the logical Immortal classification and SCALAR
+      variables are excluded from the AimsStateMap. The map's
       key set is a subset of non-SCALAR, non-immortal ArcVarId
       indices, so every map entry's value is in the carrier domain
       defined in Part (a).

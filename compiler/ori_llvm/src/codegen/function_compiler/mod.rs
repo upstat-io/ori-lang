@@ -18,25 +18,27 @@
 //! - [`panic_trampoline`]: Panic handler trampoline (`_ori_panic_trampoline`)
 
 mod accessors;
+mod artifact_projection;
 mod define_phase;
 mod derive_methods;
+mod effect_projection;
 mod entry_point;
 mod error_ctor;
 mod impls;
-mod lambda_mono;
+mod lambda_rewrite;
 mod nounwind;
 mod panic_trampoline;
-mod purity_analysis;
+mod return_projection;
+mod rl31_projection;
 mod seh_main_thunk;
 mod shared_seam;
 mod test_wrappers;
 
-pub(crate) use nounwind::pre_lower_monos_to_arc_cache;
 pub use nounwind::PreparedFunction;
 
 use ori_arc::{AnnotatedSig, ArcClassifier, MemoryContract};
 use ori_ir::{Function, Name, Span, StringInterner};
-use ori_types::{FunctionSig, Idx, Pool, TypeRegistry};
+use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
 
@@ -57,8 +59,17 @@ use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 /// Read once at first access; reused for every function declaration.
 /// `true` omits the RL-31 param `noalias` emission (diagnostic bisection).
 // Env: ORI_DISABLE_RL31_NOALIAS — omits RL-31 param noalias emission for AIMS-noalias bisection, debug-only
-static RL31_NOALIAS_DISABLED: std::sync::LazyLock<bool> =
-    std::sync::LazyLock::new(|| std::env::var_os("ORI_DISABLE_RL31_NOALIAS").is_some());
+static RL31_NOALIAS_DISABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+    let disabled = std::env::var_os("ORI_DISABLE_RL31_NOALIAS").is_some();
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_RL31_NOALIAS",
+            effect = "omit LLVM projection of RL-31 parameter facts",
+            "ablation toggle fired"
+        );
+    }
+    disabled
+});
 
 /// Two-pass function compiler.
 ///
@@ -68,17 +79,9 @@ static RL31_NOALIAS_DISABLED: std::sync::LazyLock<bool> =
 pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     builder: &'a mut IrBuilder<'scx, 'ctx>,
     type_info: &'a TypeInfoStore<'tcx>,
-    type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
+    type_resolver: &'a TypeLayoutResolver<'a, 'ctx, 'tcx>,
     interner: &'a StringInterner,
     pool: &'tcx Pool,
-    /// Reconstructed type registry for the Phase-5 burden walker.
-    ///
-    /// Surfaces the composed `UserBurdenSpec` for `[T]` / `{K: V}` / `Set<T>` /
-    /// closure-env types so `run_arc_pipeline`'s burden walker
-    /// (`type_registry.burden(idx)`) resolves them. Reconstructed from
-    /// `TypedModule` exports because `finish_with_pool` consumes the live
-    /// registry before codegen. Spec: Annex E §AIMS.
-    type_registry: &'tcx TypeRegistry,
     /// Symbol mangler for generating unique LLVM symbol names.
     mangler: Mangler,
     /// Module path for name mangling (e.g., "", "math", "data/utils").
@@ -93,17 +96,15 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     arc_classifier: &'a ArcClassifier<'tcx>,
     /// Debug info context (None for JIT, Some for AOT with debug info enabled).
     debug_context: Option<&'a DebugContext<'ctx>>,
-    /// Pre-computed AIMS interprocedural contracts for param/arg ownership.
-    /// Populated by [`ori_arc::compute_aims_contracts`] before the per-function loop.
+    /// Frozen AIMS contracts used only for physical attribute projection.
+    /// This map can only be populated from the closed executable artifact.
     aims_contracts: FxHashMap<Name, MemoryContract>,
-    /// As-compiled impl-method contracts keyed by `(self_type_idx, method)`.
-    /// Populated by [`ori_arc::compute_impl_method_contracts`] (empty when the
-    /// pipeline supplies none); bound per caller function at Phase-5 via
-    /// [`ori_arc::augment_contracts_with_impl_callees`].
-    impl_method_contracts: FxHashMap<(Idx, Name), MemoryContract>,
     /// Whether to run ARC IR verification in release builds.
     /// In debug builds, verification always runs regardless of this flag.
     verify_arc: bool,
+    /// Closed backend-neutral facts consumed by the physical LLVM projection.
+    /// Production body emission fails closed when this is absent.
+    executable_program: Option<&'a ori_repr::executable::ExecutableProgram>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -119,15 +120,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     pub fn new(
         builder: &'a mut IrBuilder<'scx, 'ctx>,
         type_info: &'a TypeInfoStore<'tcx>,
-        type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
+        type_resolver: &'a TypeLayoutResolver<'a, 'ctx, 'tcx>,
         interner: &'a StringInterner,
         pool: &'tcx Pool,
-        type_registry: &'tcx TypeRegistry,
         module_path: &'a str,
         annotated_sigs: &'a FxHashMap<Name, AnnotatedSig>,
         arc_classifier: &'a ArcClassifier<'tcx>,
         debug_context: Option<&'a DebugContext<'ctx>>,
-        aims_contracts: FxHashMap<Name, MemoryContract>,
         verify_arc: bool,
     ) -> Self {
         Self {
@@ -136,22 +135,129 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             type_resolver,
             interner,
             pool,
-            type_registry,
             mangler: Mangler::new(),
             module_path,
             codegen_ctx: CodegenContext::default(),
             annotated_sigs,
             arc_classifier,
             debug_context,
-            aims_contracts,
-            impl_method_contracts: FxHashMap::default(),
+            aims_contracts: FxHashMap::default(),
             verify_arc,
+            executable_program: None,
         }
     }
 
-    /// Supply the as-compiled impl-method contract set (default: empty).
-    pub fn set_impl_method_contracts(&mut self, contracts: FxHashMap<(Idx, Name), MemoryContract>) {
-        self.impl_method_contracts = contracts;
+    /// Bind the closed shared artifact that owns backend-neutral AIMS facts.
+    ///
+    /// Return, effect, and parameter attributes are projected during emission. Omitting
+    /// this binding is conservative and never triggers backend-local analysis.
+    pub fn bind_executable_program(
+        &mut self,
+        program: &'a ori_repr::executable::ExecutableProgram,
+    ) {
+        self.executable_program = Some(program);
+        self.aims_contracts.clear();
+        self.codegen_ctx.closure_adapters.clear();
+        self.codegen_ctx.user_drop_functions.clear();
+        self.codegen_ctx.executable_call_targets.clear();
+        self.codegen_ctx.executable_function_names = program
+            .functions()
+            .iter()
+            .map(|function| function.name)
+            .collect();
+        self.codegen_ctx.executable_external_names = program
+            .external_functions()
+            .iter()
+            .map(ori_repr::executable::ExternalCallable::name)
+            .collect();
+        for function in program.functions() {
+            let Some(function_id) = program.function_id(function.name) else {
+                unreachable!("validated executable function has no stable identity");
+            };
+            self.aims_contracts.insert(
+                function.name,
+                program.function_contract(function_id).clone(),
+            );
+            if let Some(adapter) = program.closure_adapter(function_id) {
+                self.codegen_ctx
+                    .closure_adapters
+                    .insert(function.name, adapter.clone());
+            }
+            for block in &function.blocks {
+                for instruction in &block.body {
+                    let ori_arc::ArcInstr::Apply { dst, .. } = instruction else {
+                        continue;
+                    };
+                    let Some(target) = program.direct_call_target(function_id, *dst) else {
+                        unreachable!("validated direct Apply has no executable target");
+                    };
+                    if self
+                        .codegen_ctx
+                        .executable_call_targets
+                        .insert((function.name, *dst), target)
+                        .is_some()
+                    {
+                        unreachable!("validated direct call destination is duplicated");
+                    }
+                }
+                if let ori_arc::ArcTerminator::Invoke { dst, .. } = &block.terminator {
+                    let Some(target) = program.direct_call_target(function_id, *dst) else {
+                        unreachable!("validated direct Invoke has no executable target");
+                    };
+                    if self
+                        .codegen_ctx
+                        .executable_call_targets
+                        .insert((function.name, *dst), target)
+                        .is_some()
+                    {
+                        unreachable!("validated direct call destination is duplicated");
+                    }
+                }
+            }
+        }
+        self.codegen_ctx.retain_plans = program.retain_plans().clone();
+        self.codegen_ctx.executable_facts_bound = true;
+    }
+
+    /// Bind each artifact user-drop operation to its declared physical callable.
+    ///
+    /// The executable plan owns semantic identity and exact target selection. This
+    /// projection runs only after impl declarations exist, and deliberately does
+    /// not rediscover `Drop` implementations through the general method map.
+    pub fn bind_user_drop_targets(&mut self) {
+        self.codegen_ctx.user_drop_functions.clear();
+        let Some(program) = self.executable_program else {
+            return;
+        };
+
+        for operation in program.user_drop_plan().entries() {
+            let target_name = program.functions()[operation.target().index()].name;
+            let Some((function, abi)) = self.codegen_ctx.functions.get(&target_name).cloned()
+            else {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "closed executable user-drop target {target_name:?} was not declared"
+                ));
+                continue;
+            };
+
+            let canonical = self.pool.resolve_fully(operation.ty());
+            let signature_matches = abi.params.len() == 1
+                && self.pool.resolve_fully(abi.params[0].ty) == canonical
+                && self.pool.resolve_fully(abi.return_abi.ty) == Idx::UNIT;
+            if !signature_matches {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "closed executable user-drop target {target_name:?} has a physical ABI inconsistent with fn(Self) -> unit"
+                ));
+                continue;
+            }
+
+            self.codegen_ctx
+                .user_drop_functions
+                .insert(operation.ty(), (function, abi.clone()));
+            self.codegen_ctx
+                .user_drop_functions
+                .insert(canonical, (function, abi));
+        }
     }
 
     // Phase 1: Declare
@@ -291,25 +397,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.builder
                 .add_noundef_param_attribute(func_id, sret_offset + i as u32);
         }
-        // RL-31 disjoint-Borrowed `noalias` (Spec: Annex E §AIMS RL-31).
-        // RL-31 `noalias` is a FUNCTION attribute (D01 Option-A): it asserts NO
-        // caller can EVER pass aliasing args to the marked params. Per RL-31
-        // (P2) it is sound ONLY under BOTH facets — (a) per-call-site provenance
-        // proven disjoint at EVERY call site, AND (b) type-level closure
-        // disjointness. `prove_param_noalias` computes facet (b) (`eligible`);
-        // facet (a) (`call_site_provenance_proven`) is unshipped, so the gate
-        // below conservatively OMITS `noalias`. Emitting on facet (b) alone is
-        // the (P2)-rejected unsound verdict — distinct reachable-type closures
-        // do NOT imply distinct runtime memory, so the function-attribute would
-        // be a UAF/miscompile for a caller passing aliasing distinct-type views.
-        // `ORI_DISABLE_RL31_NOALIAS=1` omits the RL-31 param `noalias` emission
-        // (diagnostic bisection of alias-metadata vs upstream RC bugs; sibling
-        // of `ORI_DISABLE_BURDEN_OPS`).
-        let rl31_disabled = *RL31_NOALIAS_DISABLED;
-        let param_types: Vec<Idx> = abi.params.iter().map(|p| p.ty).collect();
-        let noalias_proof = ori_arc::prove_param_noalias(&param_types, self.pool);
         let mut nidx = sret_offset + extra_leading_params.len() as u32;
-        for (pidx, param) in abi.params.iter().enumerate() {
+        for param in &abi.params {
             if matches!(param.passing, ParamPassing::Direct) {
                 self.builder.add_noundef_param_attribute(func_id, nidx);
                 nidx += 1;
@@ -330,29 +419,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 }
                 if param.readonly {
                     self.builder.add_readonly_param_attribute(func_id, nidx);
-                }
-                // RL-31: emit `noalias` only when BOTH facets hold — the
-                // type-level closure-disjointness facet (b) (`eligible`) AND the
-                // per-call-site provenance facet (a)
-                // (`call_site_provenance_proven`). Facet (a) is unshipped, so
-                // this conservatively omits `noalias` (RL-31 (P2) dual-facet
-                // requirement; facet (b) alone is unsound).
-                //
-                // FORWARD NOTE (nounwind precondition): once facet (a) ships and
-                // `call_site_provenance_proven` flips true, this function-
-                // attribute `noalias` on an UNWINDABLE function is an LLVM
-                // soundness hazard — the optimizer may assume the `noalias`
-                // guarantee across the `Invoke`/`Resume` unwind edge, where a
-                // landing pad can observe an aliasing view the normal path never
-                // establishes. This gate MUST THEN also require the function be
-                // `nounwind` (or restrict `noalias` to the non-unwinding path).
-                // Grounding: D01 §Consequences + D00 §(m); Spec: Annex E §AIMS
-                // RL-31 (P2).
-                if !rl31_disabled
-                    && noalias_proof.call_site_provenance_proven
-                    && noalias_proof.eligible.get(pidx).copied().unwrap_or(false)
-                {
-                    self.builder.add_noalias_attribute(func_id, nidx);
                 }
                 nidx += 1;
             }
@@ -399,12 +465,29 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         sig: &FunctionSig,
         span: Span,
     ) -> (FunctionId, FunctionAbi) {
-        let name_str = self.interner.lookup(name);
+        self.declare_impl_method_with_fact_name(name, name, symbol, sig, span)
+    }
+
+    /// Declare an impl method whose realized callable facts use a distinct,
+    /// type-qualified identity.
+    ///
+    /// `source_name` remains the user-facing method name used for diagnostics
+    /// and debug information. `fact_name` selects the exact ownership contract
+    /// frozen into the bound executable artifact.
+    pub(super) fn declare_impl_method_with_fact_name(
+        &mut self,
+        source_name: Name,
+        fact_name: Name,
+        symbol: &str,
+        sig: &FunctionSig,
+        span: Span,
+    ) -> (FunctionId, FunctionAbi) {
+        let name_str = self.interner.lookup(source_name);
 
         let abi = compute_function_abi_with_ownership(
             sig,
             self.type_info,
-            self.annotated_sigs.get(&name),
+            self.annotated_sigs.get(&fact_name),
             self.arc_classifier,
             self.repr_plan(),
         );

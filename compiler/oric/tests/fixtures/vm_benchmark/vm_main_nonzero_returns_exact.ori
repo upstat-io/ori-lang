@@ -1,0 +1,3 @@
+// Pins exact nonzero main-result materialization in the VM corpus.
+
+@main () -> int = 37;

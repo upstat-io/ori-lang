@@ -764,10 +764,6 @@ Theorem IC-6: FipContract sum-type tier join soundness + post-realization timing
                            authoritative FipContract from
                            realized IR)
         IC-6 (Step 5a authoritative)
-              --> RL-29 + RL-30 (LLVM attribute emission
-                                  consumes FipContract for
-                                  FIP-aware attributes)
-        IC-6 (Step 5a authoritative)
               --> VF-6 (contract-realization agreement
                          verification at sec-9 VF-6)
 
@@ -895,8 +891,7 @@ Theorem IC-6: FipContract sum-type tier join soundness + post-realization timing
         emits Fail on any divergence)
       interprocedural_summary (per-function FipContract export
         within SCC fixpoint loop's Step 5a finalization pass;
-        consumed by RL-29 + RL-30 LLVM fact-export gates,
-        by VF-6 contract-realization agreement verification,
+        consumed by VF-6 contract-realization agreement verification,
         by Step 5a verify_fip_contract per sec-9)
       case_analysis (4-tier sum-type absorption table at
         contract/mod.rs lines 418-444: 16 pair combinations

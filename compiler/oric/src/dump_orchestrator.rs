@@ -75,24 +75,17 @@ pub(crate) fn dump_typeck(
     crate::ir_dump::dump_typed_ir(parse_result, typed, pool, interner, path, view.with_idx);
 }
 
-/// Dump the ARC IR (ARC phase) to stderr when requested. The facet driver
-/// clones + re-runs the ARC pipeline, so the work is gated behind the request.
+/// Dump the already-realized ARC artifact when requested.
 #[cfg(feature = "llvm")]
 pub(crate) fn dump_arc(
-    arc_cache: &rustc_hash::FxHashMap<
-        ori_ir::Name,
-        (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>),
-    >,
-    classifier: &dyn ori_arc::ArcClassification,
-    pool: &Pool,
+    executable: &ori_repr::executable::ExecutableProgram,
     interner: &StringInterner,
-    type_registry: &ori_types::TypeRegistry,
     path: &str,
 ) {
     if requested(DumpPhase::Arc).is_none() {
         return;
     }
-    crate::arc_dump::dump_arc_ir(arc_cache, classifier, pool, interner, type_registry, path);
+    crate::arc_dump::dump_arc_ir(executable.functions(), executable.pool(), interner, path);
 }
 
 /// Dump the annotated LLVM IR (LLVM phase) to stderr when requested. `ir_text`

@@ -23,6 +23,62 @@ use crate::codegen::abi::{FunctionAbi, ReturnPassing};
 use crate::codegen::value_id::{FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Whether a closed call site is allowed to use spelling-based runtime projection.
+    ///
+    /// Once executable facts are bound, only a `CallableTarget::Runtime` may
+    /// enter builtin/runtime emission. Exact function and external targets must
+    /// resolve through their declared artifact identity and fail closed if that
+    /// declaration is absent.
+    pub(super) fn runtime_projection_allowed(&self, func: &ArcFunction, dst: ArcVarId) -> bool {
+        if !self.ctx.executable_facts_bound {
+            return true;
+        }
+        matches!(
+            self.ctx.executable_call_targets.get(&(func.name, dst)),
+            Some(ori_repr::executable::CallableTarget::Runtime(_))
+        )
+    }
+
+    /// Explain an unresolved direct call using the closed target identity.
+    pub(super) fn unresolved_direct_call_message(
+        &self,
+        func: &ArcFunction,
+        dst: ArcVarId,
+        fallback_name: &str,
+        site: &str,
+    ) -> String {
+        if !self.ctx.executable_facts_bound {
+            return format!(
+                "unresolved function `{fallback_name}` in {site}; ensure the call has a typed declaration or concrete monomorphized instance"
+            );
+        }
+
+        match self.ctx.executable_call_targets.get(&(func.name, dst)) {
+            Some(ori_repr::executable::CallableTarget::Function(function)) => {
+                let target = self
+                    .ctx
+                    .executable_function_names
+                    .get(function.index())
+                    .map_or(fallback_name, |name| self.interner.lookup(*name));
+                closed_target_projection_message(target, site)
+            }
+            Some(ori_repr::executable::CallableTarget::External(function)) => {
+                let target = self
+                    .ctx
+                    .executable_external_names
+                    .get(function.index())
+                    .map_or(fallback_name, |name| self.interner.lookup(*name));
+                closed_target_projection_message(target, site)
+            }
+            Some(ori_repr::executable::CallableTarget::Runtime(operation)) => format!(
+                "LLVM has no physical projection for closed runtime operation {operation:?} in {site}; rerun the same command with ORI_VERIFY_ARC=1 and report this compiler bug"
+            ),
+            None => format!(
+                "closed executable call to `{fallback_name}` has no frozen target in {site}; rerun the same command with ORI_VERIFY_ARC=1 and report this compiler bug"
+            ),
+        }
+    }
+
     /// Emit either LLVM `invoke` or `call` + `br` based on [`InvokeMode`].
     ///
     /// - `InvokeMode::Invoke`: emits `invoke` with normal + unwind continuations
@@ -267,6 +323,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Vec<crate::codegen::abi::ParamAbi>,
         crate::codegen::abi::ReturnAbi,
     )> {
+        if self.ctx.executable_facts_bound {
+            let target = self.ctx.executable_call_targets.get(&(func.name, dst))?;
+            return match target {
+                ori_repr::executable::CallableTarget::Function(function) => {
+                    let name = *self.ctx.executable_function_names.get(function.index())?;
+                    self.ctx
+                        .functions
+                        .get(&name)
+                        .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi))
+                }
+                ori_repr::executable::CallableTarget::External(function) => {
+                    let name = *self.ctx.executable_external_names.get(function.index())?;
+                    self.ctx
+                        .functions
+                        .get(&name)
+                        .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi))
+                }
+                ori_repr::executable::CallableTarget::Runtime(_) => None,
+            };
+        }
+
         // Receiver's resolved type, computed once for the diagnostic-only
         // fallback step — mirrors `lookup_method_by_receiver`'s own
         // `args.first()` + `func.var_type()` + `resolve_fully()` derivation.
@@ -291,33 +368,44 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         mono_instance_id: Option<MonoInstanceId>,
     ) {
         let callee_name_str = self.interner.lookup(callee);
+        let runtime_projection_allowed = self.runtime_projection_allowed(func, dst);
 
         // Internal protocol intercepts (__iter_next, __collect_set, etc.)
-        if self.try_emit_protocol(dst, callee, args, func) {
+        if runtime_projection_allowed && self.try_emit_protocol(dst, callee, args, func) {
             return;
         }
 
         // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
-        if let Some(val) = self.try_emit_format_call(callee, args, func) {
-            self.def_var_repr(dst, val, func);
-            return;
+        if runtime_projection_allowed {
+            if let Some(val) = self.try_emit_format_call(callee, args, func) {
+                self.def_var_repr(dst, val, func);
+                return;
+            }
         }
 
         // Prelude builtin functions (str, int, float, byte, hash_combine, etc.)
-        if let Some(val) =
-            super::builtins::prelude::try_emit_prelude_function(self, callee_name_str, args, func)
-        {
-            self.def_var_repr(dst, val, func);
-            return;
+        if runtime_projection_allowed {
+            if let Some(val) = super::builtins::prelude::try_emit_prelude_function(
+                self,
+                callee_name_str,
+                args,
+                func,
+            ) {
+                self.def_var_repr(dst, val, func);
+                return;
+            }
         }
 
         // Traceless Traceable accessors (Error-struct + Result/Option delegation)
         // must precede `resolve_callee`: a `backend_required: false` Traceable
         // method otherwise resolves to an unbacked `_ori_trace` mono decl.
-        if let Some(val) = self.try_emit_traceless_traceable(callee, args, func, func.var_type(dst))
-        {
-            self.def_var_repr(dst, val, func);
-            return;
+        if runtime_projection_allowed {
+            if let Some(val) =
+                self.try_emit_traceless_traceable(callee, args, func, func.var_type(dst))
+            {
+                self.def_var_repr(dst, val, func);
+                return;
+            }
         }
 
         let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
@@ -335,14 +423,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.emit_rt_call(func_id, &passed_args, "call")
                 }
             }
-        } else if let Some(val) =
-            self.try_emit_builtin_method(callee, args, func, func.var_type(dst))
+        } else if let Some(val) = runtime_projection_allowed
+            .then(|| self.try_emit_builtin_method(callee, args, func, func.var_type(dst)))
+            .flatten()
         {
             Some(val)
-        } else if let Some(val) = self.try_emit_builtin_associated(callee, args, func.var_type(dst))
+        } else if let Some(val) = runtime_projection_allowed
+            .then(|| self.try_emit_builtin_associated(callee, args, func.var_type(dst)))
+            .flatten()
         {
             Some(val)
-        } else if let Some(func_id) = self.builder.try_runtime_fn(callee_name_str) {
+        } else if let Some(func_id) = runtime_projection_allowed
+            .then(|| self.builder.try_runtime_fn(callee_name_str))
+            .flatten()
+        {
             let coerced_args = self.coerce_runtime_fn_args(callee, args, &arg_vals, func);
 
             // Large struct returns (Str, List, Map) use sret convention.
@@ -353,9 +447,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_rt_call(func_id, &coerced_args, "call")
             }
         } else {
-            let msg = format!(
-                "unresolved function `{callee_name_str}` in apply — missing mono instance?"
-            );
+            let msg = self.unresolved_direct_call_message(func, dst, callee_name_str, "apply");
             tracing::warn!("{msg}");
             self.builder.record_codegen_error_with_msg(msg);
             None
@@ -529,5 +621,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let result = self.emit_rt_call(func_id, &[lhs_ptr, rhs_ptr], func_name);
             result.expect("str comparison runtime fn is non-void; builder.call returns Some")
         }
+    }
+}
+
+fn closed_target_projection_message(target: &str, site: &str) -> String {
+    format!(
+        "LLVM did not declare closed executable target `{target}` before {site}; rerun the same command with ORI_VERIFY_ARC=1 and report this compiler bug"
+    )
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::closed_target_projection_message;
+
+    #[test]
+    fn closed_target_diagnostic_states_cause_and_action() {
+        let message = closed_target_projection_message("clone$derived$7", "apply");
+        assert!(message.contains("did not declare closed executable target"));
+        assert!(message.contains("ORI_VERIFY_ARC=1"));
+        assert!(message.contains("report this compiler bug"));
+        assert!(!message.contains("missing mono instance"));
     }
 }

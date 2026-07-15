@@ -158,6 +158,134 @@ fn check_impl_method_with_ungeneralizable_body_lambda_emits_ambiguous_type() {
     );
 }
 
+fn assert_exact_user_drop_role(source: &str, drop_impl_index: usize) {
+    let interner = StringInterner::new();
+    let tokens = lex(source, &interner);
+    let parsed = parse(&tokens, &interner);
+    assert!(
+        parsed.errors.is_empty(),
+        "drop-role fixture must parse: {:?}",
+        parsed.errors
+    );
+    let drop_body = parsed.module.impls[drop_impl_index].methods[0].body;
+    let (result, pool) = check_module_with_pool(&parsed.module, &parsed.arena, &interner);
+    assert!(
+        result.typed.errors.is_empty(),
+        "drop-role fixture must type-check: {:?}",
+        result.typed.errors
+    );
+
+    let user_drop_sigs: Vec<_> = result
+        .typed
+        .impl_sigs
+        .iter()
+        .filter(|entry| matches!(entry.role, crate::ImplMethodRole::UserDrop { .. }))
+        .collect();
+    assert_eq!(
+        user_drop_sigs.len(),
+        1,
+        "only the exact Drop trait method may carry UserDrop: {:?}",
+        result.typed.impl_sigs
+    );
+    let user_drop = user_drop_sigs[0];
+    assert_eq!(
+        user_drop.id,
+        crate::ImplMethodId::new(drop_impl_index, drop_body),
+        "the role must attach to the exact Drop impl body, independent of ordinary dispatch"
+    );
+    assert!(
+        result
+            .typed
+            .impl_sigs
+            .iter()
+            .filter(|entry| entry.id != user_drop.id)
+            .all(|entry| entry.role == crate::ImplMethodRole::Ordinary),
+        "same-spelled inherent and other-trait methods must remain ordinary"
+    );
+
+    let registry = crate::TypeRegistry::from_typed_exports(
+        result.typed.types.clone(),
+        result.typed.collection_burdens.clone(),
+    );
+    let burden_type = result
+        .typed
+        .types
+        .iter()
+        .find(|entry| pool.resolve_fully(entry.idx) == pool.resolve_fully(user_drop.receiver))
+        .map_or(user_drop.receiver, |entry| entry.idx);
+    let expected = registry
+        .burden(burden_type)
+        .and_then(|burden| burden.user_drop);
+    let crate::ImplMethodRole::UserDrop { logical } = user_drop.role else {
+        unreachable!("filtered to UserDrop")
+    };
+    assert_eq!(
+        Some(logical),
+        expected,
+        "the exported method role must carry the registry's exact logical burden identity"
+    );
+}
+
+#[test]
+fn user_drop_role_ignores_preceding_same_named_methods() {
+    assert_exact_user_drop_role(
+        "trait Drop { @drop (self) -> void; }\n\
+         trait DecoyDrop { @drop (self) -> void; }\n\
+         type Guard = { id: int }\n\
+         impl Guard { @drop (self) -> void = (); }\n\
+         impl Guard: DecoyDrop { @drop (self) -> void = (); }\n\
+         impl Guard: Drop { @drop (self) -> void = (); }",
+        2,
+    );
+}
+
+#[test]
+fn user_drop_role_ignores_following_same_named_methods() {
+    assert_exact_user_drop_role(
+        "trait Drop { @drop (self) -> void; }\n\
+         trait DecoyDrop { @drop (self) -> void; }\n\
+         type Guard = { id: int }\n\
+         impl Guard: Drop { @drop (self) -> void = (); }\n\
+         impl Guard { @drop (self) -> void = (); }\n\
+         impl Guard: DecoyDrop { @drop (self) -> void = (); }",
+        0,
+    );
+}
+
+#[test]
+fn imported_drop_trait_assigns_exact_role_amid_inherent_name_collision() {
+    let interner = StringInterner::new();
+    let prelude_tokens = lex("pub trait Drop { @drop (self) -> void; }", &interner);
+    let prelude = parse(&prelude_tokens, &interner);
+    assert!(prelude.errors.is_empty());
+    let source = "type Guard = { id: int }\n\
+                  impl Guard { @drop (self) -> void = (); }\n\
+                  impl Guard: Drop { @drop (self) -> void = (); }";
+    let tokens = lex(source, &interner);
+    let parsed = parse(&tokens, &interner);
+    assert!(parsed.errors.is_empty());
+    let (result, _) =
+        crate::check_module_with_imports(&parsed.module, &parsed.arena, &interner, |checker| {
+            checker.register_imported_traits(&prelude.module, &prelude.arena);
+        });
+    assert!(
+        result.typed.errors.is_empty(),
+        "imported Drop fixture must type-check: {:?}",
+        result.typed.errors
+    );
+    assert_eq!(
+        result
+            .typed
+            .impl_sigs
+            .iter()
+            .filter(|entry| matches!(entry.role, crate::ImplMethodRole::UserDrop { .. }))
+            .count(),
+        1,
+        "the exact imported Drop trait must still mint one semantic role: {:?}",
+        result.typed.impl_sigs
+    );
+}
+
 /// Regression: a def-impl method with an unannotated parameter must produce
 /// `E2005` (`AmbiguousType`) at typeck via `check_def_impl_method` (Pass 5 per
 /// CK-1). Exercises the sig-position validator walk after `run_validator`
@@ -916,6 +1044,29 @@ fn test_poison_field_access_no_cascade() {
         result.typed.errors.len(),
         1,
         "poisoned receiver field access must not cascade — exactly one error expected, got: {:?}",
+        result.typed.errors
+    );
+}
+
+#[test]
+fn module_error_variant_shadows_builtin_error_constructor() {
+    let (result, _interner) = parse_and_check(
+        "type LogLevel = Info(msg: str) | Error(msg: str);\n\
+         @make () -> LogLevel = Error(msg: \"boom\");",
+    );
+    assert!(
+        result.typed.errors.is_empty(),
+        "module `Error` variant must shadow the universe builtin: {:?}",
+        result.typed.errors
+    );
+}
+
+#[test]
+fn builtin_error_constructor_remains_resolvable_without_shadow() {
+    let (result, _interner) = parse_and_check("@make () -> Error = Error(\"boom\");");
+    assert!(
+        result.typed.errors.is_empty(),
+        "builtin Error constructor must remain available: {:?}",
         result.typed.errors
     );
 }

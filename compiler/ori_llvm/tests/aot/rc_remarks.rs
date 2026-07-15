@@ -3,8 +3,9 @@
 //! Compiles a fixture that produces >=1 surviving (non-elidable) RC op on the
 //! burden-sole path (`ORI_DISABLE_PREDICATE_STACK_RC=1`) with `ORI_RC_REMARKS`
 //! set, then asserts the JSONL remark stream is non-empty and well-formed —
-//! proving the emit -> file -> read-back pipe end to end
-//! (Spec: Annex E §AIMS — observability changes no RC-emission semantics).
+//! proving the current adapter's emit -> file -> read-back pipe end to end.
+//! This is physical-projection observability, not an AIMS conformance verdict
+//! (Spec: Annex E §AIMS).
 
 use std::fs;
 use std::process::Command;

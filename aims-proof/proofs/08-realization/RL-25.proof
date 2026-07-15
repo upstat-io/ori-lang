@@ -1,56 +1,23 @@
-Theorem RL-25: pair-eliminable conditions (KnownSafe OR both-paths-safe-AND-no-hazard)
+Theorem RL-25: logical event-pair eliminability
 
   Preconditions:
-    - RL-25 governs pair-eliminability per Annex E §AIMS PRE-Style
-      Global RC Motion: "Pair eliminable when: KnownSafe = true OR both
-      forward/backward paths safe AND no CFG hazard (path count alignment)."
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - RL-25 consumes the RL-24 matched-pair set and the RL-22/RL-23 KnownSafe
-      flag; it is a POST-PIPELINE pass over realized IR.
-    - depends-on RL-22/RL-23 (KnownSafe) + RL-24 (matched pairs).
+    - RL-24 identifies a logical owner-credit/release pair.
+    - KnownSafe or both-path safety evidence is available.
 
   Soundness property:
-    Forall RL-24 matched (Inc, Dec) pair:
-
-      (P1) Eliminability: RL-25 eliminates the pair iff KnownSafe = true OR
-           (forward path safe AND backward path safe AND no CFG hazard).
-
-      (P2) Soundness: either the physical RC guarantees the dec cannot free
-           (KnownSafe, per RL-22), OR the bidirectional path analysis proves
-           the inc and dec are matched on EVERY path with path-count alignment
-           (no CFG hazard). A CFG hazard (path-count misalignment) means the
-           inc and dec execute different numbers of times on some path, so
-           eliminating the pair would leak (more incs than decs) or
-           double-free (more decs than incs) — RL-25 keeps the pair.
-
-    RL-25 is the eliminability gate that prevents PRE-style RC motion from
-    unbalancing the count across complex control flow.
+    A matched pair is eliminable iff KnownSafe holds OR both directions are
+    safe with no CFG multiplicity hazard. Elimination preserves exact logical
+    balance and evaluator behavior.
 
   Proof obligation:
-    Constructive discharge by the rc_counting engine.
-
-    Part (P1/P2) — eliminability grid:
-      knownsafe_eliminable -> eliminable (KnownSafe alone)
-      both_paths_safe_no_hazard_eliminable -> eliminable (path analysis)
-      cfg_hazard_not_eliminable -> NOT eliminable (path-count
-                                               mismatch)
-      one_path_unsafe_not_eliminable -> NOT eliminable
-      Coverage gate: 4 eliminability cases. Negative-direction witness: a CFG
-      hazard must block elimination even when both paths are individually safe
-      (path-count misalignment risks a leak or double-free) — asserted.
+    Enumerate KnownSafe, both-safe/no-hazard, CFG-hazard, and one-path-unsafe.
+    Coverage gate: 4 cases. A CFG hazard blocks elimination.
 
     Engines dispatched:
-      rc_counting (PRIMARY —
-        section_08::verify_rl25_pair_eliminable_conditions; eliminability
-        predicate enumeration + CFG-hazard witness; emits Fail on a wrong
-        eliminability verdict)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      case_analysis (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      rc_counting (PRIMARY — section_08::verify_rl25_pair_eliminable_conditions)
+      refinement (SECONDARY — gracious-accept)
+      case_analysis (SECONDARY — gracious-accept)
 
   Expected:
     status: valid
-    reason: section_08 rc_counting engine discharges RL-25 via the pair-eliminable predicate (KnownSafe OR both-paths-safe-AND-no-CFG-hazard) with a negative-direction witness confirming a CFG hazard blocks elimination despite individually-safe paths (path-count misalignment), gating PRE-style RC motion against count imbalance
+    reason: RL-25 eliminates only logically matched owner-credit/release pairs with KnownSafe or hazard-free bidirectional evidence

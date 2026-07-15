@@ -1,7 +1,7 @@
 //! Unit tests for the block merge pass.
 
-use ori_ir::Name;
-use ori_types::Idx;
+use ori_ir::{BinaryOp, Name};
+use ori_types::{Idx, Pool};
 
 use crate::ir::{
     ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, LitValue,
@@ -842,6 +842,53 @@ fn dead_block_compaction() {
 
     // bb1 removed, bb2 renumbered to bb1, then merged with bb0.
     assert_eq!(func.blocks.len(), 1);
+}
+
+#[test]
+fn dead_block_compaction_retires_frozen_primitive_fact() {
+    let pool = Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    let mut func = make_func(
+        vec![owned_param(0, Idx::INT), owned_param(1, Idx::INT)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(0) },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(2),
+                    ty: Idx::BOOL,
+                    value: ArcValue::PrimOp {
+                        op: PrimOp::Binary(BinaryOp::Eq),
+                        args: vec![v(0), v(1)],
+                    },
+                }],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+        ],
+        vec![Idx::INT, Idx::INT, Idx::BOOL],
+    );
+    let Ok(()) = crate::aims::freeze_primitive_facts(std::slice::from_mut(&mut func), &classifier)
+    else {
+        panic!("the dead instruction still has valid typed input semantics");
+    };
+    assert_eq!(func.primitive_facts.len(), 1);
+
+    merge_blocks(&mut func);
+
+    assert!(
+        func.primitive_facts.is_empty(),
+        "removing an instruction must mechanically retire its keyed fact"
+    );
+    let Ok(()) = crate::aims::validate_primitive_facts(&func, &classifier) else {
+        panic!("the transformed function must retain exact primitive-fact coverage");
+    };
 }
 
 /// Dead cycle: unreachable SCC (dead blocks targeting each other).
@@ -3067,12 +3114,12 @@ fn select_not_folded_non_scalar_merge_param() {
     });
     // Set the merge param's repr to FatValue (heap-allocated).
     // var_reprs must cover all vars (0..4).
-    func.var_reprs = vec![
+    func.replace_variable_representations(vec![
         ValueRepr::Scalar,   // v(0) — cond
         ValueRepr::FatValue, // v(1) — then arm
         ValueRepr::FatValue, // v(2) — else arm
         ValueRepr::FatValue, // v(3) — merge param
-    ];
+    ]);
 
     fold_select_diamonds(&mut func);
 

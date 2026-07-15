@@ -811,10 +811,10 @@ mod fresh_site_inc_balance {
     }
 
     // axis-1 CollectionReuse slice.
-    // Per `TF-9a` — CollectionReuse emits FRESH(
-    // CollectionBuffer). Self-contained: LLVM emitter calls
-    // ori_list_reset_buffer (uniqueness checked internally). Burden lower
-    // emits BurdenInc on dst; symmetric BurdenDec mirrors §8 RL-2.
+    // Per `TF-9a` — CollectionReuse emits a fresh logical collection-buffer
+    // identity from an eligible donor. The transitional burden carrier books
+    // the result credit; the symmetric release mirrors §8 RL-2. Copy, reset,
+    // recycling, and uniqueness-probe mechanics belong to a physical plan.
     mod collection_reuse {
         use super::super::*;
 

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::aims::lattice::Cardinality;
-use crate::ir::{ArcParam, ArcVarId};
+use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId};
 use crate::ownership::Ownership;
 use ori_ir::Name;
 use ori_types::Idx;
@@ -21,6 +21,18 @@ fn arc_param(var_id: u32, ty_id: u32) -> ArcParam {
         var: var(var_id),
         ty: ty(ty_id),
         ownership: Ownership::Owned,
+    }
+}
+
+fn read_only_function() -> ArcFunction {
+    ArcFunction {
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: Vec::new(),
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..ArcFunction::default()
     }
 }
 
@@ -149,6 +161,24 @@ fn return_join_uniqueness_weakens() {
     let shared = ReturnContract::CONSERVATIVE;
     let joined = unique.join(&shared);
     assert_eq!(joined.uniqueness, Uniqueness::MaybeShared);
+}
+
+#[test]
+fn fresh_self_allocation_facts_require_the_stronger_return_proof() {
+    let mut fresh = MemoryContract::conservative(0);
+    fresh.return_info.preserves_freshness = true;
+    fresh.return_info.returns_fresh_self_alloc = true;
+    assert!(fresh.fresh_self_allocation_facts().is_proven());
+
+    let mut forwarded_or_consumed = fresh;
+    forwarded_or_consumed.return_info.returns_fresh_self_alloc = false;
+    assert!(forwarded_or_consumed.return_info.preserves_freshness);
+    assert!(
+        !forwarded_or_consumed
+            .fresh_self_allocation_facts()
+            .is_proven(),
+        "freshness preservation cannot certify caller-owned or consumed storage"
+    );
 }
 
 // EffectSummary join
@@ -472,4 +502,111 @@ fn returns_sharing_view_optimistic_init_clears_via_join() {
             .join(&extracted_non_view)
             .returns_sharing_view
     );
+}
+
+#[test]
+fn function_effect_facts_classify_only_proven_no_write_contracts_read_only() {
+    let mut contract = MemoryContract::all_borrowed(1, FipContract::Never);
+    contract.params[0].cardinality = Cardinality::Once;
+    contract.effects = EffectSummary::OPTIMISTIC;
+
+    let facts = contract.function_effect_facts(&read_only_function());
+
+    assert_eq!(facts.effects(), EffectSummary::OPTIMISTIC);
+    assert!(!facts.may_write_inaccessible());
+    assert_eq!(facts.memory_access(), MemoryAccessClass::ReadOnly);
+}
+
+#[test]
+fn function_effect_facts_fail_closed_for_every_write_source() {
+    let baseline = MemoryContract::all_borrowed(1, FipContract::Never);
+    let mut cases = Vec::new();
+
+    let mut allocation = baseline.clone();
+    allocation.effects.may_allocate = true;
+    cases.push(allocation);
+
+    let mut deallocation = baseline.clone();
+    deallocation.effects.may_deallocate = true;
+    cases.push(deallocation);
+
+    let mut sharing_effect = baseline.clone();
+    sharing_effect.effects.may_share = true;
+    cases.push(sharing_effect);
+
+    let mut throwing = baseline.clone();
+    throwing.effects.may_throw = true;
+    cases.push(throwing);
+
+    let mut owned_param = baseline.clone();
+    owned_param.params[0].cardinality = Cardinality::Once;
+    owned_param.params[0].access = AccessClass::Owned;
+    cases.push(owned_param);
+
+    let mut sharing_param = baseline;
+    sharing_param.params[0].cardinality = Cardinality::Once;
+    sharing_param.params[0].may_share = true;
+    cases.push(sharing_param);
+
+    for contract in cases {
+        assert_eq!(
+            contract
+                .function_effect_facts(&read_only_function())
+                .memory_access(),
+            MemoryAccessClass::ReadWrite
+        );
+    }
+}
+
+#[test]
+fn function_effect_facts_fail_closed_for_untyped_calls() {
+    let contract = MemoryContract::all_borrowed(0, FipContract::Never);
+    let interner = ori_ir::StringInterner::new();
+
+    for symbol in [
+        "known_internal_function",
+        "unknown_external_function",
+        "ori_print",
+        "ori_panic",
+        "ori_tls_set",
+    ] {
+        let mut function = read_only_function();
+        function.blocks[0].body.push(ArcInstr::Apply {
+            dst: var(0),
+            ty: Idx::UNIT,
+            func: interner.intern(symbol),
+            args: Vec::new(),
+            arg_ownership: Vec::new(),
+            mono_instance_id: None,
+        });
+
+        let facts = contract.function_effect_facts(&function);
+        assert!(
+            facts.may_write_inaccessible(),
+            "untyped call to {symbol} must fail closed"
+        );
+        assert_eq!(
+            facts.memory_access(),
+            MemoryAccessClass::ReadWrite,
+            "untyped call to {symbol} must not acquire a ReadOnly proof"
+        );
+    }
+
+    let mut indirect = read_only_function();
+    indirect.blocks[0].body.push(ArcInstr::ApplyIndirect {
+        dst: var(0),
+        ty: Idx::UNIT,
+        closure: var(1),
+        args: Vec::new(),
+        arg_ownership: Vec::new(),
+    });
+    let indirect_facts = contract.function_effect_facts(&indirect);
+    assert!(indirect_facts.may_write_inaccessible());
+    assert_eq!(indirect_facts.memory_access(), MemoryAccessClass::ReadWrite);
+
+    let mut resume = read_only_function();
+    resume.blocks[0].terminator = ArcTerminator::Resume;
+    let resume_facts = contract.function_effect_facts(&resume);
+    assert!(resume_facts.may_write_inaccessible());
+    assert_eq!(resume_facts.memory_access(), MemoryAccessClass::ReadWrite);
 }

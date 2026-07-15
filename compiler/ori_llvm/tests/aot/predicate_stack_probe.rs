@@ -1,10 +1,11 @@
-//! Burden-path self-sufficiency probe for the canonical RC-emission path.
+//! Burden-path self-sufficiency probe for the current compiled-counter adapter.
 //!
 //! Compiles real Ori programs with `ORI_DISABLE_PREDICATE_STACK_RC=1` — which
 //! suppresses the predicate-stack `RcInc`/`RcDec` emission and lowers surviving
 //! `BurdenInc → RcInc` / `BurdenDec → RcDec` mechanically (Phase 7) — then runs
-//! each under `ORI_CHECK_LEAKS=1`. A pass proves the burden path ALONE produces
-//! a VF-1-balanced, leak-free, double-free-free binary for the covered shape.
+//! each under `ORI_CHECK_LEAKS=1`. A pass proves only that this adapter's burden
+//! path produces a VF-1-balanced, leak-free, double-free-free binary for the
+//! covered shape; it is not an AIMS-wide or cross-executor verdict.
 //!
 //! Matrix dimensions (burden-lowering completeness shapes): move-alias chain,
 //! duplication-alias with live source, collection-buffer last-use
@@ -21,9 +22,10 @@
 
 use crate::util::compile_and_run_with_build_env;
 
-/// Compile `source` with the predicate-stack RC emitter OFF (burden path is the
-/// sole real-RC emitter) and run under leak checking. Asserts the program exits
-/// 0 with no FATAL double-free / leak diagnostic on stderr.
+/// Compile `source` with the predicate-stack RC emitter OFF (the burden path is
+/// the current compiled-counter adapter's sole real-RC emitter) and run under
+/// leak checking. Asserts the program exits 0 with no FATAL double-free / leak
+/// diagnostic on stderr.
 fn assert_burden_path_self_sufficient(source: &str, label: &str) {
     let (exit, stdout, stderr) =
         compile_and_run_with_build_env(source, &[("ORI_DISABLE_PREDICATE_STACK_RC", "1")]);
@@ -1102,7 +1104,8 @@ fn probe_owned_set_str_local_named_iter_count_freed_once() {
 
 /// Clamp (generic-Set-param iterator-consumption): owned `Set<int>` consumed by named `.iter()` AND RETURNED
 /// (escapes after iteration). The receiver is `[own]` (transfers through Return),
-/// so AIMS keeps it live across the iter via a keep-alive inc (RC 2); the cure's
+/// so AIMS freezes an additional owner credit across the iterator; the current
+/// counter adapter realizes that credit as a keep-alive inc (RC 2). The cure's
 /// gate fires the set-buffer dec, leaving RC 1 for the caller's surviving ref —
 /// no leak, no double-free. Covers the owned-Set-param iterator-consumption and
 /// escaping-return overlap, governed by `RL2_iter_consume_return_overlap_balanced`

@@ -181,7 +181,7 @@ fn flush_composed_burdens_registers_spec_against_type_registry() {
         None => panic!("unreachable: 1 is non-zero"),
     };
     let spec = UserBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: vec![],
         borrowed_fields: vec![],
         variant_burdens: vec![UserVariantBurden {
@@ -195,7 +195,7 @@ fn flush_composed_burdens_registers_spec_against_type_registry() {
             retained_owned: vec![],
         }],
         element_burden: None,
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     };
 
@@ -251,7 +251,7 @@ fn finish_with_pool_exports_monomorphized_list_collection_burden() {
     // The element-burden shape `compose_user_burden` produces for `[str]`: the
     // buffer owns its `str` elements.
     let spec = UserBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         owned_fields: vec![UserOwnedField {
             field_path: vec![0],
             field_type: Idx::STR,
@@ -259,7 +259,7 @@ fn finish_with_pool_exports_monomorphized_list_collection_burden() {
         borrowed_fields: vec![],
         variant_burdens: vec![],
         element_burden: Some(Idx::STR),
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     };
     let canonical = checker
@@ -313,7 +313,7 @@ fn finish_with_pool_collection_burdens_sorted_and_excludes_nominal_entries() {
     let map_str_str = checker.pool_mut().map(Idx::STR, Idx::STR);
 
     let list_spec = UserBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         owned_fields: vec![UserOwnedField {
             field_path: vec![0],
             field_type: Idx::STR,
@@ -321,11 +321,11 @@ fn finish_with_pool_collection_burdens_sorted_and_excludes_nominal_entries() {
         borrowed_fields: vec![],
         variant_burdens: vec![],
         element_burden: Some(Idx::STR),
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     };
     let map_spec = UserBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         owned_fields: vec![UserOwnedField {
             field_path: vec![0],
             field_type: Idx::STR,
@@ -333,7 +333,7 @@ fn finish_with_pool_collection_burdens_sorted_and_excludes_nominal_entries() {
         borrowed_fields: vec![],
         variant_burdens: vec![],
         element_burden: Some(Idx::STR),
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     };
     checker
@@ -348,7 +348,7 @@ fn finish_with_pool_collection_burdens_sorted_and_excludes_nominal_entries() {
     let nominal_idx = Idx::from_raw(951);
     let nominal_name = Name::from_raw(0x20009);
     let nominal_spec = UserBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: vec![UserOwnedField {
             field_path: vec![0],
             field_type: Idx::STR,
@@ -356,7 +356,7 @@ fn finish_with_pool_collection_burdens_sorted_and_excludes_nominal_entries() {
         borrowed_fields: vec![],
         variant_burdens: vec![],
         element_burden: None,
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     };
     checker.type_registry_mut().register_struct(

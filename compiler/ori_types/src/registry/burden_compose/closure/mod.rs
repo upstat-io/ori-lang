@@ -1,43 +1,30 @@
 //! Closure capture composition — `UserBurdenSpec` population at
 //! closure-type-registration time.
 //!
-//! Spec: Annex E §AIMS — closure environments are heap-allocated values whose
-//! burden is composed at the lambda-expression type-check site. The composed
-//! `UserBurdenSpec` carries:
+//! Spec: Annex E §AIMS — captured environments introduce logical ownership
+//! identities whose burdens are composed at the lambda-expression type-check
+//! site. The composed `UserBurdenSpec` carries:
 //!
-//! - `self_heap_alloc: true` — closure env is heap-allocated.
+//! - `self_owned_identity: true` — the closure value receives a conservative
+//!   logical callable identity; no storage class or header is implied.
 //! - `owned_fields[i]` — one entry per captured-by-value capture (`Idx` = the
 //!   captured binding's resolved type Idx).
 //! - `borrowed_fields[i]` — one entry per captured-by-reference capture (per
-//!   `Tag::Borrowed`-target lifetime tie-back to parent variable; the closure
-//!   env-header layout carries the refcount + `drop_fn` slot ahead of captures).
+//!   `Tag::Borrowed`-target lifetime tie-back to the parent variable).
 //! - `element_burden: None` — closures are not collections.
 //! - `variant_burdens: []` — closures are not sums.
-//! - `compiled_drop: Some(env_drop_fn_sym)` — minted at registration, body
-//!   materialized later via existing `DropKind::ClosureEnv` arm at
-//!   `compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs`.
+//! - `drop_operation` — a stable logical cleanup identity; physical
+//!   projections may discharge it, inline it, or map it to a helper.
 //! - `user_drop: None` — closures cannot have user `@drop` (only types do per
 //!   `drop-trait-proposal.md §Auto-derive`).
 //!
-//! Env-header layout (NO new ABI — already shipped in `rc_ops.rs`):
-//!
-//! ```text
-//! [env_ptr - 8] : refcount (i64, RT-2 header convention)
-//! [env_ptr + 0] : drop_fn (ptr, 8 bytes — loaded by emit_rc_dec_closure)
-//! [env_ptr + 8] : captured_field_0
-//! [env_ptr + 16]: captured_field_1
-//! ...
-//! ```
-//!
 //! `field_path` indices in `UserOwnedField` / `UserBorrowedField` start at 0
-//! (logical capture position). The +8-byte physical offset from the env-header
-//! `drop_fn` slot is handled by codegen at `gep env_ptr, 8 + accumulated_offsets`,
-//! NOT by the burden spec (which carries logical capture indices for the
-//! `DropKind::ClosureEnv(fields)` arm — see `drop_gen.rs`).
+//! (logical capture position). A VM or compiled layout plan maps those paths to
+//! its own storage; no physical offset enters this spec.
 
 use ori_registry::burden::FnSym;
 
-use super::scc::mint_compiled_drop_fn_sym;
+use super::scc::mint_drop_operation_sym;
 use crate::registry::burden::{
     UserBorrowedField, UserBurdenSpec, UserOwnedField, UserVariantBurden,
 };
@@ -58,18 +45,18 @@ pub struct ClosureCapture {
 ///
 /// Inputs:
 /// - `closure_idx` — the resolved `Idx` of the synthesized closure type. The
-///   minted `compiled_drop` `FnSym` keys on this `Idx` via
-///   `mint_compiled_drop_fn_sym` (per `scc/mod.rs` mangling: `raw + 1`).
+///   minted `drop_operation` identity keys on this `Idx` via
+///   `mint_drop_operation_sym`.
 /// - `owned_captures` — captured-by-value captures. One `UserOwnedField` per
 ///   entry; `field_path: vec![capture.field_index]`.
 /// - `borrowed_captures` — captured-by-reference captures. One
 ///   `UserBorrowedField` per entry; same `field_path` convention.
 ///
 /// Output: `UserBurdenSpec` populated as:
-/// - `self_heap_alloc: true`
+/// - `self_owned_identity: true`
 /// - `owned_fields` / `borrowed_fields` mapped from inputs
 /// - `element_burden: None`, `variant_burdens: []`
-/// - `compiled_drop: Some(mint_compiled_drop_fn_sym(closure_idx))`
+/// - `drop_operation: Some(mint_drop_operation_sym(closure_idx))`
 /// - `user_drop: None`
 ///
 /// The composed spec is then registered via
@@ -83,7 +70,7 @@ pub fn compose_closure_burden_spec(
     borrowed_captures: &[ClosureCapture],
 ) -> UserBurdenSpec {
     UserBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         owned_fields: owned_captures
             .iter()
             .map(|c| UserOwnedField {
@@ -100,21 +87,20 @@ pub fn compose_closure_burden_spec(
             .collect(),
         variant_burdens: Vec::<UserVariantBurden>::new(),
         element_burden: None,
-        compiled_drop: Some(mint_closure_drop_fn_sym(closure_idx)),
+        drop_operation: Some(mint_closure_drop_operation(closure_idx)),
         user_drop: None,
     }
 }
 
-/// Mint a deterministic `FnSym` for a closure's compiled drop function.
+/// Mint a deterministic logical cleanup identity for a captured environment.
 ///
-/// Reuses `scc::mint_compiled_drop_fn_sym` so closure drop functions share the
-/// `_ori_drop$<idx_raw>` mangling key with recursive-type drop functions per
-/// `drop_gen.rs`. The per-`Idx` distinctness contract (`raw + 1`, saturating)
-/// holds identically — two closures with distinct pool `Idx` values get distinct
-/// `FnSym` values even when their capture shapes are structurally identical.
+/// Reuses `scc::mint_drop_operation_sym` so recursive types and closures share
+/// one stable identity space. Helper naming and body emission are projection
+/// decisions. Distinct pool `Idx` values receive distinct identities even when
+/// their capture shapes are structurally identical.
 #[must_use]
-pub fn mint_closure_drop_fn_sym(closure_idx: Idx) -> FnSym {
-    mint_compiled_drop_fn_sym(closure_idx)
+pub fn mint_closure_drop_operation(closure_idx: Idx) -> FnSym {
+    mint_drop_operation_sym(closure_idx)
 }
 
 #[cfg(test)]

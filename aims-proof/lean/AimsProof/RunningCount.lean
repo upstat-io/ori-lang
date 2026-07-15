@@ -1,6 +1,6 @@
 /-
 AIMS running-count module — kernel-checked Lean proofs of the keep-alive
-whole-pair running-refcount theorem T3 over the committed RcOp ledger, bridged
+whole-pair running-owner-credit theorem T3 over the committed `RcOp` ledger, bridged
 to the RL-22 / RL-23 / RL-25 KnownSafe pair-elimination family.
 
 Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean):
@@ -10,15 +10,20 @@ Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean)
   .proof: aims-proof/proofs/12-provenance/T3-keepalive-running-refcount.proof |
   map: aims-proof/scripts/proof-lean-map.json (theorem -> rule/spec/proof/lean).
 
+Interpretation: `RcOp`, `rcBalance`, and `runningRc` are stable historical proof
+carrier names. Their integers model outstanding LOGICAL OWNER CREDITS, not a
+mandated runtime header or reference counter. A counter-based target obtains a
+physical corollary only after its plan proves `Satisfies` against these facts.
+
 Correspondence: the committed ledger (`rcBalance` over `RcOp`, Realization.lean)
-proves NET balance only — it has no running-refcount notion, so it cannot
+proves NET balance only — it has no running-owner-credit notion, so it cannot
 distinguish the SOUND whole-pair elision (a matched inc/dec pair removed under
 a live same-allocation-class sibling) from the UNSOUND inc-only split (inc
 removed, dec kept). This module adds the running-count (prefix-sum) surface
 over the SAME `RcOp` carrier and proves the distinction:
 
   * whole-PAIR elision under a live same-class sibling bracket is SAFE — the
-    shared count never drops below 1 before the final release;
+    logical credit count never drops below 1 before the final release;
   * the inc-ONLY split drives the count to 0 before the sibling's release
     (premature free) and nets -1 (double release) — proven unsound, so the
     per-var inc-only elision is correctly refused.
@@ -39,9 +44,9 @@ set_option maxHeartbeats 1000000
 
 namespace AimsProof
 
-/-! ## §T3 running refcount — the prefix-sum surface over the RcOp ledger -/
+/-! ## §T3 running owner credits — the prefix-sum surface over the RcOp ledger -/
 
-/-- §T3 the running refcount after each prefix of a lifecycle, from `start`:
+/-- §T3 the running logical owner-credit count after each lifecycle prefix:
     the head is `start`; each step adds the next op's delta. -/
 def runningRc : Int → List RcOp → List Int
   | start, [] => [start]

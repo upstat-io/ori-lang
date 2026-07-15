@@ -11,8 +11,8 @@
 //! for error trace inspection.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag, ONE_SELF_OWNED,
+    MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ParamDef, ResultRuntime,
+    ReturnTag, TypeDef, TypeParamArity, TypeProjection, TypeTag, ONE_SELF_OWNED,
 };
 
 use super::params::{CLOSURE_PARAM, MESSAGE_PARAM};
@@ -43,8 +43,10 @@ static RESULT_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
-    MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::AndThen)),
+    MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Result(ResultRuntime::Clone)),
     MethodDef::compound(
         "compare",
         &ONE_SELF_OWNED,
@@ -52,8 +54,10 @@ static RESULT_METHODS: &[MethodDef] = &[
         Some("Comparable"),
         Ownership::Borrow,
         false,
-    ),
-    MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::Compare)),
+    MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Result(ResultRuntime::Debug)),
     MethodDef::compound(
         "equals",
         &ONE_SELF_OWNED,
@@ -61,7 +65,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         Some("Eq"),
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::Equals)),
     MethodDef::compound(
         "err",
         &[],
@@ -69,7 +74,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::Err)),
     MethodDef::compound(
         "expect",
         &MESSAGE_PARAM,
@@ -77,7 +83,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::Expect)),
     MethodDef::compound(
         "expect_err",
         &MESSAGE_PARAM,
@@ -85,7 +92,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::ExpectErr)),
     MethodDef::compound(
         "has_trace",
         &[],
@@ -93,11 +101,16 @@ static RESULT_METHODS: &[MethodDef] = &[
         Some("Traceable"),
         Ownership::Borrow,
         false,
-    ),
-    MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, false),
-    MethodDef::compound("is_err", &[], BOOL, None, Ownership::Borrow, false),
-    MethodDef::compound("is_ok", &[], BOOL, None, Ownership::Borrow, false),
-    MethodDef::compound("map", &CLOSURE_PARAM, FRESH, None, Ownership::Borrow, false),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::HasTrace)),
+    MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Result(ResultRuntime::Hash)),
+    MethodDef::compound("is_err", &[], BOOL, None, Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Result(ResultRuntime::IsErr)),
+    MethodDef::compound("is_ok", &[], BOOL, None, Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Result(ResultRuntime::IsOk)),
+    MethodDef::compound("map", &CLOSURE_PARAM, FRESH, None, Ownership::Borrow, false)
+        .with_runtime(MethodRuntime::Result(ResultRuntime::Map)),
     MethodDef::compound(
         "map_err",
         &CLOSURE_PARAM,
@@ -105,7 +118,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::MapErr)),
     MethodDef::compound(
         "ok",
         &[],
@@ -113,7 +127,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::Ok)),
     MethodDef::compound(
         "or_else",
         &CLOSURE_PARAM,
@@ -121,7 +136,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::OrElse)),
     MethodDef::compound(
         "to_str",
         &[],
@@ -129,7 +145,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         Some("Printable"),
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::ToString),
     MethodDef::compound(
         "trace",
         &[],
@@ -137,7 +154,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         Some("Traceable"),
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::Trace)),
     MethodDef::compound(
         "trace_entries",
         &[],
@@ -145,7 +163,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         Some("Traceable"),
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::TraceEntries)),
     MethodDef::compound(
         "unwrap",
         &[],
@@ -153,7 +172,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::Unwrap)),
     MethodDef::compound(
         "unwrap_err",
         &[],
@@ -161,7 +181,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::UnwrapErr)),
     MethodDef::compound(
         "unwrap_or",
         &DEFAULT_PARAM,
@@ -169,7 +190,8 @@ static RESULT_METHODS: &[MethodDef] = &[
         None,
         Ownership::Borrow,
         false,
-    ),
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::UnwrapOr)),
 ];
 
 pub static RESULT: TypeDef = TypeDef {

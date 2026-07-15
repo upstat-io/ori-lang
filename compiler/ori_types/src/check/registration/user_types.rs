@@ -83,8 +83,10 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 None, // repr set after validation below
                 burden.clone(),
             );
-            // Inv: burden is keyed under BOTH the decl idx and its resolved pool
-            // idx — ARC var types carry the resolved idx.
+            // ARC may retain the nominal declaration carrier or consume its
+            // resolved layout identity at different semantic sites. Register
+            // both exact keys so burden lookup never depends on eager nominal
+            // erasure.
             if let Some(spec) = burden {
                 checker
                     .type_registry_mut()
@@ -157,8 +159,10 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 None, // repr set after validation below
                 burden.clone(),
             );
-            // Inv: burden is keyed under BOTH the decl idx and its resolved pool
-            // idx — ARC var types carry the resolved idx.
+            // ARC may retain the nominal declaration carrier or consume its
+            // resolved layout identity at different semantic sites. Register
+            // both exact keys so burden lookup never depends on eager nominal
+            // erasure.
             if let Some(spec) = burden {
                 checker
                     .type_registry_mut()

@@ -104,6 +104,11 @@ pub(crate) fn merge_blocks(func: &mut ArcFunction) {
     // single ArcVarId — the mutable binding was never modified inside
     // the loop. Replace uses with the common value, remove the param.
     invariant_param::eliminate_invariant_params(func);
+
+    // Structural compaction can remove dead PrimOp definitions. Their frozen
+    // facts are keyed to those exact SSA destinations and retire with them;
+    // surviving facts are never reclassified or rewritten here.
+    crate::aims::primitive::retire_removed_primitive_facts(func);
 }
 
 /// Convert a `usize` block index to an `ArcBlockId`.

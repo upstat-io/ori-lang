@@ -84,23 +84,16 @@ pub struct GenericLeafDivergence {
     pub concrete_idx: Idx,
 }
 
-/// One CONSUMER edge: attributes a generated drop-glue symbol
-/// (`_ori_drop$<idx>`) back to the `Idx` chain whose drop-synthesis walk
-/// produced it. Makes an RC-on-scalar emission
-/// (`ori_rc_dec(i64 7, @_ori_drop$141)`) point at its provenance — the
-/// generic-leaf chain the drop walk descended.
+/// One CONSUMER edge: attributes a logical drop plan back to the `Idx` chain
+/// whose drop-synthesis walk produced it.
 ///
-/// Populated read-only by the drop-descriptor walk (`ori_arc::drop`) over the
-/// same root the DAG walks; never by this crate (`ori_types` has no view of the
-/// drop-glue naming convention, which lives at the codegen boundary). The
-/// `drop_glue_symbol` string is the exact symbol the codegen emitter names, so
-/// the attribution can never drift from the emitted symbol.
+/// Populated read-only by the backend-neutral drop-descriptor walk over the
+/// same root the DAG walks. Physical projections may give the plan a symbol,
+/// bytecode identity, or runtime-table entry without changing this edge.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsumerEdge {
-    /// The type the drop glue is generated for (the `<idx>` in `_ori_drop$<idx>`).
+    /// The type whose logical drop plan consumes the walked chain.
     pub type_idx: Idx,
-    /// The verbatim drop-glue symbol the codegen emitter names for `type_idx`.
-    pub drop_glue_symbol: String,
     /// The field/projection chain the drop-synthesis walk descended to reach
     /// `type_idx`, root-first (the last entry equals `type_idx`).
     pub walked_chain: Vec<Idx>,
@@ -358,8 +351,8 @@ impl ProvenanceDag {
                 .collect();
             let _ = writeln!(
                 out,
-                "  {} <=consumes= {}",
-                edge.drop_glue_symbol,
+                "  drop-plan {} <=consumes= {}",
+                Self::render_idx(pool, edge.type_idx, interner),
                 chain.join(" -> "),
             );
         }

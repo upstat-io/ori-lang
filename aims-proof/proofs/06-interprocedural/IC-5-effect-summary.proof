@@ -19,8 +19,9 @@ Theorem IC-5: EffectSummary derivation soundness
       join: `may_allocate(OR), may_deallocate(OR), may_share(OR),
       may_throw(OR), has_unbounded_stack(OR), may_read_inaccessible(OR)`.
       `may_read_inaccessible` true when reads globals / thread-
-      local / non-arg memory — required for RL-30 (`memory(none)`
-      requires ALL false). `alloc_only_on_slow_path`
+      local / non-arg memory. This supports future region-sensitive facts;
+      RL-30's current generic ReadOnly class permits all reads.
+      `alloc_only_on_slow_path`
       intraprocedural-only."
     - Derivation rules (Annex E §AIMS IC-5 procedure):
       - `Construct`/`Reuse`/`CollectionReuse`/`PartialApply` ->
@@ -192,11 +193,9 @@ Theorem IC-5: EffectSummary derivation soundness
           - true if `i` is `Apply(callee, _)` with `callee in C`
             AND `C[callee].effects.may_read_inaccessible = true`
           - false otherwise
-        Required for RL-30 `memory(none)` LLVM attribute
-        (sec-8): `memory(none)` SHALL be emitted ONLY when ALL
-        OR-joined fields are false; target-only field; shipped
-        struct does not yet carry this flag (target-vs-shipped
-        axis carve-out — when wired, OR-fold shape preserved).
+        Supports future region-sensitive access facts. The shipped generic
+        ReadOnly fact makes no no-access or argument-region-only claim;
+        target-only field; shipped struct does not yet carry this flag.
 
       (P8) alloc_only_on_slow_path AND-join (post-realization):
         e.alloc_only_on_slow_path = AND over i in I-of-allocs of
@@ -543,8 +542,7 @@ Theorem IC-5: EffectSummary derivation soundness
 
       Spec rule (Annex E §AIMS IC-5):
       "`may_read_inaccessible` true when reads globals /
-      thread-local / non-arg memory — required for RL-30
-      (`memory(none)` requires ALL false)."
+      thread-local / non-arg memory."
 
       Target-vs-shipped axis carve-out: shipped
       `EffectSummary` struct (contract/mod.rs lines 479-511)
@@ -562,13 +560,11 @@ Theorem IC-5: EffectSummary derivation soundness
       OR triggers; callee inheritance via
       `EffectSummary::join` adds an OR contribution.
 
-      RL-30 (`memory(none)` LLVM attribute per Annex E §AIMS) gates on ALL OR-joined fields being false. Until
-      `may_read_inaccessible` is wired, RL-30 cannot emit
-      `memory(none)` unconditionally — the field's absence
-      means the attribute SHALL only be emitted via target-
-      only LLVM lowering rules, not via the IC-5-derived
-      EffectSummary. (P7) discharged in proof shape; concrete
-      derivation deferred to the field-wiring commit.
+      The shipped RL-30 carrier deliberately has no no-access fact: ReadOnly
+      permits inaccessible reads and projects only to generic memory(read).
+      Until typed region facts land, memory(none) and argument-region-only
+      projections remain forbidden. (P7) discharges the future precision
+      shape without weakening the current conservative fact.
 
     Part (P8) — alloc_only_on_slow_path AND-join:
 
@@ -821,14 +817,10 @@ Theorem IC-5: EffectSummary derivation soundness
       regardless of whether the call result is actually used
       (e.g., Cardinality = Absent — the result is dead).
 
-      Downstream consequence: RL-30 (`memory(none)` LLVM
-      attribute, sec-8) gates on ALL OR-joined fields being
-      false. With the corrupted derivation, every function
-      with any Apply-no-contract call would lose
-      `memory(none)` even when the call result is dead and
-      unused — a pessimistic over-approximation that
-      eliminates a major LLVM optimization opportunity for
-      AIMS-certified pure functions.
+      This does not license a memory optimization: RL-30 independently marks
+      every untyped call may_write_inaccessible and therefore ReadWrite,
+      regardless of result liveness. The separation exists so ownership/FIP
+      effects are not polluted by a per-variable result lattice.
 
       Per §AIMS §3.7 CRITICAL note: "Per-variable EffectClass =
       ALL on call results does NOT poison caller's
@@ -839,8 +831,8 @@ Theorem IC-5: EffectSummary derivation soundness
       prove pure functions PURE despite Apply-no-contract
       calls in the middle of them. (P1) preserved by the
       shipped engine's pattern-match-on-instruction-shape
-      discipline; corrupting it to join-per-variable would
-      destroy the lattice's ability to certify purity.
+      discipline; corrupting it to join-per-variable would destroy the
+      lattice's ability to certify ownership/FIP properties.
 
     Negative-direction witness — replacing OR with AND on
     may_share rejected:
@@ -860,21 +852,15 @@ Theorem IC-5: EffectSummary derivation soundness
       Per L-6 monotonicity: the corrupted AND-join is
       anti-monotone in the OR-lattice direction. Functions
       sharing through callees would silently report
-      `may_share = false` — RL-30 `memory(argmemonly)` (per
-      sec-8) gates on `may_share = false`, so the corrupted
-      derivation would emit `argmemonly` on functions that
-      actually share their parameters' RC across calls. LLVM
-      would then assume the function only accesses memory
-      reachable from its arguments; downstream optimizations
-      (load reordering, dead store elimination) would emit
-      unsound code.
+      `may_share = false`. The corrupted contract would then let ownership
+      realization omit required sharing and RC operations. RL-30 still fails
+      closed on the call and does not emit an argument-region-only attribute.
 
       Result: silent miscompilation — exactly the AIMS
       Invariant 1 ("Contracts and realization must agree" per
       Annex E §AIMS §2 invariant 1) violation.
-      OR-join for the 5 effect-OR fields is therefore
-      load-bearing for the entire RL-30 LLVM attribute
-      discipline; AND-join is a soundness failure.
+      OR-join for the effect fields is therefore load-bearing for AIMS contract
+      and realization agreement; AND-join is a soundness failure.
 
     Negative-direction witness — replacing AND with OR on
     alloc_only_on_slow_path rejected:
@@ -940,10 +926,8 @@ Theorem IC-5: EffectSummary derivation soundness
         IC-5 --> IC-7 (convergence bound — consumes
                          EffectSummary chain height = 6 to
                          compute iteration bound)
-        IC-5 --> RL-30 (LLVM attribute emission consumes
-                         EffectSummary to gate `memory(none)`,
-                         `memory(argmemonly)`, etc., per
-                         Annex E §AIMS)
+        IC-5 --> RL-30 (neutral MemoryAccessFact consumes EffectSummary plus
+                         parameter contracts and realized-operation write facts)
 
       IC-5 is the effect-derivation operator within the IC
       layer; L-* lemmas are proven upstream in sec-02.
@@ -1071,8 +1055,7 @@ Theorem IC-5: EffectSummary derivation soundness
         emits Fail on any divergence)
       interprocedural_summary (per-function EffectSummary
         export within SCC fixpoint loop; consumed by IC-6
-        FipContract classification, by RL-30 LLVM attribute
-        emission gates, by Step 5a verify_fip_contract per
+        FipContract classification, by RL-30 neutral fact derivation, by Step 5a verify_fip_contract per
         Annex E §AIMS)
       case_analysis (per-instruction trigger table per sec-5
         IC-5 procedure: 8 instruction kinds + 4 terminator
@@ -1083,4 +1066,4 @@ Theorem IC-5: EffectSummary derivation soundness
 
   Expected:
     status: valid
-    reason: section_06 fixpoint engine discharges IC-5 via eight-conjunct verification ((P1) per-instruction derivation not per-variable + (P2) may_allocate OR-fold + (P3) may_deallocate post-realization OR-fold + (P4) may_share OR-fold + (P5) may_throw OR-fold + (P6) has_unbounded_stack one-shot from SCC + (P7) may_read_inaccessible OR-fold target-only + (P8) alloc_only_on_slow_path AND-fold post-realization) over a 16-test corpus covering pure / single-instruction / callee-inherit / terminator-throw / SCC-recursive / per-variable-non-poisoning / AND-fold-semantics cases; effect-system soundness inherited from FP² (Lorenzen et al. ICFP 2023 Theorem 2) + Cousot/Cousot 1977 (interprocedural summary via SCC-topological monotone iteration) + Reynolds 1998 (effect-system theoretical foundation); shipped engine `accumulate_instr_effects` at compiler/ori_arc/src/aims/intraprocedural/effects.rs lines 22-62 + `accumulate_terminator_effects` lines 68-79 + `extract_contract` finalization at extract.rs line 157 + `EffectSummary::join` at contract/mod.rs lines 535-548 emit OR-fold for 5 effect fields + AND-fold for alloc_only_on_slow_path in O(N + M + C) per function, deterministically across all targets (deterministic query contract); target-vs-shipped axis carve-out (may_read_inaccessible field not yet wired; Reuse/CollectionReuse/no-contract-Apply-ALL-seed/Owned-param/Set/SetTag/InvokeIndirect/Resume triggers target-only) preserves spec conformance on the 5 shipped OR-fields + the 1 AND-field + the 1 one-shot field; architectural separation between EffectSummary (per-function, derived from instructions) and per-variable EffectClass lattice dimension (§AIMS §3.7 CRITICAL note) is load-bearing for AIMS purity certification and RL-30 LLVM attribute emission
+    reason: section_06 fixpoint engine discharges IC-5 via eight-conjunct verification over per-instruction ownership/FIP effects and callee summaries; RL-30 consumes that neutral summary together with parameter contracts and an independent realized-operation may_write_inaccessible fact, so untyped calls fail closed while inaccessible reads remain compatible with generic ReadOnly

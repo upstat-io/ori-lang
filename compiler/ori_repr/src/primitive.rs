@@ -2,7 +2,7 @@
 
 use ori_ir::{BinaryOp, UnaryOp};
 use ori_registry::{OpStrategy, TypeTag};
-use ori_types::{registry_binary_strategy, registry_unary_strategy};
+use ori_types::{primitive_binary_strategy, primitive_unary_strategy};
 
 pub use ori_registry::{OpStrategy as PrimitiveStrategy, TypeTag as BuiltinType};
 
@@ -12,15 +12,7 @@ pub use ori_registry::{OpStrategy as PrimitiveStrategy, TypeTag as BuiltinType};
 /// instruction formats. They must not independently re-derive it.
 #[must_use]
 pub fn binary_primitive_strategy(type_tag: TypeTag, operation: BinaryOp) -> OpStrategy {
-    match operation {
-        BinaryOp::And | BinaryOp::Or => return OpStrategy::IntInstr,
-        BinaryOp::MatMul | BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::Coalesce => {
-            return OpStrategy::Unsupported
-        }
-        _ => {}
-    }
-
-    registry_binary_strategy(type_tag, operation).unwrap_or(OpStrategy::Unsupported)
+    primitive_binary_strategy(type_tag, operation)
 }
 
 /// Select the canonical lowering strategy for a builtin unary operation.
@@ -29,11 +21,7 @@ pub fn binary_primitive_strategy(type_tag: TypeTag, operation: BinaryOp) -> OpSt
 /// instruction formats. They must not independently re-derive it.
 #[must_use]
 pub fn unary_primitive_strategy(type_tag: TypeTag, operation: UnaryOp) -> OpStrategy {
-    if matches!(operation, UnaryOp::Try) {
-        return OpStrategy::Unsupported;
-    }
-
-    registry_unary_strategy(type_tag, operation).unwrap_or(OpStrategy::Unsupported)
+    primitive_unary_strategy(type_tag, operation)
 }
 
 #[cfg(test)]
@@ -44,22 +32,19 @@ mod tests {
     fn classifies_integer_float_bool_and_runtime_operations() {
         assert_eq!(
             binary_primitive_strategy(TypeTag::Int, BinaryOp::Add),
-            OpStrategy::IntInstr
+            OpStrategy::SignedInteger
         );
         assert_eq!(
             binary_primitive_strategy(TypeTag::Float, BinaryOp::Lt),
-            OpStrategy::FloatInstr
+            OpStrategy::FloatingPoint
         );
         assert_eq!(
             unary_primitive_strategy(TypeTag::Bool, UnaryOp::Not),
-            OpStrategy::BoolLogic
+            OpStrategy::BooleanLogic
         );
         assert!(matches!(
             binary_primitive_strategy(TypeTag::Str, BinaryOp::Add),
-            OpStrategy::RuntimeCall {
-                fn_name: "ori_str_concat",
-                returns_bool: false
-            }
+            OpStrategy::RuntimeCall(ori_registry::RuntimeOperator::StringConcat)
         ));
     }
 
@@ -80,7 +65,7 @@ mod tests {
         for operation in [BinaryOp::And, BinaryOp::Or] {
             assert_eq!(
                 binary_primitive_strategy(TypeTag::Bool, operation),
-                OpStrategy::IntInstr
+                OpStrategy::SignedInteger
             );
         }
     }

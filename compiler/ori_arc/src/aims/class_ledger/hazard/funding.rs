@@ -166,14 +166,13 @@ fn collect_extraction_seeds(
                 credit_sites.push((block_idx, index));
                 continue;
             }
-            // A seed inc funds ONLY a refcount-managed allocation. A view
-            // type with no burden (an iterator handle: freed by destructor,
-            // never by refcount) lowers the inc to nothing, so the container
-            // release still destroys the extracted payload — decline. A
-            // `FatValue` seed (str / closure) is ALWAYS refcount-managed —
-            // its inc lowers unconditionally — so it stays fundable even
-            // when the burden lookup cannot resolve a monomorphized-generic
-            // pool alias of `str` (the generic-pair tuple-field shape).
+            // Transitional projection leak: the current `BurdenInc` carrier
+            // can disappear during compiled-shaped lowering for a type with
+            // no registered burden. Until logical events and physical-plan
+            // satisfaction are separate carriers, decline rather than claim a
+            // credit that the shipped adapter will not realize. `FatValue`
+            // is retained here only as compatibility evidence for unresolved
+            // monomorphized str/closure aliases; it is not an AIMS fact.
             let fundable = matches!(func.var_repr(*dst), Some(crate::ir::ValueRepr::FatValue))
                 || func.var_types.get(dst.index()).is_some_and(|&ty| {
                     lookup_burden(idx_to_type_ref(ty, type_registry), type_registry).is_some()

@@ -114,7 +114,10 @@ impl<'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'_, 'scx, 'ctx, 'tcx> {
         // against the same FunctionId (a second add_function on the same
         // symbol would make LLVM mint a renamed `sym.1` global).
         let mut declared: FxHashMap<&str, (FunctionId, FunctionAbi)> = FxHashMap::default();
-        for ImportSig { name, symbol, sig } in imports {
+        for ImportSig {
+            name, symbol, sig, ..
+        } in imports
+        {
             if let Some(entry) = declared.get(symbol.as_str()) {
                 self.codegen_ctx.functions.insert(*name, entry.clone());
             } else {

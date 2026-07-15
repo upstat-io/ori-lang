@@ -9,12 +9,11 @@ Theorem CH-3: Per-class coexistence with active stack burden — three sub-class
       the partition itself)
     - Three AIMS variable classes per the §11 coexistence section Per-CH Proof-Status Tracking
       table CH-3 row + the sec-11 success_criterion 12 IC-3 binding:
-        sub-class A: Owned x Linear x Once x Unique — RL-2 + RL-14 candidate
-                     (burden-emission-eligible; last-use dec + headerless
-                      stack promotion)
-        sub-class B: Borrowed x Linear x Once x Unique — RL-14 headerless
-                     candidate (no RC emission; borrowed locality clamped to
-                      FunctionLocal per CN-8)
+        sub-class A: Owned x Linear x Once x Unique — RL-2 logical-release
+                     class (burden-emission-eligible)
+        sub-class B: Borrowed x Linear x Once x Unique — caller-owned class
+                     (no callee-owned release emission; borrowed locality
+                      clamped to FunctionLocal per CN-8)
         sub-class C: MaybeShared x Many — RL-7 dynamic COW candidate
                      (IsShared runtime check; alloc-and-copy slow path)
     - depends-on sec-06 IC-3 ParamContract at aims-proof/proofs/06-interprocedural/
@@ -39,13 +38,14 @@ Theorem CH-3: Per-class coexistence with active stack burden — three sub-class
     - depends-on sec-08 RL-2 (last-use dec) at aims-proof/proofs/08-realization/
       RL-2.proof — RC dec at last use or scope exit; sub-class A's
       realization invariant
-    - depends-on sec-08 RL-14 (headerless stack promotion) at aims-proof/proofs/
-      08-realization/RL-14.proof — non-escaping allocations with Locality <=
-      FunctionLocal and Uniqueness = Unique SHALL be stack-allocated via alloca
-      with no RC header; sub-classes A + B's realization invariant
-    - depends-on sec-08 RL-7 (dynamic COW) at aims-proof/proofs/08-realization/
-      RL-7.proof — MaybeShared values emit IsShared check + branch to
-      in-place / copy; sub-class C's realization invariant
+    - depends-on sec-08 RL-14a (exact cleanup obligation) at aims-proof/proofs/
+      08-realization/RL-14a.proof — logical release-event identities and field
+      traversal order are preserved exactly for sub-class A. RL-14 lifetime
+      facts and RL-15 representation extent are orthogonal to this ownership
+      partition; RL-18 validates any target-owned physical mechanism
+    - depends-on sec-08 RL-7 at aims-proof/proofs/08-realization/RL-7.proof —
+      MaybeShared values retain a sharing-observation obligation whose
+      outcomes admit same identity or require isolation; sub-class C's invariant
     - depends-on CN-8 (Borrowed locality ceiling) at aims-proof/proofs/03-
       canonicalization/CN-8.proof — Access = Borrowed and Locality > FunctionLocal
       implies Locality := FunctionLocal; sub-class B's locality is canonically
@@ -92,12 +92,12 @@ Theorem CH-3: Per-class coexistence with active stack burden — three sub-class
         sub-class, the lattice's claim AND the burden registry's annotation
         agree:
 
-          class_of(v) = A implies consume_stack honors RL-2 last-use dec AND
-                              RL-14 stack-promotion field-level RcDec;
+          class_of(v) = A implies consume_stack honors RL-2 last-use release AND
+                              RL-14a exact cleanup-event identity;
                               burden registry annotation MUST agree
                               (BR.burden_emitted[v] = true)
-          class_of(v) = B implies consume_stack honors RL-14 headerless invariant
-                              (no RC emission); burden registry annotation
+          class_of(v) = B implies consume_stack honors Borrowed caller ownership
+                              (no callee-owned release emission); burden annotation
                               MUST agree (BR.burden_emitted[v] = false —
                               Borrowed values never enter burden_emission_path)
           class_of(v) = C implies consume_stack honors RL-7 dynamic COW slow-path
@@ -200,35 +200,31 @@ Theorem CH-3: Per-class coexistence with active stack burden — three sub-class
         Class A: burden-owned holds (the full conjunction satisfied);
           BR.burden_emitted[v] = true per the lattice-bridge consistency
           (CH-1 P1); consume_stack reads BR's annotation and emits the
-          single elimination decision per CH-2 (P1). RL-2 last-use dec is
-          emitted from L's converged state per sec-08 RL-2.proof; RL-14
-          stack-promotion is selected based on Locality <= FunctionLocal
-          (per DP-8 is_local + RL-14 candidate predicate) — Class A is
-          a CANDIDATE for RL-14 (the candidate is realized only when the
-          Locality <= FunctionLocal precondition additionally holds, which
-          is independent of the (Access x Uniqueness x Cardinality x
-          Consumption) sub-product). When realized, RL-14 emits field-level
-          RcDec for Owned reference-type fields in reverse declaration order
-          at scope exit per RL-14's heap-children rule. burden-emission and
-          predicate-stack-derived ops both honor this invariant (per CH-2 P2
-          composition commutativity).
+          single elimination decision per CH-2 (P1). RL-2's last-use release
+          is derived from L's converged state; RL-14a freezes the exact release
+          and field-traversal identities. Burden-emission and predicate-stack-
+          derived ops both honor that logical contract (per CH-2 P2
+          composition commutativity). LifetimeBound, ExtentClass, and target
+          placement are independent of this class judgment.
 
         Class B: burden-owned fails on the Access = Owned conjunct (L[v].
           access = Borrowed); BR.burden_emitted[v] = false (the burden walk
           skips Borrowed variables per the shipped burden_lower.rs
           DerivedOwnership side-table consumption per
           docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
-          coverage shape); RL-14 headerless invariant holds (no
-          RC emission); consume_stack does NOT enter burden_emission_path
-          for Class B variables.
+          coverage shape); Borrowed caller ownership carries no callee-owned
+          release at this use; consume_stack does NOT enter
+          burden_emission_path for Class B variables.
 
         Class C: burden-owned fails on the Uniqueness = Unique conjunct
           (L[v].uniqueness = MaybeShared); BR.burden_emitted[v] = false;
           RL-7 dynamic COW IsShared runtime check is emitted per sec-08
           RL-7.proof; consume_stack does NOT enter burden_emission_path
           for Class C variables. Burden elimination would race-invalidate
-          the runtime check (the IsShared check reads the RC header field,
-          which burden elimination assumes is unnecessary — a contradiction).
+          the logical sharing observation that `IsShared` requires, while
+          burden elimination assumes that observation is unnecessary — a
+          contradiction. Header shape and the physical sharing probe belong
+          to the selected layout, not to this AIMS judgment.
 
       Conclusion (P3): per-class realization invariant + burden agreement
       holds across all three sub-classes. Class A is the burden-emission-
@@ -260,4 +256,4 @@ Theorem CH-3: Per-class coexistence with active stack burden — three sub-class
 
   Expected:
     status: valid
-    reason: section_11 case_analysis (PRIMARY) + structural_induction + interprocedural_summary + lattice engines discharge CH-3 via (P1) total partition proven by canonical-state enumeration over the (Access x Uniqueness x Cardinality x Consumption) sub-product post- CN-1..CN-8 reduction, with sub-classes A / B / C each matching exactly one canonical row (A) or row slice (C); (P2) pairwise disjointness proven by per-dimension witness contradictions (Access for A disjoint B; Uniqueness + Cardinality for A disjoint C, B disjoint C); (P3) per-class realization invariant + burden agreement proven from CH-1 Part P3 inherited lattice-bridge predicate + sec-08 RL-2 / RL-14 / RL-7 per-class invariants + the burden registry's lattice-bridge-derived class_covered annotation; coverage gate: exactly 3 Parts discharged, a dropped Part fails CH-3 (the joined claim is no stronger than its weakest part)
+    reason: section_11 case_analysis (PRIMARY) + structural_induction + interprocedural_summary + lattice engines discharge CH-3 via (P1) total partition proven by canonical-state enumeration over the (Access x Uniqueness x Cardinality x Consumption) sub-product post- CN-1..CN-8 reduction, with sub-classes A / B / C each matching exactly one canonical row (A) or row slice (C); (P2) pairwise disjointness proven by per-dimension witness contradictions (Access for A disjoint B; Uniqueness + Cardinality for A disjoint C, B disjoint C); (P3) per-class logical realization invariant + burden agreement proven from CH-1 Part P3 inherited lattice-bridge predicate + sec-08 RL-2 / RL-14a / RL-7 invariants + the burden registry's lattice-bridge-derived class_covered annotation, with lifetime/extent/physical projection explicitly orthogonal; coverage gate: exactly 3 Parts discharged, a dropped Part fails CH-3 (the joined claim is no stronger than its weakest part)

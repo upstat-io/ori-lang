@@ -772,6 +772,7 @@ fn test_semantic_pin_narrowed_repr_differs_from_canonical() {
 
 use ori_arc::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue,
+    PrimitiveFacts,
 };
 use ori_arc::uniqueness::{CowAnnotations, DropHints};
 use ori_arc::ArcVarId;
@@ -792,6 +793,7 @@ fn make_arc_func(blocks: Vec<ArcBlock>, var_types: Vec<Idx>) -> ArcFunction {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
+        primitive_facts: PrimitiveFacts::default(),
         drop_hints: DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),

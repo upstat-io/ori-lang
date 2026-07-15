@@ -10,7 +10,7 @@
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcValue, ArcVarId, LitValue, PrimOp};
+use crate::ir::{ArcValue, ArcVarId, LitValue, MethodCallForm, PrimOp};
 
 use super::super::expr::{ArcLowerer, ForYieldContext, ForYieldShape, LoopContext};
 
@@ -51,6 +51,8 @@ impl ArcLowerer<'_> {
             let iter_handle =
                 self.builder
                     .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
+            self.builder
+                .note_method_call(iter_handle, iter_ty, MethodCallForm::Instance);
             (iter_handle, Idx::INT)
         } else if tag.is_iterator() {
             let elem_ty = self.pool.iterator_elem(iter_ty);
@@ -64,6 +66,8 @@ impl ArcLowerer<'_> {
             let iter_handle =
                 self.builder
                     .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
+            self.builder
+                .note_method_call(iter_handle, iter_ty, MethodCallForm::Instance);
 
             (iter_handle, elem_ty)
         }
@@ -210,7 +214,9 @@ impl ArcLowerer<'_> {
             .interner
             .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::IterNext.name());
         // Use INT result type to suppress ARC RC on the wrapper struct.
-        // Pass elem_ty marker so the LLVM emitter can size the scratch buffer.
+        // Preserve the logical element type for physical scratch-buffer
+        // sizing. The current LLVM projection consumes this marker; AIMS does
+        // not own the resulting byte layout.
         let elem_ty_marker =
             self.builder
                 .emit_let(elem_ty, ArcValue::Literal(LitValue::Int(0)), None);
@@ -343,11 +349,12 @@ impl ArcLowerer<'_> {
             .emit_apply(result_ty, list_take, vec![list_ptr], None, None)
     }
 
-    /// Compute element size in bytes for a given type.
+    /// Compute the transitional LLVM/runtime ABI element size in bytes.
     ///
-    /// Used to pass `elem_size` to `ori_list_new` and `ori_list_push`.
-    /// Must match `TypeLayoutResolver::type_store_size()` in `ori_llvm`
-    /// (sum of field sizes, no alignment padding).
+    /// Used to pass `elem_size` to `ori_list_new` and `ori_list_push`. This is
+    /// physical compatibility plumbing, not an AIMS policy or a
+    /// backend-neutral layout authority. It must match
+    /// `TypeLayoutResolver::type_store_size()` in the current LLVM projection.
     pub(super) fn compute_elem_size(&self, elem_ty: Idx) -> i64 {
         Self::type_store_size(elem_ty, self.pool, 0)
     }

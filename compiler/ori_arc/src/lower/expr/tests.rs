@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
 
-use ori_ir::canon::{CanArena, CanNamedExpr, CanNode, CanonResult};
+use ori_ir::canon::{CanArena, CanNamedExpr, CanNode, CanParam, CanonResult};
 use ori_ir::{FunctionExpKind, Name, Span, StringInterner, TypeId};
 use ori_types::Idx;
 use ori_types::Pool;
@@ -375,6 +375,83 @@ fn lower_function_ref_emits_partial_apply() {
     assert!(
         has_partial_apply,
         "expected PartialApply with empty captures"
+    );
+}
+
+#[test]
+fn lambda_target_preserves_callable_signature_identity() {
+    let interner = StringInterner::new();
+    let parent_name = interner.intern("nominal_lambda_parent");
+    let parameter_name = interner.intern("color");
+    let color_name = interner.intern("Color");
+    let red_name = interner.intern("Red");
+
+    let mut pool = Pool::new();
+    let named_color = pool.named(color_name);
+    let concrete_color = pool.enum_type(
+        color_name,
+        &[ori_types::EnumVariant {
+            name: red_name,
+            field_types: vec![],
+        }],
+    );
+    pool.set_resolution(named_color, concrete_color);
+    let lambda_type = pool.function(&[named_color], named_color);
+
+    let mut arena = CanArena::with_capacity(3);
+    let body = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(parameter_name),
+        Span::new(10, 15),
+        TypeId::from_raw(concrete_color.raw()),
+    ));
+    let params = arena.push_params(&[CanParam {
+        name: parameter_name,
+        default: ori_ir::canon::CanId::INVALID,
+    }]);
+    let lambda = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Lambda { params, body },
+        Span::new(0, 15),
+        TypeId::from_raw(lambda_type.raw()),
+    ));
+    let canon = CanonResult {
+        arena,
+        constants: ori_ir::canon::ConstantPool::new(),
+        decision_trees: ori_ir::canon::DecisionTreePool::default(),
+        root: lambda,
+        roots: vec![],
+        method_roots: vec![],
+        problems: vec![],
+        mono_dispatch_map_can: vec![],
+    };
+
+    let mut problems = Vec::new();
+    let (parent, lambdas) = lower_function_can(
+        parent_name,
+        &[],
+        lambda_type,
+        lambda,
+        &canon,
+        &interner,
+        &pool,
+        &mut problems,
+        false,
+        None,
+    );
+
+    assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+    assert_eq!(lambdas.len(), 1);
+    assert_ne!(named_color, concrete_color);
+    assert_eq!(
+        pool.function_params(parent.var_type(crate::ArcVarId::new(0)))[0],
+        named_color
+    );
+    assert_eq!(
+        lambdas[0].params[0].ty, named_color,
+        "the target parameter must retain the closure signature's nominal type identity"
+    );
+    assert_eq!(
+        lambdas[0].return_type, named_color,
+        "the target result must use the declared closure result rather than a narrower body type"
     );
 }
 

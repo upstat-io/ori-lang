@@ -61,6 +61,8 @@ related_journeys:
 
 # Journey 8: "I am generic"
 
+> **Historical architecture note (2026-07-14):** This journey preserves the LLVM IR and scores observed on 2026-03-20. AIMS owns backend-neutral ownership and effect facts; `nounwind`, `memory(...)`, calling conventions, and monomorphized machine layouts are downstream projections. The VM, LLVM/native, compiled-WASM, and JIT paths must consume the same closed executable artifact. LLVM-local attribute inference described below is a historical implementation detail, not a second semantic authority.
+
 ## Source
 
 ```ori
@@ -494,7 +496,7 @@ All four monomorphized functions produce the minimum possible instruction count.
 
 **Compliance**: 21/21 applicable attributes correct (100.0%).
 
-All three monomorphized helper functions share the `memory(none)` attribute, correctly recognizing that `identity` and `first` are pure passthrough functions and that `get_value`'s `extractvalue` on a by-value struct argument is also a pure operation (no memory load needed -- the struct is passed in registers).
+All three monomorphized helper functions share the historical `memory(none)` attribute. Their captured LLVM bodies only manipulate by-value data, but production emission must additionally validate complete AIMS effect facts covering accessible and inaccessible reads and writes before projecting that attribute.
 
 ### 4. Control Flow & Block Layout
 
@@ -708,9 +710,9 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 
 5. **Single-field struct optimization**: `Box<int>` is a single-field struct containing `i64`. The compiler passes it directly in a register (via `%ori.Box { i64 5 }` as a literal argument). At the machine level, field extraction is a no-op -- all three helper functions compile to identical `mov %rdi, %rax; ret`.
 
-6. **Memory attribute precision**: All three monomorphized helper functions are marked `memory(none)` -- correctly recognizing that `identity` and `first` are pure passthrough functions, and that `get_value`'s `extractvalue` on a by-value struct argument is also a pure operation (no memory load needed since the struct is passed in registers).
+6. **Memory attribute projection**: All three monomorphized helper functions were marked `memory(none)` because their captured LLVM bodies operate on by-value data. Under the production seam, this remains legal only when the bound AIMS artifact proves no accessible or inaccessible reads or writes.
 
-7. **AIMS pipeline integration**: All 4 functions converge in a single intraprocedural iteration with zero cross-dimension interactions. The interprocedural pass certifies all 4 as FIP (frame-independent) and FBIP (fully borrowing), confirming that monomorphization introduces no hidden allocation or reference counting overhead.
+7. **AIMS pipeline integration**: All 4 functions converge in a single intraprocedural iteration with zero cross-dimension interactions. The interprocedural pass certifies all 4 as FIP (frame-independent) and FBIP (fully borrowing), while the captured compiled-counter projection confirms that this monomorphization introduces no hidden allocation or RC overhead. Other physical plans require their own satisfaction checks.
 
 8. **RC leak detection in entry wrapper**: The `main()` C wrapper now integrates `ori_check_leaks()` to detect RC leaks at program exit. If any leaks are detected, the leak check exit code overrides the program's exit code. For this journey, no leaks are possible (all values are scalars), so the leak check always returns 0 and the program exit code 57 passes through unchanged.
 
@@ -739,7 +741,7 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 ### NOTE-3: get_value correctly marked memory(none)
 
 **Location**: `@"_ori_get_value$24m$24int"` shares attribute group `#1 = { nounwind memory(none) uwtable }` with `identity` and `first`
-**Impact**: Positive -- the AIMS pipeline correctly recognizes that `extractvalue` on a by-value struct argument performs no memory access. This enables LLVM to treat `get_value` as fully pure for optimization purposes.
+**Impact**: Historical positive observation -- LLVM emitted `memory(none)` for a by-value `extractvalue`. The current contract requires complete AIMS effect facts to authorize that projection; the LLVM body scan is not the authority.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-4: Full attribute compliance maintained
@@ -770,7 +772,9 @@ In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$
 
 ## Verdict
 
-Journey 8's generics codegen achieves a perfect score. Monomorphization produces fully specialized functions indistinguishable from hand-written equivalents -- all four user functions hit the theoretical minimum instruction count (1.00x ratio across the board). The three helper functions all carry `memory(none)`, correctly recognizing that `identity`, `first`, and `get_value` (which uses `extractvalue` on a by-value struct) are pure operations. The entry wrapper now integrates `ori_check_leaks()` for runtime RC leak detection, confirming zero leaks for this scalar-only journey.
+Journey 8's dated LLVM measurement achieved a perfect score. Monomorphization produced fully specialized functions indistinguishable from hand-written equivalents -- all four user functions hit the theoretical minimum instruction count.
+
+The three helper functions carried `memory(none)` in the captured IR; current production validity requires that attribute to be projected from complete AIMS effect facts. The entry wrapper integrated `ori_check_leaks()` and observed zero leaks for this scalar-only journey.
 
 ## Cross-Journey Observations
 

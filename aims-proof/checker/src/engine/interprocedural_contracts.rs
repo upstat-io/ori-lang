@@ -39,11 +39,7 @@ use crate::engine::{EngineResult, EngineVerdict};
 /// `fixpoint` + `case_analysis` SECONDARY accept gracefully); `None`
 /// otherwise.
 pub fn discharge_for_engine(engine_name: &str, theorem: &Theorem) -> Option<EngineResult> {
-    let id = format!(
-        "{}-{}",
-        theorem.id.category.prefix(),
-        theorem.id.suffix
-    );
+    let id = format!("{}-{}", theorem.id.category.prefix(), theorem.id.suffix);
     match (engine_name, id.as_str()) {
         // §06.1 + §06.2 PRIMARY — interprocedural_summary constructively
         // discharges each IC-1..IC-5 theorem per the verifiers below.
@@ -103,8 +99,13 @@ fn gracious_accept() -> EngineResult {
 const ACCESS_CARRIER: &[&str] = &["Borrowed", "Owned"];
 const CONSUMPTION_CARRIER: &[&str] = &["Dead", "Linear", "Affine", "Unrestricted"];
 const CARDINALITY_CARRIER: &[&str] = &["Absent", "Once", "Many"];
-const LOCALITY_CARRIER: &[&str] =
-    &["BlockLocal", "FunctionLocal", "ArgEscaping", "HeapEscaping", "Unknown"];
+const LOCALITY_CARRIER: &[&str] = &[
+    "BlockLocal",
+    "FunctionLocal",
+    "ArgEscaping",
+    "HeapEscaping",
+    "Unknown",
+];
 const UNIQUENESS_CARRIER: &[&str] = &["Unique", "MaybeShared", "Shared"];
 const MAY_SHARE_CARRIER: &[bool] = &[false, true];
 
@@ -222,7 +223,12 @@ fn verify_ic1_scc_topological() -> EngineResult {
         }
         checked += 1;
     }
-    require_count("IC-1", 9, checked, "call-graph fixtures (P1/P2/P3 discharged)")
+    require_count(
+        "IC-1",
+        9,
+        checked,
+        "call-graph fixtures (P1/P2/P3 discharged)",
+    )
 }
 
 /// 9-row fixture corpus per the IC-1 proof Coverage Gate section.
@@ -251,7 +257,11 @@ fn ic1_fixture_corpus() -> Vec<(&'static str, usize, Vec<(usize, usize)>)> {
         ),
         // Row 8: topological_order_callees_first — explicit ordering pin:
         // 0 -> 1, 0 -> 2, 1 -> 2 (forward chain with branching).
-        ("topological_order_callees_first", 3, vec![(0, 1), (0, 2), (1, 2)]),
+        (
+            "topological_order_callees_first",
+            3,
+            vec![(0, 1), (0, 2), (1, 2)],
+        ),
         // Row 9: all_functions_covered — partition completeness pin:
         // 5 vertices, two disjoint components.
         (
@@ -357,7 +367,10 @@ fn ic1_check_partition(n: usize, sccs: &[Vec<usize>]) -> Result<(), String> {
         }
         for &v in scc.iter() {
             if v >= n {
-                return Err(format!("scc[{}] member {} out of vertex range 0..{}", i, v, n));
+                return Err(format!(
+                    "scc[{}] member {} out of vertex range 0..{}",
+                    i, v, n
+                ));
             }
             if seen[v] {
                 return Err(format!("vertex {} appears in more than one SCC", v));
@@ -463,10 +476,7 @@ fn ic1_check_maximality(
 /// callee SCC scc(v) appears EARLIER in the emitted list than the
 /// caller SCC scc(u). This matches Annex E §AIMS PL-1a "callees
 /// before callers".
-fn ic1_check_topological(
-    edges: &[(usize, usize)],
-    sccs: &[Vec<usize>],
-) -> Result<(), String> {
+fn ic1_check_topological(edges: &[(usize, usize)], sccs: &[Vec<usize>]) -> Result<(), String> {
     // Build vertex -> position map.
     let mut n: usize = 0;
     for scc in sccs.iter() {
@@ -553,7 +563,10 @@ fn verify_ic2_param_init() -> EngineResult {
     // (P2) Consumption bottom.
     let (Some(seed_rank), Some(min_rank)) = (
         consumption_rank(seed_consumption),
-        CONSUMPTION_CARRIER.iter().filter_map(|s| consumption_rank(s)).min(),
+        CONSUMPTION_CARRIER
+            .iter()
+            .filter_map(|s| consumption_rank(s))
+            .min(),
     ) else {
         return fail("IC-2 (P2) rank lookup failed on Consumption carrier".to_string());
     };
@@ -567,7 +580,10 @@ fn verify_ic2_param_init() -> EngineResult {
     // (P3) Cardinality bottom.
     let (Some(seed_rank), Some(min_rank)) = (
         cardinality_rank(seed_cardinality),
-        CARDINALITY_CARRIER.iter().filter_map(|s| cardinality_rank(s)).min(),
+        CARDINALITY_CARRIER
+            .iter()
+            .filter_map(|s| cardinality_rank(s))
+            .min(),
     ) else {
         return fail("IC-2 (P3) rank lookup failed on Cardinality carrier".to_string());
     };
@@ -581,7 +597,10 @@ fn verify_ic2_param_init() -> EngineResult {
     // (P4) Locality bottom.
     let (Some(seed_rank), Some(min_rank)) = (
         locality_rank(seed_locality),
-        LOCALITY_CARRIER.iter().filter_map(|s| locality_rank(s)).min(),
+        LOCALITY_CARRIER
+            .iter()
+            .filter_map(|s| locality_rank(s))
+            .min(),
     ) else {
         return fail("IC-2 (P4) rank lookup failed on Locality carrier".to_string());
     };
@@ -595,7 +614,10 @@ fn verify_ic2_param_init() -> EngineResult {
     // (P5) Uniqueness bottom.
     let (Some(seed_rank), Some(min_rank)) = (
         uniqueness_rank(seed_uniqueness),
-        UNIQUENESS_CARRIER.iter().filter_map(|s| uniqueness_rank(s)).min(),
+        UNIQUENESS_CARRIER
+            .iter()
+            .filter_map(|s| uniqueness_rank(s))
+            .min(),
     ) else {
         return fail("IC-2 (P5) rank lookup failed on Uniqueness carrier".to_string());
     };
@@ -729,15 +751,19 @@ fn verify_ic3_param_join() -> EngineResult {
         return fail(msg);
     }
     // (P2) Consumption per-dim max.
-    if let Err(msg) =
-        verify_chain_max("IC-3 (P2) Consumption", CONSUMPTION_CARRIER, consumption_rank)
-    {
+    if let Err(msg) = verify_chain_max(
+        "IC-3 (P2) Consumption",
+        CONSUMPTION_CARRIER,
+        consumption_rank,
+    ) {
         return fail(msg);
     }
     // (P3) Cardinality per-dim max.
-    if let Err(msg) =
-        verify_chain_max("IC-3 (P3) Cardinality", CARDINALITY_CARRIER, cardinality_rank)
-    {
+    if let Err(msg) = verify_chain_max(
+        "IC-3 (P3) Cardinality",
+        CARDINALITY_CARRIER,
+        cardinality_rank,
+    ) {
         return fail(msg);
     }
     // (P4) Locality per-dim max.
@@ -745,8 +771,7 @@ fn verify_ic3_param_join() -> EngineResult {
         return fail(msg);
     }
     // (P5) Uniqueness per-dim max.
-    if let Err(msg) =
-        verify_chain_max("IC-3 (P5) Uniqueness", UNIQUENESS_CARRIER, uniqueness_rank)
+    if let Err(msg) = verify_chain_max("IC-3 (P5) Uniqueness", UNIQUENESS_CARRIER, uniqueness_rank)
     {
         return fail(msg);
     }
@@ -1370,8 +1395,7 @@ impl EffectSummary {
             may_throw: self.may_throw || other.may_throw,
             has_unbounded_stack: self.has_unbounded_stack || other.has_unbounded_stack,
             may_read_inaccessible: self.may_read_inaccessible || other.may_read_inaccessible,
-            alloc_only_on_slow_path: self.alloc_only_on_slow_path
-                && other.alloc_only_on_slow_path,
+            alloc_only_on_slow_path: self.alloc_only_on_slow_path && other.alloc_only_on_slow_path,
         }
     }
 
@@ -1503,13 +1527,7 @@ fn verify_ic5_effect_summary() -> EngineResult {
     }
     // Non-allocating kinds keep may_allocate = false.
     let non_alloc_kinds: &[&str] = &[
-        "RcInc",
-        "RcDec",
-        "Project",
-        "IsShared",
-        "Reset",
-        "Let",
-        "Apply",
+        "RcInc", "RcDec", "Project", "IsShared", "Reset", "Let", "Apply",
     ];
     for &kind in non_alloc_kinds.iter() {
         let e = derive_effects_from_instr_kinds(&[kind], &[], &[], false);
@@ -1721,9 +1739,7 @@ fn fip_join(a: FipContract, b: FipContract) -> FipContract {
         // P1: Never absorbs all.
         (FipContract::Never, _) | (_, FipContract::Never) => FipContract::Never,
         // P2: Conditional absorbs Bounded / Certified.
-        (FipContract::Conditional, _) | (_, FipContract::Conditional) => {
-            FipContract::Conditional
-        }
+        (FipContract::Conditional, _) | (_, FipContract::Conditional) => FipContract::Conditional,
         // P3: Bounded(n) ⊔ Bounded(m) = Bounded(max(n, m)).
         (FipContract::Bounded(n), FipContract::Bounded(m)) => FipContract::Bounded(n.max(m)),
         // P4: Bounded ⊔ Certified = Bounded.
@@ -2231,7 +2247,10 @@ fn verify_ic7_convergence() -> EngineResult {
             .iter()
             .filter_map(|s| cardinality_rank(s))
             .max(),
-        LOCALITY_CARRIER.iter().filter_map(|s| locality_rank(s)).max(),
+        LOCALITY_CARRIER
+            .iter()
+            .filter_map(|s| locality_rank(s))
+            .max(),
     ) else {
         return fail("IC-7 (P3) CONSERVATIVE TOP-rank lookup failed".to_string());
     };
@@ -2272,7 +2291,8 @@ fn verify_ic7_convergence() -> EngineResult {
         ));
     }
     // CONSERVATIVE uses MaybeShared (1 below TOP Shared) per IC-8a
-    // (P3) rationale — preserves DP-4 runtime IsShared optimization.
+    // (P3) rationale — preserves DP-4's backend-neutral dynamic-sharing
+    // precision opportunity.
     let Some(seed_uniq) = uniqueness_rank(conservative_uniqueness) else {
         return fail("IC-7 (P3) CONSERVATIVE uniqueness rank lookup failed".to_string());
     };
@@ -2350,7 +2370,7 @@ fn verify_ic7_convergence() -> EngineResult {
 // IC-8a: Address-taken / closure CONSERVATIVE initialization
 // ============================================================================
 //
-// Per Annex E §AIMS IC-8a + the IC-8a proof file's five conjuncts:
+// Per Annex E §AIMS IC-8a + the IC-8a proof file's six conjuncts:
 // (P1) Per-parameter CONSERVATIVE initialization:
 // seed = (Owned, Unrestricted, Many, Unknown, MaybeShared,
 // may_share=true) — same tuple for every parameter.
@@ -2361,12 +2381,29 @@ fn verify_ic7_convergence() -> EngineResult {
 // `a ⊔ TOP = TOP`.
 // (P5) Closure / enumerable carve-out via binary address-taken
 // classification + IC-2 OPTIMISTIC seed for the complement.
+// (P6) The caller-borrowed indirect-call adapter consumes the exact frozen
+// inward-owner demand derived from the full final parameter contract. Owned,
+// borrowed iter-consume, and borrowed COW-consume need one whole-value logical
+// credit; projected-field iter-consume needs exactly that field; plain Borrow
+// needs none. Normal/unwind are independently balanced. Stable function,
+// parameter, and return-site identities bind result evidence; EntryCredit
+// requires exact demand/relation topology while TargetFunded may reshape. The
+// CFG exit inventory freezes every normal site exactly once as proposition-
+// bound Ownerless or recomputed Owned evidence. Unwind exports no result. No
+// physical mechanism is selected.
 
 fn verify_ic8a_conservative_init() -> EngineResult {
     // CONSERVATIVE seed per Annex E §AIMS IC-8a +
     // ParamContract::CONSERVATIVE at compiler/ori_arc/
     // src/aims/contract/mod.rs.
-    let conservative = ("Owned", "Unrestricted", "Many", "Unknown", "MaybeShared", true);
+    let conservative = (
+        "Owned",
+        "Unrestricted",
+        "Many",
+        "Unknown",
+        "MaybeShared",
+        true,
+    );
 
     // (P1) Per-parameter CONSERVATIVE initialization. Witness: across
     // a representative parameter-count range, every parameter of an
@@ -2434,7 +2471,10 @@ fn verify_ic8a_conservative_init() -> EngineResult {
             .iter()
             .filter_map(|s| cardinality_rank(s))
             .max(),
-        LOCALITY_CARRIER.iter().filter_map(|s| locality_rank(s)).max(),
+        LOCALITY_CARRIER
+            .iter()
+            .filter_map(|s| locality_rank(s))
+            .max(),
         UNIQUENESS_CARRIER
             .iter()
             .filter_map(|s| uniqueness_rank(s))
@@ -2610,14 +2650,22 @@ fn verify_ic8a_conservative_init() -> EngineResult {
     // is_address_taken=false AND has_enumerable_calls=true -> OPTIMISTIC
     // The classification is binary; mutual exclusion of seed types.
     let optimistic = ("Borrowed", "Dead", "Absent", "BlockLocal", "Unique", false);
-    let route =
-        |is_address_taken: bool, has_enumerable_calls: bool| -> (&'static str, &'static str, &'static str, &'static str, &'static str, bool) {
-            if is_address_taken || !has_enumerable_calls {
-                conservative
-            } else {
-                optimistic
-            }
-        };
+    let route = |is_address_taken: bool,
+                 has_enumerable_calls: bool|
+     -> (
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+        bool,
+    ) {
+        if is_address_taken || !has_enumerable_calls {
+            conservative
+        } else {
+            optimistic
+        }
+    };
     let routing_grid: &[(bool, bool, (&str, &str, &str, &str, &str, bool))] = &[
         (true, true, conservative),
         (true, false, conservative),
@@ -2649,6 +2697,1413 @@ fn verify_ic8a_conservative_init() -> EngineResult {
         );
     }
 
+    // (P6) PV-4 borrowed-indirect adapter consequence. Explicit operands are
+    // always caller-borrowed (Read). The full final target contract freezes one
+    // exact owner demand; that demand alone controls the logical Credit and the
+    // matching target Consume on every exit.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum AdapterEvent {
+        Read,
+        Credit,
+        Consume,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum CalleeOwnerDemand {
+        Borrow,
+        WholeValue,
+        ProjectedField(u32),
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct TargetOwnershipFactIdentity {
+        function: u32,
+        parameter: u32,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct FrozenTargetOwnershipFact {
+        identity: TargetOwnershipFactIdentity,
+        demand: CalleeOwnerDemand,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct FinalOwnerFacts {
+        access: &'static str,
+        iter_consumes: bool,
+        transfers_through_return: bool,
+        borrowed_cow_consumed: bool,
+        iter_consumes_projected_field: Option<u32>,
+    }
+    let freeze_demand = |facts: FinalOwnerFacts| -> Option<CalleeOwnerDemand> {
+        let whole_value = facts.access == "Owned"
+            || facts.borrowed_cow_consumed
+            || (facts.iter_consumes && !facts.transfers_through_return);
+        match (
+            facts.access,
+            whole_value,
+            facts.iter_consumes_projected_field,
+        ) {
+            ("Borrowed" | "Owned", true, Some(_)) => None,
+            ("Borrowed" | "Owned", true, None) => Some(CalleeOwnerDemand::WholeValue),
+            ("Borrowed" | "Owned", false, Some(field)) => {
+                Some(CalleeOwnerDemand::ProjectedField(field))
+            }
+            ("Borrowed" | "Owned", false, None) => Some(CalleeOwnerDemand::Borrow),
+            _ => None,
+        }
+    };
+    let freeze_target =
+        |identity: TargetOwnershipFactIdentity,
+         facts: FinalOwnerFacts|
+         -> Option<FrozenTargetOwnershipFact> {
+            freeze_demand(facts)
+                .map(|demand| FrozenTargetOwnershipFact { identity, demand })
+        };
+    let adapter_path = |demand: CalleeOwnerDemand, _normal_exit: bool| match demand {
+        CalleeOwnerDemand::Borrow => vec![AdapterEvent::Read],
+        CalleeOwnerDemand::WholeValue | CalleeOwnerDemand::ProjectedField(_) => vec![
+            AdapterEvent::Read,
+            AdapterEvent::Credit,
+            AdapterEvent::Consume,
+        ],
+    };
+    let event_delta = |event: AdapterEvent| -> i32 {
+        match event {
+            AdapterEvent::Read => 0,
+            AdapterEvent::Credit => 1,
+            AdapterEvent::Consume => -1,
+        }
+    };
+    let target_identity = TargetOwnershipFactIdentity {
+        function: 100,
+        parameter: 0,
+    };
+    let rows = [
+        (
+            "plain Borrowed",
+            FinalOwnerFacts {
+                access: "Borrowed",
+                iter_consumes: false,
+                transfers_through_return: false,
+                borrowed_cow_consumed: false,
+                iter_consumes_projected_field: None,
+            },
+            CalleeOwnerDemand::Borrow,
+            vec![AdapterEvent::Read],
+            0usize,
+            0usize,
+        ),
+        (
+            "Owned",
+            FinalOwnerFacts {
+                access: "Owned",
+                iter_consumes: false,
+                transfers_through_return: false,
+                borrowed_cow_consumed: false,
+                iter_consumes_projected_field: None,
+            },
+            CalleeOwnerDemand::WholeValue,
+            vec![
+                AdapterEvent::Read,
+                AdapterEvent::Credit,
+                AdapterEvent::Consume,
+            ],
+            1usize,
+            1usize,
+        ),
+        (
+            "Borrowed iter-consume",
+            FinalOwnerFacts {
+                access: "Borrowed",
+                iter_consumes: true,
+                transfers_through_return: false,
+                borrowed_cow_consumed: false,
+                iter_consumes_projected_field: None,
+            },
+            CalleeOwnerDemand::WholeValue,
+            vec![
+                AdapterEvent::Read,
+                AdapterEvent::Credit,
+                AdapterEvent::Consume,
+            ],
+            1usize,
+            1usize,
+        ),
+        (
+            "Borrowed iter-through-return",
+            FinalOwnerFacts {
+                access: "Borrowed",
+                iter_consumes: true,
+                transfers_through_return: true,
+                borrowed_cow_consumed: false,
+                iter_consumes_projected_field: None,
+            },
+            CalleeOwnerDemand::Borrow,
+            vec![AdapterEvent::Read],
+            0usize,
+            0usize,
+        ),
+        (
+            "Borrowed COW-consume",
+            FinalOwnerFacts {
+                access: "Borrowed",
+                iter_consumes: false,
+                transfers_through_return: false,
+                borrowed_cow_consumed: true,
+                iter_consumes_projected_field: None,
+            },
+            CalleeOwnerDemand::WholeValue,
+            vec![
+                AdapterEvent::Read,
+                AdapterEvent::Credit,
+                AdapterEvent::Consume,
+            ],
+            1usize,
+            1usize,
+        ),
+        (
+            "Borrowed projected-field iter-consume",
+            FinalOwnerFacts {
+                access: "Borrowed",
+                iter_consumes: false,
+                transfers_through_return: false,
+                borrowed_cow_consumed: false,
+                iter_consumes_projected_field: Some(3),
+            },
+            CalleeOwnerDemand::ProjectedField(3),
+            vec![
+                AdapterEvent::Read,
+                AdapterEvent::Credit,
+                AdapterEvent::Consume,
+            ],
+            1usize,
+            1usize,
+        ),
+    ];
+    for (label, facts, expected_demand, expected, expected_credits, expected_discharges) in rows {
+        let Some(target) = freeze_target(target_identity, facts) else {
+            return fail(format!(
+                "IC-8a (P6) valid final owner facts for {label} failed to freeze"
+            ));
+        };
+        if target.identity != target_identity {
+            return fail(format!(
+                "IC-8a (P6) target owner fact identity drift for {label}: got {:?}, expected {:?}",
+                target.identity, target_identity
+            ));
+        }
+        let demand = target.demand;
+        if demand != expected_demand {
+            return fail(format!(
+                "IC-8a (P6) owner-demand mismatch for {label}: got {demand:?}, expected {expected_demand:?}"
+            ));
+        }
+        let normal = adapter_path(demand, true);
+        let unwind = adapter_path(demand, false);
+        if normal != expected || unwind != expected {
+            return fail(format!(
+                "IC-8a (P6) exact adapter row mismatch for {label}: normal={normal:?}, unwind={unwind:?}, expected={expected:?}"
+            ));
+        }
+        for (path, events) in [("normal", normal.as_slice()), ("unwind", unwind.as_slice())] {
+            let credit_count = events
+                .iter()
+                .filter(|event| **event == AdapterEvent::Credit)
+                .count();
+            let discharge_count = events
+                .iter()
+                .filter(|event| **event == AdapterEvent::Consume)
+                .count();
+            let net: i32 = events.iter().copied().map(event_delta).sum();
+            if credit_count != expected_credits
+                || discharge_count != expected_discharges
+                || net != 0
+            {
+                return fail(format!(
+                    "IC-8a (P6) {path} adapter balance mismatch for {label}: credits={credit_count}, discharges={discharge_count}, net={net}"
+                ));
+            }
+        }
+    }
+    let conservative_facts = FinalOwnerFacts {
+        access: conservative.0,
+        iter_consumes: false,
+        transfers_through_return: false,
+        borrowed_cow_consumed: false,
+        iter_consumes_projected_field: None,
+    };
+    if conservative.0 != "Owned"
+        || freeze_target(target_identity, conservative_facts).map(|target| target.demand)
+            != Some(CalleeOwnerDemand::WholeValue)
+        || adapter_path(CalleeOwnerDemand::WholeValue, true)
+            != vec![
+                AdapterEvent::Read,
+                AdapterEvent::Credit,
+                AdapterEvent::Consume,
+            ]
+    {
+        return fail(
+            "IC-8a (P6) CONSERVATIVE target must freeze whole-value owner demand and use the exact caller-borrowed adapter credit/discharge row"
+                .to_string(),
+        );
+    }
+    let malformed = FinalOwnerFacts {
+        access: "MissingTargetFact",
+        iter_consumes: false,
+        transfers_through_return: false,
+        borrowed_cow_consumed: false,
+        iter_consumes_projected_field: None,
+    };
+    let contradictory = FinalOwnerFacts {
+        access: "Owned",
+        iter_consumes: false,
+        transfers_through_return: false,
+        borrowed_cow_consumed: false,
+        iter_consumes_projected_field: Some(3),
+    };
+    if freeze_target(target_identity, malformed).is_some()
+        || freeze_target(target_identity, contradictory).is_some()
+    {
+        return fail(
+            "IC-8a (P6) missing, malformed, or contradictory frozen target owner facts must fail closed"
+                .to_string(),
+        );
+    }
+    let missing_credit_net: i32 = [AdapterEvent::Read, AdapterEvent::Consume]
+        .into_iter()
+        .map(event_delta)
+        .sum();
+    let missing_unwind_discharge_net: i32 = [AdapterEvent::Read, AdapterEvent::Credit]
+        .into_iter()
+        .map(event_delta)
+        .sum();
+    if missing_credit_net != -1 || missing_unwind_discharge_net != 1 {
+        return fail(
+            "IC-8a (P6) negative witnesses lost teeth: missing credit must net -1 and missing unwind discharge must net +1"
+                .to_string(),
+        );
+    }
+
+    // Per-return-site owner provenance. The relation is keyed by semantic
+    // parameter/field identity; funding describes logical owner credits only.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum ReturnOwnerRelation {
+        Independent,
+        Direct(u32),
+        ProjectedField(u32, u32),
+        Contained(u32),
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct ResultFactIdentity {
+        function: u32,
+        return_site: u32,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum ResultOwnerSource {
+        IndependentTargetBirth(u32),
+        EntryCredit,
+        TargetFunded(u32),
+        NeedsResultCredit,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct ReturnSiteFundingEvidence {
+        independent_target_birth_fact: Option<u32>,
+        target_funding_fact: Option<u32>,
+        entry_credit_transfers: bool,
+        target_owned_root: bool,
+        target_owned_payload_edges: bool,
+        entry_credit_discharged_on_unwind: bool,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct FrozenResultOwnerFact {
+        identity: ResultFactIdentity,
+        relation: ReturnOwnerRelation,
+        source: ResultOwnerSource,
+    }
+    let demand_requires_credit = |demand: CalleeOwnerDemand| {
+        matches!(
+            demand,
+            CalleeOwnerDemand::WholeValue | CalleeOwnerDemand::ProjectedField(_)
+        )
+    };
+    let relation_references_parameter =
+        |relation: ReturnOwnerRelation, parameter: u32| match relation {
+            ReturnOwnerRelation::Independent => true,
+            ReturnOwnerRelation::Direct(related_parameter)
+            | ReturnOwnerRelation::Contained(related_parameter)
+            | ReturnOwnerRelation::ProjectedField(related_parameter, _) => {
+                related_parameter == parameter
+            }
+        };
+    let demand_accepts_relation =
+        |demand: CalleeOwnerDemand, relation: ReturnOwnerRelation| match (demand, relation) {
+            (_, ReturnOwnerRelation::Independent)
+            | (CalleeOwnerDemand::Borrow, ReturnOwnerRelation::Direct(_))
+            | (CalleeOwnerDemand::Borrow, ReturnOwnerRelation::ProjectedField(_, _))
+            | (CalleeOwnerDemand::Borrow, ReturnOwnerRelation::Contained(_))
+            | (CalleeOwnerDemand::WholeValue, ReturnOwnerRelation::Direct(_))
+            | (CalleeOwnerDemand::WholeValue, ReturnOwnerRelation::Contained(_)) => true,
+            (
+                CalleeOwnerDemand::ProjectedField(demanded_field),
+                ReturnOwnerRelation::ProjectedField(_, returned_field),
+            ) => demanded_field == returned_field,
+            _ => false,
+        };
+    let freeze_result = |identity: ResultFactIdentity,
+                         entry: Option<FrozenTargetOwnershipFact>,
+                         relation: ReturnOwnerRelation,
+                         evidence: ReturnSiteFundingEvidence|
+     -> Option<FrozenResultOwnerFact> {
+        if relation == ReturnOwnerRelation::Independent {
+            if entry.is_some() {
+                return None;
+            }
+            if let Some(fact) = evidence.independent_target_birth_fact {
+                if evidence.target_funding_fact.is_none()
+                    && evidence.target_owned_root
+                    && evidence.target_owned_payload_edges
+                    && !evidence.entry_credit_transfers
+                    && !evidence.entry_credit_discharged_on_unwind
+                {
+                    return Some(FrozenResultOwnerFact {
+                        identity,
+                        relation,
+                        source: ResultOwnerSource::IndependentTargetBirth(fact),
+                    });
+                }
+            }
+            return None;
+        }
+        let entry = entry?;
+        if identity.function != entry.identity.function
+            || !relation_references_parameter(relation, entry.identity.parameter)
+        {
+            return None;
+        }
+        if evidence.independent_target_birth_fact.is_some() {
+            return None;
+        }
+        let entry_claim =
+            evidence.entry_credit_transfers || evidence.entry_credit_discharged_on_unwind;
+        let entry_source = demand_requires_credit(entry.demand)
+            && demand_accepts_relation(entry.demand, relation)
+            && evidence.entry_credit_transfers
+            && evidence.entry_credit_discharged_on_unwind;
+        if entry_claim && !entry_source {
+            return None;
+        }
+        let target_claim = evidence.target_funding_fact.is_some()
+            || evidence.target_owned_root
+            || evidence.target_owned_payload_edges;
+        let target_fully_funds = evidence.target_funding_fact.is_some()
+            && evidence.target_owned_root
+            && evidence.target_owned_payload_edges;
+        if target_claim && !target_fully_funds {
+            return None;
+        }
+        if entry_source && target_fully_funds {
+            return None;
+        }
+        let source = if entry_source {
+            ResultOwnerSource::EntryCredit
+        } else if target_fully_funds {
+            let Some(fact) = evidence.target_funding_fact else {
+                return None;
+            };
+            ResultOwnerSource::TargetFunded(fact)
+        } else {
+            match (relation, entry.demand) {
+                (
+                    ReturnOwnerRelation::Direct(_) | ReturnOwnerRelation::ProjectedField(_, _),
+                    CalleeOwnerDemand::Borrow,
+                ) => ResultOwnerSource::NeedsResultCredit,
+                _ => return None,
+            }
+        };
+        Some(FrozenResultOwnerFact {
+            identity,
+            relation,
+            source,
+        })
+    };
+
+    let borrowed_entry = FrozenTargetOwnershipFact {
+        identity: target_identity,
+        demand: CalleeOwnerDemand::Borrow,
+    };
+    let whole_entry = FrozenTargetOwnershipFact {
+        identity: target_identity,
+        demand: CalleeOwnerDemand::WholeValue,
+    };
+    let projected_entry = FrozenTargetOwnershipFact {
+        identity: target_identity,
+        demand: CalleeOwnerDemand::ProjectedField(3),
+    };
+    let no_funding = ReturnSiteFundingEvidence {
+        independent_target_birth_fact: None,
+        target_funding_fact: None,
+        entry_credit_transfers: false,
+        target_owned_root: false,
+        target_owned_payload_edges: false,
+        entry_credit_discharged_on_unwind: false,
+    };
+    let entry_funding = ReturnSiteFundingEvidence {
+        entry_credit_transfers: true,
+        entry_credit_discharged_on_unwind: true,
+        ..no_funding
+    };
+    let project_funding = ReturnSiteFundingEvidence {
+        target_funding_fact: Some(1200),
+        target_owned_root: true,
+        target_owned_payload_edges: true,
+        ..no_funding
+    };
+    let containment_funding = ReturnSiteFundingEvidence {
+        target_funding_fact: Some(1400),
+        target_owned_root: true,
+        target_owned_payload_edges: true,
+        ..no_funding
+    };
+    let double_funding = ReturnSiteFundingEvidence {
+        target_funding_fact: Some(1700),
+        entry_credit_transfers: true,
+        target_owned_root: true,
+        target_owned_payload_edges: true,
+        entry_credit_discharged_on_unwind: true,
+        ..no_funding
+    };
+    let independent_funding = ReturnSiteFundingEvidence {
+        independent_target_birth_fact: Some(1900),
+        target_owned_root: true,
+        target_owned_payload_edges: true,
+        ..no_funding
+    };
+    let orphan_unwind_discharge = ReturnSiteFundingEvidence {
+        entry_credit_discharged_on_unwind: true,
+        ..no_funding
+    };
+    let incomplete_independent_funding = ReturnSiteFundingEvidence {
+        independent_target_birth_fact: Some(2100),
+        target_owned_root: true,
+        target_owned_payload_edges: false,
+        ..no_funding
+    };
+    let incomplete_target_funding = ReturnSiteFundingEvidence {
+        target_funding_fact: Some(2300),
+        target_owned_root: true,
+        target_owned_payload_edges: false,
+        ..no_funding
+    };
+    let partial_entry_funding = ReturnSiteFundingEvidence {
+        entry_credit_transfers: true,
+        entry_credit_discharged_on_unwind: false,
+        ..no_funding
+    };
+    let result_rows = [
+        (
+            "Direct whole-value entry transfer",
+            10,
+            whole_entry,
+            ReturnOwnerRelation::Direct(0),
+            entry_funding,
+            Some(ResultOwnerSource::EntryCredit),
+        ),
+        (
+            "Direct borrowed fallback",
+            11,
+            borrowed_entry,
+            ReturnOwnerRelation::Direct(0),
+            no_funding,
+            Some(ResultOwnerSource::NeedsResultCredit),
+        ),
+        (
+            "Projected borrowed target funding",
+            12,
+            borrowed_entry,
+            ReturnOwnerRelation::ProjectedField(0, 3),
+            project_funding,
+            Some(ResultOwnerSource::TargetFunded(1200)),
+        ),
+        (
+            "Projected borrowed fallback",
+            13,
+            borrowed_entry,
+            ReturnOwnerRelation::ProjectedField(0, 3),
+            no_funding,
+            Some(ResultOwnerSource::NeedsResultCredit),
+        ),
+        (
+            "Contained borrowed target funding",
+            14,
+            borrowed_entry,
+            ReturnOwnerRelation::Contained(0),
+            containment_funding,
+            Some(ResultOwnerSource::TargetFunded(1400)),
+        ),
+        (
+            "Contained borrowed missing funding",
+            15,
+            borrowed_entry,
+            ReturnOwnerRelation::Contained(0),
+            no_funding,
+            None,
+        ),
+        (
+            "Contained whole-value entry transfer",
+            16,
+            whole_entry,
+            ReturnOwnerRelation::Contained(0),
+            entry_funding,
+            Some(ResultOwnerSource::EntryCredit),
+        ),
+        (
+            "ambiguous entry and target funding",
+            17,
+            whole_entry,
+            ReturnOwnerRelation::Direct(0),
+            double_funding,
+            None,
+        ),
+        (
+            "orphan unwind entry discharge",
+            18,
+            whole_entry,
+            ReturnOwnerRelation::Direct(0),
+            orphan_unwind_discharge,
+            None,
+        ),
+        (
+            "independent fresh target result",
+            19,
+            borrowed_entry,
+            ReturnOwnerRelation::Independent,
+            independent_funding,
+            Some(ResultOwnerSource::IndependentTargetBirth(1900)),
+        ),
+        (
+            "independent result missing target birth",
+            20,
+            borrowed_entry,
+            ReturnOwnerRelation::Independent,
+            no_funding,
+            None,
+        ),
+        (
+            "independent result with incomplete payload topology",
+            21,
+            borrowed_entry,
+            ReturnOwnerRelation::Independent,
+            incomplete_independent_funding,
+            None,
+        ),
+        (
+            "related result carrying independent-target evidence",
+            22,
+            borrowed_entry,
+            ReturnOwnerRelation::Direct(0),
+            independent_funding,
+            None,
+        ),
+        (
+            "related result with incomplete target funding",
+            23,
+            borrowed_entry,
+            ReturnOwnerRelation::ProjectedField(0, 3),
+            incomplete_target_funding,
+            None,
+        ),
+        (
+            "borrowed result with impossible entry transfer",
+            24,
+            borrowed_entry,
+            ReturnOwnerRelation::Direct(0),
+            entry_funding,
+            None,
+        ),
+        (
+            "whole-value result with partial entry funding",
+            25,
+            whole_entry,
+            ReturnOwnerRelation::Direct(0),
+            partial_entry_funding,
+            None,
+        ),
+    ];
+    let mut result_rows_checked = 0u64;
+    for (label, site, entry, relation, evidence, expected_source) in result_rows {
+        let identity = ResultFactIdentity {
+            function: 100,
+            return_site: site,
+        };
+        let entry = if relation == ReturnOwnerRelation::Independent {
+            None
+        } else {
+            Some(entry)
+        };
+        let frozen = freeze_result(identity, entry, relation, evidence);
+        if frozen.map(|fact| fact.source) != expected_source {
+            return fail(format!(
+                "IC-8a (P6) result-owner source mismatch for {label}: got {frozen:?}, expected source {expected_source:?}"
+            ));
+        }
+        if let Some(fact) = frozen {
+            if fact.identity != identity || fact.relation != relation {
+                return fail(format!(
+                    "IC-8a (P6) result-owner identity drift for {label}: got {fact:?}, expected identity={identity:?}, relation={relation:?}"
+                ));
+            }
+        }
+        result_rows_checked += 1;
+    }
+    if result_rows_checked != 16 {
+        return fail(format!(
+            "IC-8a (P6) result-owner freeze coverage mismatch: expected 16 rows; verified {result_rows_checked}"
+        ));
+    }
+
+    // Source-sensitive topology and identity matrix. Exact demand topology is
+    // required only when EntryCredit funds the result; target-funded code may
+    // reshape while preserving function and related-parameter identity.
+    let reshaping_target_funding = ReturnSiteFundingEvidence {
+        target_funding_fact: Some(4100),
+        target_owned_root: true,
+        target_owned_payload_edges: true,
+        ..no_funding
+    };
+    let topology_rows = [
+        (
+            "EntryCredit WholeValue -> Direct",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 30,
+            },
+            Some(whole_entry),
+            ReturnOwnerRelation::Direct(0),
+            entry_funding,
+            Some(ResultOwnerSource::EntryCredit),
+        ),
+        (
+            "EntryCredit WholeValue -> Contained",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 31,
+            },
+            Some(whole_entry),
+            ReturnOwnerRelation::Contained(0),
+            entry_funding,
+            Some(ResultOwnerSource::EntryCredit),
+        ),
+        (
+            "EntryCredit ProjectedField(3) -> ProjectedField(3)",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 32,
+            },
+            Some(projected_entry),
+            ReturnOwnerRelation::ProjectedField(0, 3),
+            entry_funding,
+            Some(ResultOwnerSource::EntryCredit),
+        ),
+        (
+            "EntryCredit projected-field mismatch",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 33,
+            },
+            Some(projected_entry),
+            ReturnOwnerRelation::ProjectedField(0, 4),
+            entry_funding,
+            None,
+        ),
+        (
+            "EntryCredit ProjectedField -> Direct cross-shape",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 34,
+            },
+            Some(projected_entry),
+            ReturnOwnerRelation::Direct(0),
+            entry_funding,
+            None,
+        ),
+        (
+            "EntryCredit WholeValue -> ProjectedField cross-shape",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 35,
+            },
+            Some(whole_entry),
+            ReturnOwnerRelation::ProjectedField(0, 3),
+            entry_funding,
+            None,
+        ),
+        (
+            "related parameter mismatch",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 36,
+            },
+            Some(whole_entry),
+            ReturnOwnerRelation::Direct(1),
+            entry_funding,
+            None,
+        ),
+        (
+            "cross-function entry replay",
+            ResultFactIdentity {
+                function: 101,
+                return_site: 37,
+            },
+            Some(whole_entry),
+            ReturnOwnerRelation::Direct(0),
+            entry_funding,
+            None,
+        ),
+        (
+            "TargetFunded WholeValue -> ProjectedField reshape",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 38,
+            },
+            Some(whole_entry),
+            ReturnOwnerRelation::ProjectedField(0, 3),
+            reshaping_target_funding,
+            Some(ResultOwnerSource::TargetFunded(4100)),
+        ),
+        (
+            "TargetFunded ProjectedField -> Direct reshape",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 39,
+            },
+            Some(projected_entry),
+            ReturnOwnerRelation::Direct(0),
+            reshaping_target_funding,
+            Some(ResultOwnerSource::TargetFunded(4100)),
+        ),
+        (
+            "TargetFunded projected-field reshape",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 40,
+            },
+            Some(projected_entry),
+            ReturnOwnerRelation::ProjectedField(0, 4),
+            reshaping_target_funding,
+            Some(ResultOwnerSource::TargetFunded(4100)),
+        ),
+        (
+            "Independent with no entry",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 41,
+            },
+            None,
+            ReturnOwnerRelation::Independent,
+            independent_funding,
+            Some(ResultOwnerSource::IndependentTargetBirth(1900)),
+        ),
+        (
+            "Independent with unexpected entry",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 42,
+            },
+            Some(whole_entry),
+            ReturnOwnerRelation::Independent,
+            independent_funding,
+            None,
+        ),
+        (
+            "related result missing entry",
+            ResultFactIdentity {
+                function: 100,
+                return_site: 43,
+            },
+            None,
+            ReturnOwnerRelation::Direct(0),
+            entry_funding,
+            None,
+        ),
+    ];
+    let mut topology_rows_checked = 0u64;
+    for (label, identity, entry, relation, evidence, expected_source) in topology_rows {
+        let frozen = freeze_result(identity, entry, relation, evidence);
+        if frozen.map(|fact| fact.source) != expected_source {
+            return fail(format!(
+                "IC-8a (P6) result topology/source mismatch for {label}: got {frozen:?}, expected source {expected_source:?}"
+            ));
+        }
+        if let Some(fact) = frozen {
+            if fact.identity != identity || fact.relation != relation {
+                return fail(format!(
+                    "IC-8a (P6) topology row identity drift for {label}: got {fact:?}, expected identity={identity:?}, relation={relation:?}"
+                ));
+            }
+        }
+        topology_rows_checked += 1;
+    }
+    if topology_rows_checked != 14 {
+        return fail(format!(
+            "IC-8a (P6) topology/source coverage mismatch: expected 14 rows; verified {topology_rows_checked}"
+        ));
+    }
+
+    // Function-total result plan. The authoritative exit inventory owns the
+    // normal-site requirements; unwind exits carry no result requirement.
+    // Owned candidates are recomputed through freeze_result and must equal the
+    // claimed fact, preventing a correct-key forged source from entering.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum OwnerlessResultReason {
+        ScalarValue,
+        BorrowedView,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum NormalReturnRequirementKind {
+        Ownerless {
+            proof_identity: u32,
+            reason: OwnerlessResultReason,
+        },
+        Owned(ReturnOwnerRelation),
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct NormalReturnRequirement {
+        identity: ResultFactIdentity,
+        kind: NormalReturnRequirementKind,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct OwnerlessResultProof {
+        identity: ResultFactIdentity,
+        requirement: NormalReturnRequirementKind,
+        proof_identity: u32,
+        reason: OwnerlessResultReason,
+        proven_ownerless: bool,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum NormalReturnEvidence {
+        Ownerless(OwnerlessResultProof),
+        Owned {
+            entry: Option<FrozenTargetOwnershipFact>,
+            relation: ReturnOwnerRelation,
+            funding: ReturnSiteFundingEvidence,
+            claimed: FrozenResultOwnerFact,
+        },
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum FrozenNormalReturnResult {
+        Ownerless(OwnerlessResultProof),
+        Owned(FrozenResultOwnerFact),
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum FunctionExit {
+        NormalReturn {
+            site: u32,
+            requirement: NormalReturnRequirementKind,
+        },
+        Unwind {
+            site: u32,
+        },
+    }
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct FunctionExitInventory {
+        function: u32,
+        exits: Vec<FunctionExit>,
+    }
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct FrozenFunctionResultPlan {
+        function: u32,
+        normal_return_sites: Vec<u32>,
+        requirements: Vec<NormalReturnRequirement>,
+        rows: Vec<FrozenNormalReturnResult>,
+    }
+    let identifiers_unique = |identifiers: &[u32]| {
+        identifiers
+            .iter()
+            .enumerate()
+            .all(|(index, identifier)| !identifiers[index + 1..].contains(identifier))
+    };
+    let requirement_requires_owner = |requirement: NormalReturnRequirementKind| {
+        matches!(requirement, NormalReturnRequirementKind::Owned(_))
+    };
+    let freeze_function_plan =
+        |inventory: &FunctionExitInventory,
+         evidences: &[NormalReturnEvidence]|
+         -> Option<FrozenFunctionResultPlan> {
+            let exit_sites: Vec<u32> = inventory
+                .exits
+                .iter()
+                .map(|exit| match exit {
+                    FunctionExit::NormalReturn { site, .. } | FunctionExit::Unwind { site } => {
+                        *site
+                    }
+                })
+                .collect();
+            if !identifiers_unique(&exit_sites) {
+                return None;
+            }
+            let requirements: Vec<NormalReturnRequirement> = inventory
+                .exits
+                .iter()
+                .filter_map(|exit| match *exit {
+                    FunctionExit::NormalReturn { site, requirement } => {
+                        Some(NormalReturnRequirement {
+                            identity: ResultFactIdentity {
+                                function: inventory.function,
+                                return_site: site,
+                            },
+                            kind: requirement,
+                        })
+                    }
+                    FunctionExit::Unwind { .. } => None,
+                })
+                .collect();
+            let ownerless_proof_ids: Vec<u32> = requirements
+                .iter()
+                .filter_map(|requirement| match requirement.kind {
+                    NormalReturnRequirementKind::Ownerless { proof_identity, .. } => {
+                        Some(proof_identity)
+                    }
+                    NormalReturnRequirementKind::Owned(_) => None,
+                })
+                .collect();
+            if !identifiers_unique(&ownerless_proof_ids)
+                || ownerless_proof_ids.contains(&0)
+                || evidences.len() != requirements.len()
+            {
+                return None;
+            }
+            let mut rows = Vec::with_capacity(requirements.len());
+            for (requirement, evidence) in requirements.iter().zip(evidences) {
+                let row = match (requirement.kind, *evidence) {
+                    (
+                        NormalReturnRequirementKind::Ownerless {
+                            proof_identity,
+                            reason,
+                        },
+                        NormalReturnEvidence::Ownerless(proof),
+                    ) if proof.identity == requirement.identity
+                        && proof.requirement == requirement.kind
+                        && proof.proof_identity == proof_identity
+                        && proof_identity != 0
+                        && proof.reason == reason
+                        && !requirement_requires_owner(proof.requirement)
+                        && proof.proven_ownerless =>
+                    {
+                        FrozenNormalReturnResult::Ownerless(proof)
+                    }
+                    (
+                        NormalReturnRequirementKind::Owned(required_relation),
+                        NormalReturnEvidence::Owned {
+                            entry,
+                            relation,
+                            funding,
+                            claimed,
+                        },
+                    ) if relation == required_relation => {
+                        let certified = freeze_result(
+                            requirement.identity,
+                            entry,
+                            required_relation,
+                            funding,
+                        )?;
+                        if certified != claimed {
+                            return None;
+                        }
+                        FrozenNormalReturnResult::Owned(certified)
+                    }
+                    _ => return None,
+                };
+                rows.push(row);
+            }
+            Some(FrozenFunctionResultPlan {
+                function: inventory.function,
+                normal_return_sites: requirements
+                    .iter()
+                    .map(|requirement| requirement.identity.return_site)
+                    .collect(),
+                requirements,
+                rows,
+            })
+        };
+
+    let ownerless_kind = NormalReturnRequirementKind::Ownerless {
+        proof_identity: 7001,
+        reason: OwnerlessResultReason::ScalarValue,
+    };
+    let owned_kind = NormalReturnRequirementKind::Owned(ReturnOwnerRelation::Direct(0));
+    let function_inventory = FunctionExitInventory {
+        function: 100,
+        exits: vec![
+            FunctionExit::NormalReturn {
+                site: 10,
+                requirement: ownerless_kind,
+            },
+            FunctionExit::NormalReturn {
+                site: 11,
+                requirement: owned_kind,
+            },
+            FunctionExit::Unwind { site: 12 },
+        ],
+    };
+    let duplicate_inventory = FunctionExitInventory {
+        function: 100,
+        exits: vec![
+            FunctionExit::NormalReturn {
+                site: 10,
+                requirement: ownerless_kind,
+            },
+            FunctionExit::NormalReturn {
+                site: 10,
+                requirement: ownerless_kind,
+            },
+        ],
+    };
+    let zero_proof_kind = NormalReturnRequirementKind::Ownerless {
+        proof_identity: 0,
+        reason: OwnerlessResultReason::ScalarValue,
+    };
+    let zero_proof_inventory = FunctionExitInventory {
+        function: 100,
+        exits: vec![FunctionExit::NormalReturn {
+            site: 10,
+            requirement: zero_proof_kind,
+        }],
+    };
+    let plan_target_funding = ReturnSiteFundingEvidence {
+        target_funding_fact: Some(9000),
+        target_owned_root: true,
+        target_owned_payload_edges: true,
+        ..no_funding
+    };
+    let ownerless_evidence = NormalReturnEvidence::Ownerless(OwnerlessResultProof {
+        identity: ResultFactIdentity {
+            function: 100,
+            return_site: 10,
+        },
+        requirement: ownerless_kind,
+        proof_identity: 7001,
+        reason: OwnerlessResultReason::ScalarValue,
+        proven_ownerless: true,
+    });
+    let owned_fact = FrozenResultOwnerFact {
+        identity: ResultFactIdentity {
+            function: 100,
+            return_site: 11,
+        },
+        relation: ReturnOwnerRelation::Direct(0),
+        source: ResultOwnerSource::TargetFunded(9000),
+    };
+    let owned_evidence = NormalReturnEvidence::Owned {
+        entry: Some(borrowed_entry),
+        relation: ReturnOwnerRelation::Direct(0),
+        funding: plan_target_funding,
+        claimed: owned_fact,
+    };
+    let exact_plan = freeze_function_plan(
+        &function_inventory,
+        &[ownerless_evidence, owned_evidence],
+    );
+    let Some(exact_plan_value) = exact_plan.as_ref() else {
+        return fail("IC-8a (P6) exact function-total result plan failed to freeze".to_string());
+    };
+    if exact_plan_value.function != 100
+        || exact_plan_value.normal_return_sites != vec![10, 11]
+        || exact_plan_value.requirements.len() != 2
+        || exact_plan_value.rows.len() != 2
+    {
+        return fail(format!(
+            "IC-8a (P6) accepted function plan drifted from CFG inventory: {exact_plan_value:?}"
+        ));
+    }
+
+    let extra_normal_evidence = NormalReturnEvidence::Ownerless(OwnerlessResultProof {
+        identity: ResultFactIdentity {
+            function: 100,
+            return_site: 13,
+        },
+        requirement: NormalReturnRequirementKind::Ownerless {
+            proof_identity: 7003,
+            reason: OwnerlessResultReason::ScalarValue,
+        },
+        proof_identity: 7003,
+        reason: OwnerlessResultReason::ScalarValue,
+        proven_ownerless: true,
+    });
+    let unwind_evidence = NormalReturnEvidence::Ownerless(OwnerlessResultProof {
+        identity: ResultFactIdentity {
+            function: 100,
+            return_site: 12,
+        },
+        requirement: NormalReturnRequirementKind::Ownerless {
+            proof_identity: 7004,
+            reason: OwnerlessResultReason::ScalarValue,
+        },
+        proof_identity: 7004,
+        reason: OwnerlessResultReason::ScalarValue,
+        proven_ownerless: true,
+    });
+    let wrong_function_owned = NormalReturnEvidence::Owned {
+        entry: Some(borrowed_entry),
+        relation: ReturnOwnerRelation::Direct(0),
+        funding: plan_target_funding,
+        claimed: FrozenResultOwnerFact {
+            identity: ResultFactIdentity {
+                function: 101,
+                return_site: 11,
+            },
+            ..owned_fact
+        },
+    };
+    let wrong_site_owned = NormalReturnEvidence::Owned {
+        entry: Some(borrowed_entry),
+        relation: ReturnOwnerRelation::Direct(0),
+        funding: plan_target_funding,
+        claimed: FrozenResultOwnerFact {
+            identity: ResultFactIdentity {
+                function: 100,
+                return_site: 12,
+            },
+            ..owned_fact
+        },
+    };
+    let ownerless_at_owned_site = NormalReturnEvidence::Ownerless(OwnerlessResultProof {
+        identity: ResultFactIdentity {
+            function: 100,
+            return_site: 11,
+        },
+        requirement: NormalReturnRequirementKind::Ownerless {
+            proof_identity: 7002,
+            reason: OwnerlessResultReason::BorrowedView,
+        },
+        proof_identity: 7002,
+        reason: OwnerlessResultReason::BorrowedView,
+        proven_ownerless: true,
+    });
+    let owned_at_ownerless_site = NormalReturnEvidence::Owned {
+        entry: Some(borrowed_entry),
+        relation: ReturnOwnerRelation::Direct(0),
+        funding: plan_target_funding,
+        claimed: FrozenResultOwnerFact {
+            identity: ResultFactIdentity {
+                function: 100,
+                return_site: 10,
+            },
+            ..owned_fact
+        },
+    };
+    let zero_proof_evidence = NormalReturnEvidence::Ownerless(OwnerlessResultProof {
+        identity: ResultFactIdentity {
+            function: 100,
+            return_site: 10,
+        },
+        requirement: zero_proof_kind,
+        proof_identity: 0,
+        reason: OwnerlessResultReason::ScalarValue,
+        proven_ownerless: true,
+    });
+    let wrong_proof_identity = NormalReturnEvidence::Ownerless(OwnerlessResultProof {
+        identity: ResultFactIdentity {
+            function: 100,
+            return_site: 10,
+        },
+        requirement: NormalReturnRequirementKind::Ownerless {
+            proof_identity: 7002,
+            reason: OwnerlessResultReason::ScalarValue,
+        },
+        proof_identity: 7002,
+        reason: OwnerlessResultReason::ScalarValue,
+        proven_ownerless: true,
+    });
+    let wrong_reason = NormalReturnEvidence::Ownerless(OwnerlessResultProof {
+        identity: ResultFactIdentity {
+            function: 100,
+            return_site: 10,
+        },
+        requirement: NormalReturnRequirementKind::Ownerless {
+            proof_identity: 7001,
+            reason: OwnerlessResultReason::BorrowedView,
+        },
+        proof_identity: 7001,
+        reason: OwnerlessResultReason::BorrowedView,
+        proven_ownerless: true,
+    });
+    let unproven_ownerless = NormalReturnEvidence::Ownerless(OwnerlessResultProof {
+        proven_ownerless: false,
+        ..match ownerless_evidence {
+            NormalReturnEvidence::Ownerless(proof) => proof,
+            NormalReturnEvidence::Owned { .. } => unreachable!(),
+        }
+    });
+    let forged_source = NormalReturnEvidence::Owned {
+        entry: Some(borrowed_entry),
+        relation: ReturnOwnerRelation::Direct(0),
+        funding: plan_target_funding,
+        claimed: FrozenResultOwnerFact {
+            source: ResultOwnerSource::EntryCredit,
+            ..owned_fact
+        },
+    };
+    let plan_cases = [
+        ("exact", exact_plan.is_some(), true),
+        (
+            "missing normal row",
+            freeze_function_plan(&function_inventory, &[ownerless_evidence]).is_some(),
+            false,
+        ),
+        (
+            "extra normal row",
+            freeze_function_plan(
+                &function_inventory,
+                &[ownerless_evidence, owned_evidence, extra_normal_evidence],
+            )
+            .is_some(),
+            false,
+        ),
+        (
+            "duplicate CFG site",
+            freeze_function_plan(
+                &duplicate_inventory,
+                &[ownerless_evidence, ownerless_evidence],
+            )
+            .is_some(),
+            false,
+        ),
+        (
+            "duplicate row",
+            freeze_function_plan(
+                &function_inventory,
+                &[ownerless_evidence, ownerless_evidence],
+            )
+            .is_some(),
+            false,
+        ),
+        (
+            "cross-function fact replay",
+            freeze_function_plan(
+                &function_inventory,
+                &[ownerless_evidence, wrong_function_owned],
+            )
+            .is_some(),
+            false,
+        ),
+        (
+            "cross-site fact replay",
+            freeze_function_plan(
+                &function_inventory,
+                &[ownerless_evidence, wrong_site_owned],
+            )
+            .is_some(),
+            false,
+        ),
+        (
+            "ownerless row at owned site",
+            freeze_function_plan(
+                &function_inventory,
+                &[ownerless_evidence, ownerless_at_owned_site],
+            )
+            .is_some(),
+            false,
+        ),
+        (
+            "owned row at ownerless site",
+            freeze_function_plan(
+                &function_inventory,
+                &[owned_at_ownerless_site, owned_evidence],
+            )
+            .is_some(),
+            false,
+        ),
+        (
+            "zero ownerless proof identity",
+            freeze_function_plan(&zero_proof_inventory, &[zero_proof_evidence]).is_some(),
+            false,
+        ),
+        (
+            "wrong ownerless proof identity",
+            freeze_function_plan(
+                &function_inventory,
+                &[wrong_proof_identity, owned_evidence],
+            )
+            .is_some(),
+            false,
+        ),
+        (
+            "wrong ownerless reason",
+            freeze_function_plan(&function_inventory, &[wrong_reason, owned_evidence]).is_some(),
+            false,
+        ),
+        (
+            "unwind result evidence",
+            freeze_function_plan(
+                &function_inventory,
+                &[ownerless_evidence, owned_evidence, unwind_evidence],
+            )
+            .is_some(),
+            false,
+        ),
+        (
+            "forged owned source",
+            freeze_function_plan(&function_inventory, &[ownerless_evidence, forged_source])
+                .is_some(),
+            false,
+        ),
+        (
+            "unproven ownerless ingress",
+            freeze_function_plan(&function_inventory, &[unproven_ownerless, owned_evidence])
+                .is_some(),
+            false,
+        ),
+    ];
+    let mut plan_rows_checked = 0u64;
+    for (label, actual, expected) in plan_cases {
+        if actual != expected {
+            return fail(format!(
+                "IC-8a (P6) function-total result-plan mismatch for {label}: got {actual}, expected {expected}"
+            ));
+        }
+        plan_rows_checked += 1;
+    }
+    if plan_rows_checked != 15 {
+        return fail(format!(
+            "IC-8a (P6) function-plan coverage mismatch: expected 15 rows; verified {plan_rows_checked}"
+        ));
+    }
+
+    // Composition accounting: an already-balanced entry/target segment gains
+    // exactly one owned result on normal and none on unwind. Only the
+    // NeedsResultCredit row performs a normal-edge adapter action.
+    let sources = [
+        ResultOwnerSource::IndependentTargetBirth(1900),
+        ResultOwnerSource::EntryCredit,
+        ResultOwnerSource::TargetFunded(1200),
+        ResultOwnerSource::NeedsResultCredit,
+    ];
+    for source in sources {
+        let independent_birth = usize::from(matches!(
+            source,
+            ResultOwnerSource::IndependentTargetBirth(_)
+        ));
+        let entry_transfer = usize::from(source == ResultOwnerSource::EntryCredit);
+        let target_funded = usize::from(matches!(source, ResultOwnerSource::TargetFunded(_)));
+        let result_adapter_normal = usize::from(source == ResultOwnerSource::NeedsResultCredit);
+        let result_adapter_unwind = 0usize;
+        let logical_action_normal = source == ResultOwnerSource::NeedsResultCredit;
+        let logical_action_unwind = false;
+        let unwind_entry_discharge = entry_transfer;
+        let normal_arrival = 1i32;
+        let unwind_arrival = 0i32;
+        let balanced_entry_target_segment = 0i32;
+        if independent_birth + entry_transfer + target_funded + result_adapter_normal != 1
+            || result_adapter_unwind != 0
+            || usize::from(logical_action_normal) != result_adapter_normal
+            || logical_action_unwind
+            || unwind_entry_discharge != entry_transfer
+            || balanced_entry_target_segment + normal_arrival != 1
+            || balanced_entry_target_segment + unwind_arrival != 0
+        {
+            return fail(format!(
+                "IC-8a (P6) result-owner composition accounting failed for source {source:?}"
+            ));
+        }
+    }
+
     valid()
 }
 
@@ -2659,7 +4114,7 @@ fn verify_ic8a_conservative_init() -> EngineResult {
 // Per Annex E §AIMS IC-8 REMOVED + the IC-8-removal-soundness
 // proof file's three conjuncts:
 // (P1) Counterexample existence — caller-side (Owned, Linear, Once)
-// backward demand with active alias (caller-side RC > 1)
+// backward demand with an active alias (multiple logical owner credits)
 // proves the former IC-8 conclusion does not follow from the
 // antecedent.
 // (P2) Alternative-paths enumeration — 3 sound paths for callee
@@ -2700,7 +4155,7 @@ fn ic8_sound_derivation(caller_uniqueness: &str) -> &'static str {
 fn verify_ic8_removed() -> EngineResult {
     // (P1) Counterexample existence — construct c_counter:
     // caller-side (Owned, Linear, Once) backward demand with
-    // active alias carrying RC > 1; caller-side AimsState
+    // an active alias carrying another logical owner credit; caller-side AimsState
     // uniqueness = MaybeShared.
     let c_counter_access = "Owned";
     let c_counter_consumption = "Linear";
@@ -3022,9 +4477,18 @@ mod tests {
 
     #[test]
     fn ic4_rc_join_shape_flat_lattice() {
-        assert_eq!(rc_join_shape("ReusableStruct", "ReusableStruct"), "ReusableStruct");
-        assert_eq!(rc_join_shape("ReusableStruct", "ReusableEnum"), "NonReusable");
-        assert_eq!(rc_join_shape("CollectionBuffer", "NonReusable"), "NonReusable");
+        assert_eq!(
+            rc_join_shape("ReusableStruct", "ReusableStruct"),
+            "ReusableStruct"
+        );
+        assert_eq!(
+            rc_join_shape("ReusableStruct", "ReusableEnum"),
+            "NonReusable"
+        );
+        assert_eq!(
+            rc_join_shape("CollectionBuffer", "NonReusable"),
+            "NonReusable"
+        );
         assert_eq!(rc_join_shape("ContextHole", "ContextHole"), "ContextHole");
     }
 
@@ -3155,7 +4619,9 @@ mod tests {
             },
             name: "DP-1".to_string(),
             preconditions: Preconditions { items: vec![] },
-            soundness: SoundnessProperty { source: String::new() },
+            soundness: SoundnessProperty {
+                source: String::new(),
+            },
             obligation: ProofObligation::Sorry,
             expected: None,
         };
@@ -3305,7 +4771,12 @@ mod tests {
     #[test]
     fn ic8a_conservative_init_passes() {
         let r = verify_ic8a_conservative_init();
-        assert_eq!(r.verdict, EngineVerdict::Valid, "IC-8a failed: {}", r.reason);
+        assert_eq!(
+            r.verdict,
+            EngineVerdict::Valid,
+            "IC-8a failed: {}",
+            r.reason
+        );
     }
 
     #[test]
@@ -3358,7 +4829,11 @@ mod tests {
         for s in ["6", "7", "8a", "8-REMOVED"] {
             let t = make_ic_theorem(s);
             let r = discharge_for_engine("interprocedural_summary", &t);
-            assert!(r.is_some(), "interprocedural_summary IC-{} should return Some", s);
+            assert!(
+                r.is_some(),
+                "interprocedural_summary IC-{} should return Some",
+                s
+            );
             assert_eq!(r.unwrap().verdict, EngineVerdict::Valid);
         }
     }
@@ -3495,7 +4970,14 @@ mod tests {
     fn ic8a_conservative_seed_matches_spec_tuple() {
         // Per Annex E §AIMS IC-8a: CONSERVATIVE =
         // (Owned, Unrestricted, Many, Unknown, MaybeShared, true).
-        let conservative = ("Owned", "Unrestricted", "Many", "Unknown", "MaybeShared", true);
+        let conservative = (
+            "Owned",
+            "Unrestricted",
+            "Many",
+            "Unknown",
+            "MaybeShared",
+            true,
+        );
         assert_eq!(conservative.0, "Owned");
         assert_eq!(conservative.1, "Unrestricted");
         assert_eq!(conservative.2, "Many");
@@ -3515,10 +4997,7 @@ mod tests {
 
     #[test]
     fn ic8_former_derivation_produces_unique_on_owned_linear_once() {
-        assert_eq!(
-            ic8_former_derivation("Owned", "Linear", "Once"),
-            "Unique"
-        );
+        assert_eq!(ic8_former_derivation("Owned", "Linear", "Once"), "Unique");
         // Any other antecedent shape: former produces MaybeShared.
         assert_eq!(
             ic8_former_derivation("Borrowed", "Linear", "Once"),

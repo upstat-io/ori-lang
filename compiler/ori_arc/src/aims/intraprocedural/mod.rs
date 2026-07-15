@@ -3,13 +3,14 @@
 //! Computes [`AimsState`](super::lattice::AimsState) for every variable at
 //! every block boundary within a single function. The analysis direction is
 //! BACKWARD: we discover how each value WILL be used (future demand) to
-//! decide what RC operations to emit.
+//! derive logical ownership-transfer, duplication, discharge, reuse, and COW
+//! facts. Physical realization is a later target-owned decision.
 //!
 //! # Entry point
 //!
 //! [`analyze_function`] runs the backward dataflow to fixed-point convergence,
-//! returning an [`AimsStateMap`] that downstream passes (RC emission, reuse
-//! emission, COW annotation) consume.
+//! returning an [`AimsStateMap`] that downstream ownership-event realization,
+//! reuse realization, and COW annotation consume.
 //!
 //! # Module structure
 //!
@@ -22,7 +23,8 @@
 //! # References
 //!
 //! - GHC demand analysis backward pass (`compiler/GHC/Core/Opt/DmdAnal.hs`)
-//! - Lean 4 RC insertion (`src/Lean/Compiler/IR/RC.lean`)
+//! - Lean 4 RC insertion (`src/Lean/Compiler/IR/RC.lean`) as historical
+//!   algorithmic influence, not a required physical representation
 //! - `ori_arc` liveness (`compiler/ori_arc/src/liveness/mod.rs`)
 
 #[cfg(test)]
@@ -36,6 +38,7 @@ pub(crate) mod apply_aliases;
 pub(crate) mod birth_site_partition;
 pub(crate) mod birth_site_population;
 pub mod block;
+mod block_state;
 pub(crate) mod effects;
 pub(crate) mod fip_balance;
 pub(crate) mod ledger_events;
@@ -188,8 +191,11 @@ pub fn analyze_function(
     // + Jump-arg + CFG-merge + Select (R5) → source map. Static structure —
     // computed once, reused across worklist iterations. The R5 Select-origin dst
     // set gates the backward-demand consumer per §1.9.
-    let project_alias_table =
-        project_aliases::compute_project_alias_table(func, state_map.apply_result_aliases());
+    let project_alias_table = project_aliases::compute_project_alias_table_for_state(
+        func,
+        state_map.apply_result_aliases(),
+        &state_map,
+    );
     let project_alias_sources = project_alias_table.sources;
     let demand_sources = project_alias_table.demand_sources;
     let select_alias_dsts = project_alias_table.select_alias_dsts;
@@ -229,12 +235,14 @@ pub fn analyze_function(
 
             // Compute the block's exit state from successor entry states.
             let exit_state = block::compute_block_exit_state(func, block_id, &state_map);
-            state_map.update_block_exit(block_id, exit_state);
+            state_map.update_block_exit(block_id, exit_state.demands);
+            state_map.update_scalar_live_at_exit(block_id, exit_state.live_scalars);
 
             // Record per-edge demand for Invoke and InvokeIndirect
             // terminators: normal and unwind successors carry different
             // variable sets, and the per-edge cleanup machinery consults
-            // this to determine RcDec emission on the unwind path.
+            // this to determine the logical unwind-path release. The current
+            // carrier materializes that release as RcDec.
             // Earlier this only matched Invoke, leaving
             // InvokeIndirect terminators without recorded edge state —
             // a borrowed closure receiver dying on the unwind edge had
@@ -275,6 +283,7 @@ pub fn analyze_function(
             );
             state_map.accumulate_effect(result.effects);
             state_map.update_block_entry(block_id, result.entry_state);
+            state_map.update_scalar_live_at_entry(block_id, result.scalar_live_at_entry);
 
             // Propagate pre-strip Invoke-def demand to the predecessor Invoke
             // block's exit-state side table. The demand was captured BEFORE
@@ -334,7 +343,7 @@ pub fn analyze_function(
     // Position-load-bearing ordering — `populate_call_result_states` MUST
     // run BEFORE `populate_sparse_events` so the side tables are populated
     // when sparse_events queries `effective_locality_at_block_exit` for
-    // `LocalAllocCandidate` emission.
+    // `PlacementEligibilityCandidate` emission.
     //
     // Materialize singleton `class_members` entries for transitive-drop
     // payload edges so the `class_members(class_id)` consumers in the realize

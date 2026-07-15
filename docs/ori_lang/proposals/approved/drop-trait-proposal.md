@@ -34,21 +34,23 @@ trait Drop {
 }
 ```
 
-The `drop` method is called when a value's reference count reaches zero.
+The `drop` method is called exactly once at a value's logical death point. A
+counter-based physical projection commonly detects that point when its count
+reaches zero, but a counter is not part of the language contract.
 
 ---
 
 ## Execution Timing
 
-### Reference Count Zero
+### Logical Death
 
-Drop is called when ARC refcount reaches zero:
+Drop is called when the final logical ownership/cleanup obligation ends:
 
 ```ori
 {
-    let resource = acquire_resource(),  // refcount: 1
-    use_resource(resource),             // refcount may increase
-}                                       // refcount: 0, drop called
+    let resource = acquire_resource(),  // one logical owner
+    use_resource(resource),             // may borrow or transfer ownership
+}                                       // final owner ends; drop called
 ```
 
 ### Scope Exit
@@ -383,7 +385,7 @@ Document Drop's role in ARC.
 | Aspect | Details |
 |--------|---------|
 | Trait | `trait Drop { @drop (self) -> void }` |
-| Called when | Reference count reaches zero |
+| Called when | Exactly once at logical death/cleanup |
 | Order | LIFO (reverse declaration order) |
 | Field order | Reverse declaration order |
 | Collection order | Back-to-front (reverse index order) |

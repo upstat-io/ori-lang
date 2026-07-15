@@ -24,9 +24,8 @@ fn v(n: u32) -> ArcVarId {
 
 /// One-block function with a single `BurdenInc` on var 0, returning it.
 fn burden_inc_func() -> ArcFunction {
-    ArcFunction {
+    let mut function = ArcFunction {
         var_types: vec![Idx::from_raw(0)],
-        var_reprs: vec![ValueRepr::RcPointer],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: vec![],
@@ -34,7 +33,9 @@ fn burden_inc_func() -> ArcFunction {
             terminator: ArcTerminator::Return { value: v(0) },
         }],
         ..Default::default()
-    }
+    };
+    function.replace_variable_representations(vec![ValueRepr::RcPointer]);
+    function
 }
 
 /// Relocation pin: `emit_survivor_remarks_all_kept` is reachable from

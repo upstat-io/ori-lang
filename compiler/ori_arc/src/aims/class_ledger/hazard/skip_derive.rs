@@ -8,10 +8,9 @@ use crate::ir::ArcFunction;
 use super::FieldViewHazard;
 
 /// Whether the container's type carries a USER enum burden with variant
-/// entries — the explicit-slot sum layout whose payload is a separate
-/// allocation the tag-switched drop glue walks. Builtin `Option`/`Result`
-/// are same-allocation niche wrappers (the wrapper's dec IS the payload's
-/// release), so skipping their payload drops the class's only release.
+/// entries — a logical sum whose cleanup operation is variant-sensitive.
+/// Builtin `Option`/`Result` share the payload's ownership identity, so
+/// skipping their payload drops the class's only logical release.
 fn container_is_user_variant_enum(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
@@ -39,9 +38,9 @@ fn container_is_user_variant_enum(
 /// variant carrying ONE payload slot, so any extracted payload belongs to
 /// that variant — the moved mark is variant-unique by type structure
 /// (`FD_skipset_sound`; the construct-uniform premise met by the type
-/// instead of the construct sites). `self_heap_alloc` required: a
-/// niche-family wrapper (no own allocation) is never decomposable — its
-/// whole-var dec IS the payload's release.
+/// instead of the construct sites). `self_owned_identity` required: a
+/// wrapper with no distinct ownership identity is never decomposable — its
+/// whole-var decrement IS the payload's release.
 fn derive_constructless_enum_variant(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
@@ -61,7 +60,7 @@ fn derive_constructless_enum_variant(
     else {
         return None;
     };
-    if !user.self_heap_alloc {
+    if !user.self_owned_identity {
         return None;
     }
     let mut payload_bearing = user
@@ -72,8 +71,8 @@ fn derive_constructless_enum_variant(
     if payload_bearing.next().is_some() || unique.retained_owned.len() != 1 {
         return None;
     }
-    // `VariantId` is 1-indexed; the skip names the 0-based ordinal the
-    // tag-switched drop glue tests.
+    // `VariantId` is 1-indexed; the skip names the 0-based ordinal selected
+    // by the variant-sensitive cleanup operation.
     Some(vec![unique.variant_id.get().get() - 1])
 }
 
@@ -81,10 +80,10 @@ fn derive_constructless_enum_variant(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SkipAuthority {
     /// A SUM container: the skip names the moved-out VARIANT ordinal
-    /// (tag-switched enum drop glue).
+    /// (variant-sensitive logical cleanup).
     Variant(Vec<u32>),
     /// A STRUCT/TUPLE container: the skip names top-level FIELD ordinals
-    /// (positional field-walk drop glue).
+    /// (positional logical cleanup).
     Positional(Vec<u32>),
 }
 
@@ -106,7 +105,7 @@ impl SkipAuthority {
 
 /// Type-derived POSITIONAL skip for a CONSTRUCTLESS struct/tuple container
 /// (call-produced — no `Construct` to inspect): the container type's burden
-/// is struct-shaped (no variants; positional field-walk drop glue), and
+/// is struct-shaped (no variants; positional logical cleanup), and
 /// every consume-marked view path names one of its owned-field ordinals, so
 /// the skip IS the hazard's own field set (`FD_skipset_sound` — the moved
 /// mark is field-unique by position; `FD_per_site_skipset_sound` gates each
@@ -233,7 +232,7 @@ fn view_projections_all_move_out(
 /// decline (fail-closed) EXCEPT the uniform single-payload-variant shape
 /// (every construct site builds the SAME one-payload variant and the view
 /// is its sole payload slot; slot 0 is the tag), whose skip names the
-/// variant ordinal per the tag-switched enum drop glue. A CONSTRUCTLESS
+/// variant ordinal required by variant-sensitive logical cleanup. A CONSTRUCTLESS
 /// container derives the variant from the type's burden table instead
 /// (`derive_constructless_enum_variant`).
 pub(super) fn derive_sum_skip(
@@ -243,8 +242,8 @@ pub(super) fn derive_sum_skip(
     interner: &ori_ir::StringInterner,
     hazard: &FieldViewHazard,
 ) -> Result<Option<SkipAuthority>, ()> {
-    // Niche-family wrappers: the wrapper IS the payload allocation, so its
-    // whole-var dec is the payload's release — never decomposable.
+    // Niche-family wrappers share the payload's ownership identity, so their
+    // whole-var decrement is the payload's release — never decomposable.
     let niche_family = hazard
         .sum_enum_name
         .is_some_and(|name| name == interner.intern("Option") || name == interner.intern("Result"));

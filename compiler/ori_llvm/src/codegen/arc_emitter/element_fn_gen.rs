@@ -18,16 +18,33 @@ use crate::codegen::value_id::{FunctionId, ValueId};
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Look up the user `@drop` method for a type when it implements `Drop`.
     ///
-    /// Consults the canonical method map: `type_idx_to_name` resolves the
-    /// type's `Name`, then `method_functions[(type_name, "drop")]` resolves
-    /// the compiled `_ori_<Type>$drop` method. Returns `None` when the type
-    /// does not implement `Drop`. This is the codegen-side SSOT for "does
-    /// this type have a user `@drop`" — independent of the upstream burden
-    /// registry, which is not threaded onto the codegen path.
+    /// A bound production emitter consumes only the executable artifact's exact
+    /// user-drop table. Unbound codegen fixtures retain the general method-map
+    /// lookup so low-level emitter tests can be constructed in isolation.
     pub(super) fn user_drop_method(&self, ty: Idx) -> Option<FunctionId> {
+        self.user_drop_callable(ty).map(|(function, _)| function)
+    }
+
+    /// Resolve the exact physical callable selected for a user-drop operation.
+    fn user_drop_callable(
+        &self,
+        ty: Idx,
+    ) -> Option<(FunctionId, crate::codegen::abi::FunctionAbi)> {
+        if self.ctx.executable_facts_bound {
+            return self
+                .ctx
+                .user_drop_functions
+                .get(&ty)
+                .or_else(|| {
+                    self.ctx
+                        .user_drop_functions
+                        .get(&self.pool.resolve_fully(ty))
+                })
+                .cloned();
+        }
+
         let drop_name = self.interner.intern("drop");
         self.user_method(ty, drop_name)
-            .map(|(func_id, _abi)| func_id)
     }
 
     /// Resolve a user trait-method impl for `ty` by interned method `Name`.
@@ -63,9 +80,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// (which may raise a foreign Ori exception)?
     ///
     /// Codegen-side consumer of `ori_arc::type_drop_may_unwind`: supplies the
-    /// `method_functions`-based local `@drop` check ([`Self::user_drop_method`]
-    /// — the codegen SSOT, since the burden-registry `user_drop` is hardcoded
-    /// `None` on this path) + the per-type memo on `CodegenContext`. Gates the
+    /// artifact-bound local `@drop` check ([`Self::user_drop_method`]) + the
+    /// per-type memo on `CodegenContext`. Gates the
     /// may-unwind drop-fn shape (skip `nounwind` + set personality + `invoke`
     /// the user `@drop`) and the may-unwind `RcDec` routing (`ori_rc_dec_unwind`
     /// via `invoke` + cleanup pad).
@@ -152,17 +168,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// value is loaded from `data_ptr` first. Borrows `self`; the drop
     /// function still owns the field walk that follows.
     pub(super) fn emit_user_drop_via_pointer(&mut self, ty: Idx, data_ptr: ValueId) {
-        let Some(type_name) = self.drop_type_name(ty) else {
+        let resolved = self.pool.resolve_fully(ty);
+        let Some((func_id, abi)) = self.user_drop_callable(ty) else {
             return;
         };
-        let resolved = self.pool.resolve_fully(ty);
-        let drop_name = self.interner.intern("drop");
-        let Some((func_id, passing)) = self
-            .ctx
-            .method_functions
-            .get(&(type_name, drop_name))
-            .and_then(|(fid, abi)| abi.params.first().map(|p| (*fid, p.passing)))
-        else {
+        let Some(passing) = abi.params.first().map(|parameter| parameter.passing) else {
             return;
         };
         let arg = match passing {
@@ -219,17 +229,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         normal_bb: crate::codegen::value_id::BlockId,
         cleanup_bb: crate::codegen::value_id::BlockId,
     ) -> bool {
-        let Some(type_name) = self.drop_type_name(ty) else {
+        let resolved = self.pool.resolve_fully(ty);
+        let Some((func_id, abi)) = self.user_drop_callable(ty) else {
             return false;
         };
-        let resolved = self.pool.resolve_fully(ty);
-        let drop_name = self.interner.intern("drop");
-        let Some((func_id, passing)) = self
-            .ctx
-            .method_functions
-            .get(&(type_name, drop_name))
-            .and_then(|(fid, abi)| abi.params.first().map(|p| (*fid, p.passing)))
-        else {
+        let Some(passing) = abi.params.first().map(|parameter| parameter.passing) else {
             return false;
         };
         let arg = match passing {

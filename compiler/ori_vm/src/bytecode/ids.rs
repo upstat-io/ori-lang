@@ -26,6 +26,7 @@ macro_rules! table_id {
 }
 
 table_id!(OperandListId);
+table_id!(CallArgumentListId);
 table_id!(MoveListId);
 table_id!(SwitchTableId);
 table_id!(StringId);
@@ -41,10 +42,6 @@ impl Register {
 
     pub(crate) const fn index(self) -> usize {
         self.0 as usize
-    }
-
-    pub(crate) const fn raw(self) -> u32 {
-        self.0
     }
 }
 

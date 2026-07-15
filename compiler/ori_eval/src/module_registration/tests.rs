@@ -56,6 +56,43 @@ fn test_register_variant_constructors() {
 }
 
 #[test]
+fn module_bindings_capture_local_variants_over_prelude_name_collisions() {
+    let (result, interner) = parse_source(
+        r"
+        type Stream = Left(v: int) | Right(v: int);
+        @make_left () -> Stream = Left(v: 1);
+        @make_right () -> Stream = Right(v: 2);
+    ",
+    );
+
+    let alignment = interner.intern("Alignment");
+    let left = interner.intern("Left");
+    let right = interner.intern("Right");
+    let mut env = Environment::new();
+    env.define_global(left, Value::variant(alignment, left, vec![]));
+    env.define_global(right, Value::variant(alignment, right, vec![]));
+
+    register_module_bindings(&result.module, &result.arena, &mut env, None);
+
+    for (function_name, variant_name) in [("make_left", left), ("make_right", right)] {
+        let function = env
+            .lookup(interner.intern(function_name))
+            .unwrap_or_else(|| panic!("missing {function_name}"));
+        let Value::Function(function) = function else {
+            panic!("{function_name} is not a function");
+        };
+        assert!(matches!(
+            function.get_capture(variant_name),
+            Some(Value::VariantConstructor {
+                variant_name: captured,
+                field_count: 1,
+                ..
+            }) if *captured == variant_name
+        ));
+    }
+}
+
+#[test]
 fn test_register_newtype_constructors() {
     let (result, interner) = parse_source(
         r"

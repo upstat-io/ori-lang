@@ -52,6 +52,7 @@ fn build_simple_func(
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -266,6 +267,7 @@ fn build_branching_caller(
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -439,13 +441,15 @@ fn return_range_constant() {
     );
 }
 
-// Budget exceeded
+// Recursive convergence budget
 
-/// Budget exceeded: >N SCC iterations → remaining SCCs get Top.
+/// Acyclic functions require one topological pass, not a convergence budget.
+/// Setting the recursive limit to zero must therefore leave their parameter
+/// propagation intact.
 #[test]
-fn budget_exceeded_gives_top() {
+fn recursive_budget_does_not_apply_to_acyclic_sccs() {
     let v_param = ArcVarId::new(0);
-    let func = build_simple_func(
+    let helper = build_simple_func(
         103,
         &[(0, ori_types::Idx::INT)],
         vec![],
@@ -454,24 +458,135 @@ fn budget_exceeded_gives_top() {
         1,
     );
 
+    let v_arg = ArcVarId::new(0);
+    let v_result = ArcVarId::new(1);
+    let caller = build_simple_func(
+        203,
+        &[],
+        vec![
+            ArcInstr::Let {
+                dst: v_arg,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(37)),
+            },
+            ArcInstr::Apply {
+                dst: v_result,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(103),
+                args: vec![v_arg],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+        ],
+        v_result,
+        ori_types::Idx::INT,
+        2,
+    );
+
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig {
-        max_total_scc_iterations: 0,
+        max_scc_iterations: 0,
         ..Default::default()
     };
     let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
 
-    propagate_ranges(&mut plan, &pool, &[func], &config);
+    propagate_ranges(&mut plan, &pool, &[helper, caller], &config);
 
-    // Budget exhausted — should not panic. With 0 budget, the SCC is skipped
-    // and params get Top, but intraprocedural results should still be stored.
-    let func_name = ori_ir::Name::from_raw(103);
-    let param_range = plan.var_range(func_name, v_param);
     assert_eq!(
-        param_range,
-        ValueRange::Top,
-        "Budget exceeded should not panic, param should be Top"
+        plan.var_range(ori_ir::Name::from_raw(103), v_param),
+        ValueRange::Bounded { lo: 37, hi: 37 },
+        "the recursive convergence limit must not suppress an acyclic SCC"
     );
+}
+
+/// Regression pin for the former fixed 50-SCC program-size cutoff. All
+/// acyclic components must be processed even when a separate recursive SCC
+/// exhausts immediately, and adding unrelated components must not make a
+/// previously precise parameter become `Top`.
+#[test]
+fn acyclic_sccs_remain_precise_past_former_global_cutoff() {
+    const PAIRS: u32 = 64;
+    const HELPER_BASE: u32 = 10_000;
+    const CALLER_BASE: u32 = 20_000;
+    const EXTERNAL_BASE: u32 = 40_000;
+
+    let mut functions = Vec::new();
+    functions.push(build_self_recursive_func(30_000));
+
+    for offset in 0..PAIRS {
+        let helper_name = HELPER_BASE + offset;
+        let caller_name = CALLER_BASE + offset;
+        let value = i64::from(offset) - 32;
+        let v_unknown_return = ArcVarId::new(1);
+        functions.push(build_simple_func(
+            helper_name,
+            &[(0, ori_types::Idx::INT)],
+            vec![ArcInstr::Apply {
+                dst: v_unknown_return,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(EXTERNAL_BASE + offset),
+                args: vec![],
+                arg_ownership: vec![],
+                mono_instance_id: None,
+            }],
+            v_unknown_return,
+            ori_types::Idx::INT,
+            2,
+        ));
+
+        let v_arg = ArcVarId::new(0);
+        let v_result = ArcVarId::new(1);
+        functions.push(build_simple_func(
+            caller_name,
+            &[],
+            vec![
+                ArcInstr::Let {
+                    dst: v_arg,
+                    ty: ori_types::Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(value)),
+                },
+                ArcInstr::Apply {
+                    dst: v_result,
+                    ty: ori_types::Idx::INT,
+                    func: ori_ir::Name::from_raw(helper_name),
+                    args: vec![v_arg],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+            v_result,
+            ori_types::Idx::INT,
+            2,
+        ));
+    }
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig {
+        max_scc_iterations: 0,
+        ..Default::default()
+    };
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+    propagate_ranges(&mut plan, &pool, &functions, &config);
+
+    assert_eq!(
+        plan.var_range(ori_ir::Name::from_raw(30_000), ArcVarId::new(0)),
+        ValueRange::Top,
+        "the recursive SCC must honor its zero-iteration convergence limit"
+    );
+    for offset in 0..PAIRS {
+        let value = i64::from(offset) - 32;
+        assert_eq!(
+            plan.var_range(
+                ori_ir::Name::from_raw(HELPER_BASE + offset),
+                ArcVarId::new(0),
+            ),
+            ValueRange::Bounded {
+                lo: value,
+                hi: value,
+            },
+            "acyclic helper {offset} lost precision after an unrelated recursive exhaustion"
+        );
+    }
 }
 
 // Self-recursive function
@@ -566,6 +681,7 @@ fn self_recursive_converges_or_widens() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -846,6 +962,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -938,6 +1055,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -1109,6 +1227,7 @@ fn scc_budget_exhaustion_clears_stale_results() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -1147,6 +1266,54 @@ fn scc_budget_exhaustion_clears_stale_results() {
         param_range,
         ValueRange::Top,
         "SCC budget exhaustion: param should be Top, got {param_range:?}"
+    );
+}
+
+/// Return-range feedback runs after recursive SCC processing. It must not
+/// repopulate an exhausted SCC with a bounded callee result after that SCC was
+/// deliberately cleared to `Top`.
+#[test]
+fn return_feedback_cannot_resurrect_exhausted_scc_results() {
+    let helper_return = ArcVarId::new(0);
+    let helper = build_simple_func(
+        31_000,
+        &[],
+        vec![ArcInstr::Let {
+            dst: helper_return,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(99)),
+        }],
+        helper_return,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    let mut recursive = build_self_recursive_func(31_001);
+    let helper_result = ArcVarId::new(6);
+    recursive.blocks[0].body.push(ArcInstr::Apply {
+        dst: helper_result,
+        ty: ori_types::Idx::INT,
+        func: ori_ir::Name::from_raw(31_000),
+        args: vec![],
+        arg_ownership: vec![],
+        mono_instance_id: None,
+    });
+    recursive.var_types.push(ori_types::Idx::INT);
+    recursive.var_reprs.push(ValueRepr::Scalar);
+    recursive.spans[0].push(None);
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig {
+        max_scc_iterations: 0,
+        ..Default::default()
+    };
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+    propagate_ranges(&mut plan, &pool, &[recursive, helper], &config);
+
+    assert_eq!(
+        plan.var_range(ori_ir::Name::from_raw(31_001), helper_result),
+        ValueRange::Top,
+        "feedback must not restore a bounded result inside an exhausted recursive SCC"
     );
 }
 
@@ -1588,6 +1755,7 @@ fn build_func_with_unreachable_return(name: u32, callee_id: u32) -> ArcFunction 
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -1778,6 +1946,7 @@ fn build_self_recursive_func(name: u32) -> ArcFunction {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -1787,11 +1956,10 @@ fn build_self_recursive_func(name: u32) -> ArcFunction {
     }
 }
 
-/// regression: with `max_total_scc_iterations: 2` and
-/// `max_scc_iterations: 10`, `process_recursive_scc` uses
-/// `min(10, remaining_budget=1) = 1` as effective cap.
+/// The recursive convergence limit remains a conservative safety valve even
+/// though acyclic SCCs no longer consume a global program-size budget.
 #[test]
-fn total_scc_budget_caps_recursive_scc() {
+fn per_scc_budget_caps_recursive_scc() {
     let rec = build_self_recursive_func(950);
 
     let v_arg = ArcVarId::new(0);
@@ -1821,8 +1989,7 @@ fn total_scc_budget_caps_recursive_scc() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig {
-        max_scc_iterations: 10,
-        max_total_scc_iterations: 2,
+        max_scc_iterations: 1,
         ..Default::default()
     };
     let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
@@ -1832,7 +1999,7 @@ fn total_scc_budget_caps_recursive_scc() {
     assert_eq!(
         rec_param,
         ValueRange::Top,
-        "rec should be Top-widened with tight total budget, got {rec_param:?}"
+        "rec should fall back to Top at its per-SCC convergence limit, got {rec_param:?}"
     );
 }
 
@@ -1911,6 +2078,7 @@ fn build_invoke_caller(name: u32, callee_id: u32, num_vars: usize) -> ArcFunctio
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -1995,6 +2163,7 @@ fn build_invoke_apply_caller(helper_id: u32, callee_id: u32, name: u32) -> ArcFu
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],

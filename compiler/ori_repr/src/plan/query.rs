@@ -52,7 +52,10 @@ pub(crate) fn is_env_truthy(val: &str) -> bool {
     val == "1" || val.eq_ignore_ascii_case("true") || val.eq_ignore_ascii_case("yes")
 }
 
-/// RC strategy for a type — how its reference count is managed.
+/// Transitional compiled-layout RC mechanism for a type.
+///
+/// This is a `ReprPlan` projection choice, not an AIMS fact and not a VM
+/// storage contract. Production moves it into `CompiledLayoutPlan`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RcStrategy {
     /// No RC needed (trivial type — all fields are scalars).
@@ -118,7 +121,7 @@ impl ReprPlan {
         result
     }
 
-    /// Get the RC strategy for a type.
+    /// Get the transitional compiled RC mechanism for a type.
     ///
     /// Returns `Atomic { I64 }` by default — matches current `ori_rt` behavior.
     /// Reads from the dedicated `rc_strategies` map, NOT from `MachineRepr`

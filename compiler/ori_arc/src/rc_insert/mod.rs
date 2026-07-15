@@ -1,8 +1,8 @@
 //! Argument ownership annotation for ARC IR call sites.
 //!
 //! Populates `arg_ownership` on `Apply`/`Invoke` instructions so that
-//! downstream passes (AIMS realization, LLVM emitter) can read per-argument
-//! ownership directly from the IR.
+//! AIMS realization and every physical consumer can read per-argument
+//! ownership directly from the shared IR without re-deriving policy.
 //!
 //! The legacy RC insertion algorithm (backward-walk Perceus) has been
 //! replaced by the AIMS unified pipeline (`aims::realize::realize_rc_reuse`).
@@ -20,6 +20,7 @@ mod annotate;
 pub(crate) mod closure_resolve;
 
 pub use self::annotate::annotate_arg_ownership;
+pub(crate) use self::annotate::annotate_arg_ownership_with_exact_callables;
 
 #[cfg(test)]
 mod tests;

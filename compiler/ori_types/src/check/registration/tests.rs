@@ -734,6 +734,10 @@ fn derive_hashable_without_eq_emits_error() {
     let errors = checker.errors();
     assert_eq!(errors.len(), 1, "expected exactly one error");
     assert_eq!(errors[0].code(), ori_diagnostic::ErrorCode::E2029);
+    assert!(
+        checker.accepted_derives.is_empty(),
+        "a rejected derive must not publish an executable fact"
+    );
 }
 
 #[test]
@@ -766,6 +770,74 @@ fn derive_eq_and_hashable_succeeds() {
 
     let errors = checker.errors();
     assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
+    assert_eq!(checker.accepted_derives.len(), 2);
+    assert_eq!(checker.accepted_derives[0].id.raw(), 0);
+    assert_eq!(checker.accepted_derives[1].id.raw(), 1);
+    assert_eq!(checker.accepted_derives[0].owner_name, type_name);
+    assert_eq!(
+        checker.accepted_derives[0].method_name,
+        interner.intern("eq")
+    );
+    assert_eq!(checker.accepted_derives[0].signature.param_types.len(), 2);
+    assert_eq!(checker.accepted_derives[0].signature.return_type, Idx::BOOL);
+}
+
+#[test]
+fn duplicate_accepted_derive_publishes_one_fact() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+
+    let eq = interner.intern("Eq");
+    let type_decl = ori_ir::TypeDecl {
+        name: interner.intern("Point"),
+        kind: ori_ir::TypeDeclKind::Struct(vec![]),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives: vec![eq],
+        repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
+    };
+
+    register_derived_impl(&mut checker, &type_decl, eq);
+    register_derived_impl(&mut checker, &type_decl, eq);
+
+    assert_eq!(checker.accepted_derives.len(), 1);
+}
+
+#[test]
+fn newtype_derive_requires_underlying_trait() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+
+    let eq = interner.intern("Eq");
+    let type_decl = ori_ir::TypeDecl {
+        name: interner.intern("Opaque"),
+        kind: ori_ir::TypeDeclKind::Newtype(ParsedType::Named {
+            name: interner.intern("NoEq"),
+            type_args: ori_ir::ParsedTypeRange::EMPTY,
+        }),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives: vec![eq],
+        repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
+    };
+
+    register_derived_impl(&mut checker, &type_decl, eq);
+
+    assert_eq!(checker.errors().len(), 1);
+    assert_eq!(checker.errors()[0].code(), ori_diagnostic::ErrorCode::E2032);
+    assert!(checker.accepted_derives.is_empty());
 }
 
 // resolve_type_with_params — compound Self recursion tests
@@ -990,7 +1062,15 @@ fn all_derived_traits_have_type_signatures() {
         let type_name = interner.intern("TestType");
         let self_type = checker.pool_mut().named(type_name);
 
-        let methods = build_derived_methods(&mut checker, trait_kind, self_type, Span::DUMMY);
+        let trait_name = interner.intern(trait_kind.trait_name());
+        let (methods, signature) = build_derived_methods(
+            &mut checker,
+            trait_kind,
+            self_type,
+            &[],
+            trait_name,
+            Span::DUMMY,
+        );
 
         assert!(
             !methods.is_empty(),
@@ -1004,6 +1084,11 @@ fn all_derived_traits_have_type_signatures() {
         assert!(
             methods.contains_key(&method_name),
             "DerivedTrait::{trait_kind:?} registered method name doesn't match method_name()",
+        );
+        assert_eq!(signature.name, method_name);
+        assert_eq!(
+            signature.param_types.len(),
+            trait_kind.shape().param_count()
         );
     }
 }
@@ -1395,8 +1480,8 @@ fn value_type_without_drop_impl_registers_empty_user_burden_spec() {
     );
     let burden = burden.unwrap();
     assert!(
-        !burden.self_heap_alloc,
-        "Value spec self_heap_alloc must be false"
+        !burden.self_owned_identity,
+        "Value spec self_owned_identity must be false"
     );
     assert!(
         burden.owned_fields.is_empty(),
@@ -1415,8 +1500,8 @@ fn value_type_without_drop_impl_registers_empty_user_burden_spec() {
         "Value spec element_burden must be None"
     );
     assert!(
-        burden.compiled_drop.is_none(),
-        "Value spec compiled_drop must be None"
+        burden.drop_operation.is_none(),
+        "Value spec drop_operation must be None"
     );
     assert!(
         burden.user_drop.is_none(),
@@ -1515,8 +1600,8 @@ fn value_type_all_value_fields_registers_empty_burden() {
         "all-Value-fields type must register the empty UserBurdenSpec"
     );
     assert!(
-        !burden.unwrap().self_heap_alloc,
-        "all-Value-fields Value spec self_heap_alloc must be false"
+        !burden.unwrap().self_owned_identity,
+        "all-Value-fields Value spec self_owned_identity must be false"
     );
 }
 

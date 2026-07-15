@@ -39,17 +39,25 @@ cargo st        # Run Ori spec tests only
 
 ## Project Structure
 
-The Ori compiler is a strictly ordered, multi-crate pipeline: lex, parse, typecheck, canonicalize, ARC lowering, AIMS analysis, ARC realization, and LLVM codegen. A parallel evaluator consumes canonical IR for const evaluation and `ori run`.
+The Ori compiler has one strictly ordered semantic and ownership pipeline: lex,
+parse, typecheck, canonicalize, ARC lowering, backend-neutral AIMS analysis,
+and ARC realization. The tree evaluator consumes canonical IR as the
+representation-abstract oracle.
 
-- `compiler/oric/` — compiler driver (CLI, Salsa orchestration, filesystem IO, LLVM integration); `src/lib.rs` + `src/main.rs` register the `ori` binary.
+LLVM is the shipped compiled projection; the
+bytecode VM is a sibling physical consumer of the same post-AIMS executable
+plan. AIMS is not an LLVM phase and no backend may re-derive its policy.
+
+- `compiler/oric/` — compiler driver (CLI, Salsa orchestration, filesystem IO, executable construction, and executor selection); `src/lib.rs` + `src/main.rs` register the `ori` binary.
 - `compiler/ori_lexer_core/`, `compiler/ori_lexer/` — raw + cooked lexing.
 - `compiler/ori_parse/` — recursive-descent parser producing `ParseOutput`.
 - `compiler/ori_types/` — Hindley-Milner inference + trait/capability checking.
 - `compiler/ori_canon/` — canonicalization (AST → `CanExpr`) + Maranget pattern compilation.
 - `compiler/ori_arc/` — ARC lowering + AIMS lattice analysis + ARC realization.
-- `compiler/ori_repr/` — representation layer (`ReprPlan`).
-- `compiler/ori_llvm/` — LLVM IR emission from realized ARC IR.
-- `compiler/ori_eval/` — parallel evaluator for canonical IR (const-eval + `ori run`).
+- `compiler/ori_repr/` — representation evidence and shared executable-artifact construction.
+- `compiler/ori_vm/` — bytecode projection and interpreter for the shared post-AIMS plan.
+- `compiler/ori_llvm/` — shipped compiled projection from the same realized plan.
+- `compiler/ori_eval/` — representation-abstract canonical-IR oracle (const-eval and behavioral parity).
 - `compiler/ori_patterns/` — runtime value model + function-pattern dispatch.
 - `compiler/ori_ir/` — interned, flat, Salsa-compatible IR foundation.
 - `compiler/ori_rt/` — AOT runtime (C-ABI static library).

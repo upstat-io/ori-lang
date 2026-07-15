@@ -1,8 +1,10 @@
 //! SCC-based borrow inference for ARC IR.
 //!
-//! Determines which function parameters can be **borrowed** (no RC operations
-//! at the call site) versus **owned** (caller must `rc_inc`, callee must
-//! `rc_dec`).
+//! Determines whether a function parameter is **borrowed** (the source lifetime
+//! governs access and no owner credit transfers) or **owned** (one logical owner
+//! credit transfers and the callee must transfer or discharge it). The current
+//! ARC carrier may spell extra-credit and release events `RcInc`/`RcDec`; those
+//! names are transitional physical-adapter details, not the borrow contract.
 //!
 //! # Algorithm
 //!
@@ -36,9 +38,10 @@
 //!
 //! When a function tail-calls another function (or itself) and passes a
 //! currently-borrowed parameter to an owned position, the parameter must be
-//! promoted to owned. Without this, RC insertion would need to insert a `Dec`
-//! after the tail call, which would break the tail call optimization (the
-//! caller's stack frame must not exist after the tail call).
+//! promoted to owned. Otherwise its caller-side release obligation would remain
+//! after the transfer; the current carrier would need an `RcDec` after the tail
+//! call, breaking the optimization because the caller's stack frame must no
+//! longer exist.
 
 mod builtins;
 mod callees;
@@ -46,6 +49,7 @@ mod derived;
 mod per_scc;
 mod update;
 
+pub(crate) use builtins::persistent_list_runtime_methods;
 pub use builtins::{
     accessor_retain_builtin_names, all_cow_method_names, borrow_view_accessor_builtin_names,
     borrowing_builtin_names, consuming_receiver_builtin_names,
@@ -79,7 +83,7 @@ use update::update_ownership_inner;
 /// # Arguments
 ///
 /// * `functions` — ARC IR functions to analyze (typically one module's worth).
-/// * `classifier` — type classifier for determining scalar vs ref types.
+/// * `classifier` — type classifier for scalar vs ownership-bearing values.
 /// * `builtins` — pre-interned builtin ownership sets (borrowing methods,
 ///   protocol builtins, etc.). Used to determine per-argument ownership
 ///   for compiler-internal callees.

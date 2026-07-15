@@ -15,62 +15,20 @@ mod node;
 
 use std::fmt::Write;
 
-use ori_arc::{ArcClassification, ArcFunction, ArcTerminator};
-use ori_ir::{Name, StringInterner};
-use ori_types::{Pool, TypeRegistry};
-use rustc_hash::FxHashMap;
+use ori_arc::{ArcFunction, ArcTerminator};
+use ori_ir::StringInterner;
+use ori_types::Pool;
 
 use self::node::{render_block_node, render_param_header};
 
-/// Emit DOT graphs for all functions in the ARC cache to stderr.
-///
-/// Clones the pre-lowered functions and re-runs the full ARC pipeline (same
-/// pattern as `arc_dump::dump_arc_ir`) for accurate RC op display.
+/// Emit DOT graphs for all functions in the closed executable artifact.
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-#[expect(
-    clippy::implicit_hasher,
-    reason = "internal function always called with FxHashMap"
-)]
-pub fn emit_arc_dot(
-    arc_cache: &FxHashMap<Name, (ArcFunction, Vec<ArcFunction>)>,
-    classifier: &dyn ArcClassification,
-    pool: &Pool,
-    interner: &StringInterner,
-    type_registry: &TypeRegistry,
-) {
-    let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
+pub fn emit_arc_dot(functions: &[ArcFunction], pool: &Pool, interner: &StringInterner) {
     let mut out = String::with_capacity(16384);
 
-    // Collect and sort for deterministic output.
-    let mut entries: Vec<_> = arc_cache.iter().collect();
-    entries.sort_by_key(|(name, _)| interner.lookup(**name));
-
-    for (_, (parent, lambdas)) in &entries {
-        // Clone and run pipeline for accurate RC ops.
-        let mut funcs: Vec<ArcFunction> = std::iter::once(parent.clone())
-            .chain(lambdas.iter().cloned())
-            .collect();
-        let problems = ori_arc::run_arc_pipeline_all(
-            &mut funcs,
-            classifier,
-            interner,
-            pool,
-            &builtins,
-            type_registry,
-            std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok_and(|v| v != "0"),
-        );
-        // Log verification ICEs but don't abort the dot dump — it's a diagnostic tool.
-        if let Err(verify_errors) = &problems {
-            for e in verify_errors {
-                tracing::error!("ARC IR verification ICE during dot dump: {e}");
-            }
-        }
-        let _ = problems;
-
-        for func in &funcs {
-            emit_function_graph(&mut out, func, pool, interner);
-            writeln!(out).unwrap();
-        }
+    for func in functions {
+        emit_function_graph(&mut out, func, pool, interner);
+        writeln!(out).unwrap();
     }
 
     eprint!("{out}");
