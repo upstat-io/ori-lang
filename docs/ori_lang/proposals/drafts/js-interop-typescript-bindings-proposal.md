@@ -16,9 +16,11 @@
 - Type signatures are inferred from the package's TypeScript declaration files (`.d.ts`).
 - Calls into JS propagate Ori capability requirements through the boundary.
 - Cross-runtime object lifetimes are managed by an 8th orthogonal AIMS dimension `JsRef` (chain: `None < Borrowed < Owned < Shared`, with `Shared` as conservative top); JS-located values force `Locality = HeapEscaping` UNLESS `Locality = Borrowed(p)` from FFI boundary; per-handle obligations tracked per-SSA in `MemoryContract.js_handles: Map<SsaIdx, JsHandleObligation>`.
-- An embedded JS engine (QuickJS for v1, pluggable contract for V8/JavaScriptCore) executes the JS portion.
+- An embedded JavaScriptCore engine executes the JS portion — the Bun architecture: statically-linked JSC plus a Node compatibility layer implemented NATIVELY on Ori's runtime and capability system (§5, §9); the Ori scheduler drives the engine's job queue through the §5.1 contract.
+- Scope is the FULL npm ecosystem, in three compatibility tiers: pure-JS packages, `node:`-dependent packages (express-class), and N-API native addons (§Targeted Scope, §9).
+- Native AOT builds statically link the engine and embed the imported packages' JS as precompiled engine bytecode (§8); programs without `use js` link neither engine nor payload.
 - The boundary is invisible at the Ori source level and compile-time-checked end-to-end.
-- Implementation timeline: ~7–9 months JS-interop phases post-prerequisite; ~12–16 months total wall-clock baseline including prerequisite proposal landing.
+- Implementation is staged by compatibility tier (§Implementation Sketch); sizing happens at feature-plan creation.
 
 ---
 
@@ -37,12 +39,21 @@
 | GraalVM polyglot | runtime-checked via `HostAccess` policy | runtime-checked policy | shared VM | VM tax, no native perf |
 | Cloudflare Workers Bindings | runtime config + per-binding TS types | runtime permission per binding | V8 isolate | Cloudflare-specific |
 | Kotlin/JS, Scala.js, Fable F# | full type system on JS side | none | runs on JS VM | architectural difference: hosted on JS VM; same-VM not cross-runtime |
+| Bun internal Rust ↔ JSC boundary (2026 Rust rewrite) | manual conventions + spec-driven codegen (`.classes.ts` → generated Rust/C++ glue) | none | `Strong`/`Weak` GC-root handles, thread-confined; refcount-transfer conventions enforced by review, not the compiler (documented failure modes: double-ref leaks, missing-ref UAF at GC) | boundary is internal to the runtime, not a user-facing import system |
 
 The empty bucket: native systems language with separate runtime, **compile-time** type-checked via authoritative TypeScript types, **compile-time** capability-tracked across the boundary, AIMS-managed cross-runtime lifetimes. This proposal occupies that bucket.
 
-### Targeted scope — pure-JS packages first
+### Targeted scope — the full npm ecosystem
 
-This proposal targets packages that run on the QuickJS engine without external runtime dependencies — i.e., pure-JS libraries like `lodash`, JSON parsers, regex utilities, validation libraries, cryptography pure-JS implementations. Packages that depend on Node-API runtime (`fs`, `net`, `http`, `process`, `Buffer`, etc.) require Node polyfills the embedded engine does NOT provide in v1. Express, Koa, axios, fastify, and similar Node-runtime-dependent packages are out of scope for v1; they become available after v2 ships a Node polyfill layer (separate proposal). The §Worked Example uses lodash specifically because it is Node-runtime-independent.
+The goal is FULL support of npm packages, delivered in three compatibility tiers. Tiers are implementation stages, never scope boundaries:
+
+| Tier | Package class | Examples | Mechanism |
+|---|---|---|---|
+| 1 | Pure-JS (no runtime deps) | `lodash`, `zod`, `date-fns`, validators, pure-JS crypto | engine + `.d.ts` translation alone |
+| 2 | `node:`-dependent | `express`, `koa`, `axios`, `fastify`, ORMs | §9 Node compatibility layer — `node:*` builtins implemented natively on Ori's runtime, capability-gated |
+| 3 | N-API native addons | `sharp`, `better-sqlite3`, `bcrypt` | §9 N-API ABI surface; an addon is an FFI-class capability grant |
+
+A pure-JS-only scope (the original form of this draft) is REJECTED per Alternative 8: the packages that motivate JS interop for the web-server mission are precisely the Node-dependent ones. The §Worked Example uses lodash for pedagogical simplicity (Tier 1 exercises only the translation + boundary machinery), not as a scope statement.
 
 ### Pain in current cross-language interop
 
@@ -74,9 +85,17 @@ use js "lodash" { chunk };
 
 ### Sponsor / launch relevance
 
-- The web-server use case Ori targets requires npm ecosystem access (validation libraries like `zod`, date utilities like `date-fns`, JSON-schema generators, lodash-style utilities) without paying Bun's "everything runs in JS" tax. v1 scope is pure-JS packages (per §Targeted Scope); Node-runtime-dependent libraries (auth via `passport.js`, ORMs like Prisma, ML inference clients with native `fs`/`net` deps) become available via the v2 Node-polyfill layer (separate proposal).
-- The capability-tracked interop angle is publishable research (USENIX Security, POPL).
+- The web-server use case Ori targets requires FULL npm ecosystem access — auth (`passport.js`), ORMs (Prisma-class), HTTP clients (`axios`), validation (`zod`), utilities — without paying Bun's "everything runs in JS" tax: the Ori-native server stays the hot path, JS packages run as capability-sandboxed library calls (per §Targeted Scope tiers + §9).
+- The capability-tracked interop angle is publishable research (USENIX Security, POPL) — and the §9 capability-mediated Node API surface (per-builtin compile-time effects, vs Deno's process-wide runtime flags) is the sharpest form of the claim.
 - Cloudflare Workers, Vercel, Modular have direct interest in capability-sandboxed JS execution.
+
+### Full-stack type and validator sharing
+
+Choosing any non-JS backend today forfeits end-to-end types with a TypeScript frontend; teams buy back a degraded version through OpenAPI/protobuf codegen (generated artifacts that drift, and that share types only — never behavior). This is the primary reason teams default to Node/TS backends (tRPC's premise). This proposal dissolves it in one direction, with the mechanism already in §1's resolution table:
+
+- **Type sharing**: `use js "./shared-types.d.ts"` imports the frontend's OWN request/response declarations into the Ori backend. A frontend type change makes the Ori backend fail to compile — no codegen step, no drift window.
+- **Validator sharing** (stronger, unique to the embedded-runtime design): because `use js` carries values, not just types, the backend imports the frontend's actual `zod` schemas and runs the SAME validators on both sides of the wire — a single source of truth for validation BEHAVIOR, which schema-codegen approaches structurally cannot provide.
+- The inverse direction — emitting `.d.ts` from an Ori server's public API surface so the frontend gets typed clients — is a natural companion feature (pure compile-time emission, no engine involvement) and is deferred to a separate proposal (per Non-Goal 5).
 
 ---
 
@@ -153,7 +172,7 @@ The TypeScript type system is large; a defined subset covers the common case. Co
 | `T & U` (intersection) | `JsAny` | No structural intersection in Ori |
 | Function type `(x: T) => U` | `(T) -> U uses <Caps>` | See §2.4 (variance + capability propagation) |
 | Generic class `class Foo<T>` | `type Foo<T> = ...` opaque | Methods exposed; instantiation per §2.5 |
-| `Promise<T>` | `JsPromise<T>` | Awaited via `Suspend` capability (auto-propagated) |
+| `Promise<T>` | `JsPromise<T>` | Awaited via `Suspend` capability (auto-propagated); resolution runs the §5.1 job-queue loop |
 | `interface { ... }` | structural Ori record | Optional fields → `Option<T>` |
 | Literal types `"foo" \| "bar"` | sum type with literal variants | |
 | Mapped types `{ [K in keyof T]: U }` | `JsAny` | Too dynamic for compile-time translation |
@@ -279,10 +298,13 @@ Every `use js` import runs in `uses Js` context. Beyond `Js`, the type checker p
 
 | Tier | Source | Use |
 |---|---|---|
-| 1 | Author sidecar `<pkg>.ori-caps.json` | Per-export and per-callback-position capabilities |
+| 0 | `node:` builtin import graph (computed at translation time) | GROUND TRUTH for Node-runtime capabilities: a package's requirement set includes the union of the capability declarations of every `node:` builtin it transitively imports. Authoritative — the builtins are implemented in Ori (§9), so their capability declarations are facts about the implementation, not metadata about someone else's code |
+| 1 | Author sidecar `<pkg>.ori-caps.json` | Per-export and per-callback-position capabilities (refines tier 0; can narrow per-export) |
 | 2 | Package metadata `package.json` `"oriCapabilities": {...}` | npm-ecosystem opt-in |
 | 3 | Heuristic inference | Top-N packages hard-coded in stdlib (`fs-*` → `FileSystem`, etc.) |
-| 4 | Default | `Js + UnknownEffects` for unannotated packages |
+| 4 | Default | `Js + UnknownEffects` for packages whose effects tier 0 cannot fully witness (dynamic `require` of a computed specifier, N-API addons per §9) |
+
+Tier 0 shrinks `UnknownEffects` to its honest residue: with the §9 compat layer implemented on Ori capabilities, a `node:`-importing package's IO surface is statically witnessed by its import graph; `UnknownEffects` remains only for dynamically-computed module loads and native addons.
 
 #### §3.2. The `UnknownEffects` Capability — v1 Hard-Error Semantics
 
@@ -365,7 +387,7 @@ Sha     Shared    Shared     Shared    Shared
 
 (join semantics: Shared is the conservative top; merging Owned ⊔ Shared = Shared
  because the merged path may have JS holding a ref, so sync-decrement is the safe
- disposition rather than unconditional JS_FreeValue. Per Pierce, _Types and Programming
+ disposition rather than unconditional ori_js_release. Per Pierce, _Types and Programming
  Languages_ §16, lattice top = "may have any property the elements could have".)
 ```
 
@@ -375,7 +397,7 @@ Sha     Shared    Shared     Shared    Shared
 |---|---|---|
 | `None` | Pure Ori value, no JS handle | normal AIMS — unaffected |
 | `Borrowed` | Transient view into JS heap; caller still owns the strong handle | no JS-side ref-count change; lifetime checked against caller scope |
-| `Owned` | Ori holds the only strong handle; JS GC will not collect (no other JS-side rooting) | drop triggers JS-side `JS_FreeValue` (or engine-equivalent) |
+| `Owned` | Ori holds the only strong handle; JS GC will not collect (no other JS-side rooting) | drop triggers JS-side `ori_js_release` (or engine-equivalent) |
 | `Shared` | Both Ori (`RC≥1`) and JS hold the value | JS-side ref-counted; sync-decrement on drop, never unconditional free |
 
 #### §4.4. Cross-Dimensional Canonicalization Rules
@@ -398,7 +420,7 @@ The amended CN-6 creates feasible states `Locality = HeapEscaping ∧ Uniqueness
 |---|---|---|
 | **CN-3 (COW eligibility)** | yes | `JsRef ≠ None` ⟹ NOT COW-eligible regardless of Ori `Uniqueness` (the JS engine owns its heap; Ori-side COW is not applicable). Pre-amendment CN-3 consumers reading only `Uniqueness` are explicitly extended to gate on `JsRef = None`. |
 | **CN-6 (own amendment)** | yes | Already amended above. |
-| **DP-5 / DP-6 (drop placement)** | yes | When `JsRef ≠ None`, drop placement consults `JsRef` state, not Ori-side `Uniqueness`. Owned → schedule `JS_FreeValue`; Shared → schedule sync-decrement; Borrowed → no drop (caller owns). |
+| **DP-5 / DP-6 (drop placement)** | yes | When `JsRef ≠ None`, drop placement consults `JsRef` state, not Ori-side `Uniqueness`. Owned → schedule `ori_js_release`; Shared → schedule sync-decrement; Borrowed → no drop (caller owns). |
 | **`realize_cow` pass** | yes (transitively via CN-3) | Inherits CN-3 gate: `JsRef ≠ None` values skip COW realization. |
 | **RL-11 (reuse eligibility)** | yes | `JsRef ≠ None` values are NOT reuse-eligible regardless of Ori-side uniqueness. |
 | **VF-6 (FIP certification)** | yes | Extended to require per-parameter / per-return obligation match via `MemoryContract.js_param_handles` and `js_return_handles` (not scalar count). Intra-function obligations checked against `AimsStateMap.js_handles`. |
@@ -413,14 +435,15 @@ This enumeration is the load-bearing artifact for AIMS invariant #5: every facet
 | Calling JS that returns an object | result enters `JsRef = Owned`, RC = 1 (Ori-side handle) |
 | Passing Ori value to JS | requires `Sendable` per §6; transfer or copy at boundary |
 | Passing `JsRef = Shared` across `Nursery` | requires CN-12 + `Sendable` proxy adapter |
-| Last-use of `JsRef = Owned` value | AIMS schedules `JS_FreeValue` (or engine equivalent) via `JsHandleSideTable` lookup |
+| Last-use of `JsRef = Owned` value | AIMS schedules `ori_js_release` (or engine equivalent) via `JsHandleSideTable` lookup |
 | `JsRef = Owned → Borrowed` (taking a view) | `RC` unchanged; new SSA gets `Borrowed` with caller-scope lifetime |
 
 #### §4.6. Cycle Collection
 
 - JS GC owns its side; Ori-side `JsRef = Shared` decrements via finalization callback registered at handle creation.
 - **Intra-procedural strong cycles** (a function body that constructs Ori → JS → Ori within a single function) are rejected at compile time per CN-13 — `E4031: intra-procedural strong cycle (use weak/proxy adapter to break)`.
-- **Cross-procedural strong cycles** cannot be detected by intra-procedural AIMS analysis. They leak in v1. Documented limitation; v2 adds runtime cycle collection (periodic sweep at quiescence).
+- **Cross-procedural strong cycles** cannot be detected by intra-procedural AIMS analysis. They leak in v1. Documented limitation; v2 adds runtime cycle collection.
+- **v2 mechanism — engine-integrated GC tracing preferred over a periodic sweep**: register Ori-held native objects with the engine's tracing GC so cross-runtime edges become visible to the single collector — JSC exposes `visitChildrenImpl` / write-barrier slots (used at scale by Bun's generated bindings), QuickJS exposes per-class `gc_mark` hooks. This turns cross-runtime cycles back into a single-collector problem instead of two collectors racing; a periodic quiescence sweep is the fallback if the engine hook proves insufficient.
 - Weak refs (`JsRef::Weak` adapter, library-provided) and proxy adapters (`JsProxy<T>`, library-provided) break cycles by construction; recommended for any Ori → JS → Ori callback pattern.
 - Linting: a future `js-cycle-lint` warning identifies common cross-procedural cycle patterns at code-review time (advisory, not enforcement).
 
@@ -485,17 +508,35 @@ trait JsEngine {
     @inc_ref (self, val: Self.Value) -> void;
     @dec_ref (self, val: Self.Value) -> void;
     @set_capability_gate (self, gate: CapabilityGate) -> void;
+
+    // Job-queue surface (§5.1) — REQUIRED for JsPromise<T> resolution
+    @run_pending_job (self) -> Result<bool, Error> uses Js;   // execute ONE pending job; true = more remain
+    @has_pending_jobs (self) -> bool;
+    @next_timer_deadline (self) -> Option<Duration>;          // earliest armed host-timer deadline; None = no timers
 }
 ```
 
-| Engine | Status | Tradeoffs |
+| Engine | Status | Rationale |
 |---|---|---|
-| **QuickJS** (Bellard) | v1 default | ~50k LOC C, MIT, embeddable; FFI binding via Deep Safety capabilities (`RawMemory`, `Allocator`); good enough for boundary-crossing calls |
-| V8 | v2 | Cloudflare-class performance; ~1M LOC C++; longer integration |
-| JavaScriptCore | v2 (Apple platforms) | Bun-comparable performance |
-| Hermes | v3 (embedded/mobile) | Smaller footprint than V8 |
+| **JavaScriptCore** (vendored WebKit) | **v1 — the committed engine** | The Bun architecture: statically linked cross-platform (Linux/macOS/Windows) at production scale, real JIT tiers (no interpreter-only performance ceiling), full modern-JS conformance the Tier-2 package corpus assumes. JSC is C++; the engine binding therefore includes a vendored C-ABI bindings shim (the shape of Bun's `src/jsc/bindings/*.cpp`), and since Bun's 2026 Rust rewrite, `oven-sh/bun` `src/jsc/` is a complete native-language-side embedding reference (value/handle types, `Strong`/`Weak` rooting, module loader, GC integration) |
+| V8 / Hermes / minimal-profile engines | post-v1 options via the `JsEngine` trait | The trait seam is retained; the §9 compat layer is written against the trait + Ori runtime primitives (never JSC internals), so a second engine is a projection, not a rewrite. A minimal-profile engine (QuickJS-class) may return for embedded/footprint-constrained targets — as an ADDITIONAL profile, never the primary (per Alternative 8) |
 
-Selection: compile-time feature flag `--js-engine=quickjs|v8|jsc|hermes` (per-build, not per-call).
+Selection: compile-time feature flag `--js-engine=jsc` (v1 sole value; per-build, not per-call — the flag exists so post-v1 profiles slot in without a surface change).
+
+#### §5.1. Job Queue, Microtasks, and Host Timer Integration
+
+Embeddable JS engines do NOT drive themselves. JSC requires the embedder to drain its microtask queue (QuickJS-class engines likewise expose an explicit pending-job pump); no engine core provides timers or I/O. `Promise<T> → JsPromise<T>` in the §2 translation table is therefore unimplementable without a host-scheduler contract — the trait's job-queue surface (`run_pending_job` / `has_pending_jobs` / `next_timer_deadline`) is that contract, and the Ori runtime scheduler is the SOLE driver. JS never owns a thread or an event loop in v1 (consistent with the thread-local `JsContext` constraint, §6).
+
+**Binding-site resolution loop (normative).** When Ori resolves a `JsPromise<T>` to `T` (the `Suspend` point per OQ#7):
+
+1. Drain: call `run_pending_job` until it returns `false` or the promise settles.
+2. Settled → convert the result (fulfilled) or produce `Err(JsError)` (rejected) per §3.4.
+3. Pending with armed timers → suspend cooperatively on the Ori scheduler until `next_timer_deadline` elapses (other Ori tasks run — this is WHY binding-site resolution requires `Suspend`), then goto 1.
+4. Pending with NO pending jobs, NO armed timers, and NO in-flight host callbacks → the promise can never settle. Resolution returns `Err(JsError { name: "DeadlockError", message: "JsPromise cannot settle: job queue quiescent" })` — a diagnosable error, never a hang.
+
+**Timers and I/O.** The engine binding installs `setTimeout` / `setInterval` shims that arm timers on the Ori scheduler; `next_timer_deadline` exposes the earliest deadline to step 3. Host-I/O-backed promises (`fetch`, `node:fs/promises`, sockets) arm completions on the Ori scheduler through the §9 compat layer — every such in-flight completion counts as an "in-flight host callback" in step 4's quiescence test, so a promise awaiting real I/O suspends rather than deadlock-erroring.
+
+**Prior-art scale reference.** Bun's runtime dedicates an entire event-loop subsystem to interleaving socket I/O with JSC's microtask queue and a custom `process.nextTick` queue (`oven-sh/bun` `src/event_loop/`). With the §9 compat layer in scope, the integration here matches Bun's shape — I/O completions, timers, microtasks, and nextTick-equivalents interleaving on one loop — with one structural difference: the Ori scheduler and Ori's capability-gated I/O primitives are the substrate (Bun uses uSockets), so every JS-visible I/O completion is also a capability-mediated Ori operation.
 
 ### §6. `Sendable` and `Value` Trait Interaction
 
@@ -509,7 +550,7 @@ Selection: compile-time feature flag `--js-engine=quickjs|v8|jsc|hermes` (per-bu
 | `JsRef::Shared<T>` | shared handle with proxy | yes IFF JS context is shared (single-context only in v1) |
 | Capability handles | not transferable | NO |
 
-v1 thread-safety model: **`JsContext` is thread-local, NOT shared across `Nursery` workers**. QuickJS `JSRuntime`/`JSContext` is not thread-safe; sharing across threads risks heap corruption. v1 therefore restricts `JsContext` lifetime to a single Ori thread; values crossing `Nursery` boundaries with `JsRef ≠ None` are blocked at compile time (E4032: cross-thread JS handle transfer requires explicit serialization). Multi-context concurrent support (per-worker `JsContext` with explicit hand-off protocol or a global engine mutex) is v2 work.
+v1 thread-safety model: **`JsContext` is thread-local, NOT shared across `Nursery` workers**. A JSC VM + global object is single-threaded (Bun runs exactly one JS thread on the same engine, and its `Strong` handles are thread-confined); sharing a context across threads risks heap corruption. v1 therefore restricts `JsContext` lifetime to a single Ori thread; values crossing `Nursery` boundaries with `JsRef ≠ None` are blocked at compile time (E4032: cross-thread JS handle transfer requires explicit serialization). Multi-context concurrent support (per-worker `JsContext` with explicit hand-off protocol or a global engine mutex) is v2 work.
 
 ### §7. Sandbox Surface — Compile-Time + Runtime Two-Layer
 
@@ -564,6 +605,99 @@ Layered authority:
 - Dynamically-loaded JS (explicit opt-out of `disable_dynamic_imports`): runtime primary; compile-time provides no guarantee.
 - Default keeps the compile-time claim whole; developers relaxing it accept the degradation explicitly.
 
+### §8. Native AOT Packaging — Engine and JS Payload in the Executable
+
+#### §8.1. Three-layer artifact
+
+`ori build` of a program containing at least one `use js` import produces a single statically-linked executable with three layers:
+
+| Layer | Contents | Link/embed mechanism |
+|---|---|---|
+| Ori native code | LLVM-compiled program; JS calls lower to `ori_js_*` C-ABI shims (per §Worked Example IR sketch) | normal object code |
+| Engine | static JSC (vendored WebKit) + the C-ABI bindings shim + the stdlib engine binding + the §9 compat layer | static archives, linked the same way emitted binaries link `ori_rt` |
+| JS payload | the imported packages' JavaScript | data section, per §8.3 |
+
+- **Pay-for-what-you-use**: a program with no `use js` import links neither the engine nor the shims — zero size and runtime cost. Engine linkage is decided at link time by the presence of `js_import` nodes, consistent with the per-build `--js-engine` flag (§5).
+- `.d.ts` files and `.ori-caps.json` sidecars are compile-time inputs only; they are never shipped.
+
+#### §8.2. Build-time payload assembly
+
+- For each `use js "<package>"`, the compiler resolves the package's RUNTIME entry (`package.json` `main`/`exports` — distinct from the `types` entry used in §1) and its intra-`node_modules` module graph (imports internal to the package and its transitive package deps).
+- Scope guard (non-goal #1 intact): this is closed-world resolution of already-installed `node_modules` content for embedding — no source transformation, no user-facing bundler surface, no code splitting, no plugin API. Runtime-entry resolution failures share the E1500–E1519 range.
+
+#### §8.3. Payload format — precompiled bytecode (default) or verbatim source
+
+| Mode | Mechanism | Tradeoff |
+|---|---|---|
+| Bytecode (v1 default) | package module graph compiled to JSC bytecode at build time (the `bun build --bytecode` technique) and embedded as a data section | fastest startup (no JS parse at runtime), compact; bytecode is engine-version-locked |
+| Verbatim | package files embedded untransformed; module loads served by an embedded resolver installed via §7's `set_module_resolver` | engine-version-independent; pays JS parse cost at first load |
+
+- Bytecode artifacts key into the §2.5 translation cache with the engine name + engine version appended to the cache key: an engine upgrade invalidates bytecode without invalidating type translations.
+- Prior art: Bun's `bun build --compile` embeds a standalone module graph directly into the executable (`oven-sh/bun` `src/standalone_graph/` + `src/exe_format/`) with `--bytecode` shipping JSC bytecode; Hermes ships precompiled bytecode inside React Native app binaries; `qjsc` established the same technique for minimal-profile engines.
+- Ori already exposes file embedding at the language level (`embed(path)`, type-driven `str`/`[byte]`); the payload path reuses the same compiler embedding machinery internally.
+
+#### §8.4. Startup protocol
+
+1. Process start: zero JS cost — engine initialization is lazy.
+2. First entry into a `uses Js` code path: create the thread-local `JSRuntime`/`JSContext` (§6), apply sandbox defaults (§7; `disable_dynamic_imports` on), load the embedded payload (bytecode deserialization, or resolver installation in verbatim mode), and resolve imported-symbol handles into the per-import globals the boundary trampolines call through (the `@lodash_chunk_handle` global in the §Worked Example IR sketch).
+3. Subsequent calls: boundary trampoline only — marshal, call, exception-check, marshal back, AIMS-scheduled release.
+
+#### §8.5. Size accounting
+
+- A statically-linked JSC + compat layer adds tens of MB to the executable — Bun's shipped single binary (JSC + full runtime) is the practical envelope, and its 2026 Rust rewrite demonstrated the envelope is tunable (3.8–6.8 MB shaved per platform in the port's initial changes alone). Per-package bytecode payloads for typical libraries measure in the tens to hundreds of KB.
+- The size cost is accepted deliberately: package compatibility, not footprint, gates adoption (Alternative 8). Programs without `use js` pay zero (§8.1); footprint-constrained targets get a post-v1 minimal-profile engine option through the §5 trait.
+
+#### §8.6. Target interaction
+
+- **Native targets**: JSC static-links on Linux/macOS/Windows (proven at production scale by Bun's vendored-WebKit build); linkage follows the existing `ori_rt` static-link path. Embedded/exotic targets are post-v1 via the §5 trait's minimal-profile option.
+- **Browser-WASM target**: this section does NOT apply — per non-goal #6, browser deployment uses the HOST's JS engine via the existing `extern "js"` surface (`wasm-playground-proposal.md`); no engine is embedded. Same `use js` source semantics, entirely different transport, is the intended end state but is that proposal's scope.
+- **Non-browser WASM (WASI)**: out of scope for v1; requires an engine-on-WASI evaluation, deferred alongside the multi-context v2 work.
+
+### §9. Node Compatibility Layer — the Bun Way, Capability-Gated
+
+Full npm support (§Targeted Scope Tiers 2–3) requires the Node API surface: `node:*` builtin modules, `Buffer`, `process`, streams, `EventEmitter`, timers, and the N-API addon ABI. There are exactly two ways to get it, and the choice is load-bearing for this proposal's entire safety claim:
+
+| Approach | What it means | Verdict |
+|---|---|---|
+| Embed Node itself (`libnode`) | 100% compat immediately; Node performs its own I/O through libuv | REJECTED (Alternative 9): Node's syscalls bypass Ori's capability system entirely — `denied: [FileSystem]` becomes unenforceable prose; drags V8 + libuv alongside JSC; no seam for per-builtin effect tracking |
+| Reimplement the Node API surface natively on Ori's runtime — **the Bun way** | Every `node:` builtin is Ori/native code whose I/O goes through Ori's capability-gated primitives | ADOPTED. Bun proved feasibility at production scale by reimplementing Node's stdlib (now readable Rust: `oven-sh/bun` `src/runtime/node/`), and its per-module implementations serve as a reference catalogue |
+
+#### §9.1. Capability grounding — the point of doing it this way
+
+Each builtin DECLARES the Ori capabilities its implementation uses. These declarations are ground truth (facts about code Ori ships, not metadata about third-party code) and feed §3.1 tier 0:
+
+| Builtin group | Ori capability |
+|---|---|
+| `node:fs`, `node:fs/promises` | `FileSystem` |
+| `node:net`, `node:http`, `node:https`, `node:dns`, `node:tls` | `Net` |
+| `node:crypto` | `Crypto`, `Random` |
+| `node:process` (env surface), `node:os` | `Env` |
+| `node:child_process` | `Exec` (capability introduced by this proposal) |
+| timers (`setTimeout` et al.), `node:console` | `Clock`; `Print` / `Logger` |
+| `node:path`, `node:buffer`, `node:util`, `node:events`, `node:stream`, `node:querystring` (pure compute) | none beyond `Js` |
+| `node:worker_threads` | blocked in v1 (single-context constraint, §6 / CN-12); revisits with multi-context v2 |
+
+Consequences:
+
+- `express` requires `Net` not because a sidecar says so, but because `node:http`'s implementation declares `uses Net`. A function `without Net` rejects any package whose transitive `node:` import graph reaches a `Net`-declaring builtin — §3.3's deny semantics acquire a witnessed, package-wide meaning.
+- §7 sandbox filters become concrete for Tier-2 packages: `denied: [FileSystem]` compile-rejects any import whose graph touches `node:fs`, and the runtime layer enforces the same predicate against dynamically-loaded code.
+
+#### §9.2. Structure
+
+- Builtins are implemented in Ori (stdlib `library/std/js/node/`) and native runtime code, registered through the §5 `JsEngine` trait's host-function surface — NEVER against JSC internals directly. The compat layer is engine-agnostic by construction, keeping post-v1 engine profiles a projection.
+- Pure-compute builtins (`path`, `querystring`, parts of `util`) may be maintained as bundled JS (the Bun/Node precedent of self-hosted builtins, embedded per §8.3).
+- Event integration: builtin I/O arms completions on the Ori scheduler per §5.1; `process.nextTick` gets a dedicated pre-microtask queue matching Node ordering semantics (the Bun `src/event_loop/` ordering: immediate → I/O → timers → tasks, with nextTick + microtask drains between).
+
+#### §9.3. N-API addon surface (Tier 3)
+
+- The layer implements the N-API C ABI (`napi_*`) so prebuilt `.node` addons load — the same surface Bun implements (`src/runtime/napi/`).
+- A native addon executes arbitrary machine code performing its own syscalls — structurally OUTSIDE capability mediation, exactly like `extern "c"` FFI. Loading one therefore requires `uses FFI("<addon>")` (per the parametric-FFI model in `ori-syntax.md §Deep FFI`) and carries `UnknownEffects` unless sidecar-annotated; sandboxes deny addons wholesale via `denied: [FFI]`. This is the honest hole in the sandbox, priced as such — never papered over.
+
+#### §9.4. Compatibility measurement — the falsifiable gate
+
+- Adopt Bun's method: run Node.js's own test suite against the compat layer; per-module pass-rate is THE completion metric for Tier 2 (Bun's rewrite gated on 99.8% platform test compatibility — the technique transfers directly).
+- Per-module pass-rates are published; a package importing only green modules is supported, and the claim is checkable rather than vibes-based.
+
 ---
 
 ## Worked Example: `lodash.chunk`
@@ -590,7 +724,7 @@ type User = { id: int, email: str };
    - At call site: `users` is converted to a JS array proxy. `JsRef = Borrowed` for the proxy (caller still owns the Ori `[User]`).
    - `chunk` returns a new JS array; result handle enters Ori as `JsRef = Owned`, `Locality = HeapEscaping` (CN-9 enforced), RC = 1.
    - `js_handle_balance` for `chunk` call: +1 (one new handle).
-5. **Drop scheduling.** At `batch_process` return, AIMS schedules `JS_FreeValue` on the result handle. If caller iterates the result and copies elements out, AIMS converts `JsRef = Owned` → `Borrowed` for elements, preserving the parent Owned until iteration completes.
+5. **Drop scheduling.** At `batch_process` return, AIMS schedules `ori_js_release` on the result handle. If caller iterates the result and copies elements out, AIMS converts `JsRef = Owned` → `Borrowed` for elements, preserving the parent Owned until iteration completes.
 6. **Codegen.** LLVM IR calls `ori_js_call(ctx, lodash_chunk_handle, [users_handle, size_value])`, returns `JsValue*`. Ori-side trampoline decrements the handle on drop per AIMS schedule.
 
 ### Lowered IR sketch (informal)
@@ -628,15 +762,31 @@ Rejected. All code pays VM tax; native performance lost. GraalVM's `HostAccess` 
 
 Rejected. Reduces UX to napi-rs level. The `.d.ts` corpus is the load-bearing asset.
 
-### Alt 6: Single-engine commitment
+### Alt 6: Hard-coding the committed engine through the stack
 
-- V8-only: prohibitive embedding cost; prevents embedded environments.
-- QuickJS-only: ceiling on long-term performance.
-Rejected; pluggable contract is the durable path.
+v1 commits to ONE engine (JSC, per §5) but the commitment is confined to the engine binding + bindings shim: the §9 compat layer and all boundary machinery are written against the `JsEngine` trait. The rejected shape is letting JSC types/semantics leak into the compat layer or trampolines — that converts a future engine profile from a projection into a rewrite. The trait seam is the durable path; single-engine v1 SHIPPING is fine, single-engine ARCHITECTURE is not.
 
 ### Alt 7: Reuse existing `extern "js"` syntax
 
 Rejected for `.d.ts`-driven case. The existing `extern "js" from "lib" { ... }` is for hand-bound symbols (per `ori-syntax.md §FFI`). Auto-generated bindings have different ergonomic and lifecycle requirements; layering them over `extern "js"` would conflate two distinct binding mechanisms.
+
+### Alt 8: Minimal engine first (QuickJS), pure-JS packages only, Node compat deferred to v2
+
+The original form of this draft. Rejected — wrong direction:
+
+- The packages that motivate JS interop for the web-server mission (express-class servers, ORMs, auth middleware, HTTP clients) are precisely the Node-dependent ones a polyfill-less minimal engine excludes; a pure-JS-only v1 ships the machinery without the payoff.
+- An interpreter-only engine puts a permanent ceiling on the "JS as a real library tier" story; JSC's JIT removes it.
+- A two-stage ecosystem story ("some packages now, the ones you want later") undermines the full-stack pitch (§Motivation) that differentiates the feature.
+- The minimal-engine idea survives only as a possible post-v1 footprint profile behind the §5 trait — an addition for constrained targets, never the primary.
+
+### Alt 9: Embed Node itself (`libnode`)
+
+Instant 100% compatibility; rejected because it destroys the safety claims that justify the feature:
+
+- Node performs its own I/O through libuv syscalls — Ori's capability system never sees them. `without Net`, sandbox `denied:` lists, and §3.1 tier-0 grounding all become unenforceable prose.
+- Drags V8 + libuv + Node's entire runtime alongside (or instead of) the committed engine.
+- Leaves no seam for per-builtin effect declarations or AIMS handle-obligation tracking at the I/O boundary.
+- The Bun way (§9) exists precisely because reimplementing the Node API surface on your OWN runtime is what makes the surface mediable; Bun did it for performance, Ori does it for capability soundness — same architecture, stronger reason.
 
 ---
 
@@ -649,12 +799,14 @@ Rejected for `.d.ts`-driven case. The existing `extern "js" from "lib" { ... }` 
 | `.d.ts` AST → Ori type translation | YES (must integrate with `TypeRegistry`) | NO | `ori_types` reads cached `.ori-types` files at typeck time |
 | Capability propagation rules | YES (typeck + capability system) | NO | `ori_types` |
 | AIMS `JsRef` 8th dimension | YES (ARC pass) | NO | `ori_arc` |
-| Engine FFI binding (QuickJS) | NO (uses approved Deep FFI) | YES | stdlib `library/std/js/quickjs.ori` |
+| Engine C-ABI bindings shim (C++ over vendored JSC; the Bun `src/jsc/bindings/` shape) | NO | NO (vendored native component, catalogued beside `ori_rt`) | `compiler_repo/runtime/jsc_shim/` |
+| Engine FFI binding (Ori over the shim, via approved Deep FFI) | NO | YES | stdlib `library/std/js/jsc.ori` |
+| Node compat layer (§9) | NO | PARTIALLY (pure-compute builtins pure Ori/bundled JS; I/O builtins are Ori over capability primitives) | stdlib `library/std/js/node/` + runtime |
 | `JsSandbox` runtime API | NO | YES | stdlib `library/std/js/sandbox.ori` |
 
 **Recommendation:**
 
-- The `.d.ts` parser is **pure Ori in stdlib** (`library/std/js/dts_parser.ori`). The grammar, type translation integration, capability propagation, and AIMS extension MUST live in compiler crates. The runtime engine binding and sandbox API live in stdlib (pure Ori on top of approved Deep FFI capabilities).
+- The `.d.ts` parser is **pure Ori in stdlib** (`library/std/js/dts_parser.ori`). The grammar, type translation integration, capability propagation, and AIMS extension MUST live in compiler crates. The engine binding, Node compat layer, and sandbox API live in stdlib (Ori on top of approved Deep FFI capabilities); the JSC C-ABI bindings shim is the ONE vendored native component, maintained like `ori_rt`.
 
 #### Const-Eval Bridge Design
 
@@ -690,7 +842,8 @@ Spec clause assignments per `compiler_repo/docs/ori_lang/v2026/spec/README.md` i
 | Clause 20 (Capabilities) | Add `Js` capability; add `UnknownEffects` non-deniable marker; document `without` interaction with E1260–E1263 |
 | Clause 21 (Memory Model) | New sub-clause — `JsRef` 8th lattice dimension; CN-9, CN-6 (amended), CN-11, CN-12, CN-13; intra-procedural per-SSA tracking via `AimsStateMap.js_handles`; interprocedural boundary tracking via `MemoryContract.js_param_handles` / `js_return_handles` |
 | Clause 26 (FFI) | Cross-reference: `extern "js"` is the hand-bound form; `use js` is the `.d.ts`-driven auto-bound form |
-| Capability Catalogue (in spec capability annex per spec layout) | New entries for `Js`, `UnknownEffects` |
+| Annex E (System Considerations) | NOTE on embedded-engine AOT packaging per §8: three-layer artifact, bytecode-vs-verbatim payload modes, lazy engine startup, pay-for-what-you-use linkage |
+| Capability Catalogue (in spec capability annex per spec layout) | New entries for `Js`, `UnknownEffects`, `Exec` (§9 `node:child_process`) |
 | Diagnostic codes | E1500–E1519 (JS resolution); E1260 (deny-check, reused from `negative-effect-without`); E1261 (deny-no-override, reused from `negative-effect-without`); E2055 (callback capability requirement exceeds caller scope); E2058 (sandbox capability deny); E4030 (`JsRef = Borrowed` violates `#borrow_from(p)` lifetime); E4031 (intra-procedural strong cycle); E4032 (cross-thread JS handle transfer); W1500 (bivariant method signature normalized to `JsAny`); W1501 (non-`Value` generic instantiation lacks marshaller). E1262 / E1263 are NOT reused — every JS-side denial reuses the authoritative E1260 / E1261 codes from the `negative-effect-without` proposal |
 
 Note: clause numbers reference the v2026 spec index. Sub-clause numbers will be assigned by the spec maintainer at proposal-approval time.
@@ -713,9 +866,10 @@ Note: clause numbers reference the v2026 spec index. Sub-clause numbers will be 
 | Fable F# + ts2fable | Compiles F# to JS; ts2fable generates F# facades from `.d.ts` | None | **YES — ts2fable** ([github.com/fable-compiler/ts2fable](https://github.com/fable-compiler/ts2fable)) | Same; precedent for `.d.ts` facade generation |
 | Cloudflare Workers Bindings | Per-binding TS types; runtime permission | Runtime, per-Cloudflare-binding | None | Compile-time, language-level, generalizable |
 | Bun FFI | Runtime FFI to C (not JS) | None | None | Different direction; Bun IS JS, this proposal calls JS from a native language |
+| Bun 2026 Rust rewrite — internal Rust ↔ JSC boundary ([oven-sh/bun](https://github.com/oven-sh/bun), `src/jsc/`) | No compile-time boundary checking; lifetime safety by documented convention (`Strong`/`Weak` GC-root handles, `to_js()` refcount transfer) + review; `.classes.ts` spec files drive codegen of both Rust and C++ glue (`src/codegen/generate-classes.ts`) | None | Direction-inverted like napi-rs: authors write binding specs; package `.d.ts` is not consumed | Largest extant production Rust↔JS binding corpus. Validates this proposal's v1 thread-local `JsContext` model (`Strong` is `!Send`/`!Sync`, JS-thread-confined); its documented failure modes (double-ref leak, missing-ref UAF at GC) are precisely the class `JsRef` + per-SSA obligations eliminate at compile time |
 | React Native Codegen / JSI / Hermes | Compile-time TypeScript/Flow spec → native interface generation; JSI provides direct JS↔native references | Runtime per-module permission | **YES — Codegen** ([reactnative.dev/docs/turbo-native-modules-introduction](https://reactnative.dev/docs/turbo-native-modules-introduction)) | Native cross-runtime precedent (closest analog architecturally). React Native Codegen consumes spec files; this proposal consumes `.d.ts` directly. Capability tracking + AIMS lifetime invariants are net-new |
 
-**Refined novelty claim**: `.d.ts`-driven facade generation is **precedented** by Dukat, ScalablyTyped, and ts2fable for compile-to-JS host languages. This proposal's novelty is the **combination** of `.d.ts` facade generation with **(a) native cross-runtime execution** (Ori is not hosted on JS VM), **(b) compile-time effect propagation** through the boundary, and **(c) AIMS-managed cross-runtime memory invariants** with compile-time strong-cycle rejection. Each individual leg has prior art; the combination is unprecedented.
+**Refined novelty claim**: `.d.ts`-driven facade generation is **precedented** by Dukat, ScalablyTyped, and ts2fable for compile-to-JS host languages. This proposal's novelty is the **combination** of `.d.ts` facade generation with **(a) native cross-runtime execution** (Ori is not hosted on JS VM), **(b) compile-time effect propagation** through the boundary, **(c) AIMS-managed cross-runtime memory invariants** with compile-time strong-cycle rejection, and **(d) a capability-mediated Node API surface** (§9) — per-builtin, compile-time-checked effects where the closest prior art, Deno, offers process-wide runtime permission flags. Each individual leg has prior art; the combination is unprecedented.
 
 **Closest published research and adjacent type-import systems:**
 
@@ -739,7 +893,7 @@ Note: clause numbers reference the v2026 spec index. Sub-clause numbers will be 
 |---|---|---|
 | 1 | `capability-propagation-completion-proposal.md` | Without complete `uses` propagation through imported declarations, JS-side capability tracking has no plumbing |
 | 2 | `negative-effect-without-proposal.md` | `without` clause MUST work for the safety claims in §3.3 |
-| 3 | `deep-ffi-proposal.md` (approved) — Phase 1 (extern blocks + `#error` annotations) AND Phase 2 (ownership annotations: `owned` / `borrowed` / `#free(JS_FreeValue)`) | FFI substrate for the QuickJS embedding (§5). Phase 1 covers `JSRuntime`/`JSContext`/`JSValue` opaque handles + primitives. Phase 2 is required for `JS_FreeValue` / `JS_DupValue` / `JS_NewObject` lifecycle: the engine binding annotates `owned CPtr` returns with `#free(JS_FreeValue)` and `borrowed CPtr` for transient handles |
+| 3 | `deep-ffi-proposal.md` (approved) — Phase 1 (extern blocks + `#error` annotations) AND Phase 2 (ownership annotations: `owned` / `borrowed` / `#free(...)`) | FFI substrate for the JSC embedding (§5). The C-ABI bindings shim exposes opaque VM / global-object / `JSValue` handles plus retain/release lifecycle functions (the shape of Bun's `src/jsc/bindings/`); Phase 1 covers the opaque handles + primitives, Phase 2 binds the lifecycle: `owned CPtr` returns annotated `#free(ori_js_release)`, `borrowed CPtr` for transient handles |
 | 4 | `ffi-boundary-safety-proposal.md` (approved) — Phase 1 (`Locality::Borrowed(p)` + `#borrow_from`) AND Phase 2 (callback `ZeroCaps` default) | Boundary safety rules apply to the JS engine FFI; CN-11 (§4.4) cites Phase 1's `#borrow_from(p)` mechanism; callback capability default rule (§2.4) cites Phase 2 |
 
 Items 1+2 collectively constitute "Deep Safety Phase 0." Items 3+4 are the FFI substrate.
@@ -748,7 +902,7 @@ Items 1+2 collectively constitute "Deep Safety Phase 0." Items 3+4 are the FFI s
 
 | ID | Prerequisite | Connection |
 |---|---|---|
-| 5 | `unsafe-operation-gating-proposal.md` | Reclassified soft. `Js` itself is a regular capability, NOT one of the five `Unsafe`-gated operations (raw pointer deref, pointer arith, mutable statics, transmute, C variadic). The proposal connection is narrow: QuickJS engine FFI internally uses `Unsafe` operations (raw pointer deref to JSValue, transmute for tagged pointer encoding); those internal uses gate via this proposal. JS interop at the user surface does NOT depend on it |
+| 5 | `unsafe-operation-gating-proposal.md` | Reclassified soft. `Js` itself is a regular capability, NOT one of the five `Unsafe`-gated operations (raw pointer deref, pointer arith, mutable statics, transmute, C variadic). The proposal connection is narrow: the engine bindings shim internally uses `Unsafe` operations (raw pointer deref to `JSValue`, tagged-pointer encoding); those internal uses gate via this proposal. JS interop at the user surface does NOT depend on it |
 | 6 | AIMS `verify_arc` extension | Tracks `js_handle_balance` and `js_handle_count` per §4.7 |
 | 7 | Compile-time reflection on `.d.ts` types | Would let sidecar metadata be generated rather than hand-written |
 | 8 | `deep-ffi-proposal.md` Phase 3 (`[byte]` length elision) | Soft. Useful for data-transfer APIs (string conversion buffers, large object marshalling) but NOT required for core engine embedding |
@@ -757,15 +911,15 @@ Items 1+2 collectively constitute "Deep Safety Phase 0." Items 3+4 are the FFI s
 
 ## Non-Goals
 
-1. **Not a full JS platform.** No bundler, no transpiler, no npm CLI. `package.json` resolution is the only npm-ecosystem concession. The embedded JS engine + sandbox API IS a JS runtime by literal definition (it runs JS) — the non-goal is the broader platform infrastructure (vite-style bundler, language-server protocol for JS, npm CLI, dependency resolver, etc.).
+1. **Not a JS toolchain.** The embedded engine + §9 compat layer IS, by design, a Node-compatible JS runtime — that is the point, not an accident to apologize for. The non-goal is the developer-toolchain surface AROUND a runtime: no user-facing bundler, no transpiler product, no npm CLI, no JS test runner, no JS language server. `package.json` resolution (types + runtime entries) is the only npm-toolchain concession.
 2. **Not a primary execution language.** Ori-native server is the hot path; JS exists for ecosystem access, not throughput. The runtime is configured to make this easy (compile-time-rejected JS in hot loops via lint, runtime memory/CPU quotas).
 3. **Not full TypeScript type-system support in v1.** The constructs falling back to `JsAny` (mapped types, conditional types, template literal types, higher-kinded generics) are accepted v1 losses. v2 feasibility study is deferred — these features are pervasive in popular `.d.ts` files (lodash, React, Express), so a future expansion of supported constructs is plausible work, just not committed.
 4. **Not multi-engine concurrent.** v1 ships one engine per build. Per-`Nursery`-worker contexts are v2.
-5. **Not bidirectional source-level interop.** This proposal covers Ori → JS. JS → Ori (Node addon written in Ori) is a separate proposal.
+5. **Not bidirectional source-level interop.** This proposal covers Ori → JS. JS → Ori (Node addon written in Ori) and `.d.ts` emission from an Ori server's public API (the inverse leg of §Motivation full-stack sharing) are separate proposals.
 6. **Not for browser deployment.** WASM target with JS interop is `wasm-playground-proposal.md` (approved).
 7. **Not formal verification of cross-runtime memory safety.** AIMS structural verification (matched alloc/dealloc, per-handle obligation tracking, intra-procedural strong-cycle compile-time rejection) is in scope; full formal cross-runtime data-race-freedom proofs are research follow-up.
 9. **Not unbounded sandbox API growth.** v1's `JsSandbox` API surface (`set_memory_limit`, `set_cpu_quantum`, `set_capability_filter`, `set_module_resolver`, `set_network_policy`, `disable_dynamic_imports`) is fixed. Adding a new sandbox method post-v1 requires an approved amendment proposal that re-evaluates the runtime-vs-platform boundary defined in non-goal #1. Hard gate against scope drift.
-8. **Not silent leakage of intra-procedural strong cycles.** v1 rejects intra-procedural strong cross-runtime cycles at compile time per CN-13. Cross-procedural strong cycles cannot be detected by intra-procedural AIMS analysis and DO leak in v1 (documented limitation in §4.6); v2 adds runtime cycle collection (periodic sweep at quiescence). The compile-time claim is bounded to what AIMS can see, NOT a blanket "no leakage" guarantee.
+8. **Not silent leakage of intra-procedural strong cycles.** v1 rejects intra-procedural strong cross-runtime cycles at compile time per CN-13. Cross-procedural strong cycles cannot be detected by intra-procedural AIMS analysis and DO leak in v1 (documented limitation in §4.6); v2 adds runtime cycle collection (engine-integrated GC tracing preferred, periodic sweep fallback, per §4.6). The compile-time claim is bounded to what AIMS can see, NOT a blanket "no leakage" guarantee.
 
 ---
 
@@ -785,6 +939,8 @@ The proposal author and review process resolve each open question inline below. 
 | 8 | Cache invalidation key? | **Content hash + tsconfig + translator + compiler version** (§2.5). Hash invalidation handles all post-install drift. |
 | 9 | LSP cache sharing with `oric`? | **Shared cache directory** at `target/js-bindings/`. LSP and `oric` both read the same `.ori-types` files; LSP triggers regeneration on `.d.ts` change via filesystem watch. |
 | 10 | Sandbox capability filtering enforcement mechanism? | **Two layers** (§7). Compile-time in type checker (authoritative for static code); runtime in engine (defense for dynamic loads). Both required. |
+| 11 | Who drives the engine's job/microtask queue for `JsPromise<T>` resolution? | **The Ori scheduler, through the §5 trait's job-queue surface** (`run_pending_job` / `has_pending_jobs` / `next_timer_deadline`). Binding-site resolution runs the §5.1 loop: drain jobs; settled → convert; pending + armed timers → suspend until the earliest deadline and re-drain; quiescent-and-pending → `Err(JsError)` deadlock error, never a hang. JS never owns a thread or event loop in v1. |
+| 12 | How does the JS payload ship in a native AOT executable? | **Statically embedded, bytecode by default** (§8). Engine static-links like `ori_rt`; package module graphs precompile to engine bytecode keyed into the §2.5 cache with engine name+version appended; verbatim-source embedding via §7 `set_module_resolver` is the engine-version-independent fallback. Programs without `use js` link neither engine nor payload. |
 
 ---
 
@@ -802,35 +958,38 @@ The proposal author and review process resolve each open question inline below. 
 
 ### JS-interop work (post-prerequisite)
 
-Phase ordering: AIMS `JsRef` dimension lands BEFORE QuickJS embedding so the engine binding code is written against the safety invariants from day one (no need to retrofit handle tracking after the fact).
+Phase ordering: AIMS `JsRef` dimension lands BEFORE engine embedding so the engine binding is written against the safety invariants from day one; the §9 compat layer lands tier-by-tier behind the falsifiable §9.4 gate. Per-phase sizing happens at feature-plan creation (`/create-plan` on approval); the prior per-phase estimates priced the superseded Alt-8 scope and are retired with it.
 
-| Phase | Deliverable | Estimated effort (solo + AI) |
-|---|---|---|
-| 1 | Grammar + parser for `js_import` with 2-token lookahead | 2 weeks |
-| 2 | AIMS `JsRef` 8th dimension (lattice extension + 5 new CN rules + amended CN-6) + `AimsStateMap.js_handles` per-SSA + `MemoryContract.js_param_handles` / `js_return_handles` boundary + AIMS consumer updates across CN-3 / DP-5 / DP-6 / `realize_cow` / RL-11 / VF-6 / in-place mutation + end-to-end verification per `aims-rules.md §VF-5` | 8–10 weeks (verification iteration cycles dominate; risk buffer in §Total wall-clock acknowledges further variance) |
-| 3 | `.d.ts` parser in stdlib (Ori) | 4 weeks |
-| 4 | `.d.ts` → Ori type translation + variance + callback capability + const-eval bridge | 5–6 weeks |
-| 5 | QuickJS embedding via Deep FFI (now with AIMS handle invariants in place) | 4 weeks |
-| 6 | Capability propagation rules + sidecar metadata loading + `UnknownEffects` hard-error gate | 3 weeks |
-| 7 | Sendable / Value trait interaction with JS values + thread-local `JsContext` enforcement | 2 weeks |
-| 8 | Compile-time + runtime sandbox layers + `disable_dynamic_imports` default | 3 weeks |
-| 9 | Worked-example integration + spec sync + docs | 2 weeks |
-| **Total JS-interop phases** | | **~7–9 months solo + AI** |
+| Phase | Deliverable |
+|---|---|
+| 1 | Grammar + parser for `js_import` with 2-token lookahead |
+| 2 | AIMS `JsRef` 8th dimension (lattice extension + 5 new CN rules + amended CN-6) + `AimsStateMap.js_handles` per-SSA + `MemoryContract.js_param_handles` / `js_return_handles` boundary + AIMS consumer updates across CN-3 / DP-5 / DP-6 / `realize_cow` / RL-11 / VF-6 / in-place mutation + end-to-end verification per `aims-rules.md §VF-5` |
+| 3 | `.d.ts` parser in stdlib (Ori) |
+| 4 | `.d.ts` → Ori type translation + variance + callback capability + const-eval bridge |
+| 5 | JSC embedding: vendored-WebKit build integration + C-ABI bindings shim + stdlib engine binding via Deep FFI (AIMS handle invariants in place), incl. §5.1 job-queue/timer integration |
+| 6 | Capability propagation rules (§3.1 tiers 0–4) + sidecar metadata loading + `UnknownEffects` hard-error gate |
+| 7 | Sendable / Value trait interaction with JS values + thread-local `JsContext` enforcement |
+| 8 | Compile-time + runtime sandbox layers + `disable_dynamic_imports` default |
+| 9 | §8 AOT packaging: payload module-graph resolution, bytecode precompilation, embed + startup protocol |
+| 10 | §9 Tier-2 core: module registry, `Buffer` / streams / `EventEmitter` primitives, pure-compute builtins (`path`, `util`, `querystring`, `events`) |
+| 11 | §9 Tier-2 I/O: capability-gated builtins — `node:fs` (`FileSystem`), `node:net`/`http`/`dns`/`tls` (`Net`), `node:crypto` (`Crypto`, `Random`), `process`/`os` (`Env`), `child_process` (`Exec`) — with event-loop completion integration and the §9.4 Node-test-suite gate per module |
+| 12 | §9 Tier 3: N-API ABI surface + addon `FFI("<addon>")` capability gating |
+| 13 | Worked-example integration + spec sync + docs |
 
-### Total wall-clock from today
+### Staging
 
-**~10–12 months baseline** (prerequisites + JS-interop), or **~7–8 months from prerequisite-completion**. The earlier "6–7 month" estimate was JS-interop only; the dependency-timeline row was missing.
-
-**Risk buffer**: AIMS `JsRef` 8th dimension + canonicalization rule additions + cross-runtime contract field touches the most invariant-sensitive part of the compiler. Realistic window with 2-4 month risk buffer for AIMS soundness iteration: **~12-16 months baseline**. The estimate assumes prerequisite proposals land cleanly without their own iteration cycles; if any prerequisite needs revision after an early `/tpr-review` round, add the corresponding delay.
-
-V8/JSC pluggable engine is post-v1.
+- Tier 1 ships when phases 1–9 land. Tier 2 ships when §9.4 per-module Node-test-suite pass-rates go green for the builtin set. Tier 3 ships when the N-API surface passes against a reference addon set.
+- The §9.4 pass-rate is the falsifiable completion metric per tier — support claims are checkable, never vibes-based.
 
 ---
 
 ## Citations
 
 - Lutze, N., et al. "Effects with Subtraction." *ICFP 2023*. <https://dl.acm.org/doi/10.1145/3607832>
-- Bellard, F. "QuickJS Embedding Guide." <https://bellard.org/quickjs/>
+- "Rewriting Bun in Rust." *Bun Blog*, 2026. <https://bun.com/blog/bun-in-rust> — Rust↔JSC embedding + native Node-compat reference (`oven-sh/bun`)
+- "JavaScriptCore." *WebKit Project*. <https://trac.webkit.org/wiki/JavaScriptCore>
+- "Node-API (N-API)." *Node.js Documentation*. <https://nodejs.org/api/n-api.html>
+- Bellard, F. "QuickJS Embedding Guide." <https://bellard.org/quickjs/> (Alternative 8, rejected engine direction)
 - "V8 Embedder's Guide." <https://v8.dev/docs/embed>
 - Riggs, R., et al. "Pyodide: Bringing the scientific Python stack to the browser." 2021.
 - Bierman, G., et al. "Understanding TypeScript." *ECOOP 2014*.
