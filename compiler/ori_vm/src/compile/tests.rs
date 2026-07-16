@@ -534,6 +534,7 @@ fn compile_result_for_value(
         mut body,
         rc_var,
         var_types,
+        method_call_facts,
     } = rc_value_fixture(value_strategy, &mut pool, message, iter, option_name);
     body.extend([
         ArcInstr::RcInc {
@@ -575,7 +576,7 @@ fn compile_result_for_value(
         burden_emitted: Vec::new(),
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
-        method_call_facts: Vec::new(),
+        method_call_facts,
         class_ledger_emission: false,
     };
     let classifier = ArcClassifier::new(&pool);
@@ -1031,6 +1032,7 @@ struct RcValueFixture {
     body: Vec<ArcInstr>,
     rc_var: ArcVarId,
     var_types: Vec<Idx>,
+    method_call_facts: Vec<ori_arc::MethodCallFact>,
 }
 
 fn rc_value_fixture(
@@ -1072,6 +1074,7 @@ fn heap_pointer_fixture(pool: &mut Pool) -> RcValueFixture {
         body,
         rc_var: ArcVarId::new(1),
         var_types: vec![Idx::INT, list_type],
+        method_call_facts: Vec::new(),
     }
 }
 
@@ -1086,6 +1089,7 @@ fn fat_pointer_fixture(message: Name) -> RcValueFixture {
         body,
         rc_var: ArcVarId::new(1),
         var_types: vec![Idx::INT, Idx::STR],
+        method_call_facts: Vec::new(),
     }
 }
 
@@ -1149,6 +1153,11 @@ fn iterator_fixture(pool: &mut Pool, iter: Name) -> RcValueFixture {
         body,
         rc_var: ArcVarId::new(3),
         var_types: vec![Idx::INT, Idx::INT, range_type, iterator_type],
+        method_call_facts: vec![ori_arc::MethodCallFact {
+            destination: ArcVarId::new(3),
+            receiver_type: range_type,
+            form: ori_arc::MethodCallForm::Instance,
+        }],
     }
 }
 

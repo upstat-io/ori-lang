@@ -122,7 +122,7 @@ fn verified_iterator_unwind_program() -> VerifiedProgram {
     let mut pool = Pool::new();
     let list_type = pool.list(Idx::BOOL);
     let iterator_type = pool.iterator(Idx::BOOL);
-    let function = test_function_with_blocks(
+    let mut function = test_function_with_blocks(
         main,
         vec![
             iterator_unwind_entry_block(list_type, iterator_type, iter, panic, message),
@@ -163,6 +163,11 @@ fn verified_iterator_unwind_program() -> VerifiedProgram {
         ],
         Idx::INT,
     );
+    function.method_call_facts = vec![ori_arc::MethodCallFact {
+        destination: ArcVarId::new(2),
+        receiver_type: list_type,
+        form: ori_arc::MethodCallForm::Instance,
+    }];
     verified_program(symbols, pool, vec![function], main)
 }
 
