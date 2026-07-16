@@ -1,34 +1,22 @@
-//! Per-function application of the class-ledger plan at Step-4b, behind the
-//! readiness gate — the sole production burden-op emitter.
+//! Applies one function's class-ledger plan at Step-4b as the sole production
+//! burden-op emitter.
 //!
-//! Replacement gate — ALL must hold; any failure declines replacement, which
-//! is fail-loud (an ICE — no fallback emitter exists) except when burden-op
-//! emission itself is disabled via `ORI_DISABLE_BURDEN_OPS=1`:
+//! Replacement is commit-or-discard and fails loud when any gate declines
+//! because no fallback emitter exists, except under `ORI_DISABLE_BURDEN_OPS=1`.
+//! It requires:
 //!
-//! - the analysis reports FULLY CLEAN readiness (no declined class, every
-//!   class verdict `Clean`) with at least ONE class, UNLESS every variable
-//!   is excluded (scalar or immortal) — that empty-surface case is ADMITTED
-//!   with the empty plan (zero RC-bearing values, so zero placement
-//!   obligations hold vacuously). A zero-class function with any
-//!   non-excluded variable still declines (the class model proves nothing
-//!   about variables it never evented; a live non-excluded variable with no
-//!   evented class is a classifier coverage gap, not a genuine zero-RC
-//!   function);
-//! - no variable's type carries a user `@drop` (the RL-DROP user-drop call
-//!   for scalar-repr values is a completeness case the class model does not
-//!   yet cover);
-//! - every planned op's subject variable is defined at a site dominating
-//!   the op's insertion slot (the plan's release-var selection is
-//!   heuristic; the flat VF-1 defined-set check alone would not catch a
-//!   non-dominating pick);
-//! - the applied plan passes the VF-1 structural check
-//!   (`verify::check_function`) on a CLONE — commit-or-discard.
+//! - fully `Clean` class readiness with at least one class, unless every
+//!   variable is excluded as scalar or immortal, which admits an empty plan;
+//!   zero classes with any non-excluded variable is a coverage gap and declines;
+//! - a whole-value discharge or ownership proof for every user-`@drop` value;
+//!   partial field release and otherwise uncovered drop glue decline;
+//! - each planned subject's definition dominates its insertion slot, guarding
+//!   the heuristic release-var choice beyond VF-1's flat defined-set check;
+//! - VF-1 structural verification of the applied plan on a clone.
 //!
-//! A committed replacement sets `ArcFunction::class_ledger_emission`, which
-//! routes realization to mechanical Phase-7 lowering (per that field's
-//! contract). `burden_emitted` stays unmarked: the plan places its own RL-4
-//! edge releases, so the `carries_burden`-gated edge-cleanup machinery must
-//! stay inert for plan variables.
+//! Commit sets `ArcFunction::class_ledger_emission` for mechanical Phase-7
+//! lowering. `burden_emitted` remains false because the plan owns its RL-4
+//! edge releases, keeping `carries_burden` cleanup inert for plan variables.
 
 use ori_ir::Name;
 use ori_types::TypeRegistry;
@@ -90,17 +78,11 @@ pub(crate) enum FallbackReason {
     /// A heap arg handed through an indirect call — call-site ownership is
     /// unresolved at classification time (unmodeled hand-off).
     IndirectArgOwnership,
-    /// An OWNED param whose own contract cardinality is `Absent`: the body
-    /// must carry NO reference to it (VF-2 `AbsentParamHasUses`; the caller
-    /// retains the release obligation).
-    /// An endangered field-path view went uncured — both `hazard` cure-ladder
-    /// rungs declined. Every hazard-bearing fixture in the current test
-    /// corpus is cured (`!field_view_hazard` pinned in each), and each
-    /// individual cure's own decline path is pinned where `plan_class`
-    /// itself declines (`emit::DeclineReason`'s tests); no fixture yet
-    /// forces both ladder rungs to decline for the SAME view.
+    /// An endangered field-path view remained live after both `hazard`
+    /// cure-ladder rungs declined.
     FieldViewLiveness,
-    /// A variable's type carries a user `@drop`.
+    /// A user-`@drop` value lacks an admitted whole-value discharge or
+    /// ownership proof.
     UserDropGlue,
     /// A planned op's variable definition does not dominate its slot.
     /// Defense in depth over a correct-by-construction planner: every
@@ -425,7 +407,7 @@ fn has_reuse_shape(func: &ArcFunction) -> bool {
     })
 }
 
-/// Whether any variable carries the TRMC `ContextHole` shape.
+/// Whether the debug ablation restores the conservative TRMC decline.
 fn trmc_context_ledger_disabled() -> bool {
     std::env::var("ORI_DISABLE_TRMC_CONTEXT_LEDGER").as_deref() == Ok("1")
 }
