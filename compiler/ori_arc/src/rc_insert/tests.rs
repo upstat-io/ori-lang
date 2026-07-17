@@ -6,12 +6,22 @@
 
 use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ArgOwnership};
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 use crate::test_helpers::{make_apply, make_block, make_func_named};
 use crate::BuiltinOwnershipSets;
+
+fn annotate_arg_ownership(
+    func: &mut crate::ir::ArcFunction,
+    sigs: &FxHashMap<Name, AnnotatedSig>,
+    interner: &StringInterner,
+    builtins: &BuiltinOwnershipSets,
+    pool: &Pool,
+) {
+    super::annotate_arg_ownership(func, sigs, interner, builtins, pool, &FxHashSet::default());
+}
 
 /// Helper to create an `AnnotatedSig` with the given ownership per param.
 fn make_sig(ownerships: &[Ownership]) -> AnnotatedSig {
@@ -65,7 +75,7 @@ fn annotate_insert_call(receiver_ty: Idx, pool: &Pool) -> Vec<ArgOwnership> {
         make_sig(&[Ownership::Borrowed, Ownership::Borrowed, Ownership::Owned]),
     );
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, pool);
     let ArcInstr::Apply { arg_ownership, .. } = &func.blocks[0].body[0] else {
         panic!("expected Apply");
     };
@@ -144,7 +154,7 @@ fn indirect_call_is_borrowed_even_when_partial_apply_target_is_known() {
     let mut sigs = FxHashMap::default();
     sigs.insert(target_name, make_sig(&[Ownership::Owned, Ownership::Owned]));
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     // Target ownership is adapter-local; the residual caller ABI stays borrowed.
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[0].body[1] {
@@ -185,7 +195,7 @@ fn test_annotate_apply_indirect_opaque_closure() {
     let mut func = make_func_named(func_name, params, Idx::NONE, blocks, vec![Idx::INT; 4]);
     let sigs = FxHashMap::default();
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[0].body[0] {
         assert_eq!(
@@ -232,7 +242,7 @@ fn invoke_indirect_uses_borrowed_residual_abi() {
     let mut sigs = FxHashMap::default();
     sigs.insert(target_name, make_sig(&[Ownership::Owned]));
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcTerminator::InvokeIndirect { arg_ownership, .. } = &func.blocks[0].terminator {
         assert_eq!(arg_ownership, &[ArgOwnership::Borrowed]);
@@ -287,7 +297,7 @@ fn indirect_call_does_not_project_target_ownership_through_capture_offset() {
         ]),
     );
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[0].body[1] {
         assert_eq!(
@@ -341,7 +351,7 @@ fn zero_capture_function_ref_still_uses_borrowed_residual_abi() {
         make_sig(&[Ownership::Owned, Ownership::Borrowed]),
     );
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[0].body[1] {
         assert_eq!(arg_ownership, &[ArgOwnership::Borrowed; 2]);
@@ -405,7 +415,7 @@ fn indirect_call_alias_across_blocks_does_not_change_borrowed_abi() {
     let mut sigs = FxHashMap::default();
     sigs.insert(target_name, make_sig(&[Ownership::Owned, Ownership::Owned]));
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[1].body[0] {
         assert_eq!(
@@ -482,7 +492,7 @@ fn test_annotate_apply_indirect_merge_conflict_defaults_borrowed() {
     sigs.insert(target_a, make_sig(&[Ownership::Owned]));
     sigs.insert(target_b, make_sig(&[Ownership::Borrowed]));
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[2].body[0] {
         assert_eq!(
@@ -544,7 +554,7 @@ fn loop_carried_indirect_call_uses_borrowed_abi_without_resolution() {
     let mut sigs = FxHashMap::default();
     sigs.insert(target_name, make_sig(&[Ownership::Owned, Ownership::Owned]));
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     // No provenance walk is needed, so the cycle cannot affect ownership.
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[1].body[0] {
@@ -590,7 +600,7 @@ fn test_annotate_apply_indirect_zero_user_args() {
     let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 3]);
     let sigs = FxHashMap::default();
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[0].body[1] {
         assert!(arg_ownership.is_empty(), "zero user args → empty ownership");
@@ -625,7 +635,7 @@ fn test_annotate_apply_indirect_opaque_not_owned() {
     let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 5]);
     let sigs = FxHashMap::default();
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[0].body[0] {
         for (i, o) in arg_ownership.iter().enumerate() {
@@ -699,7 +709,7 @@ fn test_annotate_apply_indirect_builtin_partial_apply() {
         make_sig(&[Ownership::Owned, Ownership::Borrowed]),
     );
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[0].body[1] {
         // The user arg (element) should be Borrowed — the Owned receiver is a capture
@@ -786,7 +796,7 @@ fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
     let mut sigs = FxHashMap::default();
     sigs.insert(target, make_sig(&[Ownership::Owned, Ownership::Owned]));
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[2].body[0] {
         assert_eq!(
@@ -859,7 +869,7 @@ fn same_capture_types_do_not_specialize_indirect_ownership() {
     let mut sigs = FxHashMap::default();
     sigs.insert(target, make_sig(&[Ownership::Owned, Ownership::Owned]));
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[2].body[0] {
         assert_eq!(
@@ -940,7 +950,7 @@ fn cross_instantiation_closures_keep_borrowed_indirect_ownership() {
     let mut sigs = FxHashMap::default();
     sigs.insert(target, make_sig(&[Ownership::Owned, Ownership::Owned]));
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[2].body[0] {
         assert_eq!(
@@ -1037,7 +1047,7 @@ fn diamond_cfg_closure_provenance_keeps_borrowed_abi() {
     let mut sigs = FxHashMap::default();
     sigs.insert(target, make_sig(&[Ownership::Owned, Ownership::Owned]));
 
-    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
 
     if let ArcInstr::ApplyIndirect { arg_ownership, .. } = &func.blocks[3].body[0] {
         assert_eq!(
@@ -1054,7 +1064,7 @@ fn diamond_cfg_closure_provenance_keeps_borrowed_abi() {
 // correct ArgOwnership vectors when encountering protocol builtin callees.
 
 /// Verify `annotate_arg_ownership` maps `__index` to [Borrowed, Borrowed].
-/// This is the consumer directly responsible for the original `__index` RC leak.
+/// Both arguments must remain live after the non-consuming lookup.
 #[test]
 fn annotate_protocol_index_produces_borrowed_vector() {
     let interner = StringInterner::new();
@@ -1080,7 +1090,7 @@ fn annotate_protocol_index_produces_borrowed_vector() {
     }];
 
     let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 3]);
-    super::annotate_arg_ownership(
+    annotate_arg_ownership(
         &mut func,
         &FxHashMap::default(),
         &interner,
@@ -1125,7 +1135,7 @@ fn annotate_protocol_iter_next_produces_owned_borrowed() {
     }];
 
     let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 3]);
-    super::annotate_arg_ownership(
+    annotate_arg_ownership(
         &mut func,
         &FxHashMap::default(),
         &interner,
@@ -1170,7 +1180,7 @@ fn annotate_protocol_iter_drop_produces_owned() {
     }];
 
     let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 2]);
-    super::annotate_arg_ownership(
+    annotate_arg_ownership(
         &mut func,
         &FxHashMap::default(),
         &interner,
@@ -1215,7 +1225,7 @@ fn annotate_protocol_collect_set_produces_owned() {
     }];
 
     let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 2]);
-    super::annotate_arg_ownership(
+    annotate_arg_ownership(
         &mut func,
         &FxHashMap::default(),
         &interner,
@@ -1264,7 +1274,7 @@ fn annotate_protocol_iter_produces_borrowed() {
     }];
 
     let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 2]);
-    super::annotate_arg_ownership(
+    annotate_arg_ownership(
         &mut func,
         &FxHashMap::default(),
         &interner,
@@ -1290,8 +1300,6 @@ fn annotate_protocol_iter_produces_borrowed() {
 /// because the runtime transfers buffer ownership to the iterator. This test verifies
 /// the full `annotate_arg_ownership` flow — protocol base + type-qualified override.
 ///
-/// Prior to this test, the override path was never exercised at the consumer level
-/// (the original test used a non-collection receiver type).
 #[test]
 fn annotate_iter_on_collection_overrides_to_owned() {
     let interner = StringInterner::new();
@@ -1326,7 +1334,7 @@ fn annotate_iter_on_collection_overrides_to_owned() {
         blocks,
         vec![list_int, Idx::INT],
     );
-    super::annotate_arg_ownership(
+    annotate_arg_ownership(
         &mut func,
         &FxHashMap::default(),
         &interner,

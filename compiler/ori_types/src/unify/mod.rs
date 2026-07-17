@@ -22,7 +22,6 @@
 //! let var = engine.fresh_var();
 //! engine.unify(var, Idx::INT).expect("int should unify with a fresh variable");
 //!
-//! // Now var resolves to INT
 //! assert_eq!(engine.resolve(var), Idx::INT);
 //! ```
 

@@ -172,8 +172,7 @@ pub(in crate::infer::expr) fn infer_method_call(
     }
 
     // Callable struct field: `s.transform(21)` where `transform: (int) -> int`
-    // is a FIELD, not a method (typeck's concrete-receiver dispatch is otherwise
-    // incomplete here — see `callable_field_fn_ty`).
+    // is a field, not a method. `callable_field_fn_ty` handles this receiver form.
     if let Some(fn_ty) = callable_field_fn_ty(engine, resolved, method) {
         return check_callable_field_positional(engine, arena, fn_ty, arg_ids, span, expected);
     }
@@ -304,9 +303,8 @@ pub(in crate::infer::expr) fn infer_method_call_named(
         return sig.ret;
     }
 
-    // Callable struct field: a closure-typed field invoked through the receiver
-    // (typeck's concrete-receiver dispatch is otherwise incomplete here — see
-    // `callable_field_fn_ty`). The closure type carries no parameter names, so
+    // Callable struct field: a closure-typed field invoked through the receiver.
+    // `callable_field_fn_ty` handles this receiver form. The closure type carries no parameter names, so
     // check each named arg's value positionally against the closure params.
     if let Some(fn_ty) = callable_field_fn_ty(engine, resolved, method) {
         let value_ids: Vec<ExprId> = call_args.iter().map(|arg| arg.value).collect();

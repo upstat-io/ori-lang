@@ -4,11 +4,14 @@
 
 use ori_ir::Span;
 
-use super::{LexError, LexErrorContext, LexErrorKind, LexSuggestion, UnicodeEscapeDetail};
+use super::{
+    FutureKeyword, LexError, LexErrorContext, LexErrorKind, LexSuggestion, UnicodeEscapeDetail,
+    UnsupportedOperator,
+};
 
 impl LexError {
-    /// Build an error carrying exactly one suggestion — the canonical shape
-    /// shared by most single-suggestion factory methods in this file.
+    /// Build an error carrying exactly one suggestion, the canonical shape
+    /// shared by most single-suggestion factories.
     /// Factories needing a computed/multi-part suggestion or a `context`
     /// derived from `span` build `Self` directly instead.
     #[cold]
@@ -238,22 +241,25 @@ impl LexError {
         }
     }
 
-    /// Create a strict equality/inequality operator error.
+    /// Create an error for a recognized cross-language operator.
     #[cold]
-    pub fn strict_equality_operator(span: Span, operator: &'static str) -> Self {
-        let replacement = match operator {
-            "!==" => "!=",
-            _ => "==",
+    pub fn unsupported_operator(span: Span, operator: UnsupportedOperator) -> Self {
+        let suggestion = match operator {
+            UnsupportedOperator::StrictEqual => {
+                LexSuggestion::replace("use `==` for equality comparison", span, "==")
+            }
+            UnsupportedOperator::StrictNotEqual => {
+                LexSuggestion::replace("use `!=` for equality comparison", span, "!=")
+            }
+            UnsupportedOperator::Increment => {
+                LexSuggestion::text("use an explicit assignment such as `x = x + 1`", 0)
+            }
         };
         Self {
             span,
-            kind: LexErrorKind::StrictEqualityOperator { operator },
+            kind: LexErrorKind::UnsupportedOperator { operator },
             context: LexErrorContext::TopLevel,
-            suggestions: vec![LexSuggestion::replace(
-                format!("use `{replacement}` for equality comparison"),
-                span,
-                replacement,
-            )],
+            suggestions: vec![suggestion],
         }
     }
 
@@ -267,20 +273,6 @@ impl LexError {
             "use double quotes for strings; single quotes are for one character",
             0,
         )
-    }
-
-    /// Create an increment operator error.
-    #[cold]
-    pub fn increment_operator(span: Span, operator: &'static str) -> Self {
-        Self {
-            span,
-            kind: LexErrorKind::IncrementOperator { operator },
-            context: LexErrorContext::TopLevel,
-            suggestions: vec![LexSuggestion::text(
-                "use an explicit assignment such as `x = x + 1`",
-                0,
-            )],
-        }
     }
 
     /// Create an interior null byte error (from `SourceBuffer` encoding detection).
@@ -382,13 +374,14 @@ impl LexError {
 
     /// Create a reserved-future keyword error.
     #[cold]
-    pub fn reserved_future_keyword(span: Span, keyword: &'static str) -> Self {
+    pub fn reserved_future_keyword(span: Span, keyword: FutureKeyword) -> Self {
+        let spelling = keyword.spelling();
         Self {
             span,
             kind: LexErrorKind::ReservedFutureKeyword { keyword },
             context: LexErrorContext::TopLevel,
             suggestions: vec![LexSuggestion::text(
-                format!("`{keyword}` is reserved for future use; choose a different name"),
+                format!("`{spelling}` is reserved for future use; choose a different name"),
                 0,
             )],
         }

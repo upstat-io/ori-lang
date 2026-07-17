@@ -207,9 +207,8 @@ fn count_distinct_constructors(matrix: &PatternMatrix, col: usize) -> usize {
 
 /// A hashable key identifying a constructor (ignoring sub-patterns).
 ///
-/// Two patterns with the same constructor key will be tested by the same
-/// `TestValue`. Sub-patterns are not included — they're handled by
-/// matrix specialization.
+/// Patterns with the same key share a `TestValue`; matrix specialization owns
+/// their sub-patterns.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ConstructorKey {
     Variant(u32),

@@ -19,7 +19,7 @@ impl ArcLowerer<'_> {
     ///
     /// Routes to type-specific lowering based on `FunctionExpKind`.
     /// Post-0.1 concurrency variants (Parallel, Spawn, Timeout, With, Channel*)
-    /// are rejected at the type checker (E2040) and never reach here.
+    /// are rejected by the type checker (E2040) before ARC lowering.
     pub(crate) fn lower_function_exp(
         &mut self,
         kind: FunctionExpKind,
@@ -239,19 +239,14 @@ impl ArcLowerer<'_> {
         let merge_block = self.builder.new_block();
         let merge_param = self.builder.add_block_param(merge_block, result_ty);
 
-        // Set catch target — Invoke calls AND inline checked-ops inside the
-        // body unwind here. An `Invoke` wires `catch_handler` via its unwind
-        // edge; an inline checked-op PrimOp instead records its result var →
-        // initial `catch_handler` mapping. AIMS retargets that metadata through
-        // a cleanup-only landing block before physical projection. Spec:
-        // Clause 14.3. `catch_unwind_target` is always the innermost enclosing
-        // catch, so a nested checked-op maps to its own (inner) handler.
+        // INVARIANT: The innermost catch owns both Invoke unwind edges and
+        // checked-op metadata; AIMS may interpose cleanup before projection.
+        // Spec: Clause 14.3.
         let prev_target = self.builder.set_catch_target(catch_handler);
 
         // Lower the body expression (panicking calls become Invoke → catch_handler)
         let body_result = self.lower_expr(body_id);
 
-        // Restore previous catch target
         if let Some(prev) = prev_target {
             self.builder.set_catch_target(prev);
         } else {
@@ -340,10 +335,8 @@ impl ArcLowerer<'_> {
             Some(span),
         );
 
-        // Non-primitive FormatWith is desugared in ori_canon (user `format()`
-        // dispatch or `to_str()` re-route), so only the 5 primitive arms reach
-        // here. The catch-all unreachable keeps a missed canon path loud rather
-        // than silently miscompiling a struct pointer to `ori_format_int`.
+        // INVARIANT: Canon lowers non-primitive formatting, so treating any
+        // other representation as an integer would be a miscompile.
         let runtime_fn = match inner_ty {
             Idx::INT => "ori_format_int",
             Idx::FLOAT => "ori_format_float",
@@ -363,7 +356,7 @@ impl ArcLowerer<'_> {
     /// Emit a unit literal in a fresh block after a terminator.
     ///
     /// Used after `terminate_unreachable()` to provide a valid `ArcVarId`
-    /// for subsequent code (which will be dead but must be well-formed).
+    /// for subsequent unreachable code that must remain well-formed.
     fn emit_unit_in_new_block(&mut self) -> ArcVarId {
         let dead_block = self.builder.new_block();
         self.builder.position_at(dead_block);

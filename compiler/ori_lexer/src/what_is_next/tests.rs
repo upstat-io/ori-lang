@@ -2,17 +2,26 @@ use super::*;
 
 #[test]
 fn detects_triple_equals() {
-    assert_eq!(what_is_next(b"===", 0), NextContext::Operator("==="));
+    assert_eq!(
+        what_is_next(b"===", 0),
+        NextContext::UnsupportedOperator(UnsupportedOperator::StrictEqual)
+    );
 }
 
 #[test]
 fn detects_not_triple_equals() {
-    assert_eq!(what_is_next(b"!==", 0), NextContext::Operator("!=="));
+    assert_eq!(
+        what_is_next(b"!==", 0),
+        NextContext::UnsupportedOperator(UnsupportedOperator::StrictNotEqual)
+    );
 }
 
 #[test]
 fn detects_increment() {
-    assert_eq!(what_is_next(b"++", 0), NextContext::Operator("++"));
+    assert_eq!(
+        what_is_next(b"++", 0),
+        NextContext::UnsupportedOperator(UnsupportedOperator::Increment)
+    );
 }
 
 #[test]

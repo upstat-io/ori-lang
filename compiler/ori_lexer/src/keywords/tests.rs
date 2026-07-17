@@ -1,4 +1,5 @@
 use super::*;
+use crate::lex_error::FutureKeyword;
 
 // Keyword sync
 
@@ -367,11 +368,17 @@ fn lparen_lookahead_stops_at_non_whitespace() {
 
 #[test]
 fn reserved_future_keywords_detected() {
-    assert_eq!(reserved_future_lookup("asm"), Some("asm"));
-    assert_eq!(reserved_future_lookup("inline"), Some("inline"));
-    assert_eq!(reserved_future_lookup("static"), Some("static"));
-    assert_eq!(reserved_future_lookup("union"), Some("union"));
-    assert_eq!(reserved_future_lookup("view"), Some("view"));
+    assert_eq!(reserved_future_lookup("asm"), Some(FutureKeyword::Asm));
+    assert_eq!(
+        reserved_future_lookup("inline"),
+        Some(FutureKeyword::Inline)
+    );
+    assert_eq!(
+        reserved_future_lookup("static"),
+        Some(FutureKeyword::Static)
+    );
+    assert_eq!(reserved_future_lookup("union"), Some(FutureKeyword::Union));
+    assert_eq!(reserved_future_lookup("view"), Some(FutureKeyword::View));
 }
 
 #[test]

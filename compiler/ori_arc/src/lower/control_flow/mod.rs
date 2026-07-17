@@ -6,7 +6,7 @@
 //! are reassigned in divergent branches (if/else, match, loop), block
 //! parameters serve as phi nodes at the merge point.
 //!
-//! Loop constructs (`loop`, `for`) live in the [`loops`] submodule.
+//! The [`loops`] submodule implements `loop` and `for` constructs.
 
 use ori_ir::canon::{CanExpr, CanId, CanRange, DecisionTreeId};
 use ori_ir::{Name, Span};
@@ -16,6 +16,7 @@ use rustc_hash::FxHashMap;
 mod for_loops;
 mod for_yield;
 mod for_yield_option;
+mod iterator_flow;
 mod loop_transfer;
 mod loops;
 mod reassign_scan;
@@ -48,8 +49,7 @@ impl ArcLowerer<'_> {
             "block: enter"
         );
 
-        // Save and reset block_let_names for this block's scope.
-        // bind_pattern will populate it with names introduced by `let`.
+        // Each block owns the names introduced by its `let` patterns.
         let parent_let_names = std::mem::take(&mut self.block_let_names);
 
         for &stmt_id in &stmt_ids {
@@ -269,7 +269,7 @@ impl ArcLowerer<'_> {
                     );
                     // Record the binding's scope-rebind death point. `old_var`
                     // is the prior value the rebind orphans; `new_var` is the
-                    // value the binding now holds. The burden Phase-5
+                    // binding's replacement value. The burden Phase-5
                     // reassign-release scan emits the gated `BurdenDec(old_var)`
                     // at this rebind (Spec: Annex E §AIMS RL-2). When `old_var`
                     // equals the RHS value (a self-move with no new SSA), the

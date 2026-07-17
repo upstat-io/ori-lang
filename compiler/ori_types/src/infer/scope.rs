@@ -78,7 +78,7 @@ impl InferEngine<'_> {
     }
 
     /// Prevent `?` inside a nested function body from attaching to an
-    /// enclosing try block. A nested try boundary pushed above this barrier
+    /// enclosing try block. A nested try boundary outside this barrier
     /// remains independently active.
     pub(crate) fn push_try_boundary_barrier(&mut self) {
         self.try_boundaries.push(None);
@@ -122,8 +122,8 @@ impl InferEngine<'_> {
     ///
     /// `label == Name::EMPTY` (unlabeled) → innermost loop. A non-empty label
     /// → the nearest enclosing loop whose `label` matches; `None` when no
-    /// enclosing loop carries that label (the label-resolution error path,
-    /// owned elsewhere, handles that case).
+    /// enclosing loop carries that label; the caller handles label-resolution
+    /// errors.
     pub fn resolve_loop_context(&self, label: Name) -> Option<LoopContext> {
         if label == Name::EMPTY {
             return self.current_loop_context();
@@ -174,7 +174,7 @@ impl InferEngine<'_> {
         self.provided_capabilities.remove(&cap);
     }
 
-    /// Execute a closure with a temporarily provided capability.
+    /// Execute a closure while a capability is provided.
     ///
     /// The capability is added before executing `f` and removed after.
     /// This implements the scoped semantics of `with...in`.

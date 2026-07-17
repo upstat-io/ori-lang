@@ -35,8 +35,8 @@ pub use typed_module::{
     ImportedImplSig, IterMethodRoute, TypedModule,
 };
 
-// Test-support imports: the sibling `tests.rs` uses `use super::*;` and relies
-// on these symbols being in scope through this module.
+// Keep these test-only names in the module namespace because the tests import
+// their parent namespace with `use super::*`.
 #[cfg(test)]
 use crate::registry::TypeEntry;
 #[cfg(test)]

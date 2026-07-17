@@ -58,7 +58,7 @@ mod idx_provenance {
     }
 
     /// Run `ori explain idx <args...>` for an EXPECTED-failure path; returns
-    /// `(exit_success, combined stderr)`. The negative pins below assert a
+    /// `(exit_success, combined stderr)`. Negative cases assert a
     /// non-zero exit AND a named-cause diagnostic — vs [`run_explain_idx`], which
     /// asserts a clean exit and returns stdout.
     fn run_explain_idx_args(args: &[&str]) -> (bool, String) {
@@ -118,7 +118,7 @@ mod idx_provenance {
             "a fully materialized nested generic must have no divergence line:\n{trace}"
         );
 
-        // Consumer attribution is currently built with the ARC-enabled feature.
+        // Consumer attribution is available with the ARC-enabled feature.
         // These fixtures contain only scalar leaves, so no structural drop plan
         // exists at any level.
         #[cfg(feature = "llvm")]

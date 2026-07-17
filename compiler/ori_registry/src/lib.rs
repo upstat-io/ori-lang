@@ -71,8 +71,8 @@ pub use burden::{
 };
 pub use defs::BUILTIN_TYPES;
 pub use method::{
-    MethodDef, MethodRuntime, OptionRuntime, ParamDef, RegisteredMethodId, ResultRuntime,
-    StrRuntime, ONE_SELF_BORROW, ONE_SELF_COPY, ONE_SELF_OWNED, TWO_SELF_COPY,
+    BackendRequirement, MethodDef, MethodRuntime, OptionRuntime, ParamDef, RegisteredMethodId,
+    ResultRuntime, StrRuntime, ONE_SELF_BORROW, ONE_SELF_COPY, ONE_SELF_OWNED, TWO_SELF_COPY,
 };
 pub use operator::OpDefs;
 pub use prelude::{

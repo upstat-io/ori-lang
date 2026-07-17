@@ -208,13 +208,9 @@ pub struct InferEngine<'pool> {
     /// once more across dedup + sort before storing in
     /// [`crate::TypedModule::mono_dispatch_map`].
     ///
-    /// Populated by `record_mono_with_dispatch()` from the eager call-site
-    /// path (`infer::expr::calls::monomorphization::maybe_record_mono_instance`).
-    /// The deferred-resolution path (`check::exports::resolve_deferred_mono_calls`)
-    /// is the sub-step 1b-deferred resolution and does NOT populate this map;
-    /// the dispatch map
-    /// will be silent for transitive generic-calling-generic call sites until
-    /// that sub-step lands.
+    /// Populated by `record_mono_with_dispatch()` for eager calls and by
+    /// `check::exports::resolve_deferred_mono_calls` after a deferred call's
+    /// type variables resolve to a concrete instance.
     mono_dispatch_pre_dedup: Vec<(ExprId, MonoInstanceId)>,
 
     /// Type-directed desugar plans for `ExprKind::AssignTarget` chains.
@@ -267,9 +263,9 @@ pub struct InferEngine<'pool> {
     /// `infer::expr::calls::monomorphization::maybe_record_mono_instance`
     /// when a generic builtin (Option<T>, Result<T, E>, [T], {K: V}, Set<T>)
     /// reaches its first-instantiation form with fully-resolved type args.
-    /// Each entry is `(monomorphized_idx, composed_spec)`; consumed downstream
-    /// by the body-pass extractor (`take_composed_burdens`) and flushed into
-    /// `TypeRegistry::burden` once the mutable-registry surface lands.
+    /// Each entry is `(monomorphized_idx, composed_spec)`; the body-pass
+    /// extractor drains them through `take_composed_burdens`, then body
+    /// finalization registers them in the `TypeRegistry`.
     ///
     /// Spec: Annex E §AIMS — burden specs are typed pre-pass input feeding
     /// the lattice-driven analysis. Composition at type-instantiation time
@@ -277,7 +273,7 @@ pub struct InferEngine<'pool> {
     /// each burden walk (proposal §Generic Burden Composition rationale).
     composed_burdens: Vec<(Idx, crate::registry::burden::UserBurdenSpec)>,
 
-    /// Name of the function currently being type-checked.
+    /// Name of the function under type checking.
     ///
     /// Used by `maybe_record_mono_instance()` to identify the caller when
     /// recording deferred mono calls.

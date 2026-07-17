@@ -1,83 +1,77 @@
 //! COW and drop-hint decisions for post-merge AIMS sites.
 
-use crate::aims::lattice::{AccessClass, Cardinality, Consumption, ShapeClass, Uniqueness};
-use crate::ir::ArcVarId;
+use crate::aims::lattice::Uniqueness;
 use crate::uniqueness::CowMode;
 
-use rustc_hash::FxHashSet;
-
-/// COW and drop decisions for one post-merge instruction site.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AnnotationDecisions {
-    /// COW mode for this instruction site (None = not a COW site).
-    pub cow: Option<CowMode>,
-    /// Whether to emit a drop hint for unique collection fast-path.
-    pub drop_hint: bool,
+/// Borrow facts consumed by the COW decision.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct CowBorrowFacts {
+    /// Whether every sibling borrow is disjoint from the mutation target.
+    pub(super) is_disjoint_from_siblings: bool,
+    /// Whether the receiver has any aggregate borrow in the function.
+    pub(super) has_active_borrows: bool,
 }
 
-/// Complete converged facts for one annotation site.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "each bool represents an independent binary property of the instruction site"
-)]
-pub struct AnnotationSiteContext<'a> {
-    /// The variable being annotated.
-    pub var: ArcVarId,
-    /// Uniqueness from the state map (via `var_state_at_block_entry`).
-    pub uniqueness: Uniqueness,
-    /// Whether realization added an owner credit through the transitional
-    /// `RcInc` carrier, invalidating a pre-event single-owner fact.
-    pub rc_incremented: bool,
-    /// Whether this variable is a function parameter.
-    pub is_param: bool,
-    /// Whether this variable is a function parameter with `Ownership::Borrowed`.
-    /// Borrowed parameters cannot use single-owner cleanup because the caller
-    /// retains the governing owner credit.
-    pub is_param_borrowed: bool,
-    /// Whether this variable was passed as a Borrowed argument to a function.
-    pub is_borrowed_call_arg: bool,
-    /// Set of all RC-incremented variables (for transitive alias checks).
-    pub rc_incremented_set: &'a FxHashSet<ArcVarId>,
-    /// Whether this variable is excluded from analysis (scalar, immortal).
-    pub is_excluded: bool,
-    /// Access class from state map (for COW-aware borrowing: Owned + Linear + Once).
-    pub access: AccessClass,
-    /// Consumption from state map (for COW-aware borrowing).
-    pub consumption: Consumption,
-    /// Cardinality from state map (for cross-dimensional COW proofs).
-    pub cardinality: Cardinality,
-    /// Shape class from state map (for cross-dimensional COW proofs).
-    pub shape: ShapeClass,
-    /// Whether this variable's borrow is disjoint from all sibling borrows
-    /// (uniqueness-preserving borrows).
-    pub is_borrow_disjoint: bool,
-    /// Whether any borrow from this variable (as an aggregate source) exists
-    /// anywhere in the function. Used by DP-5/DP-9: Unique aggregates with
-    /// active borrows must use `StaticShared`, not `StaticUnique`. Function-wide
-    /// check — conservative (may block `StaticUnique` when borrows are dead at
-    /// the COW site, but never permits unsafe in-place mutation).
-    pub has_active_borrows: bool,
-    /// Whether this variable's type is a collection (List/Map/Set) —
-    /// required for drop hint eligibility.
-    pub is_collection: bool,
+/// Converged facts consumed by a COW site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct CowSiteContext {
+    /// Uniqueness at the block entry, narrowed by any applicable contract.
+    pub(super) uniqueness: Uniqueness,
+    /// Whether realization added an owner credit before this site.
+    pub(super) rc_incremented: bool,
+    /// Whether the receiver is outside ownership analysis.
+    pub(super) is_excluded: bool,
+    /// Borrow facts required by DP-5 and DP-9.
+    pub(super) borrows: CowBorrowFacts,
 }
 
-/// Computes COW and drop decisions from one site context.
-///
-/// `cow` is set only for `is_cow_site`; `drop_hint` is set only for
-/// `is_drop_site`.
-pub fn decide_annotations(
-    ctx: &AnnotationSiteContext<'_>,
-    is_cow_site: bool,
-    is_drop_site: bool,
-) -> AnnotationDecisions {
-    AnnotationDecisions {
-        cow: if is_cow_site {
-            Some(decide_cow(ctx))
-        } else {
-            None
-        },
-        drop_hint: is_drop_site && decide_drop_hint(ctx),
+/// Borrowed-owner facts consumed by the drop-hint decision.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct DropBorrowFacts {
+    /// Whether the value is a borrowed function parameter.
+    pub(super) is_param_borrowed: bool,
+    /// Whether the value was passed as a borrowed call argument.
+    pub(super) is_borrowed_call_arg: bool,
+}
+
+/// Converged facts consumed by an `RcDec` drop-hint site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct DropSiteContext {
+    /// Uniqueness at the block entry, narrowed by any applicable contract.
+    pub(super) uniqueness: Uniqueness,
+    /// Whether realization added an owner credit before this site.
+    pub(super) rc_incremented: bool,
+    /// Whether the value is outside ownership analysis.
+    pub(super) is_excluded: bool,
+    /// Whether the value has a collection representation.
+    pub(super) is_collection: bool,
+    /// Borrowed-owner facts that preclude the unique-drop fast path.
+    pub(super) borrows: DropBorrowFacts,
+}
+
+/// Facts for one post-merge annotation site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AnnotationSite {
+    /// A collection operation that requires a COW strategy.
+    Cow(CowSiteContext),
+    /// An `RcDec` that may take the unique-collection drop fast path.
+    Drop(DropSiteContext),
+}
+
+/// Decision for one post-merge annotation site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AnnotationDecision {
+    /// The COW mode for a collection mutation.
+    Cow(CowMode),
+    /// Whether an `RcDec` may use the unique-collection drop fast path.
+    DropHint(bool),
+}
+
+/// Computes the only decision valid for the supplied annotation site.
+pub(super) fn decide_annotation(site: AnnotationSite) -> AnnotationDecision {
+    match site {
+        AnnotationSite::Cow(ctx) => AnnotationDecision::Cow(decide_cow(ctx)),
+        AnnotationSite::Drop(ctx) => AnnotationDecision::DropHint(decide_drop_hint(ctx)),
     }
 }
 
@@ -86,7 +80,7 @@ pub fn decide_annotations(
 /// Outstanding owner credits force a dynamic probe. A unique value is mutable
 /// in place only without active borrows; shared values always copy. A disjoint
 /// borrow may preserve unique mutation for a `MaybeShared` receiver.
-pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
+pub(super) fn decide_cow(ctx: CowSiteContext) -> CowMode {
     if ctx.is_excluded {
         return CowMode::Dynamic;
     }
@@ -99,7 +93,7 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
     match ctx.uniqueness {
         Uniqueness::Unique => {
             // INVARIANT: Active aggregate borrows forbid in-place mutation.
-            if ctx.has_active_borrows {
+            if ctx.borrows.has_active_borrows {
                 CowMode::StaticShared
             } else {
                 CowMode::StaticUnique
@@ -108,7 +102,7 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
 
         Uniqueness::MaybeShared => {
             // INVARIANT: Disjoint sibling borrows preserve source uniqueness here.
-            if ctx.is_borrow_disjoint {
+            if ctx.borrows.is_disjoint_from_siblings {
                 return CowMode::StaticUnique;
             }
 
@@ -123,7 +117,7 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
 ///
 /// Excluded values, borrowed parameters, outstanding owner credits, and
 /// borrowed-call aliases are ineligible.
-pub fn decide_drop_hint(ctx: &AnnotationSiteContext<'_>) -> bool {
+pub(super) fn decide_drop_hint(ctx: DropSiteContext) -> bool {
     if ctx.is_excluded {
         return false;
     }
@@ -132,9 +126,9 @@ pub fn decide_drop_hint(ctx: &AnnotationSiteContext<'_>) -> bool {
         return false;
     }
 
-    if ctx.is_param_borrowed {
+    if ctx.borrows.is_param_borrowed {
         return false;
     }
 
-    ctx.uniqueness == Uniqueness::Unique && !ctx.rc_incremented && !ctx.is_borrowed_call_arg
+    ctx.uniqueness == Uniqueness::Unique && !ctx.rc_incremented && !ctx.borrows.is_borrowed_call_arg
 }

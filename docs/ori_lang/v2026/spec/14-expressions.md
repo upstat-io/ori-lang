@@ -660,7 +660,7 @@ Infinite ranges shall be bounded before terminal operations like `collect()`:
 
 ```ori
 (0..).iter().take(count: 10).collect();    // OK: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-(0..).iter().collect();                     // infinite loop, eventually OOM
+(0..).iter().collect();                     // infinite loop with unbounded allocation
 ```
 
 Implementations SHOULD warn on obvious unbounded consumption patterns.

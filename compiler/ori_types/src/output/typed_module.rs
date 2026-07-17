@@ -91,7 +91,7 @@ pub struct TypedModule {
 
     /// Derived implementations accepted by validation and coherence.
     ///
-    /// This is the only downstream authority for compiler-generated derive
+    /// This is the sole authority for compiler-generated derive
     /// bodies. Raw source attributes are not an executable inventory.
     pub accepted_derives: Vec<super::AcceptedDerivedImpl>,
 
@@ -118,7 +118,7 @@ pub struct TypedModule {
     ///
     /// Each entry represents one unique concrete generic callable identity.
     /// Most originate at call sites; operator-selected generic methods also
-    /// appear here without a corresponding `mono_dispatch_map` entry. Physical
+    /// appear in this list without a corresponding `mono_dispatch_map` entry. Physical
     /// backends use the inventory to stamp out concrete specializations.
     pub mono_instances: Vec<MonoInstance>,
 
@@ -222,10 +222,10 @@ pub struct TypedModule {
     /// instances (`[T]`, `{K: V}`, `Set<T>`, `Option<T>`, `Result<T, E>`,
     /// `Range<T>`) that carry no nominal `TypeEntry`.
     ///
-    /// These instances live in the in-memory `TypeRegistry`'s
+    /// The in-memory `TypeRegistry` stores these instances in its
     /// `collection_burdens` side-table, which `types` (sourced from
     /// `TypeRegistry::into_entries`) excludes by construction. Exporting them
-    /// here lets the ARC codegen pipeline reconstruct the side-table so
+    /// storing them lets the ARC codegen pipeline reconstruct the side-table so
     /// collection-instance burden reaches Phase 5 emission. Sorted ascending
     /// by `Idx` for Salsa-deterministic output.
     /// Spec: Annex E §AIMS.

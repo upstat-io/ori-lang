@@ -169,8 +169,7 @@ pub struct Interpreter<'a> {
     pub(crate) print_handler: SharedPrintHandler,
     /// Scope ownership for RAII-style panic-safe scope cleanup.
     ///
-    /// When `Owned`, the interpreter was created for a function/method call
-    /// via `create_function_interpreter` and will pop its environment scope on drop.
+    /// An `Owned` interpreter pops its function-call environment scope on drop.
     pub(crate) scope_ownership: ScopeOwnership,
     /// Source file path for Traceable trait trace entries.
     ///
@@ -401,7 +400,7 @@ impl<'a> Interpreter<'a> {
         // so this push cannot fail (depth < max at the check point).
         let mut child_stack = self.call_stack.clone();
         // Invariant: check_recursion_limit() passed, so depth < max_depth.
-        // push() cannot fail here.
+        // The push cannot fail after the recursion-limit check.
         #[expect(
             clippy::expect_used,
             reason = "Invariant: check_recursion_limit already passed"

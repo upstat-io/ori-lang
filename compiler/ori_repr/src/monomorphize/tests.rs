@@ -51,7 +51,7 @@ fn make_generic_sig(interner: &StringInterner) -> FunctionSig {
 
 fn unvalidated_type_resolution_metadata(parameter_count: usize) -> ExternalCallableMetadata {
     // These monomorphization-only tests never feed the record to AIMS. The
-    // validation tests below construct metadata from an exact producer fact.
+    // validation tests construct metadata from an exact producer fact.
     ExternalCallableMetadata::from_imported_parts(
         MemoryContract::conservative(parameter_count),
         ExternalUnwind::MayUnwind,

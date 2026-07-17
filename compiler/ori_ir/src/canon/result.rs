@@ -71,13 +71,13 @@ pub struct MethodRoot {
     pub body: CanId,
 }
 
-/// Typed index into the typeck-side `Vec<MonoInstance>` — the abstract dispatch
-/// key on the canonical-IR side ([`CanonResult::mono_dispatch_map_can`]) and the
-/// ARC + LLVM + eval dispatch paths. The mangled LLVM symbol name is computed in
-/// `ori_llvm` via `mangle_mono_name`; typeck and canon produce only this index.
+/// Typed index into the typeck-side `Vec<MonoInstance>` — the canonical-IR
+/// dispatch key ([`CanonResult::mono_dispatch_map_can`]) shared by ARC, LLVM,
+/// and evaluator dispatch. LLVM computes the mangled symbol name with
+/// `mangle_mono_name`; typeck and canon produce only this index.
 ///
-/// Lives in `ori_ir` (leaf crate; re-exported by `ori_types`) so every consuming
-/// crate shares the handle without a cross-crate cycle. Equality / hashing match
+/// The leaf-crate definition lets every consumer share the handle without a
+/// cross-crate cycle. Equality and hashing match
 /// index identity; construct via [`MonoInstanceId::new`], read the index via
 /// [`MonoInstanceId::raw`] / [`MonoInstanceId::index`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -136,7 +136,7 @@ pub struct CanonResult {
     /// `CanExpr::Call` or `CanExpr::MethodCall` for an AST `ExprId` whose
     /// typeck-side `TypedModule.mono_dispatch_map` carries an entry, the
     /// lowerer translates that entry's `(ExprId, MonoInstanceId)` pair to
-    /// `(CanId, MonoInstanceId)` and appends here.
+    /// `(CanId, MonoInstanceId)` and appends it to the dispatch accumulator.
     ///
     /// The ARC carriers (`ArcInstr::Apply` / `ArcTerminator::Invoke`)
     /// read this side-table to transfer the abstract index onto the ARC-level

@@ -331,18 +331,6 @@ type Point = { x: int, y: int }
     x
 }
 
-// Labeled Loops (NOT YET IMPLEMENTED)
-
-// Note: Labeled loops (loop:name, for:name, break:name, continue:name) are
-// specified but not yet implemented in the compiler. These tests are
-// commented out until the feature is available.
-
-// When implemented, tests should cover:
-// - loop:name with break:name
-// - loop:name with break:name value
-// - for:name with continue:name
-// - Nested labeled loops
-
 // Loop Type Inference
 
 @test_loop_void tests @loop_void () -> void = {
@@ -372,13 +360,8 @@ type Point = { x: int, y: int }
 
 // Complex Patterns
 //
-// Regression: labeled `break:outer value` from a nested BARE inner `loop`
-// propagates to the outer labeled `loop` (Spec: Clause 16.3.3). Nested bare
-// loops carry NO iterator/accumulator, so this pins the label-routing
-// value-correctness on BOTH backends with no abandon-path RC surface — the
-// permanent regression guard for the ControlAction.label (eval) + LoopContext
-// stack (ARC) threading. Fails if the fix is reverted (innermost consumes
-// `break:outer`, never reaching the outer loop).
+// Spec: Clause 16.3.3. A labeled break crosses a nested bare loop and returns
+// its value from the matching outer loop on both backends.
 @test_nested_loop_labeled_break tests @nested_loop_labeled_break () -> void = {
     assert_eq(actual: nested_loop_labeled_break(), expected: 2)
 }
@@ -387,6 +370,36 @@ type Point = { x: int, y: int }
     loop:outer {
         loop {
             break:outer 2
+        }
+    }
+}
+
+@test_nested_loop_break_targets_matching_label tests @nested_loop_break_targets_matching_label () -> void = {
+    assert_eq(actual: nested_loop_break_targets_matching_label(), expected: 6)
+}
+
+@nested_loop_break_targets_matching_label () -> int = {
+    let total = 0;
+    for x in [1, 2, 3] do {
+        let value = loop:inner {
+            break:inner x
+        };
+        total += value
+    };
+    total
+}
+
+@test_nested_loop_labeled_continue tests @nested_loop_labeled_continue () -> void = {
+    assert_eq(actual: nested_loop_labeled_continue(), expected: 3)
+}
+
+@nested_loop_labeled_continue () -> int = {
+    let iterations = 0;
+    loop:outer {
+        iterations += 1;
+        if iterations == 3 then break iterations;
+        loop {
+            continue:outer
         }
     }
 }
@@ -566,19 +579,12 @@ type Point = { x: int, y: int }
     42
 }
 
-// Regression: for-loop GUARD-position break/continue
-// `infer_for` pushed the loop context AFTER inferring the guard, so a
-// guard-position break/continue resolved against the ENCLOSING loop while the
-// for canon-desugar places the guard per-iteration inside the for's own loop —
-// ARC then double-terminated a block (ICE "block N already terminated"). Fix
-// pushes push_loop_context before guard inference (mirror of infer_while) and
-// routes for-loop guard-branch lowering through a shared is_terminated guard.
-// Spec: 16-control-flow.md § Loop Control — the guard runs per-iteration inside
+// Spec: Clause 16, loop control. The guard runs per iteration inside
 // the for, so a guard-position break/continue targets the for, not an enclosing
 // loop.
 
-// Semantic pin (list/iterator): guard-position break targets the FOR. Builds +
-// runs (pre-fix: ARC ICE at build). x=1,2 run the body; x=3 breaks the for.
+// A guard-position break targets the for loop; x=1 and x=2 run the body, while
+// x=3 exits the for.
 @test_for_guard_break_targets_for tests @for_guard_break_targets_for () -> void = {
     assert_eq(actual: for_guard_break_targets_for(), expected: 2)
 }
@@ -637,8 +643,7 @@ type Point = { x: int, y: int }
 }
 
 // Negative pin — `break value` in a for-do guard is E0860 (for-do is void-typed).
-// Only fires once the loop context is pushed before guard inference (the fix);
-// pre-fix the guard resolves against no/the-enclosing context.
+// The for-loop context owns the guard's `break` expression.
 #compile_fail(code: "E0860")
 @test_for_guard_break_value_rejected tests _ () -> void = {
     let sink = 0;
@@ -652,8 +657,8 @@ type Point = { x: int, y: int }
     for x in [1, 2, 3] if (continue 5) do sink = x
 }
 
-// Positive pin — bare `break` / `continue` in guard position stay valid in any
-// for form (the negative pins above must NOT reject the valueless forms).
+// Bare `break` and `continue` in guard position stay valid in every
+// `for` form; rejection applies only to value-carrying forms.
 @test_for_guard_bare_break tests @for_guard_bare_break () -> void = {
     assert_eq(actual: for_guard_bare_break(), expected: 2)
 }

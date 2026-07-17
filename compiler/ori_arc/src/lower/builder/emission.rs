@@ -184,8 +184,7 @@ impl ArcIrBuilder {
     /// Creates a normal continuation block and an unwind cleanup block.
     /// The current block is terminated with `Invoke`. The builder is
     /// positioned at the normal block on return. The unwind block is
-    /// terminated with `Resume` (cleanup blocks will be filled in later
-    /// by the RC insertion pass).
+    /// terminated with `Resume`; the RC insertion pass fills its cleanup.
     ///
     /// Returns the `dst` variable holding the call result (defined at
     /// the normal block's entry).

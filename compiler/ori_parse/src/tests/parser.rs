@@ -15,9 +15,18 @@ fn parse_source(source: &str) -> ParseOutput {
     parse(&tokens, &interner)
 }
 
+fn fixture_without_trailing_newline(fixture: &'static str) -> &'static str {
+    let Some(source) = fixture.strip_suffix('\n') else {
+        panic!("parser fixtures must end with a newline");
+    };
+    source
+}
+
 #[test]
 fn test_parse_literal() {
-    let result = parse_source("@main () -> int = 42;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_literal.ori"
+    )));
 
     assert!(!result.has_errors());
     assert_eq!(result.module.functions.len(), 1);
@@ -29,7 +38,9 @@ fn test_parse_literal() {
 
 #[test]
 fn test_parse_binary_expr() {
-    let result = parse_source("@add () -> int = 1 + 2 * 3;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_binary_expr.ori"
+    )));
 
     assert!(!result.has_errors());
 
@@ -63,7 +74,9 @@ fn test_parse_binary_expr() {
 
 #[test]
 fn test_parse_adjacent_unary_negation_right_associatively() {
-    let result = parse_source("@double_neg (x: int) -> int = --x;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_adjacent_unary_negation_right_associatively.ori"
+    )));
 
     assert!(
         !result.has_errors(),
@@ -90,7 +103,9 @@ fn test_parse_adjacent_unary_negation_right_associatively() {
 
 #[test]
 fn test_parse_if_expr() {
-    let result = parse_source("@test () -> int = if true then 1 else 2;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_if_expr.ori"
+    )));
 
     assert!(!result.has_errors());
 
@@ -119,7 +134,9 @@ fn test_parse_if_expr() {
 
 #[test]
 fn test_parse_block_expr() {
-    let result = parse_source("@test () -> int = { let x = 1; let y = 2; x + y }");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_block_expr.ori"
+    )));
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -148,7 +165,9 @@ fn test_parse_block_expr() {
 
 #[test]
 fn test_parse_let_expression() {
-    let result = parse_source("@test () -> void = let x = 1;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_let_expression.ori"
+    )));
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -177,7 +196,9 @@ fn test_parse_let_expression() {
 
 #[test]
 fn test_parse_let_with_type() {
-    let result = parse_source("@test () -> void = let x: int = 1;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_let_with_type.ori"
+    )));
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -196,7 +217,9 @@ fn test_parse_let_with_type() {
 
 #[test]
 fn test_parse_block_with_let() {
-    let result = parse_source("@test () -> int = { let x = 1; x }");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_block_with_let.ori"
+    )));
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -221,8 +244,9 @@ fn test_parse_block_with_let() {
 
 #[test]
 fn test_parse_function_exp_print() {
-    // Test parsing print function_exp (one of the remaining compiler patterns)
-    let result = parse_source("@test () -> void = print(msg: \"hello\");");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_function_exp_print.ori"
+    )));
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -245,12 +269,9 @@ fn test_parse_function_exp_print() {
 #[test]
 fn test_parse_timeout_multiline() {
     // Test parsing timeout function_exp with multiline format
-    let result = parse_source(
-        r#"@test () -> void = timeout(
-        operation: print(msg: "hi"),
-        after: 5s
-    );"#,
-    );
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_timeout_multiline.ori"
+    )));
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -260,7 +281,9 @@ fn test_parse_timeout_multiline() {
 
 #[test]
 fn test_parse_list() {
-    let result = parse_source("@test () -> int = [1, 2, 3];");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_list.ori"
+    )));
 
     assert!(!result.has_errors());
 
@@ -279,9 +302,15 @@ fn test_parse_result_hash() {
     use std::collections::HashSet;
     let mut set = HashSet::new();
 
-    let result1 = parse_source("@main () -> int = 42;");
-    let result2 = parse_source("@main () -> int = 42;");
-    let result3 = parse_source("@main () -> int = 43;");
+    let result1 = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_literal.ori"
+    )));
+    let result2 = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_literal.ori"
+    )));
+    let result3 = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_result_hash.ori"
+    )));
 
     set.insert(result1);
     set.insert(result2); // duplicate
@@ -292,12 +321,9 @@ fn test_parse_result_hash() {
 
 #[test]
 fn test_parse_timeout_pattern() {
-    let result = parse_source(
-        r#"@main () -> void = timeout(
-        operation: print(msg: "hello"),
-        after: 5s
-    );"#,
-    );
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/parse_timeout_pattern.ori"
+    )));
 
     for err in &result.errors {
         eprintln!("Parse error: {err:?}");
@@ -312,16 +338,7 @@ fn test_parse_timeout_pattern() {
 #[test]
 fn test_parse_block_in_test() {
     // Test block expression syntax in a test function with target
-    let result = parse_source(
-        r#"
-@add (a: int, b: int) -> int = a + b;
-
-@test_add tests @add () -> void = {
-    let result = add(a: 1, b: 2);
-    print(msg: "done")
-}
-"#,
-    );
+    let result = parse_source(include_str!("fixtures/parser/parse_block_in_test.ori"));
 
     for err in &result.errors {
         eprintln!("Parse error: {err:?}");
@@ -339,15 +356,9 @@ fn test_parse_block_in_test() {
 fn test_at_in_expression_is_error() {
     // @ is only for function definitions, not calls
     // Using @name(...) in an expression should be a syntax error
-    let result = parse_source(
-        r"
-@add (a: int, b: int) -> int = a + b;
-
-@test_add tests @add () -> void = {
-    @add(a: 1, b: 2)
-}
-",
-    );
+    let result = parse_source(include_str!(
+        "fixtures/parser/at_in_expression_is_error.ori"
+    ));
 
     assert!(
         result.has_errors(),
@@ -357,11 +368,9 @@ fn test_at_in_expression_is_error() {
 
 #[test]
 fn test_uses_clause_single_capability() {
-    let result = parse_source(
-        r"
-@fetch (url: str) -> str uses Http = Http.get(url: url);
-",
-    );
+    let result = parse_source(include_str!(
+        "fixtures/parser/uses_clause_single_capability.ori"
+    ));
 
     assert!(!result.has_errors(), "Expected no parse errors");
     assert_eq!(result.module.functions.len(), 1);
@@ -372,11 +381,9 @@ fn test_uses_clause_single_capability() {
 
 #[test]
 fn test_uses_clause_multiple_capabilities() {
-    let result = parse_source(
-        r#"
-@save (data: str) -> void uses FileSystem, Async = FileSystem.write(path: "/data", content: data);
-"#,
-    );
+    let result = parse_source(include_str!(
+        "fixtures/parser/uses_clause_multiple_capabilities.ori"
+    ));
 
     assert!(!result.has_errors(), "Expected no parse errors");
     assert_eq!(result.module.functions.len(), 1);
@@ -387,12 +394,8 @@ fn test_uses_clause_multiple_capabilities() {
 
 #[test]
 fn test_uses_clause_with_where() {
-    // uses clause must come before where clause
-    let result = parse_source(
-        r"
-@process<T> (data: T) -> T uses Logger where T: Clone = data;
-",
-    );
+    // The `uses` clause precedes the `where` clause.
+    let result = parse_source(include_str!("fixtures/parser/uses_clause_with_where.ori"));
 
     assert!(!result.has_errors(), "Expected no parse errors");
     assert_eq!(result.module.functions.len(), 1);
@@ -405,11 +408,7 @@ fn test_uses_clause_with_where() {
 #[test]
 fn test_no_uses_clause() {
     // Pure function - no uses clause
-    let result = parse_source(
-        r"
-@add (a: int, b: int) -> int = a + b;
-",
-    );
+    let result = parse_source(include_str!("fixtures/parser/no_uses_clause.ori"));
 
     assert!(!result.has_errors(), "Expected no parse errors");
     assert_eq!(result.module.functions.len(), 1);
@@ -421,13 +420,9 @@ fn test_no_uses_clause() {
 #[test]
 fn test_with_capability_expression() {
     // with Capability = Provider in body
-    let result = parse_source(
-        r"
-@example () -> int =
-    with Http = MockHttp in
-        42;
-",
-    );
+    let result = parse_source(include_str!(
+        "fixtures/parser/with_capability_expression.ori"
+    ));
 
     assert!(
         !result.has_errors(),
@@ -449,13 +444,9 @@ fn test_with_capability_expression() {
 #[test]
 fn test_with_capability_with_struct_provider() {
     // with Capability = StructLiteral { field: value } in body
-    let result = parse_source(
-        r#"
-@example () -> int =
-    with Http = RealHttp { base_url: "https://api.example.com" } in
-        fetch(url: "/data");
-"#,
-    );
+    let result = parse_source(include_str!(
+        "fixtures/parser/with_capability_with_struct_provider.ori"
+    ));
 
     assert!(
         !result.has_errors(),
@@ -467,14 +458,7 @@ fn test_with_capability_with_struct_provider() {
 #[test]
 fn test_with_capability_nested() {
     // Nested capability provisions
-    let result = parse_source(
-        r"
-@example () -> int =
-    with Http = MockHttp in
-        with Cache = MockCache in
-            42;
-",
-    );
+    let result = parse_source(include_str!("fixtures/parser/with_capability_nested.ori"));
 
     assert!(
         !result.has_errors(),
@@ -487,13 +471,9 @@ fn test_with_capability_nested() {
 fn test_no_async_type_modifier() {
     // Ori does not support `async` as a type modifier.
     // Instead, use `uses Async` capability.
-    // `async` is not a keyword — it parses as an identifier, but `async int`
-    // is still invalid syntax (two identifiers in type position).
-    let result = parse_source(
-        r"
-@example () -> async int = 42;
-",
-    );
+    // `async` is not a keyword — it parses as an identifier, while `async int`
+    // is invalid because type position contains two identifiers.
+    let result = parse_source(include_str!("fixtures/parser/no_async_type_modifier.ori"));
 
     // Should have parse error - two identifiers is not a valid type
     assert!(
@@ -506,14 +486,7 @@ fn test_no_async_type_modifier() {
 fn test_async_as_identifier() {
     // `async` is not a reserved keyword (not in spec reserved list).
     // It can be used as a regular identifier.
-    let result = parse_source(
-        r"
-@test () -> int = {
-    let async = 42;
-    async
-}
-",
-    );
+    let result = parse_source(include_str!("fixtures/parser/async_as_identifier.ori"));
 
     assert!(
         !result.has_errors(),
@@ -524,14 +497,10 @@ fn test_async_as_identifier() {
 
 #[test]
 fn test_uses_async_capability_parses() {
-    // The correct way to declare async behavior: uses Async capability
-    let result = parse_source(
-        r"
-trait Async {}
-
-@async_op () -> int uses Async = 42;
-",
-    );
+    // Async behavior is declared through the `Async` capability.
+    let result = parse_source(include_str!(
+        "fixtures/parser/uses_async_capability_parses.ori"
+    ));
 
     assert!(
         !result.has_errors(),
@@ -547,7 +516,9 @@ trait Async {}
 #[test]
 fn test_shift_right_operator() {
     // >> is detected as two adjacent > tokens in expression context
-    let result = parse_source("@test () -> int = 8 >> 2;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/shift_right_operator.ori"
+    )));
 
     assert!(
         !result.has_errors(),
@@ -574,7 +545,9 @@ fn test_shift_right_operator() {
 #[test]
 fn test_greater_equal_operator() {
     // >= is detected as adjacent > and = tokens in expression context
-    let result = parse_source("@test () -> bool = 5 >= 3;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/greater_equal_operator.ori"
+    )));
 
     assert!(
         !result.has_errors(),
@@ -600,8 +573,10 @@ fn test_greater_equal_operator() {
 
 #[test]
 fn test_shift_left_operator() {
-    // << should still work (single token from lexer)
-    let result = parse_source("@test () -> int = 2 << 3;");
+    // `<<` is a single token from the lexer.
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/shift_left_operator.ori"
+    )));
 
     assert!(
         !result.has_errors(),
@@ -627,8 +602,10 @@ fn test_shift_left_operator() {
 
 #[test]
 fn test_greater_than_operator() {
-    // Single > should still work
-    let result = parse_source("@test () -> bool = 5 > 3;");
+    // A single `>` is the greater-than operator.
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/greater_than_operator.ori"
+    )));
 
     assert!(
         !result.has_errors(),
@@ -655,7 +632,9 @@ fn test_greater_than_operator() {
 #[test]
 fn test_shift_right_with_space() {
     // > > with space should NOT be treated as >>
-    let result = parse_source("@test () -> int = 8 > > 2;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/shift_right_with_space.ori"
+    )));
 
     // This should have errors because `> > 2` is invalid syntax
     // (comparison followed by another >)
@@ -668,7 +647,9 @@ fn test_shift_right_with_space() {
 #[test]
 fn test_greater_equal_with_space() {
     // > = with space should NOT be treated as >=
-    let result = parse_source("@test () -> bool = 5 > = 3;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/greater_equal_with_space.ori"
+    )));
 
     // This should have errors because `> = 3` is invalid syntax
     assert!(
@@ -680,13 +661,9 @@ fn test_greater_equal_with_space() {
 #[test]
 fn test_nested_generic_and_shift() {
     // Test that nested generics work in a type annotation and >> works in expression
-    let result = parse_source(
-        r"
-@test () -> Result<Result<int, str>, str> = {
-    let x = 8 >> 2;
-    Ok(Ok(x))
-}",
-    );
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/nested_generic_and_shift.ori"
+    )));
 
     assert!(
         !result.has_errors(),
@@ -700,13 +677,9 @@ fn test_nested_generic_and_shift() {
 #[test]
 fn test_struct_literal_in_expression() {
     // Struct literals work normally in expressions
-    let result = parse_source(
-        r"
-type Point = { x: int, y: int }
-
-@test () -> int = Point { x: 1, y: 2 }.x;
-",
-    );
+    let result = parse_source(include_str!(
+        "fixtures/parser/struct_literal_in_expression.ori"
+    ));
 
     assert!(
         !result.has_errors(),
@@ -718,13 +691,9 @@ type Point = { x: int, y: int }
 #[test]
 fn test_struct_literal_in_if_then_body() {
     // Struct literals work in the then body of an if expression
-    let result = parse_source(
-        r"
-type Point = { x: int, y: int }
-
-@test () -> int = if true then Point { x: 1, y: 2 }.x else 0;
-",
-    );
+    let result = parse_source(include_str!(
+        "fixtures/parser/struct_literal_in_if_then_body.ori"
+    ));
 
     assert!(
         !result.has_errors(),
@@ -739,13 +708,9 @@ fn test_if_condition_disallows_struct_literal() {
     // This is a common pattern in many languages to prevent ambiguity
     // Note: In Ori with `then` keyword, this is mostly for consistency,
     // but it helps prevent confusing code like `if Point { ... }.valid then`
-    let result = parse_source(
-        r"
-type Point = { x: int, y: int }
-
-@test () -> int = if Point { x: 1, y: 2 }.x > 0 then 1 else 0;
-",
-    );
+    let result = parse_source(include_str!(
+        "fixtures/parser/if_condition_disallows_struct_literal.ori"
+    ));
 
     // This should fail because struct literal is not allowed in if condition
     assert!(
@@ -758,7 +723,10 @@ type Point = { x: int, y: int }
 fn test_context_methods() {
     // Exercise the context API to ensure it compiles and works
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@test () = 42;", &interner);
+    let tokens = ori_lexer::lex(
+        fixture_without_trailing_newline(include_str!("fixtures/parser/context_methods.ori")),
+        &interner,
+    );
     let mut parser = Parser::new(&tokens, &interner);
 
     // Test context() getter
@@ -789,6 +757,7 @@ fn test_context_methods() {
 // Metadata Tests
 
 mod metadata_tests {
+    use super::fixture_without_trailing_newline;
     use crate::parse_with_metadata;
     use ori_ir::{ModuleExtra, StringInterner};
 
@@ -801,11 +770,7 @@ mod metadata_tests {
 
     #[test]
     fn test_metadata_preserved_in_parse_output() {
-        let source = r"// #Description
-// This is a test
-
-@main () -> void = ();
-";
+        let source = include_str!("fixtures/parser/metadata_preserved_in_parse_output.ori");
         let output = parse_with_comments(source);
 
         // Comments should be preserved
@@ -820,11 +785,7 @@ mod metadata_tests {
 
     #[test]
     fn test_metadata_doc_comments_for_function() {
-        let source = r"// #Description
-// A simple function
-
-@main () -> int = 42;
-";
+        let source = include_str!("fixtures/parser/metadata_doc_comments_for_function.ori");
         let output = parse_with_comments(source);
 
         // Get the function start position
@@ -848,12 +809,7 @@ mod metadata_tests {
     #[test]
     fn test_metadata_blank_line_blocks_doc_comment() {
         // Use # prefix for doc comments
-        let source = r"// #First description
-// #Second description
-
-// #This one should attach
-@main () -> int = 42;
-";
+        let source = include_str!("fixtures/parser/metadata_blank_line_blocks_doc_comment.ori");
         let output = parse_with_comments(source);
 
         // Get the function start position
@@ -878,17 +834,16 @@ mod metadata_tests {
 
     #[test]
     fn test_metadata_no_comments() {
-        let output = parse_with_comments("@main () -> int = 42;");
+        let output = parse_with_comments(fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/parse_literal.ori"
+        )));
 
         assert!(output.metadata.comments.is_empty());
     }
 
     #[test]
     fn test_metadata_regular_vs_doc_comments() {
-        let source = r"// Regular comment
-// #Doc comment
-@main () -> int = 42;
-";
+        let source = include_str!("fixtures/parser/metadata_regular_vs_doc_comments.ori");
         let output = parse_with_comments(source);
 
         assert_eq!(output.metadata.comments.len(), 2);
@@ -901,12 +856,7 @@ mod metadata_tests {
 
     #[test]
     fn test_metadata_multiple_functions_with_comments() {
-        let source = r"// #Function 1
-@foo () -> int = 1;
-
-// #Function 2
-@bar () -> int = 2;
-";
+        let source = include_str!("fixtures/parser/metadata_multiple_functions_with_comments.ori");
         let output = parse_with_comments(source);
 
         assert_eq!(
@@ -929,7 +879,7 @@ mod metadata_tests {
 
     #[test]
     fn test_metadata_multiline() {
-        let source = "@main () -> int = {\n    let x = 1;\n    x + 1\n}\n";
+        let source = include_str!("fixtures/parser/metadata_multiline.ori");
         let output = parse_with_comments(source);
 
         assert_eq!(
@@ -945,7 +895,7 @@ mod metadata_tests {
 
     #[test]
     fn test_metadata_line_number() {
-        let source = "// Comment\n@main () -> int = 42\n";
+        let source = include_str!("fixtures/parser/metadata_line_number.ori");
         let output = parse_with_comments(source);
 
         assert_eq!(
@@ -963,7 +913,10 @@ mod metadata_tests {
     fn test_parse_with_empty_metadata() {
         // Test that parse() produces empty metadata by default
         let interner = StringInterner::new();
-        let tokens = ori_lexer::lex("@main () -> int = 42;", &interner);
+        let tokens = ori_lexer::lex(
+            fixture_without_trailing_newline(include_str!("fixtures/parser/parse_literal.ori")),
+            &interner,
+        );
         let output = crate::parse(&tokens, &interner);
 
         // Default parse produces empty metadata
@@ -976,9 +929,13 @@ mod metadata_tests {
     fn test_parse_with_explicit_metadata() {
         // Test that parse_with_metadata correctly transfers metadata
         let interner = StringInterner::new();
-        let lex_output = ori_lexer::lex_with_comments("// test\n@main () -> int = 42", &interner);
+        let lex_output = ori_lexer::lex_with_comments(
+            fixture_without_trailing_newline(include_str!(
+                "fixtures/parser/parse_with_explicit_metadata.ori"
+            )),
+            &interner,
+        );
 
-        // Extract metadata before giving to parser
         let expected_comment_count = lex_output.comments.len();
         let expected_newline_count = lex_output.newlines.len();
 
@@ -999,9 +956,7 @@ mod metadata_tests {
 
     #[test]
     fn test_no_warnings_when_doc_comments_attached() {
-        let source = r"// #Description
-@main () -> int = 42;
-";
+        let source = include_str!("fixtures/parser/no_warnings_when_doc_comments_attached.ori");
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
 
@@ -1013,10 +968,8 @@ mod metadata_tests {
 
     #[test]
     fn test_warning_for_detached_doc_comment_blank_line() {
-        let source = r"// #Detached doc
-
-@main () -> int = 42;
-";
+        let source =
+            include_str!("fixtures/parser/warning_for_detached_doc_comment_blank_line.ori");
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
 
@@ -1033,9 +986,7 @@ mod metadata_tests {
 
     #[test]
     fn test_warning_for_doc_comment_at_end_of_file() {
-        let source = r"@main () -> int = 42;
-// #Orphan at end
-";
+        let source = include_str!("fixtures/parser/warning_for_doc_comment_at_end_of_file.ori");
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
 
@@ -1056,10 +1007,7 @@ mod metadata_tests {
 
     #[test]
     fn test_no_warning_for_regular_comments() {
-        let source = r"// Regular comment (not a doc comment)
-
-@main () -> int = 42;
-";
+        let source = include_str!("fixtures/parser/no_warning_for_regular_comments.ori");
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
 
@@ -1072,10 +1020,7 @@ mod metadata_tests {
 
     #[test]
     fn test_warning_includes_helpful_hint() {
-        let source = r"// #Detached
-
-@main () -> int = 42;
-";
+        let source = include_str!("fixtures/parser/warning_includes_helpful_hint.ori");
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
 
@@ -1090,60 +1035,88 @@ mod metadata_tests {
 
     #[test]
     fn test_warning_to_diagnostic() {
-        let source = r"// #Detached
-
-@main () -> int = 42;
-";
+        let source = include_str!("fixtures/parser/warning_includes_helpful_hint.ori");
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
 
         assert!(!output.warnings.is_empty());
         let diagnostic = output.warnings[0].to_diagnostic();
 
-        // Verify diagnostic has correct severity
         assert!(diagnostic.code.is_warning());
     }
 }
 
-// Tests that dispatch_declaration() correctly handles ALL token kinds at the
-// module top level. Previously, unrecognized tokens were silently eaten by
-// a catch-all `self.advance()`, causing `return 42`, `break`, bare integers,
-// and other invalid top-level code to pass `ori check` as OK.
+// `dispatch_declaration()` rejects every token that cannot begin a module-level
+// declaration, including control-flow keywords and bare literals.
 
 /// All valid declaration forms must parse without errors.
 #[test]
 fn test_valid_declarations_at_module_level() {
     let valid_sources = &[
         // Functions
-        "@add (a: int, b: int) -> int = a + b;",
-        "@main () -> void = print(msg: \"hello\");",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_01.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_02.ori"
+        )),
         // Types
-        "type Point = { x: int, y: int }",
-        "type Color = Red | Green | Blue;",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_03.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_04.ori"
+        )),
         // Traits
-        "trait Printable {\n    @to_str (self) -> str\n}",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_05.ori"
+        )),
         // Impl blocks
-        "type Foo = { x: int }\nimpl Foo {\n    @get_x (self) -> int = self.x;\n}",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_06.ori"
+        )),
         // Constants
-        "let $x = 42;",
-        "let $name = \"hello\";",
-        // Constants without `let` (backwards compat)
-        "$y = 100;",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_07.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_08.ori"
+        )),
+        // Bare constants
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_09.ori"
+        )),
         // Imports
-        "use std.math { sqrt }",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_10.ori"
+        )),
         // Extend blocks
-        "type Bar = { v: int }\nextend Bar {\n    @val (self) -> int = self.v;\n}",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_11.ori"
+        )),
         // Visibility modifiers
-        "pub @add (a: int, b: int) -> int = a + b;",
-        "pub type Color = Red | Green | Blue;",
-        "pub let $x = 42;",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_12.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_13.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_14.ori"
+        )),
         // Multiple declarations
-        "type A = { x: int }\ntype B = { y: str }",
-        "@foo () -> int = 1;\n@bar () -> int = 2;",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_15.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_16.ori"
+        )),
         // Empty file
-        "",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/valid_declarations_at_module_level_17.ori"
+        )),
         // Only whitespace/newlines
-        "\n\n\n",
+        include_str!("fixtures/parser/valid_declarations_at_module_level_18.ori"),
     ];
 
     for source in valid_sources {
@@ -1201,7 +1174,9 @@ fn test_invalid_tokens_at_module_level_produce_errors() {
 /// `return` at module level must produce a specific `UnsupportedKeyword` error.
 #[test]
 fn test_return_at_module_level_produces_specific_error() {
-    let result = parse_source("return 42");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/return_at_module_level_produces_specific_error.ori"
+    )));
     assert!(result.has_errors());
     let err = &result.errors[0];
     assert_eq!(err.code, ori_diagnostic::ErrorCode::E1015);
@@ -1215,7 +1190,9 @@ fn test_return_at_module_level_produces_specific_error() {
 /// `return` inside a function body also produces a specific error (via `parse_control_flow_primary`).
 #[test]
 fn test_return_in_function_body_produces_error() {
-    let result = parse_source("@foo () -> int = return 42;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/return_in_function_body_produces_error.ori"
+    )));
     assert!(result.has_errors());
     let return_err = result
         .errors
@@ -1231,7 +1208,9 @@ fn test_return_in_function_body_produces_error() {
 /// `let x = 42` (without `$`) at module level produces a specific error about immutability.
 #[test]
 fn test_mutable_let_at_module_level_rejected() {
-    let result = parse_source("let x = 42");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/mutable_let_at_module_level_rejected.ori"
+    )));
     assert!(result.has_errors());
     let err = &result.errors[0];
     assert!(
@@ -1244,7 +1223,9 @@ fn test_mutable_let_at_module_level_rejected() {
 /// `let $x = 42` at module level parses as a constant.
 #[test]
 fn test_const_let_at_module_level_accepted() {
-    let result = parse_source("let $timeout = 30;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/const_let_at_module_level_accepted.ori"
+    )));
     assert!(!result.has_errors());
     assert_eq!(result.module.consts.len(), 1);
 }
@@ -1252,7 +1233,9 @@ fn test_const_let_at_module_level_accepted() {
 /// `pub let $x = 42` at module level parses as a public constant.
 #[test]
 fn test_pub_const_let_at_module_level_accepted() {
-    let result = parse_source("pub let $api_base = \"https://example.com\";");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/pub_const_let_at_module_level_accepted.ori"
+    )));
     assert!(!result.has_errors());
     assert_eq!(result.module.consts.len(), 1);
 }
@@ -1280,7 +1263,9 @@ fn test_foreign_keywords_at_module_level() {
 /// Multiple invalid tokens in a row each produce their own error.
 #[test]
 fn test_multiple_invalid_tokens_each_produce_error() {
-    let result = parse_source("42\ntrue\n\"hello\"");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/multiple_invalid_tokens_each_produce_error.ori"
+    )));
     assert!(result.has_errors());
     assert!(
         result.errors.len() >= 3,
@@ -1290,12 +1275,14 @@ fn test_multiple_invalid_tokens_each_produce_error() {
     );
 }
 
-/// Valid declarations mixed with invalid tokens: valid parts still parse.
+/// Valid declarations mixed with invalid tokens preserve the valid items.
 #[test]
 fn test_mixed_valid_and_invalid_at_module_level() {
-    let result = parse_source("@foo () -> int = 42;\n42\n@bar () -> int = 1;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/mixed_valid_and_invalid_at_module_level.ori"
+    )));
     assert!(result.has_errors());
-    // The valid functions should still be parsed
+    // The recovered module contains both valid functions.
     assert_eq!(
         result.module.functions.len(),
         2,
@@ -1303,10 +1290,12 @@ fn test_mixed_valid_and_invalid_at_module_level() {
     );
 }
 
-/// Semicolons after top-level items are accepted (optional during dual-mode).
+/// Semicolons after top-level items are accepted.
 #[test]
 fn test_semicolons_after_top_level_items_accepted() {
-    let result = parse_source("@foo () -> int = 42;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/semicolons_after_top_level_items_accepted.ori"
+    )));
     assert!(
         !result.has_errors(),
         "Semicolons after function definitions should be accepted: {result:?}"
@@ -1325,9 +1314,10 @@ fn parse_source_with_interner(source: &str) -> (ParseOutput, StringInterner) {
 
 #[test]
 fn repeated_test_display_names_receive_stable_distinct_identities() {
-    let (result, interner) = parse_source_with_interner(
-        "@test tests @alpha () -> void = ();\n@test tests @beta () -> void = ();",
-    );
+    let (result, interner) =
+        parse_source_with_interner(fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/repeated_test_display_names_receive_stable_distinct_identities.ori"
+        )));
     assert!(
         result.errors.is_empty(),
         "parse errors: {:?}",
@@ -1346,8 +1336,9 @@ fn repeated_test_display_names_receive_stable_distinct_identities() {
 
 #[test]
 fn test_labeled_break() {
-    let (result, interner) =
-        parse_source_with_interner("@f () -> int = loop:outer { break:outer 42 }");
+    let (result, interner) = parse_source_with_interner(fixture_without_trailing_newline(
+        include_str!("fixtures/parser/labeled_break.ori"),
+    ));
     assert!(
         !result.has_errors(),
         "labeled break should parse: {result:?}"
@@ -1388,8 +1379,9 @@ fn test_labeled_break() {
 
 #[test]
 fn test_labeled_continue() {
-    let (result, interner) =
-        parse_source_with_interner("@f () -> void = for:outer x in [1] do continue:outer;");
+    let (result, interner) = parse_source_with_interner(fixture_without_trailing_newline(
+        include_str!("fixtures/parser/labeled_continue.ori"),
+    ));
     assert!(
         !result.has_errors(),
         "labeled continue should parse: {result:?}"
@@ -1420,7 +1412,9 @@ fn test_labeled_continue() {
 
 #[test]
 fn test_unlabeled_break_in_loop_parses_with_value() {
-    let result = parse_source("@f () -> int = loop { break 42 }");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/unlabeled_break_in_loop_parses_with_value.ori"
+    )));
     assert!(!result.has_errors(), "unlabeled break should still parse");
 
     let func = &result.module.functions[0];
@@ -1450,7 +1444,9 @@ fn test_unlabeled_break_in_loop_parses_with_value() {
 
 #[test]
 fn test_unlabeled_continue_in_for_parses_without_value() {
-    let result = parse_source("@f () -> void = for x in [1] do continue;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/unlabeled_continue_in_for_parses_without_value.ori"
+    )));
     assert!(
         !result.has_errors(),
         "unlabeled continue should still parse"
@@ -1459,8 +1455,9 @@ fn test_unlabeled_continue_in_for_parses_without_value() {
 
 #[test]
 fn test_labeled_for_loop() {
-    let (result, interner) =
-        parse_source_with_interner("@f () -> void = for:items x in [1, 2, 3] do break;");
+    let (result, interner) = parse_source_with_interner(fixture_without_trailing_newline(
+        include_str!("fixtures/parser/labeled_for_loop.ori"),
+    ));
     assert!(!result.has_errors(), "labeled for should parse: {result:?}");
 
     let func = &result.module.functions[0];
@@ -1478,7 +1475,9 @@ fn test_labeled_for_loop() {
 
 #[test]
 fn test_labeled_loop() {
-    let (result, interner) = parse_source_with_interner("@f () -> int = loop:main { break 0 }");
+    let (result, interner) = parse_source_with_interner(fixture_without_trailing_newline(
+        include_str!("fixtures/parser/labeled_loop.ori"),
+    ));
     assert!(
         !result.has_errors(),
         "labeled loop should parse: {result:?}"
@@ -1499,7 +1498,9 @@ fn test_labeled_loop() {
 
 #[test]
 fn test_while_loop_parses_with_cond_and_body() {
-    let result = parse_source("@f () -> void = while true do break;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/while_loop_parses_with_cond_and_body.ori"
+    )));
     assert!(!result.has_errors(), "while should parse: {result:?}");
 
     let func = &result.module.functions[0];
@@ -1527,8 +1528,9 @@ fn test_while_loop_parses_with_cond_and_body() {
 
 #[test]
 fn test_labeled_while_loop_carries_label() {
-    let (result, interner) =
-        parse_source_with_interner("@f () -> void = while:outer true do break:outer;");
+    let (result, interner) = parse_source_with_interner(fixture_without_trailing_newline(
+        include_str!("fixtures/parser/labeled_while_loop_carries_label.ori"),
+    ));
     assert!(
         !result.has_errors(),
         "labeled while should parse: {result:?}"
@@ -1549,7 +1551,9 @@ fn test_labeled_while_loop_carries_label() {
 
 #[test]
 fn test_while_loop_with_do_block_body_parses() {
-    let result = parse_source("@f () -> void = while true do { break; }");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/while_loop_with_do_block_body_parses.ori"
+    )));
     assert!(
         !result.has_errors(),
         "while with do-block body should parse: {result:?}"
@@ -1575,7 +1579,9 @@ fn test_while_loop_with_do_block_body_parses() {
 
 #[test]
 fn test_while_loop_with_compound_and_condition_parses() {
-    let result = parse_source("@f (a: bool, b: bool) -> void = while a && b do break;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/while_loop_with_compound_and_condition_parses.ori"
+    )));
     assert!(
         !result.has_errors(),
         "while with `&&` compound condition should parse: {result:?}"
@@ -1602,7 +1608,9 @@ fn test_while_loop_with_compound_and_condition_parses() {
 
 #[test]
 fn test_nested_while_loops_parse() {
-    let result = parse_source("@f (a: bool, b: bool) -> void = while a do while b do break;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/nested_while_loops_parse.ori"
+    )));
     assert!(
         !result.has_errors(),
         "nested while should parse: {result:?}"
@@ -1623,9 +1631,10 @@ fn test_nested_while_loops_parse() {
 
 #[test]
 fn test_while_loop_rejects_yield_form() {
-    // No `while...yield` form exists per the while-loop proposal; the parser
-    // requires `do` after the condition, so `while c yield e` must NOT parse.
-    let result = parse_source("@f () -> [int] = while true yield 1");
+    // The `while` grammar accepts only `do`, so `while c yield e` must not parse.
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/while_loop_rejects_yield_form.ori"
+    )));
     assert!(
         result.has_errors(),
         "`while...yield` must NOT parse (no yield form per proposal): {result:?}"
@@ -1634,10 +1643,9 @@ fn test_while_loop_rejects_yield_form() {
 
 #[test]
 fn test_labeled_continue_with_value() {
-    let result = parse_source(
-        "@f () -> [int] = for:lp x in [1, 2, 3] yield {\
-            if x == 2 then continue:lp 0; x }",
-    );
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/labeled_continue_with_value.ori"
+    )));
     assert!(
         !result.has_errors(),
         "labeled continue with value should parse: {result:?}"
@@ -1646,11 +1654,9 @@ fn test_labeled_continue_with_value() {
 
 #[test]
 fn test_nested_labels() {
-    let result = parse_source(
-        "@f () -> void = for:outer x in [1] do for:inner y in [2] do {\
-            if y == 2 then continue:outer;\
-            if x == 1 then break:inner }",
-    );
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/nested_labels.ori"
+    )));
     assert!(
         !result.has_errors(),
         "nested labels should parse: {result:?}"
@@ -1661,7 +1667,9 @@ fn test_nested_labels() {
 fn test_label_with_space_is_not_label() {
     // `break :outer` with a space should NOT parse as a label.
     // The `:outer` is treated as a value expression which is invalid.
-    let result = parse_source("@f () -> void = for x in [1] do break :outer;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/label_with_space_is_not_label.ori"
+    )));
     assert!(
         result.has_errors(),
         "space before colon should prevent label parsing"
@@ -1671,7 +1679,10 @@ fn test_label_with_space_is_not_label() {
 #[test]
 fn test_tuple_field_access() {
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@f (t: (int, int)) -> int = t.0;", &interner);
+    let tokens = ori_lexer::lex(
+        fixture_without_trailing_newline(include_str!("fixtures/parser/tuple_field_access.ori")),
+        &interner,
+    );
     let result = parse(&tokens, &interner);
 
     assert!(
@@ -1693,7 +1704,12 @@ fn test_tuple_field_access() {
 fn test_chained_tuple_field_access_with_parens() {
     // Spec: Clause 14.1.1 requires parentheses because `0.1` is a float literal.
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = (t.0).1;", &interner);
+    let tokens = ori_lexer::lex(
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/chained_tuple_field_access_with_parens.ori"
+        )),
+        &interner,
+    );
     let result = parse(&tokens, &interner);
 
     assert!(
@@ -1726,24 +1742,39 @@ fn test_tuple_member_float_range_boundaries_parse() {
     let cases = [
         (
             "parenthesized tuple selection",
-            "@f (t: ((int, int), int)) -> int = (t.0).1;",
+            fixture_without_trailing_newline(include_str!(
+                "fixtures/parser/chained_tuple_field_access_with_parens.ori"
+            )),
         ),
         (
             "tuple selection then named member",
-            "@f (t: ((int, int), int)) -> int = t.0.name;",
+            fixture_without_trailing_newline(include_str!(
+                "fixtures/parser/tuple_member_float_range_boundaries_parse_01.ori"
+            )),
         ),
         (
             "named member then tuple selection",
-            "@f (t: ((int, int), int)) -> int = t.name.0;",
+            fixture_without_trailing_newline(include_str!(
+                "fixtures/parser/tuple_member_float_range_boundaries_parse_02.ori"
+            )),
         ),
-        ("float literal", "@f () -> float = 0.1;"),
+        (
+            "float literal",
+            fixture_without_trailing_newline(include_str!(
+                "fixtures/parser/tuple_member_float_range_boundaries_parse_03.ori"
+            )),
+        ),
         (
             "tuple selection then exclusive range",
-            "@f (t: (int, int)) -> Range<int> = t.0..1;",
+            fixture_without_trailing_newline(include_str!(
+                "fixtures/parser/tuple_member_float_range_boundaries_parse_04.ori"
+            )),
         ),
         (
             "tuple selection then inclusive range",
-            "@f (t: (int, int)) -> Range<int> = t.0..=1;",
+            fixture_without_trailing_newline(include_str!(
+                "fixtures/parser/tuple_member_float_range_boundaries_parse_05.ori"
+            )),
         ),
     ];
     let mut visited = 0;
@@ -1763,7 +1794,12 @@ fn test_tuple_member_float_range_boundaries_parse() {
 fn test_bare_chained_tuple_field_reports_parenthesis_fix() {
     // Spec: Clause 14.1.1 requires `(t.0).1`; bare `t.0.1` contains float `0.1`.
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = t.0.1;", &interner);
+    let tokens = ori_lexer::lex(
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/parser/bare_chained_tuple_field_reports_parenthesis_fix.ori"
+        )),
+        &interner,
+    );
     let result = parse(&tokens, &interner);
     let error = result
         .errors
@@ -1785,21 +1821,16 @@ fn test_bare_chained_tuple_field_reports_parenthesis_fix() {
     );
 }
 
-// $ immutability in let parsing paths (LEAK-1)
-//
-// Three paths parse let bindings:
-// 1. parse_block_let_binding (blocks)     — correct: lets parse_binding_pattern handle $
-// 2. parse_let_expr_body (expression-form) — buggy: consumes $ before parse_binding_pattern
-// 3. parse_try_let_binding (try blocks)    — buggy: consumes $ before parse_binding_pattern
-//
-// The evaluator reads mutability from BindingPattern::Name.mutable, not from
-// ExprKind::Let.mutable or StmtKind::Let.mutable. When $ is consumed before
-// parse_binding_pattern sees it, the pattern records Mutable (wrong).
+// Dollar-prefixed bindings are immutable in every let parsing path.
+// `BindingPattern::Name::mutable` is the evaluator's authority, so each path
+// preserves the dollar token through binding-pattern parsing.
 
 #[test]
 fn test_let_expr_dollar_immutable_on_pattern() {
     // Expression-form let: `let $x = 42` should produce Immutable on the pattern.
-    let result = parse_source("@test () -> void = let $x = 42;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/let_expr_dollar_immutable_on_pattern.ori"
+    )));
     assert!(!result.has_errors(), "Expected no parse errors");
 
     let func = &result.module.functions[0];
@@ -1814,14 +1845,14 @@ fn test_let_expr_dollar_immutable_on_pattern() {
         panic!("Expected ExprKind::Let, got {:?}", body.kind);
     };
 
-    // Statement-level mutability is correct (set before parse_binding_pattern)
+    // Statement and pattern mutability must agree.
     assert_eq!(
         *mutable,
         Mutability::Immutable,
         "ExprKind::Let.mutable should be Immutable for `let $x`"
     );
 
-    // Pattern-level mutability MUST also be Immutable — this is what the evaluator reads
+    // Pattern mutability is the evaluator's ownership authority.
     let BindingPattern::Name {
         mutable: pat_mut, ..
     } = result.arena.get_binding_pattern(*pat_id)
@@ -1837,8 +1868,10 @@ fn test_let_expr_dollar_immutable_on_pattern() {
 
 #[test]
 fn test_block_let_dollar_immutable_on_pattern() {
-    // Regression guard: block-form let correctly passes $ to parse_binding_pattern.
-    let result = parse_source("@test () -> int = { let $x = 42; x }");
+    // Block-form let preserves the dollar token through pattern parsing.
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/block_let_dollar_immutable_on_pattern.ori"
+    )));
     assert!(!result.has_errors(), "Expected no parse errors");
 
     let func = &result.module.functions[0];
@@ -1878,7 +1911,9 @@ fn test_block_let_dollar_immutable_on_pattern() {
 #[test]
 fn test_try_let_dollar_immutable_on_pattern() {
     // Try-block let: `try { let $x = Ok(5); Ok(x) }` should produce Immutable on the pattern.
-    let result = parse_source("@test () -> void = try { let $x = Ok(5); Ok(x) }");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/try_let_dollar_immutable_on_pattern.ori"
+    )));
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -1930,7 +1965,9 @@ fn test_try_let_dollar_immutable_on_pattern() {
 #[test]
 fn test_let_expr_default_mutable_on_pattern() {
     // Verify that `let x = 42` (no $) produces Mutable on both levels.
-    let result = parse_source("@test () -> void = let x = 42;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/let_expr_default_mutable_on_pattern.ori"
+    )));
     assert!(!result.has_errors());
 
     let func = &result.module.functions[0];
@@ -1967,12 +2004,14 @@ fn test_let_expr_default_mutable_on_pattern() {
 //   lambda_tail = type "=" expression | expression
 // Typed-param lambdas infer the return type unless a `type =` prefix is present
 // (proposal: typed-lambda-inferred-return). Untyped params in a typed lambda
-// are still rejected with E1018.
+// are rejected with E1018.
 
 #[test]
 fn test_typed_lambda_inferred_return_accepted() {
-    // (x: int) -> x : typed param, inferred return, no `=` — now valid.
-    let result = parse_source("let $f = (x: int) -> x;");
+    // `(x: int) -> x` has a typed parameter and an inferred return type.
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/typed_lambda_inferred_return_accepted.ori"
+    )));
     assert!(
         !result.has_errors(),
         "typed-param inferred-return lambda must parse cleanly; errors: {:?}",
@@ -1983,7 +2022,9 @@ fn test_typed_lambda_inferred_return_accepted() {
 #[test]
 fn test_typed_lambda_inferred_return_with_operator_body_accepted() {
     // (x: int) -> x * 2 : body is an expression, not a bare type.
-    let result = parse_source("let $f = (x: int) -> x * 2;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/typed_lambda_inferred_return_with_operator_body_accepted.ori"
+    )));
     assert!(
         !result.has_errors(),
         "inferred-return lambda with operator body must parse; errors: {:?}",
@@ -1994,7 +2035,9 @@ fn test_typed_lambda_inferred_return_with_operator_body_accepted() {
 #[test]
 fn test_typed_lambda_multi_param_inferred_return_accepted() {
     // (a: int, b: int) -> a - b : multiple typed params, inferred return.
-    let result = parse_source("let $f = (a: int, b: int) -> a - b;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/typed_lambda_multi_param_inferred_return_accepted.ori"
+    )));
     assert!(
         !result.has_errors(),
         "multi-typed-param inferred-return lambda must parse; errors: {:?}",
@@ -2006,11 +2049,11 @@ fn test_typed_lambda_multi_param_inferred_return_accepted() {
 fn test_typed_lambda_bare_return_type_parses_as_inferred_body() {
     // (x: int) -> int : no `=`, so the speculative type parse restores and the
     // tail `int` parses as the inferred-return body (the type name used as a
-    // value expression). The PARSER accepts it cleanly; the type-name-as-value
-    // is rejected later at typeck (E2005) when the lambda is used — see the
-    // `#compile_fail("E2005")` spec companion in tests/spec/expressions/lambdas.ori.
-    // Proposal: typed-lambda-inferred-return Errata 2026-05-31.
-    let result = parse_source("let $f = (x: int) -> int;");
+    // value expression). Parsing accepts it; type checking rejects the type
+    // name as a value with E2005 when the lambda is used.
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/typed_lambda_bare_return_type_parses_as_inferred_body.ori"
+    )));
     assert!(
         !result.has_errors(),
         "bare `(x: int) -> int` must parse cleanly (body is the type name `int`); errors: {:?}",
@@ -2023,7 +2066,9 @@ fn test_typed_lambda_juxtaposed_tokens_after_return_type_rejected() {
     // (x: int) -> int x : `int` parses as the inferred-return body, then the
     // trailing `x` is unexpected — rejected as a statement-boundary error
     // (E1002 "expected `;` or `}` after let binding").
-    let result = parse_source("let $f = (x: int) -> int x;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/typed_lambda_juxtaposed_tokens_after_return_type_rejected.ori"
+    )));
     assert!(
         result.has_errors(),
         "juxtaposed `int x` after `->` must still be rejected"
@@ -2041,7 +2086,9 @@ fn test_typed_lambda_juxtaposed_tokens_after_return_type_rejected() {
 
 #[test]
 fn test_typed_lambda_mixed_typed_untyped_no_ret_ty_rejected() {
-    let result = parse_source("let $f = (a: int, b, c: str) -> a;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/typed_lambda_mixed_typed_untyped_no_ret_ty_rejected.ori"
+    )));
     assert!(result.has_errors(), "expected parse errors");
     let has_e1018 = result
         .errors
@@ -2056,7 +2103,9 @@ fn test_typed_lambda_mixed_typed_untyped_no_ret_ty_rejected() {
 
 #[test]
 fn test_typed_lambda_mixed_typed_untyped_with_ret_ty_rejected() {
-    let result = parse_source("let $f = (a: int, b) -> int = a;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/typed_lambda_mixed_typed_untyped_with_ret_ty_rejected.ori"
+    )));
     assert!(result.has_errors(), "expected parse errors");
     let has_e1018 = result
         .errors
@@ -2071,7 +2120,9 @@ fn test_typed_lambda_mixed_typed_untyped_with_ret_ty_rejected() {
 
 #[test]
 fn test_typed_lambda_valid_form_accepted() {
-    let result = parse_source("let $f = (x: int) -> int = x;");
+    let result = parse_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/parser/typed_lambda_valid_form_accepted.ori"
+    )));
     assert!(
         !result.has_errors(),
         "valid typed_lambda must parse cleanly; errors: {:?}",

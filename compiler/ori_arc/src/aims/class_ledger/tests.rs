@@ -138,7 +138,7 @@ fn analyze_with_registry(
     state_map: &AimsStateMap,
     registry: &ori_types::TypeRegistry,
 ) -> (ClassLedgerAnalysis, BirthSitePartition) {
-    // These unit fixtures enter below the whole-program AIMS pipeline. Route
+    // These unit fixtures bypass whole-program AIMS setup. Route
     // their synthetic bodies through the same strict primitive-fact producer
     // before any ledger consumer reads the frozen table.
     let mut func = func.clone();
@@ -228,7 +228,7 @@ fn dec(slot: PlanSlot, var: u32) -> PlannedOp {
 
 /// Fresh `str` construct, read once, dead — the fully-clean class-ledger
 /// skeleton: the analysis produces a non-empty plan (the emitter is
-/// UNCONDITIONAL; the legacy opt-out toggle no longer exists).
+/// unconditional and has no runtime opt-out).
 #[test]
 fn unconditional_emitter_produces_plan() {
     let func = one_block_func(1, vec![construct(0, vec![])], ret(0));
@@ -1252,7 +1252,7 @@ fn replacement_admits_user_drop_value_with_whole_var_release() {
 // Op-placement guard (`placement::ops_placeable`)
 
 /// A planned op whose variable's definition dominates the slot is
-/// placeable; a definition on a sibling branch is not.
+/// placeable; a definition on a disjoint branch is not.
 #[test]
 fn op_var_placement_requires_dominating_definition() {
     let func = func_with_blocks(
@@ -1583,11 +1583,9 @@ fn replacement_declines_reuse_shapes() {
     assert_eq!(gated, func);
 }
 
-/// A TRMC `ContextHole`-shaped variable no longer declines replacement: the
-/// fill-at-recursive-call is modeled (the fill's `Set` classifies as
-/// mutate(context) + consume(filled value) — the K3 derivation; the fill IS
-/// the filled value's release per `holeFill_is_the_release`). The fixture
-/// replaces on its own merits — the `TrmcContext` reason never fires.
+/// A TRMC `ContextHole`-shaped variable qualifies for replacement because the
+/// recursive-call fill is modeled as `mutate(context) + consume(filled value)`
+/// and supplies the filled value's release per `holeFill_is_the_release`.
 #[test]
 fn trmc_context_hole_admitted_post_k3() {
     let func = one_block_func(1, vec![construct(0, vec![])], ret(0));
@@ -2096,25 +2094,9 @@ fn loop_invariant_class_read_inside_the_cycle_survives_iterations() {
     assert!(analysis.readiness.all_classes_clean);
 }
 
-// struct_list_field flagship — the NEW per-field-class mechanism carries the
-// 2+-owned-field aggregate-move cluster (the evidence-bar positive pin: the
-// per-field classes verify Clean with extraction funding and the hazard set
-// empties, so the replacement gate accepts; the legacy whole-var admission
-// never runs on the replaced path).
-
-/// The flagship shape reduced: two fresh heap fields moved into an aggregate
-/// container, each read back through an alias-hop Project. Field congruence
-/// joins the Project dsts with their field-source classes; the extraction
-/// funding cure plans a seed inc per member read; every class verifies
-/// Clean and no field-view hazard survives.
+/// Verifies clean per-field classes for heap fields read through an aggregate alias.
 #[test]
 fn struct_list_field_flagship_per_field_classes_replace() {
-    // %0 = Construct List(...)      (items buffer)
-    // %1 = Construct Str-ish        (label allocation, modeled as Construct)
-    // %2 = Construct Struct(%0, %1) (container)
-    // %3 = Let %2 (alias)
-    // %4 = Project %3.0 (items view)  %5 = IsShared %4 (read)
-    // %6 = Project %3.1 (label view)  %7 = IsShared %6 (read)
     let mut func = one_block_func(
         8,
         vec![
@@ -2175,7 +2157,7 @@ fn struct_list_field_flagship_per_field_classes_replace() {
 
 /// A member EXTRACTED from a released container and moved OUT via a SECOND
 /// container's `Construct` arg (a `ConstructArg` transferring terminal use,
-/// distinct from the sibling test's `Return` sink): the base plan ALREADY
+/// distinct from a `Return` sink): the base plan ALREADY
 /// funds the second hand-off with a duplication `Inc` (one birth + one
 /// planned inc = two references, one per released container's drop), so the
 /// funded-move-in refinement recognizes the class as covered — NO hazard,
@@ -2500,7 +2482,7 @@ fn multi_owed_ungrounded_books_decline_fail_closed() {
 /// Over-fire negative for the full-move arm (the loop-header-merge-read
 /// shape): a `Jump` edge feeding TWO params from ONE class (the aggregate
 /// and its alias) means the lineages may alias one runtime allocation —
-/// `moved_class_shares_edge_source` must DECLINE the arm; rebooking there
+/// `moved_class_shares_edge_source` must decline the arm; rebooking that arm
 /// releases a field the surviving lineage still reads (use-after-free).
 #[test]
 fn shared_edge_source_declines_full_move_arm() {
@@ -3205,7 +3187,7 @@ fn arm_local_funded_views_in_two_arms_release_within_each_arm() {
 /// An arm-local funded view whose last read is the block TERMINATOR (a
 /// borrowed `Invoke` arg) pairs its release at every successor front — the
 /// normal edge too, not just the dead unwind edge — so the funded reference
-/// never leaks across the downstream merge.
+/// never leaks into the merge result.
 #[test]
 fn arm_local_funded_view_terminator_read_releases_at_successor_fronts() {
     let mut func = func_with_blocks(
@@ -3345,15 +3327,10 @@ fn extract_then_return_from_call_result_container_funds_at_extraction() {
 }
 
 /// Same shape as `extract_then_move_out_decomposes_container_release`, but
-/// run through `attempt_replacement` with a container type REGISTERED in the
-/// `TypeRegistry` with a real owned-field surface (field 0 named, per
-/// `registered_struct_with_two_owned_str_fields`). The prior test proves the
-/// cure COMPUTES a `DecPartial(skip=[0])`; this test proves that computed
-/// skip set actually clears `replace::dec_partial_skips_valid` and drives a
-/// real end-to-end replacement — the flagship claim
-/// (`struct_list_field_flagship_per_field_classes_replace`'s "the replacement
-/// gate accepts on these terms") was previously asserted only via the
-/// lower-level `analyze()` helper, which never calls the gate at all.
+/// Run `attempt_replacement` with a container whose registered owned-field
+/// surface includes field zero. The computed `DecPartial(skip=[0])` clears
+/// `replace::dec_partial_skips_valid` and admits end-to-end replacement through
+/// the real gate, not only the lower-level `analyze()` helper.
 #[test]
 fn field_decomposition_cure_replaces_end_to_end_with_registered_burden() {
     use crate::lower::test_utils::registered_struct_with_two_owned_str_fields;
@@ -3423,8 +3400,8 @@ fn field_decomposition_cure_replaces_end_to_end_with_registered_burden() {
     );
 }
 
-/// Negative sibling of `field_decomposition_cure_replaces_end_to_end_with_
-/// registered_burden`: same consume-marked-then-Return shape, but the
+/// Negative case for `field_decomposition_cure_replaces_end_to_end_with_
+/// registered_burden`: the same consume-marked-then-Return shape uses a
 /// container's registered burden names ONLY field 1 as owned
 /// (`registered_struct_scalar_owned_mixed`) while the extracted member is
 /// field 0. The cure still computes `DecPartial(skip=[0])` from the

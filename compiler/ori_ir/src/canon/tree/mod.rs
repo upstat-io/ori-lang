@@ -6,9 +6,8 @@
 //!
 //! # Architecture
 //!
-//! The TYPE DEFINITIONS live here in `ori_ir` (shared crate). The compilation
-//! ALGORITHM lives in `ori_canon::patterns::decision_tree::compile`. The ARC IR
-//! emission logic stays in `ori_arc::decision_tree::emit`.
+//! These shared type definitions represent trees produced during canonical
+//! lowering and consumed by evaluation and ARC IR emission.
 //!
 //! # References
 //!
@@ -145,9 +144,8 @@ pub enum TestValue {
 
 /// A compiled decision tree for pattern matching.
 ///
-/// Constructed during canonicalization (or currently during AST → ARC IR
-/// lowering in `ori_arc`). The tree structure follows Maranget (2008),
-/// as implemented by Roc and Elm.
+/// Constructed from canonical patterns. The tree structure follows Maranget
+/// (2008), as implemented by Roc and Elm.
 ///
 /// # Consumers
 ///
@@ -373,7 +371,7 @@ pub struct PatternRow {
     /// Accumulated variable bindings from specialization steps.
     ///
     /// When a `Binding(name)` or `At { name, .. }` pattern is consumed during
-    /// column specialization, the binding `(name, path)` is recorded here.
+    /// column specialization, the tree records the binding `(name, path)`.
     /// These are merged with pattern-derived bindings at the Leaf/Guard node.
     pub bindings: Vec<(Name, ScrutineePath)>,
     /// Blank-pattern paths exposed while constructor columns are decomposed.

@@ -32,7 +32,7 @@ use std.testing { assert_eq }
     assert_eq(actual: m["type"], expected: Some(2))
 }
 
-// Cell 4: string-literal key control (regression pin — must stay green).
+// Cell 4: string-literal key control.
 @test_string_key_control tests _ () -> void = {
     let $m = {"timeout": 30};
     assert_eq(actual: m["timeout"], expected: Some(30))
@@ -78,11 +78,8 @@ use std.testing { assert_eq }
 }
 
 // Cell 10: computed key whose inner is an always-stacked construct (`match`).
-// Regression pin: the formatter width calc adds the `[ ]` bracket width to the
-// key node's width; an always-stacked inner expr widths to the `ALWAYS_STACKED`
-// (usize::MAX) sentinel, so the bracket add must be gated behind the sentinel
-// check or it overflows (debug panic / release sentinel-mask). Formatting this
-// cell through the idempotence corpus exercises that path.
+// Formatter width preserves the `ALWAYS_STACKED` sentinel instead of adding
+// bracket width to `usize::MAX`.
 @test_stacked_computed_key tests _ () -> void = {
     let $k = 0;
     let $m = {[match k { 0 -> "zero", _ -> "other" }]: 1};

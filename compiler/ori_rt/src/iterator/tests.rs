@@ -1,8 +1,35 @@
 //! Tests for runtime iterator state machine.
 
+use std::mem::{align_of, size_of};
 use std::ptr;
 
 use super::*;
+use crate::test_helpers::AbiOutput;
+
+fn read_i64_at<const N: usize>(bytes: &AbiOutput<N>, offset: usize) -> i64 {
+    let Some(end) = offset.checked_add(size_of::<i64>()) else {
+        panic!("iterator output offset overflows at {offset}");
+    };
+    let Some(field) = bytes.get(offset..end) else {
+        panic!("iterator output lacks an i64 at offset {offset}");
+    };
+    let mut raw = [0; size_of::<i64>()];
+    raw.copy_from_slice(field);
+    i64::from_ne_bytes(raw)
+}
+
+fn read_pointer_at(bytes: &AbiOutput<24>, offset: usize) -> *mut u8 {
+    let Some(end) = offset.checked_add(size_of::<usize>()) else {
+        panic!("iterator output offset overflows at {offset}");
+    };
+    assert!(
+        end <= bytes.len() && offset.is_multiple_of(align_of::<*mut u8>()),
+        "iterator output lacks an aligned pointer at offset {offset}"
+    );
+    // SAFETY: `AbiOutput` provides pointer alignment, the bounds check covers
+    // one pointer-sized field, and the runtime initialized that field.
+    unsafe { bytes.as_ptr().add(offset).cast::<*mut u8>().read() }
+}
 
 // List iterator
 
@@ -64,6 +91,22 @@ fn repeat_bounded_by_take() {
     assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
     assert_eq!(out, 99);
     // take(3) exhausts after 3 elements even though the source is infinite.
+    assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 0);
+
+    ori_iter_drop(iter);
+}
+
+#[test]
+fn cycle_replays_buffer_after_source_exhaustion() {
+    let source = ori_iter_from_range(1, 3, 1, false);
+    let iter = ori_iter_cycle(source, 8, None, None);
+    let iter = ori_iter_take(iter, 5);
+
+    let mut out: i64 = 0;
+    for expected in [1, 2, 1, 2, 1] {
+        assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
+        assert_eq!(out, expected);
+    }
     assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 0);
 
     ori_iter_drop(iter);
@@ -154,6 +197,7 @@ fn skip_from_list() {
 
 extern "C-unwind" fn double_i64(env: *mut u8, in_ptr: *const u8, out_ptr: *mut u8) {
     let _ = env;
+    // SAFETY: The iterator ABI supplies aligned `i64` input and output storage.
     unsafe {
         let val = in_ptr.cast::<i64>().read();
         out_ptr.cast::<i64>().write(val * 2);
@@ -258,6 +302,7 @@ fn skip_releases_discarded_mapped_outputs_and_forwards_the_survivor() {
     assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 2);
     // The surviving value and its ownership obligation are forwarded. Mimic a
     // terminal consumer releasing that value through the dynamic state.
+    // SAFETY: `skipped` is the live iterator state returned by `ori_iter_skip`.
     unsafe {
         (*skipped.cast::<IterState>()).release_last_yield((&raw mut out).cast());
     }
@@ -270,6 +315,7 @@ fn skip_releases_discarded_mapped_outputs_and_forwards_the_survivor() {
 
 extern "C-unwind" fn is_even(env: *mut u8, elem_ptr: *const u8) -> bool {
     let _ = env;
+    // SAFETY: The iterator ABI supplies an aligned `i64` element pointer.
     unsafe {
         let val = elem_ptr.cast::<i64>().read();
         val % 2 == 0
@@ -340,21 +386,22 @@ fn collect_range() {
     let iter = ori_iter_from_range(0, 5, 1, false);
 
     // OriList layout: { i64 len, i64 cap, ptr data }
-    let mut out = [0u8; 24];
+    let mut out = AbiOutput::<24>::default();
     ori_iter_collect(iter, 8, None, None, out.as_mut_ptr());
 
-    let len = unsafe { out.as_ptr().cast::<i64>().read() };
-    let data_ptr = unsafe { out.as_ptr().add(16).cast::<*mut u8>().read() };
+    let len = read_i64_at(&out, 0);
+    let data_ptr = read_pointer_at(&out, 16);
 
     assert_eq!(len, 5);
     for i in 0..5 {
+        // SAFETY: `collect` returned a live allocation containing `len` aligned `i64` values.
         let val = unsafe { data_ptr.cast::<i64>().add(i).read() };
         assert_eq!(val, i as i64);
     }
 
     // Free the collected data (RC-managed via ori_list_alloc_data)
     if !data_ptr.is_null() {
-        let cap = unsafe { out.as_ptr().cast::<i64>().add(1).read() };
+        let cap = read_i64_at(&out, 8);
         crate::ori_list_free_data(data_ptr, cap, 8);
     }
 }
@@ -386,6 +433,7 @@ fn map_filter_take() {
 
 extern "C-unwind" fn gt_3(env: *mut u8, elem_ptr: *const u8) -> bool {
     let _ = env;
+    // SAFETY: The iterator ABI supplies an aligned `i64` element pointer.
     unsafe { elem_ptr.cast::<i64>().read() > 3 }
 }
 
@@ -440,11 +488,11 @@ fn find_found() {
 
     // Option<i64> = { i64 tag, i64 payload } = 16 bytes
     // ARC enum convention: Some=0, None=1
-    let mut out = [0u8; 16];
+    let mut out = AbiOutput::<16>::default();
     ori_iter_find(iter, gt_3, ptr::null_mut(), 8, out.as_mut_ptr());
 
-    let tag = unsafe { out.as_ptr().cast::<i64>().read() };
-    let payload = unsafe { out.as_ptr().add(8).cast::<i64>().read() };
+    let tag = read_i64_at(&out, 0);
+    let payload = read_i64_at(&out, 8);
     assert_eq!(tag, 0); // Some (ARC: first variant = 0)
     assert_eq!(payload, 4); // first > 3
 }
@@ -455,16 +503,17 @@ fn find_not_found() {
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
 
     // ARC enum convention: Some=0, None=1
-    let mut out = [0u8; 16];
+    let mut out = AbiOutput::<16>::default();
     ori_iter_find(iter, gt_3, ptr::null_mut(), 8, out.as_mut_ptr());
 
-    let tag = unsafe { out.as_ptr().cast::<i64>().read() };
+    let tag = read_i64_at(&out, 0);
     assert_eq!(tag, 1); // None (ARC: second variant = 1)
 }
 
 // For Each consumer
 
 extern "C-unwind" fn increment_counter(env: *mut u8, _elem_ptr: *const u8) {
+    // SAFETY: The test passes `env` as a unique pointer to a live `i64` counter.
     unsafe {
         let count = env.cast::<i64>();
         *count += 1;
@@ -498,6 +547,7 @@ extern "C-unwind" fn sum_fold(
     out_ptr: *mut u8,
 ) {
     let _ = env;
+    // SAFETY: The fold ABI supplies aligned live `i64` input and output storage.
     unsafe {
         let acc = acc_ptr.cast::<i64>().read();
         let elem = elem_ptr.cast::<i64>().read();
@@ -646,11 +696,10 @@ fn chain_count() {
     assert_eq!(ori_iter_count(iter, 8), 6);
 }
 
-// Seamless slice cleanup
+// Slice-backed list cleanup
 //
-// Regression: IterState::List Drop used `*cap > 0` which excluded seamless
-// slices (negative cap due to SLICE_FLAG). The iterator failed to release
-// its RC reference to the backing buffer, causing a memory leak.
+// INVARIANT: A list iterator owns its backing-buffer reference for both
+// ordinary and negative-cap slice encodings.
 
 #[test]
 fn list_iter_drop_releases_slice_rc() {
@@ -661,6 +710,7 @@ fn list_iter_drop_releases_slice_rc() {
     // Allocate an RC-managed buffer for 5 × i64 = 40 bytes (RC starts at 1)
     let data = ori_rc_alloc(40, 8);
     assert!(!data.is_null());
+    // SAFETY: `ori_rc_alloc` returned at least 40 bytes aligned for `i64`.
     unsafe {
         for i in 0..5_i64 {
             data.cast::<i64>().add(i as usize).write(i * 10);
@@ -696,8 +746,9 @@ fn list_iter_drop_frees_slice_when_last_ref() {
 
     let before = ori_rc_live_count();
 
-    // Allocate a buffer (RC=1) — the iterator is the sole owner via the slice
-    let data = ori_rc_alloc(24, 8); // 3 × i64
+    // Allocate three i64 elements; the iterator is the sole buffer owner.
+    let data = ori_rc_alloc(24, 8);
+    // SAFETY: `ori_rc_alloc` returned at least 24 bytes aligned for `i64`.
     unsafe {
         for i in 0..3_i64 {
             data.cast::<i64>().add(i as usize).write(i + 1);
@@ -730,9 +781,11 @@ fn null_iter_safety() {
 }
 
 extern "C-unwind" fn panic_after_one_transform(env: *mut u8, in_ptr: *const u8, out_ptr: *mut u8) {
+    // SAFETY: The test passes `env` as a unique pointer to a live `usize` counter.
     let calls = unsafe { &mut *env.cast::<usize>() };
     assert_ne!(*calls, 1, "iterator transform panic");
     *calls += 1;
+    // SAFETY: The iterator ABI supplies aligned live `i64` input and output storage.
     unsafe { out_ptr.cast::<i64>().write(in_ptr.cast::<i64>().read()) };
 }
 
@@ -754,7 +807,7 @@ fn collect_releases_iterator_and_partial_buffer_when_transform_panics() {
         8,
         None,
     );
-    let mut out = [0_u8; 24];
+    let mut out = AbiOutput::<24>::default();
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         ori_iter_collect(mapped, 8, None, None, out.as_mut_ptr());
@@ -773,10 +826,12 @@ fn collect_releases_iterator_and_partial_buffer_when_transform_panics() {
 }
 
 extern "C" fn eq_i64_ptr(left: *const u8, right: *const u8) -> bool {
+    // SAFETY: The map ABI supplies aligned pointers to initialized `i64` keys.
     unsafe { left.cast::<i64>().read() == right.cast::<i64>().read() }
 }
 
 extern "C" fn hash_i64_ptr(value: *const u8) -> i64 {
+    // SAFETY: The map ABI supplies an aligned pointer to an initialized `i64` key.
     unsafe { value.cast::<i64>().read() }
 }
 
@@ -794,7 +849,7 @@ fn collect_set_releases_iterator_and_partial_buffer_when_transform_panics() {
         8,
         None,
     );
-    let mut out = [0_u8; 24];
+    let mut out = AbiOutput::<24>::default();
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         ori_iter_collect_set(
@@ -826,7 +881,7 @@ fn collect_set_releases_iterator_and_partial_buffer_when_transform_panics() {
 // Output element size validation
 //
 // Element-size assertions are tested directly so malformed FFI inputs do not
-// obscure the callback-unwind matrix above. Normal and boundary sizes are then
+// obscure the callback-unwind matrix. Normal and boundary sizes are then
 // verified through the full pipeline.
 
 #[test]
@@ -864,15 +919,15 @@ fn normal_sized_elem_passes_collect() {
     let _g = crate::test_helpers::lock_rc();
     let data: [i64; 3] = [10, 20, 30];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
-    let mut out = [0u8; 24];
+    let mut out = AbiOutput::<24>::default();
     ori_iter_collect(iter, 8, None, None, out.as_mut_ptr());
-    let len = unsafe { out.as_ptr().cast::<i64>().read() };
+    let len = read_i64_at(&out, 0);
     assert_eq!(len, 3);
 
     // Free the collected data to avoid leaking RC allocations
-    let data_ptr = unsafe { out.as_ptr().add(16).cast::<*mut u8>().read() };
+    let data_ptr = read_pointer_at(&out, 16);
     if !data_ptr.is_null() {
-        let cap = unsafe { out.as_ptr().cast::<i64>().add(1).read() };
+        let cap = read_i64_at(&out, 8);
         crate::ori_list_free_data(data_ptr, cap, 8);
     }
 }
@@ -880,26 +935,20 @@ fn normal_sized_elem_passes_collect() {
 #[test]
 fn max_sized_elem_passes_collect() {
     let _g = crate::test_helpers::lock_rc();
-    // Exactly MAX_ELEM_SIZE should be accepted (boundary test)
     let max_size = state::MAX_ELEM_SIZE as i64;
     let data = vec![0u8; state::MAX_ELEM_SIZE];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 1, 0, max_size, true);
-    let mut out = [0u8; 24];
+    let mut out = AbiOutput::<24>::default();
     ori_iter_collect(iter, max_size, None, None, out.as_mut_ptr());
-    let len = unsafe { out.as_ptr().cast::<i64>().read() };
+    let len = read_i64_at(&out, 0);
     assert_eq!(len, 1);
 
-    // Free the collected data to avoid leaking RC allocations
-    let data_ptr = unsafe { out.as_ptr().add(16).cast::<*mut u8>().read() };
+    let data_ptr = read_pointer_at(&out, 16);
     if !data_ptr.is_null() {
-        let cap = unsafe { out.as_ptr().cast::<i64>().add(1).read() };
+        let cap = read_i64_at(&out, 8);
         crate::ori_list_free_data(data_ptr, cap, max_size);
     }
 }
-
-// Regression: the IterState::Reversed Drop arm must dec EVERY stored master via
-// elem_dec_fn, regardless of how far `pos` advanced (mirroring IterState::Map).
-// Pins the rev+heap Drop ownership invariant directly at the runtime level.
 
 static REVERSED_DEC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
@@ -911,7 +960,6 @@ extern "C" fn counting_dec(_elem: *mut u8) {
 fn reversed_drop_decs_all_masters_regardless_of_pos() {
     use std::sync::atomic::Ordering::SeqCst;
 
-    // Full buffer (pos = count): Drop decs all 3 stored masters exactly once.
     REVERSED_DEC_COUNT.store(0, SeqCst);
     drop(IterState::Reversed {
         elements: vec![0u8; 3 * 8],
@@ -926,8 +974,6 @@ fn reversed_drop_decs_all_masters_regardless_of_pos() {
         "Drop arm must dec all 3 stored masters"
     );
 
-    // Partially yielded (pos advanced past some elements): Drop STILL decs ALL 3
-    // masters — NOT the consumed/un-yielded subset.
     REVERSED_DEC_COUNT.store(0, SeqCst);
     drop(IterState::Reversed {
         elements: vec![0u8; 3 * 8],
@@ -942,7 +988,6 @@ fn reversed_drop_decs_all_masters_regardless_of_pos() {
         "Drop arm decs all masters regardless of pos, never the un-yielded subset"
     );
 
-    // Negative pin: a scalar element (null dec fn) decs nothing — no-op.
     REVERSED_DEC_COUNT.store(0, SeqCst);
     drop(IterState::Reversed {
         elements: vec![0u8; 3 * 8],
@@ -958,11 +1003,6 @@ fn reversed_drop_decs_all_masters_regardless_of_pos() {
     );
 }
 
-// Regression: the IterState::Cycled Drop arm must dec EVERY stored buffer master
-// via elem_dec_fn, regardless of how far `buf_pos` advanced (mirroring
-// IterState::Reversed + IterState::Map). This pins the cycle+heap buffered-replay
-// locus — the reachable Class-B cure for `cycle()` on the LLVM/AOT path. Its own
-// counter (NOT REVERSED_DEC_COUNT) keeps it parallel-test-safe.
 static CYCLED_DEC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
 extern "C" fn cycled_counting_dec(_elem: *mut u8) {
@@ -976,11 +1016,10 @@ fn cycled_drop_decs_all_masters_regardless_of_buf_pos() {
     // Full buffer (buf_pos = count): Drop decs all 3 stored masters exactly once.
     CYCLED_DEC_COUNT.store(0, SeqCst);
     drop(IterState::Cycled {
-        source: None,
+        source: state::CycleSource::Replaying,
         buffer: vec![0u8; 3 * 8],
         buf_pos: 3,
         elem_size: 8,
-        source_exhausted: true,
         elem_inc_fn: None,
         elem_dec_fn: Some(cycled_counting_dec),
     });
@@ -995,11 +1034,10 @@ fn cycled_drop_decs_all_masters_regardless_of_buf_pos() {
     // moving the buffer's ownership; the consumer's collect-inc covers that alias.
     CYCLED_DEC_COUNT.store(0, SeqCst);
     drop(IterState::Cycled {
-        source: None,
+        source: state::CycleSource::Replaying,
         buffer: vec![0u8; 3 * 8],
         buf_pos: 1,
         elem_size: 8,
-        source_exhausted: true,
         elem_inc_fn: None,
         elem_dec_fn: Some(cycled_counting_dec),
     });
@@ -1012,11 +1050,10 @@ fn cycled_drop_decs_all_masters_regardless_of_buf_pos() {
     // Negative pin: a scalar element (null dec fn) decs nothing — no-op.
     CYCLED_DEC_COUNT.store(0, SeqCst);
     drop(IterState::Cycled {
-        source: None,
+        source: state::CycleSource::Replaying,
         buffer: vec![0u8; 3 * 8],
         buf_pos: 3,
         elem_size: 8,
-        source_exhausted: true,
         elem_inc_fn: None,
         elem_dec_fn: None,
     });

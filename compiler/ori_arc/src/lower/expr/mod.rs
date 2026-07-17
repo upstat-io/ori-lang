@@ -37,7 +37,7 @@ pub(crate) struct LoopContext {
     pub mutable_vars: Vec<(Name, crate::ir::ArcVarId)>,
     /// Iterator handle that must be dropped when a labeled transfer abandons
     /// this loop for an outer target. A break targeting this loop does not run
-    /// the obligation here because its exit block performs the normal drop.
+    /// the obligation because its exit block performs the normal drop.
     pub abandon_iter: Option<crate::ir::ArcVarId>,
     /// For-yield specific: when set, break/continue handle list accumulation
     /// and thread the collection phantom parameter.
@@ -120,13 +120,13 @@ pub(crate) struct ArcLowerer<'a> {
     ///
     /// Saved/restored around each `lower_block` so nesting works correctly.
     pub(crate) block_let_names: FxHashSet<Name>,
-    /// The return type of the function currently being lowered.
+    /// The return type of the function under lowering.
     ///
     /// Used by `lower_try()` to construct the early-return `None`/`Err`
     /// with the correct type (must match the function signature, not the
     /// scrutinee's type).
     pub(crate) return_type: Idx,
-    /// The name of the function currently being lowered.
+    /// The name of the function under lowering.
     ///
     /// Used by `lower_exp_recurse()` to emit `Apply @func_name(...)` instead
     /// of a sentinel. This enables TCO detection (which checks
@@ -185,7 +185,7 @@ impl ArcLowerer<'_> {
                     // survives to codegen as `Tag::rigid_var` (PC-2 break). The
                     // exact-Idx map covers leaves + recording-time composites;
                     // a body composite interned after the call-site recording
-                    // (e.g. `[T]` from a method body) misses here.
+                    // (e.g. `[T]` from a method body) misses this resolution path.
                     if self
                         .pool
                         .flags(ty)
@@ -332,10 +332,9 @@ impl ArcLowerer<'_> {
         );
         // Div / Mod / FloorDiv / Shl / Shr panic on div-by-zero, overflow, or
         // out-of-range shift count; Add / Sub / Mul panic on overflow (Spec:
-        // Clause 14.3). On the checked-integer-arithmetic LLVM path (int,
-        // byte, Duration, Size — see codegen-rules.md OpStrategy::SignedInteger)
-        // these lower to a checked op that may unwind. Float/bool/char ops
-        // never panic.
+        // Clause 14.3). The checked integer representations (`int`, `byte`,
+        // `Duration`, and `Size`) use operations that may unwind.
+        // Float, bool, and char operations never panic.
         if op.may_panic_on_int()
             && self
                 .pool
@@ -373,10 +372,8 @@ impl ArcLowerer<'_> {
             },
             Some(span),
         );
-        // Negation panics on overflow (`-i64::MIN`, Spec: Clause 14.3); on the
-        // checked-integer-arithmetic LLVM path (int, byte, Duration, Size —
-        // see codegen-rules.md OpStrategy::SignedInteger) it lowers to
-        // `checked_neg` which may unwind.
+        // Negation panics on overflow (`-i64::MIN`, Spec: Clause 14.3).
+        // Checked integer representations use `checked_neg`, which may unwind.
         if op.may_panic_on_int()
             && self
                 .pool

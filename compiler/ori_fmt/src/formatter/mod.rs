@@ -48,6 +48,7 @@ mod stacked;
 mod tests;
 
 pub(crate) use literals::{char_escape, emit_escaped_str, string_escape};
+pub(crate) use patterns::BindingPrefix;
 
 use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
@@ -61,6 +62,12 @@ use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, StringLookup};
 // Delimiter decisions: see rules::needs_parens() + rules::ParenPosition +
 // rules::map_key_needs_brackets() (Layer 4).
 
+#[derive(Clone, Copy)]
+enum BinaryOperandSide {
+    Left,
+    Right,
+}
+
 /// Check if a binary operand needs parentheses based on precedence and associativity.
 ///
 /// Returns true when the operand is:
@@ -72,7 +79,7 @@ fn needs_binary_parens(
     arena: &ExprArena,
     operand: ExprId,
     parent_op: BinaryOp,
-    is_left: bool,
+    side: BinaryOperandSide,
 ) -> bool {
     let expr = arena.get_expr(operand);
 
@@ -86,9 +93,9 @@ fn needs_binary_parens(
                 std::cmp::Ordering::Equal => {
                     let is_right_assoc = matches!(parent_op, BinaryOp::Coalesce);
                     if is_right_assoc {
-                        is_left
+                        matches!(side, BinaryOperandSide::Left)
                     } else {
-                        !is_left
+                        matches!(side, BinaryOperandSide::Right)
                     }
                 }
                 std::cmp::Ordering::Less => false,

@@ -16,16 +16,9 @@ fn test_generic_identity_string() {
     );
 }
 
-/// Regression: an imported prelude generic `len<T: Len>` monomorphized on an
-/// aggregate receiver ([int]/{str:int}) left the borrowed receiver a pointer-only
-/// param whose LLVM value at use sites is a zero {i64,i64,ptr} placeholder; the
-/// len dispatch did `extract_value(FIELD_LEN)` on that placeholder -> 0 under AOT
-/// (3 under interp = parity break). The str line is the embedded negative control
-/// (str.len reads via `str_to_ptr_forwarded` and was always correct). Fix:
-/// `emit_collection_length_forwarded` reads `FIELD_LEN` via a `struct_gep+load` on the
-/// `borrowed_param_ptrs` source pointer (mirroring `emit_str_length_forwarded`), so
-/// the param stays pointer-only (no RC-flow change); `compute_pointer_only_params`
-/// is unchanged.
+/// An imported generic `len<T: Len>` reads an aggregate receiver's length
+/// through its forwarded borrowed pointer. List, map, and string receivers must
+/// produce the same length in interpreter and AOT execution.
 #[test]
 fn test_imported_generic_len_aggregate_receiver() {
     assert_aot_success(
@@ -34,13 +27,9 @@ fn test_imported_generic_len_aggregate_receiver() {
     );
 }
 
-/// Regression: the imported prelude generic `is_empty<T>(collection: [T])`
-/// monomorphized on a list receiver routes through the same borrowed-receiver
-/// forwarder (`emit_collection_is_empty_forwarded`) as `len`. A borrowed receiver
-/// left a raw ptr would make `is_empty` read the zero-placeholder len (0) -> TRUE
-/// under AOT for a non-empty list (false under interp = parity break). Sibling AOT
-/// pin to `test_imported_generic_len_aggregate_receiver`; `is_empty` is list-only in
-/// the prelude, so the pin covers the [int] (scalar) + [str] (heap) element dims.
+/// An imported generic `is_empty<T>` reads a non-empty list receiver through
+/// the borrowed-receiver forwarder. Scalar and heap element layouts must agree
+/// between interpreter and AOT execution.
 #[test]
 fn test_imported_generic_is_empty_aggregate_receiver() {
     assert_aot_success(
@@ -422,16 +411,9 @@ fn test_mono_may_unwind_callee_reaches_wrapper_invoke() {
     );
 }
 
-// Generic chain root-extension regression matrix
-//
-// Coverage for the union-find root-extension fix that lets deferred
-// monomorphization resolve callees whose scheme var is NOT the
-// representative of its equivalence class. The fix landed in
-// `extend_var_subst_with_roots` (`pool/substitute/mod.rs`) and is invoked
-// at the three mono call sites: eager typeck, deferred typeck exports,
-// and JIT imported-mono. Each fixture exercises a different shape through
-// the 3+ hop chain; pre-fix all of these either silently miscompiled or
-// fired the PC-2 assertion at codegen.
+// Generic chain root-extension matrix.
+// Deferred monomorphization resolves callees even when the scheme variable is
+// not the representative of its equivalence class.
 
 #[test]
 fn test_generic_chain_four_levels() {
@@ -485,13 +467,8 @@ fn test_generic_chain_list_element() {
     );
 }
 
-// Generic forwarder over [T] hop-count axis
-// Each forwarder hop currently emits a spurious scope-exit RcDec on the param
-// because AIMS interprocedural analysis lacks `transfers_through_return`. The
-// fix completes the Lean 4 `ownParamsUsingArgs` pattern — eliminate BOTH the
-// caller-side inc and the callee-side dec on owned-arg → owned-callee-param
-// transfer through Return. Tests live without `#[ignore]` so they fail today
-// (matching the existing ignored 3-hop case) and pass after the fix activates.
+// Generic forwarder hop-count matrix for transfer-through-return ownership.
+// Each hop suppresses both the caller increment and the callee scope-exit decrement.
 
 /// Single-hop generic identity forwarder applied to `[int]`. The minimal
 /// Even one hop produces a use-after-free because the
@@ -506,9 +483,7 @@ fn test_generic_forwarder_hop1_returns_list_intact() {
 }
 
 /// Two-hop generic forwarder chain over `[int]`. Each hop adds one spurious
-/// dec; verifies the bug surfaces at the hop count below the existing 3-hop
-/// fixture so the fix's scope is bounded by the hop-count axis, not the
-/// 3-hop SCC depth specifically.
+/// dec; verifies the two-hop cell independently of SCC depth.
 #[test]
 fn test_generic_forwarder_hop2_returns_list_intact() {
     assert_aot_success(
@@ -531,7 +506,8 @@ fn test_generic_forwarder_hop4_returns_list_intact() {
 
 // Cross-type axis
 // 1-hop generic forwarder applied to every relevant heap-typed shape.
-// Heap types fail today (use-after-free); scalar must NOT regress.
+// Heap shapes exercise ownership transfer; the scalar case exercises the
+// representation-independent path.
 
 /// Generic forwarder over `[str]` — heap list of heap elements; verifies
 /// element-level decs still fire correctly (`elem_dec_fn` for inner str).
@@ -597,10 +573,7 @@ fn test_generic_forwarder_closure_capturing_list_returns_intact() {
     );
 }
 
-/// Generic forwarder over `int` — scalar regression clamp. Scalars have
-/// NO RC ops (RE-2 scalar exemption); this test must continue to
-/// pass both pre-fix and post-fix. The fix introduces no scalar-path
-/// changes.
+/// A generic `int` forwarder uses no RC operations under the scalar exemption.
 #[test]
 fn test_generic_forwarder_int_scalar_must_not_regress() {
     assert_aot_success(
@@ -770,9 +743,8 @@ fn test_dead_param_borrow_read_then_dead_no_double_free() {
 
 /// Negative pin for path-sensitivity: stress-test exercising
 /// `select<T>` across multiple call sites with mixed path selection.
-/// Surfaces leak-detection failures under naive global-suppression.
-/// Phase 5 verification step runs this with `ORI_CHECK_LEAKS=1`; this
-/// AOT-success test pins the runtime crash today.
+/// Leak checking rejects implementations that suppress ownership operations
+/// globally instead of respecting the selected path.
 #[test]
 fn test_path_sensitive_select_negative_pin_completes_without_uaf() {
     assert_aot_success(
@@ -790,8 +762,8 @@ fn test_path_sensitive_select_negative_pin_completes_without_uaf() {
 
 /// Positive pin (semantic): `Set<int>` from `@__collect_set` (a CALL RESULT, no
 /// in-class `Construct` owner) through a forwarder, borrow-consumed then dead. The
-/// forwarder-result release frees the 72-byte Set buffer; reverting it
-/// (`ORI_DISABLE_FORWARDER_RESULT_RELEASE=1`) re-surfaces the leak.
+/// forwarder-result release frees the 72-byte Set buffer. Setting
+/// `ORI_DISABLE_FORWARDER_RESULT_RELEASE=1` disables that release.
 #[test]
 fn test_forwarder_result_collect_set_borrow_consumed_no_leak() {
     assert_aot_success(
@@ -801,7 +773,7 @@ fn test_forwarder_result_collect_set_borrow_consumed_no_leak() {
 }
 
 /// Negative over-fire pin (gate c — alt-consumer): a forwarder result MOVED ONWARD into
-/// a second forwarder must NOT get the release (the downstream lineage owns + releases
+/// a second forwarder must NOT get the release (the continuing lineage owns + releases
 /// the allocation). Reverting gate c double-frees (exit-134).
 #[test]
 fn test_forwarder_result_collect_set_moved_no_double_free() {
@@ -1060,9 +1032,8 @@ fn test_generic_method_on_generic_type() {
     );
 }
 
-// Inherent method on a generic type — broadened coverage across receiver shape
-// and method-body shape (int element type, the layout that monomorphizes
-// end-to-end today).
+// Inherent methods on generic types cover receiver and method-body shapes for
+// the fully monomorphized integer layout.
 
 /// Inherent method on a generic type called on two distinct `Box<int>`
 /// receivers; both call sites share one monomorphized `unwrap` body.
@@ -1137,8 +1108,7 @@ fn test_box_method_with_drifted_args_emits_typeck_error() {
         "fixtures/generics/generic_method_drifted_args_typeck_error.ori"
     ));
 
-    // Compilation MUST fail at type-check. A zero exit would mean the arity
-    // mismatch was accepted and a binary produced — a silent miscompilation.
+    // Compilation must reject the arity mismatch during type checking.
     assert_eq!(
         exit_code, -1,
         "drifted-arg method call compiled cleanly (silent miscompilation); \
@@ -1320,7 +1290,7 @@ fn test_borrow_list_int_for_yield_then_return_no_leak() {
 /// Regression: for...yield iter-consume over a heap-element `[str]` param +
 /// Return the param. The iterator frees the param buffer; the duplication inc
 /// (RL-1) leaves the original reference for the Return transfer. Cross-type
-/// sibling of `test_borrow_list_int_for_yield_then_return_no_leak`.
+/// heap-element counterpart to the scalar-element return case.
 #[test]
 fn test_borrow_list_str_for_yield_then_return_no_leak() {
     assert_aot_success(
@@ -1331,8 +1301,8 @@ fn test_borrow_list_str_for_yield_then_return_no_leak() {
 
 /// Regression: loop-body multi-hop Let-alias of a heap-element `[str]` param +
 /// Return the param. The deepest alias is the same allocation the Return
-/// transfers out — it carries no spurious last-use dec. Cross-type sibling of
-/// `test_borrow_list_int_loop_body_let_alias_then_return_no_leak`.
+/// transfers out — it carries no spurious last-use dec. This is the heap-element
+/// counterpart to the scalar-element alias case.
 #[test]
 fn test_borrow_list_str_loop_body_let_alias_then_return_no_leak() {
     assert_aot_success(
@@ -1364,10 +1334,7 @@ fn test_borrow_list_int_loop_body_let_alias_no_return_no_leak() {
     );
 }
 
-// Canonical-representation semantics pins
-// Positive pins exercising post-fix canonical-rep selection logic.
-// May not be RED at HEAD (they verify NEW semantics introduced by the
-// fix); pre-fix passing is acceptable for these.
+// Canonical-representation selection semantics.
 
 /// Positive pin: `canonical_rep_for` picks the LATEST-emitting member
 /// when multiple SSA alias class members exist.
@@ -1400,12 +1367,10 @@ fn test_borrow_list_int_bypass_safe_interaction_then_return_no_leak() {
     );
 }
 
-// Additional ownership-shape pins
-// Positive pins exercising post-fix PIN-6 chain semantics.
+// Additional ownership shapes for PIN-6 chain semantics.
 
 /// Positive pin: 3-alias merge at CFG join — verifies
-/// post-fix expanded input set doesn't break PIN-6 chain resolution
-/// when the SSA alias class has 3 distinct members merging.
+/// PIN-6 chain resolution when three SSA alias-class members merge.
 #[test]
 fn test_borrow_list_int_three_alias_merge_then_return_no_leak() {
     assert_aot_success(
@@ -1507,12 +1472,10 @@ fn test_genuine_dup_stash_and_return_releases_each_owner_once() {
 // interpreter passed; LLVM failed the whole module. The cure is a scalar-int
 // LLVM-type guard at both emission sites.
 
-/// Regression: a generic body over the builtin niche-scalar `Ordering` sum
+/// A generic body over the builtin niche-scalar `Ordering` sum
 /// constructs an `Ordering` (`cmp<T>` body), projects its tag through a `match`
 /// (`classify`), and calls the `is_less`/`is_equal`/`is_greater` predicates on
-/// the result. Pre-fix this hit `insert_value` (construct) and `extract_value`
-/// (project) on the scalar `i8`; the scalar-int-LLVM-type guards in
-/// `emit_construct` and `emit_project` emit / read the `i8` discriminant
+/// the result. Scalar construction and projection read the `i8` discriminant
 /// directly (Less=0/Equal=1/Greater=2).
 #[test]
 fn test_generic_body_ordering_scalar_construct_and_match_returns_correct_ordering() {
@@ -1542,8 +1505,8 @@ fn test_tagged_ptr_construct_project_payload_survives() {
 /// Negative pin: the scalar-int guard must fire ONLY on
 /// scalar-int dst (Ordering). Generic bodies constructing aggregate sum
 /// variants — a user-defined `Triple`, `Option`, and `Result` — must keep the
-/// tagged-struct construction path and stay green (the guard must NOT fire on
-/// an aggregate dst).
+/// tagged-struct construction path; the guard must not fire on an aggregate
+/// destination.
 #[test]
 fn test_imported_generic_aggregate_construct_no_regression() {
     assert_aot_success(

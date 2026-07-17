@@ -262,9 +262,8 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     iter_owns_rooted_vars: FxHashSet<ArcVarId>,
     /// Borrowed parameter pointer forwarding: maps `ArcVarId` → original LLVM
     /// parameter pointer for variables received as `Reference`/`Indirect` params.
-    /// When passing such a variable to another function that also expects a
-    /// pointer, we forward the original pointer directly instead of creating
-    /// an alloca+store round-trip.
+    /// Pointer-accepting callees receive the original parameter pointer without
+    /// an alloca/store round trip.
     borrowed_param_ptrs: FxHashMap<ArcVarId, ValueId>,
     /// Borrowed `Reference`/`Indirect` parameters whose entry-block aggregate
     /// load was elided (bound to a zero placeholder) because every use forwards
@@ -278,8 +277,7 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// When `emit_project` encounters a `Project(value, field)` where `value`
     /// is in this map, it returns the tag (field 0) or loads from scratch
-    /// (field 1) directly — avoiding the `{i64, T}` wrapper struct that the
-    /// legacy `emit_iter_next` built via `insertvalue`.
+    /// (field 1) directly without materializing a `{i64, T}` wrapper struct.
     iter_next_decomposed: FxHashMap<ArcVarId, (ValueId, ValueId, super::value_id::LLVMTypeId)>,
     /// The function's sret pointer (parameter 0 when return uses `Sret`).
     /// Used by `call_with_sret` to forward the destination directly to a

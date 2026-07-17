@@ -199,7 +199,7 @@ pub fn count_single_pred_phis(function_ir: &str) -> usize {
         .count()
 }
 
-/// Count phi nodes whose result is never used elsewhere in the function.
+/// Count phi nodes whose result has no uses in the function.
 ///
 /// A dead phi `%vN = phi T [...]` defines a value that is never referenced
 /// as an operand in any other instruction.

@@ -31,6 +31,48 @@ pub enum UnicodeEscapeDetail {
     OutOfRange { codepoint: u32 },
 }
 
+/// Cross-language operator spellings recognized for targeted diagnostics.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum UnsupportedOperator {
+    StrictEqual,
+    StrictNotEqual,
+    Increment,
+}
+
+impl UnsupportedOperator {
+    /// The source spelling recognized by the scanner.
+    pub const fn spelling(self) -> &'static str {
+        match self {
+            Self::StrictEqual => "===",
+            Self::StrictNotEqual => "!==",
+            Self::Increment => "++",
+        }
+    }
+}
+
+/// Keywords reserved for future language features.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum FutureKeyword {
+    Asm,
+    Inline,
+    Static,
+    Union,
+    View,
+}
+
+impl FutureKeyword {
+    /// The source spelling reserved by the language.
+    pub const fn spelling(self) -> &'static str {
+        match self {
+            Self::Asm => "asm",
+            Self::Inline => "inline",
+            Self::Static => "static",
+            Self::Union => "union",
+            Self::View => "view",
+        }
+    }
+}
+
 /// A lexer error with full context for diagnostic rendering.
 ///
 /// Follows the cross-system WHERE+WHAT+WHY+HOW error shape.
@@ -83,12 +125,10 @@ pub enum LexErrorKind {
     // Character errors
     /// Non-printable or invalid byte in source.
     InvalidByte { byte: u8 },
-    /// JavaScript-style strict equality/inequality (`===` or `!==`) is not Ori syntax.
-    StrictEqualityOperator { operator: &'static str },
+    /// A recognized cross-language operator is not Ori syntax.
+    UnsupportedOperator { operator: UnsupportedOperator },
     /// A multi-character single-quoted literal looks like a string written with `'`.
     SingleQuoteString,
-    /// C-style increment (`++`) is not Ori syntax.
-    IncrementOperator { operator: &'static str },
     /// Standalone `\` outside of escape context.
     StandaloneBackslash,
     /// Unicode character visually similar to an ASCII character.
@@ -112,7 +152,7 @@ pub enum LexErrorKind {
 
     // Reserved-future keyword errors
     /// A keyword reserved for future use (`asm`, `inline`, `static`, `union`, `view`).
-    ReservedFutureKeyword { keyword: &'static str },
+    ReservedFutureKeyword { keyword: FutureKeyword },
 }
 
 impl LexErrorKind {
@@ -141,9 +181,11 @@ impl LexErrorKind {
             | Self::Utf8Bom
             | Self::Utf16LeBom
             | Self::Utf16BeBom => "E0002",
-            Self::StrictEqualityOperator { .. } => "E0008",
+            Self::UnsupportedOperator { operator } => match operator {
+                UnsupportedOperator::StrictEqual | UnsupportedOperator::StrictNotEqual => "E0008",
+                UnsupportedOperator::Increment => "E0010",
+            },
             Self::SingleQuoteString => "E0009",
-            Self::IncrementOperator { .. } => "E0010",
             Self::StandaloneBackslash => "E0013",
             Self::UnicodeConfusable { .. } => "E0011",
             Self::DecimalNotRepresentable => "E0014",

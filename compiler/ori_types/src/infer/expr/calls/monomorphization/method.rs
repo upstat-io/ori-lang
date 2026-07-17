@@ -168,7 +168,7 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
     // Concrete param / return types via `substitute_in_pool` (empty map), which
     // follows each child Var's `VarState::Link` while PRESERVING the `Applied`
     // shape — `Applied(Pair, [Var->str, Var->int])` deep-resolves to the
-    // concrete `Applied(Pair, [str, int])`. `resolve_fully` is WRONG here: its
+    // concrete `Applied(Pair, [str, int])`. `resolve_fully` is wrong for this step: its
     // matching-args fallback collapses `Pair<str, int>` to the generic `Pair`
     // struct, so codegen would emit the wrong layout (`{i64, i64}`) and fail IR
     // verification on a permuted-generic return like `swap (self) -> Pair<B, A>`.
@@ -260,7 +260,7 @@ fn build_method_body_type_map(
     // vars). `build_and_register_body_type_map` runs `build_impl_rigid_var_subst`
     // over `extra_named` (a pool scan mapping each binder NAME to its body rigid
     // var_id) so a `[T]`-returning method body re-interns to `[int]`. Without the
-    // method binders here the signature monomorphizes but the body's rigid leaf
+    // method binders, the signature monomorphizes but the body's rigid leaf
     // survives to codegen (the `Tag::rigid_var` symptom).
     let mut extra_named: Vec<(Name, Idx)> = mono.map_or_else(Vec::new, |mono| {
         mono.impl_type_args

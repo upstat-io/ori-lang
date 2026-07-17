@@ -130,9 +130,8 @@ pub(super) fn resolve_receiver_and_builtin(
         }
     }
 
-    // 1c. Reject ALL methods on Range<float> — ranges are int-only per spec.
-    // Float range construction is now rejected in infer_range(), but this guard
-    // is defense-in-depth in case Range<float> is constructed through other means.
+    // Reject all methods on `Range<float>` because ranges are integer-only.
+    // This guard also covers synthetic `Range<float>` values.
     // Iteration methods get a specific diagnostic; other methods get a generic
     // "Range<float> not supported" error with a diagnostic (not silent).
     if tag == Tag::Range && engine.pool().range_elem(resolved) == Idx::FLOAT {
@@ -182,8 +181,8 @@ pub(super) fn resolve_receiver_and_builtin(
 
 /// Build the canonical iterator route for Annex C's direct eager Range methods.
 ///
-/// The type checker owns this projection because both the public result shape
-/// and the intermediate adapter element type are known here. Canon and LLVM
+/// The type checker owns this projection because it knows both the public result
+/// shape and the intermediate adapter element type. Canon and LLVM
 /// consume the frozen route without rediscovering Range semantics.
 fn range_eager_iter_route(
     engine: &mut InferEngine<'_>,

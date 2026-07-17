@@ -741,9 +741,9 @@ fn test_lex_valid_integer_size_still_works() {
     ));
 }
 
-// ─── Section 07: Diagnostics & Error Recovery ─────────────────────────────
+// Diagnostics and error recovery.
 
-// ── Error accumulation: errors surfaced in LexOutput ──────────────────────
+// Error accumulation in `LexOutput`.
 
 #[test]
 fn test_errors_surfaced_in_lex_output() {
@@ -813,7 +813,7 @@ fn test_semicolon_with_multiple_statements() {
     assert_eq!(int_count, 2, "Both integer literals should be lexed");
 }
 
-// ── Unicode confusable detection ──────────────────────────────────────────
+// Unicode confusable detection.
 
 #[test]
 fn test_unicode_confusable_smart_quote() {
@@ -890,7 +890,7 @@ fn test_unicode_confusable_fullwidth_plus() {
     );
 }
 
-// ── Multiple errors in one file ───────────────────────────────────────────
+// Multiple errors in one file.
 
 #[test]
 fn test_multiple_errors_accumulated() {
@@ -937,7 +937,7 @@ fn test_mixed_error_types() {
     assert!(has_unterminated, "Expected UnterminatedString error");
 }
 
-// ── Error structure: WHERE+WHAT+WHY+HOW ───────────────────────────────────
+// Error structure.
 
 #[test]
 fn test_error_has_span() {
@@ -1067,7 +1067,7 @@ fn test_single_quote_string_habit_renders_specific_code() {
     assert_eq!(diag.code, ori_diagnostic::ErrorCode::E0009);
 }
 
-// ── Detached doc comment warnings ─────────────────────────────────────────
+// Detached doc comment warnings.
 
 #[test]
 fn test_detached_doc_comment_warning() {
@@ -1098,7 +1098,7 @@ fn test_attached_doc_comment_no_warning() {
     );
 }
 
-// ── No errors for clean input ─────────────────────────────────────────────
+// Clean input.
 
 #[test]
 fn test_no_errors_for_clean_input() {
@@ -1126,7 +1126,7 @@ fn test_has_errors_helper() {
     assert!(dirty.has_errors());
 }
 
-// ── LexSuggestion structure ──────────────────────────────────────────────
+// `LexSuggestion` structure.
 
 #[test]
 fn test_suggestion_text_only() {
@@ -1153,7 +1153,7 @@ fn test_suggestion_removal() {
     assert_eq!(repl.span, ori_ir::Span::new(5, 6));
 }
 
-// ── Context-sensitive keyword tests ──────────────────────────────────────
+// Context-sensitive keywords.
 
 // Section 03.3/03.10: Soft keywords resolve to keyword tokens only when
 // followed by `(` (with horizontal whitespace allowed, but not newlines).
@@ -1305,7 +1305,7 @@ fn test_contextual_kw_flag_not_set_on_reserved_keywords() {
     );
 }
 
-// ── Always-resolved pattern keywords ──────────────────────────────────────
+// Always-resolved pattern keywords.
 
 // `run`, `try`, `by` are always reserved keywords (not context-sensitive).
 // They resolve to keyword tokens regardless of whether `(` follows.
@@ -1344,7 +1344,7 @@ fn test_always_keywords_with_lparen() {
     assert!(matches!(tokens[8].kind, TokenKind::By));
 }
 
-// ── Type keywords are always resolved ─────────────────────────────────────
+// Always-resolved type keywords.
 
 #[test]
 fn test_type_keywords_always_resolved() {
@@ -1375,7 +1375,7 @@ fn test_type_keywords_not_context_sensitive() {
     assert!(matches!(tokens[2].kind, TokenKind::FloatType));
 }
 
-// ── Built-in names are regular identifiers ────────────────────────────────
+// Built-in names as regular identifiers.
 
 // The spec says built-in names (len, is_empty, assert, etc.) are
 // "reserved in call position, usable as variables otherwise".
@@ -1406,7 +1406,7 @@ fn test_builtin_names_usable_as_variables() {
     assert!(matches!(tokens[1].kind, TokenKind::Ident(_)));
 }
 
-// ── print/panic are always-resolved keywords ─────────────────────────────
+// Always-resolved `print` and `panic` keywords.
 
 #[test]
 fn test_print_panic_always_keywords() {
@@ -1421,7 +1421,7 @@ fn test_print_panic_always_keywords() {
     assert!(matches!(tokens[3].kind, TokenKind::Unreachable));
 }
 
-// ── `without` and `max` are parser-resolved (plain identifiers) ──────────
+// Parser-resolved `without` and `max` identifiers.
 
 #[test]
 fn test_parser_resolved_keywords_are_identifiers() {
@@ -1442,7 +1442,7 @@ fn test_parser_resolved_keywords_are_identifiers() {
     );
 }
 
-// ── Reserved-future keywords ─────────────────────────────────────────────
+// Reserved keywords.
 
 #[test]
 fn test_reserved_future_keywords_lex_as_ident_with_error() {

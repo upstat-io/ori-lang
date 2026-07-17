@@ -1268,10 +1268,8 @@ fn strategy_widen_to_i64_for_large_multiplication() {
     // [0, 100_000] * [0, 100_000] = [0, 10_000_000_000] — overflows i32
     // Next wider is I64, and the result fits in I64 → WidenCompute { I64 }
     //
-    // Note: UseCanonical is currently unreachable with signed i64 as the
-    // canonical type — any overflow at I8/I16/I32 always fits in the
-    // next-wider type, and I64 is the ceiling. UseCanonical exists for
-    // forward compatibility (future unsigned narrowing or i128).
+    // `UseCanonical` is unreachable for signed `i64`: overflow below `i64`
+    // fits the next width, while `i64` is the canonical ceiling.
     let lhs = ValueRange::Bounded { lo: 0, hi: 100_000 };
     let rhs = ValueRange::Bounded { lo: 0, hi: 100_000 };
     assert_eq!(

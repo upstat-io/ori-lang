@@ -1235,7 +1235,7 @@ fn nounwind_unknown_user_function_is_not_nounwind() {
     );
 }
 
-// ── Two-pass nounwind (compute_nounwind_set) tests ─────────────────
+// Two-pass nounwind analysis.
 
 #[test]
 fn compute_nounwind_set_marks_trivial_nounwind() {
@@ -1813,13 +1813,10 @@ fn main_wrapper_has_noundef_return() {
     );
 }
 
-/// PC-2 seam pin: `process_arc_function` short-circuits with
+/// `process_arc_function` short-circuits with
 /// `Err(VerifyError::UnresolvedTypeVar(_))` and records a codegen error when
-/// the ARC IR carries a raw `Tag::Var`, before physical emission.
-///
-/// Guards against INVERTED-TDD weakening of the primary PC-2 seam hook at
-/// `define_phase.rs` — any gate that would let a `Tag::Var`-bearing function
-/// reach physical emission MUST cause this test to fail.
+/// the ARC IR carries a raw `Tag::Var`. Unresolved type variables cannot reach
+/// physical emission.
 #[test]
 fn test_process_arc_function_records_codegen_error_on_violation() {
     let mut pool = Pool::new();
@@ -1879,9 +1876,8 @@ fn test_process_arc_function_records_codegen_error_on_violation() {
 
     assert!(
         matches!(result, Err(VerifyError::UnresolvedTypeVar(_))),
-        "process_arc_function MUST short-circuit with UnresolvedTypeVar on \
-         Tag::Var leaks — gating this check off is INVERTED-TDD \
-         (INVERTED-TDD); got: {result:?}"
+        "process_arc_function must reject Tag::Var leaks with \
+         UnresolvedTypeVar; got: {result:?}"
     );
     assert!(
         fc.builder.has_codegen_errors(),

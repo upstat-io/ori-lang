@@ -27,9 +27,9 @@ mod methods;
 mod traits;
 mod types;
 
-// Burden types live in the `burden` submodule and are accessed via the
-// module path (e.g., `crate::registry::burden::UserBurdenSpec`). Direct
-// re-export at this level deferred until a consumer references them.
+// Access burden types through their module path, such as
+// `crate::registry::burden::UserBurdenSpec`; the registry root does not
+// re-export them.
 
 // Type registry exports
 pub use types::{

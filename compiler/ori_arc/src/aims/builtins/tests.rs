@@ -332,11 +332,10 @@ fn protocol_contract_iter_borrowed_param() {
     assert_eq!(contract.params[0].cardinality, Cardinality::Once);
 }
 
-// Negative pins — forbid the broken behavior that existed before the fix.
+// Negative ownership constraints.
 
 /// Negative pin: `IterDrop` must NOT have Borrowed access.
-/// Before the fix, `IterDrop` was Borrowed, causing
-/// a double-free on iterator cleanup.
+/// Borrowed access would emit a second scope-exit decrement during cleanup.
 #[test]
 fn protocol_contract_iter_drop_forbids_borrowed() {
     let (interner, builtins) = setup();
@@ -353,8 +352,7 @@ fn protocol_contract_iter_drop_forbids_borrowed() {
 }
 
 /// Negative pin: Index must NOT have Owned access on arg 0.
-/// The __index bug was caused by the "unknown callee -> all Owned"
-/// fallthrough.
+/// Owned access would consume the receiver during a lookup.
 #[test]
 fn protocol_contract_index_forbids_owned_receiver() {
     let (interner, builtins) = setup();
@@ -404,12 +402,7 @@ fn protocol_contract_access_consistent_with_arg_ownership() {
     }
 }
 
-/// Semantic pin: `ori_panic`'s message parameter is an RL-2 ownership
-/// TRANSFER — the panic machinery copies the message into thread-local
-/// state and releases the original; the caller emits no release on any
-/// panic path. Would FAIL if the seed is removed (message reverts to the
-/// all-borrowed external default and leaks on every caught-panic path)
-/// or if the param flips to Borrowed.
+/// Pins `ori_panic`'s RL-2 ownership transfer for its message parameter.
 #[test]
 fn seed_ori_panic_message_param_owned_transfer() {
     let (interner, builtins) = setup();
@@ -431,8 +424,7 @@ fn seed_ori_panic_message_param_owned_transfer() {
         "the panic message transfers to the panic machinery"
     );
     assert_eq!(contract.params[0].consumption, Consumption::Linear);
-    // Effects stay CONSERVATIVE: the seed narrows ONLY param ownership vs
-    // the no-contract default; ori_panic always unwinds (may_throw).
+    // INVARIANT: The seed narrows parameter ownership without narrowing panic effects.
     assert!(
         contract.effects.may_throw,
         "ori_panic raises an exception — may_throw must stay true"
@@ -443,13 +435,7 @@ fn seed_ori_panic_message_param_owned_transfer() {
     );
 }
 
-/// Semantic pin: `__ori_inject_trace`'s Error-receiver param is an RL-34
-/// forwarder-identity TRANSFER — the by-value return carries the same
-/// allocation the arg transferred in, so the caller emits no dec on the arg
-/// and exactly one release on the result. Would FAIL if the seed is removed
-/// (the arg reverts to the all-borrowed external default and the heap
-/// message double-frees under the rejected `[Borrowed]` treatment) or if
-/// `transfers_through_return` / `return_alias` regress.
+/// Pins `__ori_inject_trace`'s RL-34 forwarder-identity transfer.
 #[test]
 fn seed_ori_inject_trace_forwarder_identity_transfer() {
     let (interner, builtins) = setup();

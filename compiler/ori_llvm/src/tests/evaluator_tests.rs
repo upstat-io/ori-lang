@@ -65,10 +65,8 @@ fn test_llvm_eval_error_from_string() {
     assert_eq!(error.message, "from string");
 }
 
-// Construction + drop of `OwnedLLVMEvaluator` is covered by
-// `test_compile_module_with_tests_empty` below, which constructs the
-// evaluator AND asserts on its output — a standalone construct-and-drop
-// smoke has no assertable surface of its own.
+// `test_compile_module_with_tests_empty` exercises evaluator construction and
+// drop while asserting the compiled result.
 
 fn empty_executable(symbols: &SharedInterner) -> ExecutableProgram {
     let main = symbols.intern("artifact_root");

@@ -122,7 +122,7 @@ impl super::ArcFunction {
     /// allocation contract. Later rewrites must use
     /// [`fresh_scalar_var`](Self::fresh_scalar_var) or
     /// [`fresh_var_like`](Self::fresh_var_like) so metadata stays exact,
-    /// including for a realized function that previously had zero variables.
+    /// including for a realized function that starts with zero variables.
     ///
     /// # Panics
     ///
@@ -386,8 +386,7 @@ impl super::ArcFunction {
         self.blocks.push(block);
     }
 
-    /// Return the [`ArcBlockId`] that the next [`push_block`](Self::push_block)
-    /// call will use.
+    /// Return the vacant [`ArcBlockId`] at the end of the block table.
     pub fn next_block_id(&self) -> ArcBlockId {
         ArcBlockId::new(
             u32::try_from(self.blocks.len())

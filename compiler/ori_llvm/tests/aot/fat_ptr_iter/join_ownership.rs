@@ -102,8 +102,8 @@ fn test_plain_skip_join_pass_through_borrowed_no_double_free() {
     );
 }
 
-/// Boundary cell: skip DISCARDS a map-produced fresh element inside the
-/// adapter — same discard class as the filter cell below.
+/// Boundary cell: skip discards a map-produced fresh element inside the
+/// adapter, exercising the same discard class as filter.
 #[test]
 fn test_map_skip_join_skipped_element_freed() {
     assert_cell_output(

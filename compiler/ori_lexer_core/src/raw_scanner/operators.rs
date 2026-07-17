@@ -327,8 +327,8 @@ impl super::RawScanner<'_> {
     /// Scan a format spec after `:` in a template interpolation.
     ///
     /// Consumes everything between `:` (already consumed) and `}` (not consumed).
-    /// The `}` will be handled by the normal `right_brace` → `template_middle_or_tail`
-    /// path on the next call to `next_token()`.
+    /// The next `next_token()` call routes `}` through
+    /// `right_brace` → `template_middle_or_tail`.
     fn format_spec(&mut self, start: u32) -> RawToken {
         // Scan forward until `}` at brace depth 0.
         // Track nested `{}`  in the spec (unlikely but safe).

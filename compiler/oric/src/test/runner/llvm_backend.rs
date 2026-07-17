@@ -41,8 +41,8 @@ impl TestRunner {
     /// This avoids O(n²) recompilation that caused LLVM resource exhaustion.
     ///
     /// Note: `compile_fail` tests are handled in the common path of
-    /// `run_file_with_interner()` before backend dispatch — they are NOT
-    /// passed here. This avoids double-counting.
+    /// `run_file_with_interner()` before backend dispatch, so the LLVM backend
+    /// never receives or double-counts them.
     pub(super) fn run_file_llvm(
         summary: &mut FileSummary,
         file: LlvmTestFile<'_>,

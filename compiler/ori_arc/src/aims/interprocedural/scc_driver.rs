@@ -328,8 +328,7 @@ fn analyze_scc_fixpoint(
 
             let old_contract = &local_sigs[&func.name];
             if &new_contract != old_contract {
-                // Join to ensure monotonicity: contracts can only grow
-                // toward conservative.
+                // INVARIANT: Contract joins move only toward conservative.
                 let joined = old_contract.join(&new_contract);
                 if &joined != old_contract {
                     local_sigs.insert(func.name, joined);
@@ -363,42 +362,17 @@ fn analyze_scc_fixpoint(
 
 /// Worst-case fixpoint convergence bound for an SCC (IC-7 height-sum).
 fn compute_convergence_bound(scc_funcs: &[&ArcFunction]) -> usize {
-    // Each iteration promotes at least one lattice step; the height-weighted
-    // sum over all SCC members is the upper bound. Per-member height:
-    //   per-param height: access(1) + consumption(3) + cardinality(2)
-    //                   + locality(4) + uniqueness(2) + may_escape(1)
-    //                   + may_share(1) + transfers_through_return(1)
-    //                   + return_alias(2) = 17
-    //   return height:    uniqueness(2) + freshness(1) + locality(4)
-    //                   + shape(1) = 8
-    //   effect height:    5 fixpoint-participating bools (may_allocate +
-    //                   may_deallocate + may_share + may_throw +
-    //                   has_unbounded_stack); alloc_only_on_slow_path is
-    //                   post-realization (excluded). The spec lists 6 because
-    //                   it includes may_read_inaccessible (target-only, not yet
-    //                   in shipped struct); shipped reality is 5.
-    //   context height:  4 boolean fields (PL-7/PL-11)
-    //
-    // return_alias: Option<ReturnAliasShape> contributes height 2 (chain
-    // None < Some(Project) < Some(Direct)) to the per-param total.
-    // transfers_through_return: bool (height 1) remains the callee-side
-    // gate; return_alias is the caller-side carrier, both join
-    // componentwise in IC-3.
-    //
-    // Spec IC-7 lists per-param height 13 (omitting may_escape, slated for
-    // removal) plus transfers_through_return (1) + return_alias (2) = 16.
-    // Shipped ParamContract still has may_escape, so the runtime bound
-    // matches shipped reality at 17; it drops to 16 when may_escape is removed.
-    // Height-weighted (not dimension-count) form matches the worst-case
-    // fixpoint convergence proof for IC-7.
-    const PARAM_HEIGHT: usize = 17;
-    const FIXED_HEIGHT: usize = 8 + 5 + 4;
+    const PARAM_HEIGHT_WITH_MAY_ESCAPE: usize = 17;
+    const RETURN_HEIGHT: usize = 8;
+    const EFFECT_HEIGHT: usize = 5;
+    const CONTEXT_HEIGHT: usize = 4;
+    const FIXED_HEIGHT: usize = RETURN_HEIGHT + EFFECT_HEIGHT + CONTEXT_HEIGHT;
 
     let bound = scc_funcs.iter().try_fold(0usize, |total, f| {
         let member_height = f
             .params
             .len()
-            .checked_mul(PARAM_HEIGHT)?
+            .checked_mul(PARAM_HEIGHT_WITH_MAY_ESCAPE)?
             .checked_add(FIXED_HEIGHT)?;
         total.checked_add(member_height)
     });

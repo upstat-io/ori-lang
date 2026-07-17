@@ -124,9 +124,9 @@ pub(crate) fn type_check_with_imports_and_pool(
 
 /// Register built-in functions that are implemented natively in the evaluator.
 ///
-/// These functions (type conversions, print, panic, etc.) are not defined in
-/// the prelude `.ori` file but are available in every Ori program. Their type
-/// signatures are registered here so type checking can validate calls.
+/// Compiler-provided functions such as type conversions, print, and panic are
+/// available in every Ori program. Their registered type signatures let type
+/// checking validate calls.
 pub(crate) fn register_builtins(
     interner: &StringInterner,
     checker: &mut ori_types::ModuleChecker<'_>,

@@ -242,9 +242,9 @@ define_error_codes! {
 pub enum ErrorCodeLifecycle {
     /// A production compiler path constructs this code.
     Emitted,
-    /// The code is intentionally stable but unreachable today.
+    /// No production compiler path constructs this stable code.
     Reserved { rationale: &'static str },
-    /// The code is intentionally retained pending a named bug or design item.
+    /// The code has a named bug or design owner but no emitting path.
     Tracked {
         issue: &'static str,
         rationale: &'static str,

@@ -1,0 +1,4 @@
+
+trait Async {}
+
+@async_op () -> int uses Async = 42;

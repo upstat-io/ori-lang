@@ -163,7 +163,7 @@ pub(crate) fn run_aims_pipeline(
     // INVARIANT: Payload analysis reads unannotated IR; class planning reads converged ownership.
     {
         let _span = tracing::debug_span!("emit_arg_ownership_prelude").entered();
-        crate::aims::emit_rc::arg_ownership::emit_arg_ownership_with_exact_callables(
+        crate::aims::emit_rc::arg_ownership::emit_arg_ownership(
             func,
             config.contracts,
             config.interner,

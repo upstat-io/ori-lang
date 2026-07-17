@@ -7,7 +7,7 @@ use ori_ir::ast::items::ExtendDef;
 use ori_ir::{CommentList, StringLookup};
 
 use super::parsed_types::format_parsed_type;
-use super::ModuleFormatter;
+use super::{BodyBreakPolicy, ModuleFormatter};
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format an extension block.
@@ -44,7 +44,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 self.format_params(method.params);
                 self.ctx.emit(" -> ");
                 format_parsed_type(&method.return_ty, self.arena, self.interner, &mut self.ctx);
-                self.emit_expr_body(method.body, false);
+                self.emit_expr_body(method.body, BodyBreakPolicy::OverflowOnly);
                 self.ctx.emit_newline();
             }
 
@@ -94,7 +94,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 self.format_params(method.params);
                 self.ctx.emit(" -> ");
                 format_parsed_type(&method.return_ty, self.arena, self.interner, &mut self.ctx);
-                self.emit_expr_body(method.body, false);
+                self.emit_expr_body(method.body, BodyBreakPolicy::OverflowOnly);
                 self.ctx.emit_newline();
             }
 

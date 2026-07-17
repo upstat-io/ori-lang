@@ -55,7 +55,7 @@ pub(crate) fn infer_none(engine: &mut InferEngine<'_>) -> Idx {
 /// into `inner` instead of leaving the `Err` slot a fresh unification
 /// variable, and the constructor returns the outer `Result<T, E>` type.
 /// For non-Result expectations, falls through to bottom-up synthesis so
-/// unification downstream catches mismatches.
+/// subsequent unification catches mismatches.
 pub(crate) fn check_ok(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,

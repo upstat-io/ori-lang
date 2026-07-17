@@ -1,7 +1,7 @@
 //! Centralized debug flags for the Ori compiler.
 //!
-//! All compiler debugging environment variables are defined here as the single
-//! source of truth. Flags are checked at runtime via env vars in ALL builds
+//! This module is the single source of truth for compiler debugging environment
+//! variables. Flags are checked at runtime via env vars in ALL builds
 //! (debug and release). The overhead is a single `std::env::var()` call per
 //! flag — negligible for a CLI compiler.
 //!

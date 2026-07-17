@@ -13,7 +13,7 @@ use ori_ir::{BinaryOp, ExprId, ExprKind, StringLookup};
 
 use crate::rules::map_key_needs_brackets;
 
-use super::{needs_binary_parens, Formatter};
+use super::{needs_binary_parens, BinaryOperandSide, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emit a map-literal key in broken format, wrapping a computed key in `[ ]`
@@ -51,11 +51,11 @@ impl<I: StringLookup> Formatter<'_, I> {
         match &expr.kind {
             // Binary expression - break before operator
             ExprKind::Binary { op, left, right } => {
-                self.emit_binary_operand_broken(*left, *op, true);
+                self.emit_binary_operand_broken(*left, *op, BinaryOperandSide::Left);
                 self.ctx.emit_newline_indent();
                 self.ctx.emit(op.as_symbol());
                 self.ctx.emit_space();
-                self.emit_binary_operand_broken(*right, *op, false);
+                self.emit_binary_operand_broken(*right, *op, BinaryOperandSide::Right);
             }
 
             // Calls - one argument per line
@@ -307,8 +307,13 @@ impl<I: StringLookup> Formatter<'_, I> {
     }
 
     /// Emit a binary operand in broken format, wrapping in parentheses if needed.
-    fn emit_binary_operand_broken(&mut self, operand: ExprId, parent_op: BinaryOp, is_left: bool) {
-        let needs_parens = needs_binary_parens(self.arena, operand, parent_op, is_left);
+    fn emit_binary_operand_broken(
+        &mut self,
+        operand: ExprId,
+        parent_op: BinaryOp,
+        side: BinaryOperandSide,
+    ) {
+        let needs_parens = needs_binary_parens(self.arena, operand, parent_op, side);
         self.emit_parenthesized_if(needs_parens, operand, Self::format);
     }
 }

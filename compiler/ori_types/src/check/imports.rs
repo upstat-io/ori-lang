@@ -1,16 +1,16 @@
 //! Import and signature management for `ModuleChecker`.
 //!
 //! Handles registering imported functions, traits, built-in functions/values,
-//! module aliases, function signature storage, and monomorphization accumulation.
+//! module aliases, and function signature storage.
 //! Supports both hash-first resolution (O(1) per type) and AST fallback for
 //! generic or missing types.
 
-use ori_ir::{ExprArena, ExprId, Name};
+use ori_ir::{ExprArena, Name};
 use rustc_hash::FxHashMap;
 
 use super::signatures;
 use super::ModuleChecker;
-use crate::{FunctionSig, Idx, MonoInstanceId, TypeEnv};
+use crate::{FunctionSig, Idx, TypeEnv};
 
 impl ModuleChecker<'_> {
     // Signature Registration
@@ -82,99 +82,6 @@ impl ModuleChecker<'_> {
     /// methods are NOT recorded (they have known call sites).
     pub fn register_trait_impl_fn_name(&mut self, self_type: Idx, name: Name) {
         self.trait_impl_fn_names.push((self_type, name));
-    }
-
-    /// Accumulate one body-pass session's mono outputs: instances and the
-    /// parallel `(call_expr_id, MonoInstanceId)` dispatch entries.
-    ///
-    /// Each engine session indexes its dispatch entries against its own
-    /// local `mono_instances` Vec (positions starting at 0). This method
-    /// re-anchors them into module-wide positions in
-    /// `self.mono_instances` by offsetting each [`MonoInstanceId`] by the
-    /// pre-extend length of `self.mono_instances`. The combined entry
-    /// point makes it impossible to extend instances without re-anchoring
-    /// the dispatch entries — this method is the SSOT for that offset
-    /// arithmetic.
-    ///
-    /// Both vectors are still pre-dedup at this point;
-    /// [`crate::check::ModuleChecker::finish_with_pool`] applies a second
-    /// remap across dedup + sort before storing in
-    /// [`crate::TypedModule::mono_dispatch_map`].
-    pub fn accumulate_mono_session(
-        &mut self,
-        instances: Vec<crate::MonoInstance>,
-        dispatch_entries: Vec<(ExprId, MonoInstanceId)>,
-    ) {
-        // Saturating `Vec::len() → u32` matches the workspace pattern
-        // at `pool/substitute/mod.rs` (`unwrap_or(u32::MAX)`); strict
-        // workspace clippy denies bare `as u32` casts (`cast_possible_truncation`)
-        // and `expect`/`unwrap`. A 4-billion-instance overflow is structurally
-        // unreachable for one module's mono table; if it ever did occur,
-        // dispatch entries beyond `u32::MAX` would alias, which the post-dedup
-        // remap would surface via duplicate `MonoInstanceId` values in the
-        // sorted output map.
-        let offset = u32::try_from(self.mono_instances.len()).unwrap_or(u32::MAX);
-        self.mono_instances.extend(instances);
-        self.mono_dispatch_pre_dedup.extend(
-            dispatch_entries
-                .into_iter()
-                .map(|(eid, id)| (eid, MonoInstanceId::new(id.raw() + offset))),
-        );
-    }
-
-    /// Accumulate deferred mono calls from an inference engine pass.
-    pub fn accumulate_deferred_mono_calls(&mut self, calls: Vec<crate::DeferredMonoCall>) {
-        self.deferred_mono_calls.extend(calls);
-    }
-
-    /// Accumulate `AssignTarget` desugar plans from an inference engine pass.
-    ///
-    /// Keys are module-wide AST `ExprId`s (one arena per module), so entries
-    /// extend without re-anchoring — unlike `accumulate_mono_session`, which
-    /// offsets body-local `MonoInstanceId` indices.
-    pub fn accumulate_assign_desugars(&mut self, desugars: Vec<(ExprId, crate::AssignDesugar)>) {
-        self.assign_desugars.extend(desugars);
-    }
-
-    /// Accumulate one body pass's module-alias qualified-call entries into the
-    /// module-wide store drained at `finish` into
-    /// `TypedModule::module_alias_call_map`. Keys are module-wide AST `ExprId`s,
-    /// so entries extend without re-anchoring.
-    pub fn accumulate_module_alias_calls(&mut self, calls: Vec<(ExprId, ori_ir::Name)>) {
-        self.module_alias_calls.extend(calls);
-    }
-
-    /// Accumulate one body pass's Iterable->Iterator route entries
-    /// into the module-wide store drained at `finish` into
-    /// `TypedModule::iter_route_map`. Keys are module-wide AST call
-    /// `ExprId`s, so entries extend without re-anchoring.
-    pub fn accumulate_iter_routes(&mut self, routes: Vec<(ExprId, crate::IterMethodRoute)>) {
-        self.iter_route_desugars.extend(routes);
-    }
-
-    /// Flush composed `UserBurdenSpec` entries from one body-pass session
-    /// into the `TypeRegistry`.
-    ///
-    /// Each `(idx, spec)` entry was produced by a monomorphization site
-    /// in the body via `InferEngine::record_composed_burden`. Calls
-    /// `TypeRegistry::register_user_burden` per entry, which dedups
-    /// against the signature reverse-index and writes the canonical spec
-    /// onto the `TypeEntry` at `idx`. Late-stage codegen reads the
-    /// registered spec via `TypeRegistry::burden(idx)` without
-    /// re-deriving.
-    ///
-    /// Called from `bodies::finalize_body_and_export` after each body's
-    /// inference closure completes — gives every body's composed entries
-    /// equal access to the registry's dedup state. Called by every body
-    /// kind (functions, tests, impl methods, def-impl methods) through
-    /// the shared spine.
-    pub fn flush_composed_burdens(
-        &mut self,
-        entries: Vec<(crate::Idx, crate::registry::burden::UserBurdenSpec)>,
-    ) {
-        for (idx, spec) in entries {
-            let _ = self.type_registry_mut().register_user_burden(idx, spec);
-        }
     }
 
     /// Get all registered signatures.

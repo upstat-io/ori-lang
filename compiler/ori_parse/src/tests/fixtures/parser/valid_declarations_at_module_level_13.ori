@@ -1,0 +1,1 @@
+pub type Color = Red | Green | Blue;

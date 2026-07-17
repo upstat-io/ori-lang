@@ -18,12 +18,12 @@ use crate::codegen::eh_model::EhModel;
 use crate::codegen::value_id::{FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Check if an Invoke callee will be intercepted by a builtin handler.
+    /// Determine whether a builtin handler intercepts an `Invoke` callee.
     ///
     /// Several handler paths in [`Self::emit_invoke`] always emit `call`
     /// regardless of the invoke mode: format calls, prelude builtins, and
-    /// builtin type methods. When a callee is intercepted, its unwind block
-    /// will never have a predecessor — it's dead code.
+    /// builtin type methods. An intercepted callee's unwind block has no
+    /// predecessor and is dead code.
     ///
     /// Used by dead unwind detection (to skip creating LLVM blocks) and by
     /// [`Self::emit_invoke`] (to use `Call` mode instead of `Invoke`).

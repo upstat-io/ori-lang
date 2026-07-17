@@ -1,0 +1,6 @@
+
+@add (a: int, b: int) -> int = a + b;
+
+@test_add tests @add () -> void = {
+    @add(a: 1, b: 2)
+}

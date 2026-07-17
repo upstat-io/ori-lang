@@ -2,7 +2,7 @@
 //!
 //! Handles direct calls (`Apply`), indirect calls (`ApplyIndirect`), and method
 //! dispatch resolution. This is the call-site half of the emission pipeline;
-//! the callee declarations live in `function_compiler`.
+//! call sites use declarations owned by the function compiler.
 //!
 //! # Submodules
 //!

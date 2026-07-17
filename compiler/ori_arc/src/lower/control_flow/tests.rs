@@ -482,11 +482,7 @@ fn lower_field_assignment_reports_internal_error_instead_of_panicking() {
     );
 }
 
-// pool_type_store_size — cross-phase size agreement
-//
-// These values must match `TypeLayoutResolver::type_store_size` in ori_llvm.
-// If a new type is added and these constants differ, for-yield element
-// buffers will be mis-sized, causing memory corruption.
+// Store sizes must match the LLVM layout used for for-yield element buffers.
 
 #[test]
 fn type_store_size_primitives() {
@@ -711,9 +707,7 @@ fn type_store_size_option_result_trailing_padding() {
     );
 }
 
-/// Regression: inter-field alignment padding was missing.
-/// `pool_type_store_size` summed field sizes without aligning each field,
-/// undercounting aggregates with mixed-alignment fields.
+/// Aggregate storage includes each field's alignment padding.
 #[test]
 fn type_store_size_inter_field_padding() {
     let mut pool = Pool::new();
@@ -787,7 +781,6 @@ fn type_store_size_inter_field_padding() {
     );
 }
 
-/// Regression: + enum payload i64-slot sizing.
 /// Enum payloads use `[M x i64]` layout where each field occupies at
 /// least one full i64 slot (8 bytes), regardless of natural alignment.
 #[test]
@@ -856,11 +849,9 @@ fn type_store_size_enum_payload_slots() {
     );
 }
 
-/// Regression: nested aggregates with sub-8-byte alignment.
 /// `pool_type_alignment` must recurse into struct/tuple fields to compute
-/// max field alignment, matching `type_alignment` in `ori_llvm`. Without
-/// recursion, all struct/tuple types default to alignment 8, which over-sizes
-/// aggregates like `((char, char), bool)` (12 bytes, not 16).
+/// the maximum field alignment. `((char, char), bool)` therefore occupies
+/// 12 bytes rather than 16.
 #[test]
 fn type_store_size_nested_low_alignment() {
     let mut pool = Pool::new();
@@ -920,13 +911,7 @@ fn type_store_size_nested_low_alignment() {
     );
 }
 
-/// Regression: all-unit enums use narrowed i8 tags after.
-///
-/// `pool_type_store_size` was hardcoding 8-byte (i64) enum tags for all enums,
-/// but narrowed all-unit enums to i8 (1 byte). This caused `for...yield`
-/// over all-unit enums to allocate 8 bytes per element in `ori_list_new` /
-/// `ori_list_push`, but LLVM lowered them as 1-byte `{ i8 }` structs — resulting
-/// in out-of-bounds reads/writes and segfaults.
+/// All-unit enums use their narrowed one-byte tag as the complete store size.
 #[test]
 fn type_store_size_all_unit_enum_narrowed_tag() {
     let mut pool = Pool::new();
@@ -1349,7 +1334,7 @@ fn match_assigned_mutable_binding_keeps_merge_param() {
 
 #[test]
 fn match_guard_assignment_keeps_merge_param() {
-    // The reassignment lives in a decision-tree GUARD expression, not an arm
+    // The reassignment occurs in a decision-tree guard expression, not an arm
     // body — the pre-traversal must walk tree guards too.
     let func = lower_bool_match_with_mutable_binding(
         |arena, _| {

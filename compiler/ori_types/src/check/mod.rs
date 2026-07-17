@@ -79,7 +79,7 @@ mod signatures;
 pub(crate) mod validators;
 mod well_known;
 
-// Re-export for use in sibling modules (e.g., infer::expr::type_resolution).
+// Expose object-safety helpers to type-inference callers.
 pub(crate) use object_safety::{check_parsed_type_object_safety, ObjectSafetyChecker};
 pub(crate) use well_known::{is_concrete_named_type, resolve_well_known_generic, WellKnownNames};
 
@@ -249,7 +249,7 @@ pub struct ModuleChecker<'a> {
     /// across foreign arena and registry index spaces.
     imported_impl_sigs: Vec<crate::ImportedImplSig>,
     /// Compiler-generated implementations accepted by validation and
-    /// coherence. Downstream generated-body construction consumes this exact
+    /// coherence. Generated-body construction consumes this exact
     /// inventory rather than rescanning source attributes.
     accepted_derives: Vec<crate::AcceptedDerivedImpl>,
     /// Frontend-owned semantic roles keyed by exact impl-method identity.
@@ -269,7 +269,7 @@ pub struct ModuleChecker<'a> {
     mono_instances: Vec<crate::MonoInstance>,
 
     /// Pre-dedup `(call_expr_id, MonoInstanceId)` entries accumulated from
-    /// each engine session via `accumulate_mono_session`. The
+    /// each engine session by the body finalization spine. The
     /// [`crate::MonoInstanceId`] values reference positions in
     /// `mono_instances` AT THE TIME of accumulation (already module-wide
     /// per-session offset adjustment, but pre-dedup). [`finish_with_pool`]
@@ -388,9 +388,9 @@ impl<'a> ModuleChecker<'a> {
     /// Set imported type metadata for transitive forwarding.
     ///
     /// Called during the `register_fn` closure in [`check_module_with_imports`]
-    /// to provide metadata from imported modules. When this module finishes type
-    /// checking, its `exported_type_metadata` will include both local types and
-    /// forwarded imported entries (deduped by Merkle hash, local priority).
+    /// to provide metadata from imported modules. `exported_type_metadata`
+    /// combines local types with forwarded imported entries, deduplicated by
+    /// Merkle hash with local priority.
     pub fn set_imported_type_metadata(
         &mut self,
         metadata: Vec<crate::output::ExportedTypeMetadata>,

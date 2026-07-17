@@ -73,7 +73,7 @@ impl Expected {
 
     /// Return value-domain terms carried by this expectation in binder order.
     ///
-    /// The direct fixed-list path currently contributes one term. A vector is
+    /// The direct fixed-list path contributes one term. A vector is
     /// intentional: mixed or multiple const binders remain representable when
     /// additional inference sources are added, rather than being silently
     /// truncated to a single capacity.

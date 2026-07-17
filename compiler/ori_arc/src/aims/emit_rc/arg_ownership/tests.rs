@@ -65,8 +65,14 @@ fn direct_call_reuses_monomorphized_contract_merge() {
     mono_contract.params[0] = make_param_contract(AccessClass::Owned);
     contracts.insert(mono_name, mono_contract);
 
-    let Ok(()) = super::emit_arg_ownership(&mut func, &contracts, &interner, &builtins, &pool)
-    else {
+    let Ok(()) = super::emit_arg_ownership(
+        &mut func,
+        &contracts,
+        &interner,
+        &builtins,
+        &pool,
+        &FxHashSet::default(),
+    ) else {
         panic!("direct call ownership annotation should be total");
     };
 
@@ -120,8 +126,14 @@ fn indirect_call_keeps_uniform_borrowed_abi() {
     contract.params[0] = make_param_contract(AccessClass::Owned);
     contracts.insert(mono_name, contract);
 
-    let Ok(()) = super::emit_arg_ownership(&mut func, &contracts, &interner, &builtins, &pool)
-    else {
+    let Ok(()) = super::emit_arg_ownership(
+        &mut func,
+        &contracts,
+        &interner,
+        &builtins,
+        &pool,
+        &FxHashSet::default(),
+    ) else {
         panic!("indirect call ownership annotation should be total");
     };
 
@@ -204,7 +216,7 @@ fn exact_external_alias_named_like_builtin_keeps_producer_contract() {
     let contracts = [(push, contract)].into_iter().collect();
     let exact_callables: FxHashSet<_> = [push].into_iter().collect();
 
-    let Ok(()) = super::emit_arg_ownership_with_exact_callables(
+    let Ok(()) = super::emit_arg_ownership(
         &mut function,
         &contracts,
         &interner,

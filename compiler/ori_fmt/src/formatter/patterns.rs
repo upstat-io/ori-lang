@@ -6,6 +6,18 @@ use ori_ir::{BindingPattern, MatchPattern, StringLookup};
 
 use super::Formatter;
 
+#[derive(Clone, Copy)]
+pub(crate) enum BindingPrefix {
+    Emit,
+    Suppress,
+}
+
+impl BindingPrefix {
+    pub(crate) const fn should_emit(self) -> bool {
+        matches!(self, Self::Emit)
+    }
+}
+
 impl<I: StringLookup> Formatter<'_, I> {
     pub(super) fn emit_match_pattern(&mut self, pattern: &MatchPattern) {
         match pattern {
@@ -113,7 +125,7 @@ impl<I: StringLookup> Formatter<'_, I> {
 
     /// Emit a binding pattern (for `let` bindings — emits `$` for immutable names).
     pub(super) fn emit_binding_pattern(&mut self, pattern: &BindingPattern) {
-        self.emit_binding_pattern_inner(pattern, false);
+        self.emit_binding_pattern_inner(pattern, BindingPrefix::Emit);
     }
 
     /// Emit a for-loop binding pattern — suppresses `$` prefix.
@@ -123,17 +135,21 @@ impl<I: StringLookup> Formatter<'_, I> {
     /// the formatter never emits it for for-loop patterns.
     pub(super) fn emit_for_binding_pattern_id(&mut self, id: ori_ir::BindingPatternId) {
         let pattern = self.arena.get_binding_pattern(id);
-        self.emit_binding_pattern_inner(pattern, true);
+        self.emit_binding_pattern_inner(pattern, BindingPrefix::Suppress);
     }
 
     /// Shared binding pattern emitter.
     ///
-    /// When `suppress_dollar` is true, `$` is not emitted for immutable names
-    /// (used for for-loop patterns where immutability is structural).
-    fn emit_binding_pattern_inner(&mut self, pattern: &BindingPattern, suppress_dollar: bool) {
+    /// `dollar_prefix` distinguishes `let` bindings from for-loop patterns,
+    /// where immutability is structural and `$` must not be emitted.
+    fn emit_binding_pattern_inner(
+        &mut self,
+        pattern: &BindingPattern,
+        dollar_prefix: BindingPrefix,
+    ) {
         match pattern {
             BindingPattern::Name { name, mutable } => {
-                if !suppress_dollar && mutable.is_immutable() {
+                if dollar_prefix.should_emit() && mutable.is_immutable() {
                     self.ctx.emit("$");
                 }
                 self.ctx.emit(self.interner.lookup(*name));
@@ -141,7 +157,7 @@ impl<I: StringLookup> Formatter<'_, I> {
             BindingPattern::Tuple(items) => {
                 self.ctx.emit("(");
                 self.emit_inline_items(items, |s, item| {
-                    s.emit_binding_pattern_inner(item, suppress_dollar);
+                    s.emit_binding_pattern_inner(item, dollar_prefix);
                 });
                 // Single-element tuples need trailing comma: (x,) vs (x)
                 if items.len() == 1 {
@@ -153,13 +169,16 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit("{ ");
                 self.emit_inline_items(fields, |s, field| {
                     // Shorthand with $ prefix: { $x }
-                    if !suppress_dollar && field.mutable.is_immutable() && field.pattern.is_none() {
+                    if dollar_prefix.should_emit()
+                        && field.mutable.is_immutable()
+                        && field.pattern.is_none()
+                    {
                         s.ctx.emit("$");
                     }
                     s.ctx.emit(s.interner.lookup(field.name));
                     if let Some(pat) = &field.pattern {
                         s.ctx.emit(": ");
-                        s.emit_binding_pattern_inner(pat, suppress_dollar);
+                        s.emit_binding_pattern_inner(pat, dollar_prefix);
                     }
                 });
                 self.ctx.emit(" }");
@@ -167,14 +186,14 @@ impl<I: StringLookup> Formatter<'_, I> {
             BindingPattern::List { elements, rest } => {
                 self.ctx.emit("[");
                 self.emit_inline_items(elements, |s, item| {
-                    s.emit_binding_pattern_inner(item, suppress_dollar);
+                    s.emit_binding_pattern_inner(item, dollar_prefix);
                 });
                 if let Some((rest_name, rest_mut)) = rest {
                     if !elements.is_empty() {
                         self.ctx.emit(", ");
                     }
                     self.ctx.emit("..");
-                    if !suppress_dollar && rest_mut.is_immutable() {
+                    if dollar_prefix.should_emit() && rest_mut.is_immutable() {
                         self.ctx.emit("$");
                     }
                     self.ctx.emit(self.interner.lookup(*rest_name));

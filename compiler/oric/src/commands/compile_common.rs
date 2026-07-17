@@ -5,7 +5,7 @@
 //! The compilation pipeline uses a **hybrid caching strategy**:
 //!
 //! - **Salsa** handles the front-end: `SourceFile → tokens() → parsed() → typed()`.
-//!   Salsa's early cutoff skips downstream queries when results are unchanged
+//!   Salsa's early cutoff skips dependent queries when results are unchanged
 //!   (e.g., whitespace-only edits don't trigger re-parsing).
 //!
 //! - **`ArtifactCache`** handles the back-end: object code caching (future).

@@ -46,7 +46,7 @@ pub(crate) fn infer_lambda(
 
     // `?` in a lambda returns from that lambda, not from a `try {}` enclosing
     // the lambda expression. Nested try blocks pushed while inferring the body
-    // still collect their own propagation observations above this barrier.
+    // still collect their own propagation observations outside this barrier.
     engine.push_try_boundary_barrier();
     let body_ty = if let Some(ret_parsed) = ret_ty {
         let expected_ty = resolve_and_check_parsed_type(engine, arena, ret_parsed, span);

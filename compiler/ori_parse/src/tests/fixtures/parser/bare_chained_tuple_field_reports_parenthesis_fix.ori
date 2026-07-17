@@ -1,0 +1,1 @@
+@f (t: ((int, int), int)) -> int = t.0.1;

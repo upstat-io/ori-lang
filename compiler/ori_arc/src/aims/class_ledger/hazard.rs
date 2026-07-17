@@ -1,11 +1,7 @@
-//! Field-view hazard detection + cure ladder over released container classes.
+//! Field-view hazard detection and cures for released container classes.
 //!
-//! A locally-released container class (a planned dec or a consume event) may
-//! have a SIBLING field-path view class with events of its own: the
-//! container's recursive release and the view's cross-class liveness are not
-//! modeled together unless cured here. Consumed by `analyze_class_ledger`
-//! (`class_ledger::mod`), whose `field_view_hazard` result reflects whether
-//! any endangered view went uncured.
+//! A cure reconciles recursive container release with the independent
+//! liveness of field-path views. The result identifies any uncured view.
 
 use ori_ir::Name;
 use rustc_hash::FxHashSet;

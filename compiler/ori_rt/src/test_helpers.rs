@@ -1,17 +1,34 @@
-//! Shared test utilities for `ori_rt`.
+//! Shared synchronization and ABI-buffer utilities for `ori_rt` tests.
 //!
-//! `RC_LIVE_COUNT` is a process-global atomic counter modified by
-//! `ori_rc_alloc` / `ori_rc_free`. Without serialization, tests that
-//! assert on `ori_rc_live_count()` race with any concurrent test that
-//! allocates or frees RC objects.
-//!
-//! Every `#[test]` that calls RC functions **must** acquire this lock:
-//!
-//! ```text
-//! let _g = crate::test_helpers::lock_rc();
-//! ```
+//! RC tests serialize access to the process-global allocation counter.
+//! [`AbiOutput`] gives raw sret storage the alignment required by runtime ABIs.
 
+use std::ops::{Deref, DerefMut};
 use std::sync::MutexGuard;
+
+/// Zeroed, 16-byte-aligned storage for an ABI result.
+#[repr(C, align(16))]
+pub(crate) struct AbiOutput<const N: usize>([u8; N]);
+
+impl<const N: usize> Default for AbiOutput<N> {
+    fn default() -> Self {
+        Self([0; N])
+    }
+}
+
+impl<const N: usize> Deref for AbiOutput<N> {
+    type Target = [u8; N];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<const N: usize> DerefMut for AbiOutput<N> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 /// Global mutex that serializes all RC-touching tests across every
 /// module in `ori_rt`. Without this, parallel test threads cause

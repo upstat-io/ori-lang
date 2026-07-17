@@ -256,9 +256,8 @@ pub(crate) fn compute_module_repr_plan(input: ModuleReprInput<'_>) -> ori_repr::
     );
 
     // Collect unconstrained function names (pub + trait impl) for
-    // interprocedural range analysis. The qualified-name algorithm is a
-    // cross-phase contract feeding compute_repr_plan_with_interner — the
-    // canonical implementation lives in ori_llvm.
+    // interprocedural range analysis. Qualified names are a cross-phase
+    // contract consumed by compute_repr_plan_with_interner.
     let unconstrained_fn_names = ori_repr::collect_unconstrained_fn_names(
         &type_result.typed.functions,
         &type_result.typed.trait_impl_fn_names,

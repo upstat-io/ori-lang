@@ -260,8 +260,7 @@ fn param_contract_for(
         uniqueness: Uniqueness::MaybeShared,
         // Param flows directly to a `Return { value }` terminator —
         // gates scope-exit dec suppression in the realize walk.
-        // Computed from the STRUCTURAL Return-flow alias fact (NOT from
-        // `preserves_freshness`, which is currently spec-inverted).
+        // The structural return-flow alias proves transfer; result freshness does not.
         // Invariant: `transfers_through_return == true` IFF
         // `return_alias == Some(Direct)`.
         transfers_through_return: facts.return_flow.contains(&i),

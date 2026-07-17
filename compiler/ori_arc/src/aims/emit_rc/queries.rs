@@ -1,7 +1,6 @@
 //! Post-emission query passes: added-owner-credit tracking.
 //!
-//! Produces auxiliary data used by downstream pipeline steps (COW annotations,
-//! drop hints).
+//! Produces auxiliary data used by COW annotation and drop-hint passes.
 
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -13,44 +12,11 @@ use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 #[cfg(test)]
 mod tests;
 
-/// Collect all variables whose logical storage identity received an added
-/// owner credit through the transitional `RcInc` carrier or a sharing-view
-/// call boundary whose runtime retains the borrowed backing storage.
+/// Collects logical storage identities that have a competing owner credit.
 ///
-/// Returns a set containing:
-/// - Every variable `v` that has an `RcInc { var: v }` instruction
-/// - The destination and every borrowed argument of an Apply/Invoke whose
-///   contract carries `returns_sharing_view`. The retain is internal to the
-///   producer runtime (for example `ori_list_slice`), so no ARC `RcInc`
-///   spells it even though the source and returned view are competing owners.
-/// - Every variable on a `Let { dst, value: Var(src) }` alias edge whose
-///   OTHER end is in the set — BOTH directions, transitive through alias
-///   chains. `dst` and `src` name the same logical storage identity, so an
-///   added credit on either applies to both aliases: forward (src incremented →
-///   dst incremented) covers reads through later aliases; backward (dst
-///   incremented → src incremented, re-distributed to every sibling by the
-///   forward pass) covers a kept duplication-alias inc (the RL-1 funded
-///   call-arg / store families keep the inc on the ALIAS while the root and
-///   its other aliases stay live — classifying those as un-incremented would
-///   promote a later COW site to `StaticUnique` despite a competing owner)
-/// - Every block parameter that receives an incremented variable through
-///   a `Jump { target, args }` terminator (phi-edge propagation)
-/// - Every Select operand (`true_val` / `false_val`) when the `dst` is
-///   incremented. `Select dst` is one of `{true_val, false_val}`, so an added
-///   credit on `dst` belongs to the chosen operand's logical identity. The
-///   pre-event `Unique` classification is no longer valid for that identity.
-///   Propagation conservatively marks both operands because either can be
-///   chosen.
-/// - Every whole-variable member of the same frozen birth-site class. This
-///   carries a credit across Construct-field / Project identities: an inc on
-///   the value moved into a struct field also invalidates pre-event uniqueness
-///   on a later projection of that field. The aggregate's whole variable is
-///   not in the field class and is therefore not conflated with its payload.
-///
-/// Used by both COW annotations and drop hints: after logical event
-/// realization, a variable in this set may have a competing owner credit. Its
-/// pre-event AIMS uniqueness state therefore cannot authorize single-owner
-/// mutation or cleanup.
+/// Credits propagate from `RcInc` and sharing-view calls through aliases,
+/// block parameters, selections, and frozen birth-site classes. COW and drop
+/// decisions cannot treat the returned identities as single-owner values.
 pub(crate) fn collect_rc_incremented_vars(
     func: &ArcFunction,
     birth_site_partition: Option<&BirthSitePartition>,
@@ -60,14 +26,9 @@ pub(crate) fn collect_rc_incremented_vars(
 
     let mut incremented = FxHashSet::default();
     let mut alias_edges: Vec<Option<ArcVarId>> = vec![None; func.var_types.len()];
-    // Select operand aliases: dst → (true_val, false_val). Propagation in the
-    // fixed-point loop below mirrors `Let { Var(src) }` but edges TWO ways
-    // because a Select's dst aliases EITHER operand at runtime.
     let mut select_aliases: Vec<(ArcVarId, ArcVarId, ArcVarId)> = Vec::new();
 
-    // Freeze whole-variable members by birth-site representative up front.
-    // `BirthSitePartition` uses path-compressing queries, so work on a clone;
-    // the converged side table remains immutable per PL-5.
+    // Why: Representative lookup path-compresses, while the converged side table stays immutable.
     let birth_class_members = collect_birth_class_members(birth_site_partition);
 
     for block in &func.blocks {
@@ -101,11 +62,7 @@ pub(crate) fn collect_rc_incremented_vars(
             }
         }
 
-        // Phi-edge propagation: Jump args map to target block params.
-        // A block param may receive values from multiple predecessors
-        // (e.g., loop header from entry + back-edge). If ANY source is
-        // incremented, the param inherits the flag. Single-source cases
-        // record an `alias_edges` entry; multi-source uses direct insertion.
+        // INVARIANT: A block parameter is credited when any incoming jump argument is credited.
         match &block.terminator {
             ArcTerminator::Invoke {
                 dst,
@@ -119,12 +76,7 @@ pub(crate) fn collect_rc_incremented_vars(
                     for (i, &arg) in args.iter().enumerate() {
                         if let Some(&(param_var, _)) = func.blocks[target_idx].params.get(i) {
                             if let Some(existing) = alias_edges[param_var.index()] {
-                                // Multi-predecessor: param already has an alias
-                                // edge. If the new arg OR the existing source is
-                                // incremented, mark the param directly. This
-                                // handles loop headers where one predecessor
-                                // passes an incremented var and the back-edge
-                                // passes the param itself.
+                                // INVARIANT: Existing and new predecessor sources both contribute.
                                 if incremented.contains(&arg) || incremented.contains(&existing) {
                                     incremented.insert(param_var);
                                 }
@@ -212,11 +164,9 @@ fn collect_birth_class_members(
     })
 }
 
-/// Seed the physical competing-owner fact created inside a sharing-view
-/// producer. `returns_sharing_view` is path-universal typed provenance: the
-/// destination receives a new owner credit backed by one of the borrowed
-/// inputs. The contract does not yet name which borrowed parameter supplies
-/// that backing identity, so mark every borrowed parameter conservatively.
+/// Seeds a sharing-view result and every borrowed argument with an owner credit.
+///
+/// `returns_sharing_view` does not identify which borrowed argument backs the result.
 fn seed_sharing_view_owners(
     dst: ArcVarId,
     callee: Name,
@@ -240,14 +190,9 @@ fn seed_sharing_view_owners(
     }
 }
 
-/// Collect borrowed function parameter variables and their Let-alias
-/// transitive closure.
+/// Collects borrowed parameters and aliases that transitively derive from them.
 ///
-/// Returns a set containing every function parameter with
-/// `Ownership::Borrowed` plus all `Let { dst, value: Var(src) }` aliases
-/// that transitively derive from them. Used by `decide_drop_hint` to
-/// prevent unique-drop on borrowed params (the caller retains a reference,
-/// so the buffer is never uniquely owned by the callee).
+/// The result prevents unique-drop while the caller retains a reference.
 pub(crate) fn collect_param_borrowed_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
     use crate::ownership::Ownership;
 
@@ -260,14 +205,10 @@ pub(crate) fn collect_param_borrowed_vars(func: &ArcFunction) -> FxHashSet<ArcVa
     if result.is_empty() {
         return result;
     }
-    // Transitive closure through Let aliases AND block params (Jump/Branch
-    // args → target block params). Borrowed-param values flow through the
-    // loop header and exit block as block parameters.
     let mut changed = true;
     while changed {
         changed = false;
         for block in &func.blocks {
-            // Let aliases: %3 = %0 where %0 is a borrowed param.
             for instr in &block.body {
                 if let ArcInstr::Let {
                     dst,
@@ -280,8 +221,6 @@ pub(crate) fn collect_param_borrowed_vars(func: &ArcFunction) -> FxHashSet<ArcVa
                     }
                 }
             }
-            // Block param propagation: Jump args map to target block params.
-            // If arg N is in the result set, add target's block param N.
             let targets: Vec<(usize, &[ArcVarId])> = match &block.terminator {
                 crate::ir::ArcTerminator::Jump { target, args } => {
                     vec![(target.index(), args)]

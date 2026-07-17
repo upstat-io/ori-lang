@@ -11,8 +11,8 @@
 //! a protocol method (`next`, `next_back`), an adapter, or a consumer.
 
 use crate::{
-    DeiPropagation, MemoryStrategy, MethodDef, MethodKind, OpDefs, Ownership, ParamDef, ReturnTag,
-    TypeDef, TypeParamArity, TypeProjection, TypeTag,
+    BackendRequirement, DeiPropagation, MemoryStrategy, MethodDef, MethodKind, OpDefs, Ownership,
+    ParamDef, ReturnTag, TypeDef, TypeParamArity, TypeProjection, TypeTag,
 };
 
 use super::params::{COUNT_PARAM, SEPARATOR_PARAM};
@@ -75,10 +75,27 @@ static FOLD_PARAMS: [ParamDef; 2] = [
     },
 ];
 
+#[derive(Clone, Copy)]
+enum IteratorAvailability {
+    AnyIterator,
+    DoubleEndedOnly,
+}
+
+impl IteratorAvailability {
+    const fn is_dei_only(self) -> bool {
+        matches!(self, Self::DoubleEndedOnly)
+    }
+}
+
+const ANY_ITERATOR: IteratorAvailability = IteratorAvailability::AnyIterator;
+const DOUBLE_ENDED_ONLY: IteratorAvailability = IteratorAvailability::DoubleEndedOnly;
+const BACKEND_REQUIRED: BackendRequirement = BackendRequirement::Required;
+const BACKEND_NOT_REQUIRED: BackendRequirement = BackendRequirement::NotRequired;
+
 // Iterator method constructor.
 //
 // All iterator methods share: receiver=Owned, trait_name=None, pure=true,
-// kind=Instance. Only `dei_only`, `dei_propagation`, and `backend_required`
+// kind=Instance. Only availability, `dei_propagation`, and backend requirement
 // vary per method.
 //
 // Iterator methods consume their receiver. Every adapter
@@ -97,9 +114,9 @@ const fn iter(
     name: &'static str,
     params: &'static [ParamDef],
     returns: ReturnTag,
-    dei_only: bool,
+    availability: IteratorAvailability,
     dei_propagation: DeiPropagation,
-    backend_required: bool,
+    backend_requirement: BackendRequirement,
 ) -> MethodDef {
     MethodDef {
         name,
@@ -109,9 +126,9 @@ const fn iter(
         runtime: None,
         trait_name: None,
         pure: true,
-        backend_required,
+        backend_required: backend_requirement.is_required(),
         kind: MethodKind::Instance,
-        dei_only,
+        dei_only: availability.is_dei_only(),
         dei_propagation,
     }
 }
@@ -132,31 +149,31 @@ const NA: DeiPropagation = DeiPropagation::NotApplicable;
 /// admitted executor's internal-operation projection.
 #[rustfmt::skip]
 static ITERATOR_METHODS: &[MethodDef] = &[
-    //   name         params             returns    dei_only  dei_prop  backend
-    iter("all",       &PREDICATE_PARAM,  BOOL,      false,    NA,       true),
-    iter("any",       &PREDICATE_PARAM,  BOOL,      false,    NA,       true),
-    iter("chain",     &OTHER_ITER_PARAM, ITER_ELEM, false,    D,        true),
-    iter("collect",   &[],               LIST_ELEM, false,    NA,       true),
-    iter("count",     &[],               INT,       false,    NA,       true),
-    iter("cycle",     &[],               ITER_ELEM, false,    D,        false),
-    iter("enumerate", &[],               IDX_PAIRS, false,    D,        true),
-    iter("filter",    &PREDICATE_PARAM,  SELF,      false,    P,        true),
-    iter("find",      &PREDICATE_PARAM,  OPT_ELEM,  false,    NA,       true),
-    iter("flat_map",  &TRANSFORM_PARAM,  FRESH,     false,    D,        false),
-    iter("flatten",   &[],               FRESH,     false,    D,        false),
-    iter("fold",      &FOLD_PARAMS,      FRESH,     false,    NA,       true),
-    iter("for_each",  &ACTION_PARAM,     UNIT,      false,    NA,       true),
-    iter("join",      &SEPARATOR_PARAM,  STR,       false,    NA,       false),
-    iter("last",      &[],               OPT_ELEM,  true,     NA,       false),
-    iter("map",       &TRANSFORM_PARAM,  FRESH,     false,    P,        true),
-    iter("next",      &[],               NEXT,      false,    NA,       false),
-    iter("next_back", &[],               NEXT,      true,     NA,       false),
-    iter("rev",       &[],               SELF,      true,     NA,       false),
-    iter("rfind",     &PREDICATE_PARAM,  OPT_ELEM,  true,     NA,       false),
-    iter("rfold",     &FOLD_PARAMS,      FRESH,     true,     NA,       false),
-    iter("skip",      &COUNT_PARAM,      ITER_ELEM, false,    D,        true),
-    iter("take",      &COUNT_PARAM,      ITER_ELEM, false,    D,        true),
-    iter("zip",       &OTHER_ITER_PARAM, FRESH,     false,    D,        true),
+    //   name         params             returns    availability       dei_prop  backend
+    iter("all",       &PREDICATE_PARAM,  BOOL,      ANY_ITERATOR,      NA,       BACKEND_REQUIRED),
+    iter("any",       &PREDICATE_PARAM,  BOOL,      ANY_ITERATOR,      NA,       BACKEND_REQUIRED),
+    iter("chain",     &OTHER_ITER_PARAM, ITER_ELEM, ANY_ITERATOR,      D,        BACKEND_REQUIRED),
+    iter("collect",   &[],               LIST_ELEM, ANY_ITERATOR,      NA,       BACKEND_REQUIRED),
+    iter("count",     &[],               INT,       ANY_ITERATOR,      NA,       BACKEND_REQUIRED),
+    iter("cycle",     &[],               ITER_ELEM, ANY_ITERATOR,      D,        BACKEND_NOT_REQUIRED),
+    iter("enumerate", &[],               IDX_PAIRS, ANY_ITERATOR,      D,        BACKEND_REQUIRED),
+    iter("filter",    &PREDICATE_PARAM,  SELF,      ANY_ITERATOR,      P,        BACKEND_REQUIRED),
+    iter("find",      &PREDICATE_PARAM,  OPT_ELEM,  ANY_ITERATOR,      NA,       BACKEND_REQUIRED),
+    iter("flat_map",  &TRANSFORM_PARAM,  FRESH,     ANY_ITERATOR,      D,        BACKEND_NOT_REQUIRED),
+    iter("flatten",   &[],               FRESH,     ANY_ITERATOR,      D,        BACKEND_NOT_REQUIRED),
+    iter("fold",      &FOLD_PARAMS,      FRESH,     ANY_ITERATOR,      NA,       BACKEND_REQUIRED),
+    iter("for_each",  &ACTION_PARAM,     UNIT,      ANY_ITERATOR,      NA,       BACKEND_REQUIRED),
+    iter("join",      &SEPARATOR_PARAM,  STR,       ANY_ITERATOR,      NA,       BACKEND_NOT_REQUIRED),
+    iter("last",      &[],               OPT_ELEM,  DOUBLE_ENDED_ONLY, NA,       BACKEND_NOT_REQUIRED),
+    iter("map",       &TRANSFORM_PARAM,  FRESH,     ANY_ITERATOR,      P,        BACKEND_REQUIRED),
+    iter("next",      &[],               NEXT,      ANY_ITERATOR,      NA,       BACKEND_NOT_REQUIRED),
+    iter("next_back", &[],               NEXT,      DOUBLE_ENDED_ONLY, NA,       BACKEND_NOT_REQUIRED),
+    iter("rev",       &[],               SELF,      DOUBLE_ENDED_ONLY, NA,       BACKEND_NOT_REQUIRED),
+    iter("rfind",     &PREDICATE_PARAM,  OPT_ELEM,  DOUBLE_ENDED_ONLY, NA,       BACKEND_NOT_REQUIRED),
+    iter("rfold",     &FOLD_PARAMS,      FRESH,     DOUBLE_ENDED_ONLY, NA,       BACKEND_NOT_REQUIRED),
+    iter("skip",      &COUNT_PARAM,      ITER_ELEM, ANY_ITERATOR,      D,        BACKEND_REQUIRED),
+    iter("take",      &COUNT_PARAM,      ITER_ELEM, ANY_ITERATOR,      D,        BACKEND_REQUIRED),
+    iter("zip",       &OTHER_ITER_PARAM, FRESH,     ANY_ITERATOR,      D,        BACKEND_REQUIRED),
 ];
 
 /// `Iterator<T>` — lazy sequence with adapter/consumer protocol.

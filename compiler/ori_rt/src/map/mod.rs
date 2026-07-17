@@ -23,7 +23,7 @@ mod structural;
 
 pub use structural::{ori_map_eq, ori_map_hash};
 
-use crate::list::write_array_to_list;
+use crate::list::{write_array_to_list, write_list_output};
 use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
 pub(crate) use hash_table::{
     get_meta, needs_rehash, next_hash_capacity, probe_find, probe_find_slot, rehash_map, set_meta,
@@ -161,7 +161,11 @@ pub extern "C" fn ori_map_keys_to_list(
 
     // SAFETY: list_data was returned by ori_rc_alloc.
     unsafe { crate::rc::store_elem_count(list_data, write_pos as i64) };
-    write_array_to_list_from_data(list_data, write_pos as i64, out_ptr);
+    // SAFETY: `out_ptr` is a live sret slot and `list_data` transfers the
+    // initialized `write_pos`-element allocation to the result.
+    unsafe {
+        write_list_output(out_ptr, write_pos as i64, write_pos as i64, list_data);
+    }
 }
 
 /// Extract map values as a new list.
@@ -225,7 +229,11 @@ pub extern "C" fn ori_map_values_to_list(
 
     // SAFETY: list_data was returned by ori_rc_alloc.
     unsafe { crate::rc::store_elem_count(list_data, write_pos as i64) };
-    write_array_to_list_from_data(list_data, write_pos as i64, out_ptr);
+    // SAFETY: `out_ptr` is a live sret slot and `list_data` transfers the
+    // initialized `write_pos`-element allocation to the result.
+    unsafe {
+        write_list_output(out_ptr, write_pos as i64, write_pos as i64, list_data);
+    }
 }
 
 /// Look up a key in a map and return `Option<V>` via sret.
@@ -250,7 +258,7 @@ pub extern "C" fn ori_map_get(
     let vs = val_size.max(1) as usize;
 
     if data.is_null() || len <= 0 {
-        // SAFETY: out_ptr validated non-null above; writing i64 tag at aligned offset.
+        // SAFETY: `out_ptr` is non-null, and the ABI supplies i64-aligned output storage.
         unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
         return;
     }
@@ -259,10 +267,11 @@ pub extern "C" fn ori_map_get(
     let layout = HashTableLayout::for_map(c, ks, vs);
     let hash = key_hash(needle);
 
-    // SAFETY: data/cap validated non-null and positive; layout offsets derived from cap/sizes.
-    if let Some(bucket) =
+    let bucket = {
+        // SAFETY: `data` is a live map allocation, and layout offsets derive from `c`, `ks`, and `vs`.
         unsafe { probe_find(data, c, layout.keys_offset, needle, hash, ks, key_eq) }
-    {
+    };
+    if let Some(bucket) = bucket {
         // SAFETY: bucket is a valid index within the hash table; out_ptr is non-null.
         unsafe {
             out_ptr.cast::<i64>().write(OPTION_TAG_SOME);
@@ -270,7 +279,7 @@ pub extern "C" fn ori_map_get(
             std::ptr::copy_nonoverlapping(val_src, out_ptr.add(8), vs);
         }
     } else {
-        // SAFETY: out_ptr validated non-null at function entry.
+        // SAFETY: `out_ptr` is non-null, and the ABI supplies i64-aligned output storage.
         unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
     }
 }
@@ -293,7 +302,7 @@ pub extern "C" fn ori_map_literal_alloc(
 ) -> *mut u8 {
     if count <= 0 {
         if !out_cap.is_null() {
-            // SAFETY: out_cap validated non-null by enclosing check.
+            // SAFETY: `out_cap` is non-null and writable for one i64.
             unsafe { out_cap.write(0) };
         }
         return std::ptr::null_mut();
@@ -303,7 +312,7 @@ pub extern "C" fn ori_map_literal_alloc(
     let cap = next_hash_capacity(count as usize);
     let data = OriMap::alloc_hash_buffer(cap, ks, vs);
     if !out_cap.is_null() {
-        // SAFETY: out_cap validated non-null by enclosing check.
+        // SAFETY: `out_cap` is non-null and writable for one i64.
         unsafe { out_cap.write(cap as i64) };
     }
     data
@@ -380,34 +389,6 @@ pub(crate) fn write_map_struct(out_ptr: *mut u8, len: i64, cap: i64, data: *mut 
     unsafe {
         out_ptr.cast::<i64>().write(len);
         out_ptr.cast::<i64>().add(1).write(cap);
-        out_ptr.add(16).cast::<*mut u8>().write(data);
-    }
-}
-
-/// Write a list struct from an already-allocated data buffer.
-///
-/// Unlike `write_array_to_list` which allocates and copies, this takes
-/// ownership of an existing RC-allocated buffer.
-fn write_array_to_list_from_data(data: *mut u8, len: i64, out_ptr: *mut u8) {
-    if out_ptr.is_null() {
-        return;
-    }
-    if len <= 0 || data.is_null() {
-        // SAFETY: out_ptr validated non-null above; writing empty list triple.
-        unsafe {
-            out_ptr.cast::<i64>().write(0);
-            out_ptr.cast::<i64>().add(1).write(0);
-            out_ptr
-                .add(16)
-                .cast::<*mut u8>()
-                .write(std::ptr::null_mut());
-        }
-        return;
-    }
-    // SAFETY: out_ptr validated non-null above; writing {len, cap, data} triple.
-    unsafe {
-        out_ptr.cast::<i64>().write(len);
-        out_ptr.cast::<i64>().add(1).write(len); // cap = len
         out_ptr.add(16).cast::<*mut u8>().write(data);
     }
 }

@@ -19,10 +19,9 @@
 //!
 //! The AIMS lattice `join()` applies `canonicalize()` after componentwise max.
 //! All lattice laws (commutativity, associativity, idempotence) hold on
-//! canonical states. Canonicalization rules are monotone (they only move
-//! dimensions toward top / more conservative). The formerly anti-monotone
-//! Rule 4 was removed (anti-monotone, broke associativity); Rule 6 was widened
-//! to `>= HeapEscaping` (monotonicity fix).
+//! canonical states. Canonicalization is monotone: every rule moves dimensions
+//! toward top or a more conservative state, and Rule 6 applies at
+//! `>= HeapEscaping`.
 //!
 //! - `canonical_aims_state_strategy()` — for lattice law, transfer, fixpoint
 //! - `raw_aims_state_strategy()` — for canonicalization-specific tests
@@ -129,7 +128,7 @@ fn raw_aims_state_strategy() -> impl Strategy<Value = AimsState> {
 /// uniformly, but after canonicalization many raw states collapse to the
 /// same canonical form. States triggering active canonicalization rules
 /// (CN-3, CN-6, CN-8) are underrepresented in the canonical distribution.
-/// The former Rule 4 zone is preserved as a regression guard.
+/// The CN-4 boundary zone remains explicitly represented.
 fn rule_boundary_aims_state_strategy() -> impl Strategy<Value = AimsState> {
     prop_oneof![
         // Rule 3 trigger zone: Shared + ReusableCtor → NonReusable
@@ -148,9 +147,8 @@ fn rule_boundary_aims_state_strategy() -> impl Strategy<Value = AimsState> {
                 shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
                 effect: eff,
             }),
-        // Former Rule 4 zone (CN-4 REMOVED — anti-monotone): BlockLocal + Owned +
-        // ≤Once + MaybeShared. Preserved as regression guard — these states must
-        // NOT be promoted to Unique by canonicalization after the fix.
+        // CN-4 boundary zone: BlockLocal + Owned + ≤Once + MaybeShared.
+        // Canonicalization must not promote these states to Unique.
         (effect_class_strategy(), shape_class_strategy()).prop_map(|(eff, shape)| AimsState {
             access: AccessClass::Owned,
             consumption: Consumption::Linear,
@@ -229,9 +227,9 @@ fn enriched_canonical_strategy() -> impl Strategy<Value = AimsState> {
 ///
 /// Standard lattice-theoretic definition. Only meaningful for canonical states.
 ///
-/// Join-based partial order (now transitive after Rule 4 removal). See
+/// The join-based partial order is transitive. See
 /// `lattice_leq_transitive` test (ignored). Use [`componentwise_leq`] for
-/// downstream monotonicity tests that require a valid partial order.
+/// monotonicity tests that require a valid partial order.
 fn lattice_leq(a: &AimsState, b: &AimsState) -> bool {
     a.join(b) == *b
 }
@@ -240,8 +238,8 @@ fn lattice_leq(a: &AimsState, b: &AimsState) -> bool {
 /// the corresponding dimension of `b`.
 ///
 /// This is always a valid partial order (reflexive, antisymmetric, transitive)
-/// regardless of join associativity. Used for monotonicity tests (04.4) since
-/// After Rule 4 removal, the join-based [`lattice_leq`] is transitive.
+/// regardless of join associativity. Monotonicity tests (04.4) use it as an
+/// independent check of the transitive [`lattice_leq`] relation.
 fn componentwise_leq(a: &AimsState, b: &AimsState) -> bool {
     a.access <= b.access
         && a.consumption <= b.consumption
@@ -306,7 +304,6 @@ proptest! {
     }
 
     /// Join associativity (L-2): `(a join b) join c == a join (b join c)`.
-    /// Regression guard: Rule 4 removal must not be reverted.
     #[test]
     fn join_associative(
         a in canonical_aims_state_strategy(),
@@ -355,10 +352,9 @@ proptest! {
 // Partial-order axioms (canonical states only)
 //
 // Two orderings are tested:
-// 1. `lattice_leq`: `a.join(b) == b` — reflexive, antisymmetric, and transitive
-//    (after anti-monotone Rule 4 was removed). Valid partial order.
+// 1. `lattice_leq`: `a.join(b) == b` — reflexive, antisymmetric, transitive.
 // 2. `componentwise_leq`: per-dimension `<=` — always a valid partial order.
-//    Used for downstream monotonicity tests (04.4).
+//    Used for monotonicity tests (04.4).
 
 proptest! {
     // lattice_leq axioms (reflexive + antisymmetric only)
@@ -412,7 +408,6 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(5000))]
 
     /// Partial-order transitivity (L-4): `a <= b && b <= c => a <= c`.
-    /// Regression guard: Rule 4 removal ensures transitivity holds.
     #[test]
     fn lattice_leq_transitive(
         a in canonical_aims_state_strategy(),
@@ -709,8 +704,7 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(5000))]
 
-    /// capture_state_update monotonicity in first arg (TF-13).
-    /// Regression guard: Rule 6 widening to `>= HeapEscaping` ensures monotonicity.
+    /// `capture_state_update` is monotone in its first argument (TF-13).
     #[test]
     fn capture_state_update_monotone_in_current(
         a in canonical_aims_state_strategy(),
@@ -729,8 +723,7 @@ proptest! {
         );
     }
 
-    /// capture_state_update monotonicity in second arg (TF-13).
-    /// Regression guard: Rule 6 widening to `>= HeapEscaping` ensures monotonicity.
+    /// `capture_state_update` is monotone in its second argument (TF-13).
     #[test]
     fn capture_state_update_monotone_in_closure(
         current in canonical_aims_state_strategy(),
@@ -827,8 +820,7 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(2000))]
 
-    /// N-ary join permutation invariance (IA-9): fold order doesn't matter.
-    /// Regression guard: Rule 4 removal ensures join invariance.
+    /// N-ary join permutation invariance (IA-9): fold order does not matter.
     #[test]
     fn nary_join_permutation_invariant(
         states in proptest::collection::vec(canonical_aims_state_strategy(), 2..8),
@@ -859,7 +851,6 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(1000))]
 
     /// N-ary join shuffled permutation invariance (IA-9, shuffle variant).
-    /// Regression guard: Rule 4 removal.
     #[test]
     fn nary_join_shuffled_permutations(
         states in proptest::collection::vec(canonical_aims_state_strategy(), 3..6),
@@ -901,7 +892,7 @@ proptest! {
     /// `Cardinality::seq_add` distributes over `Cardinality::alt_join`.
     ///
     /// 3 values = 27 triples total — exhaustive test exists in tests.rs.
-    /// This proptest exists for regression safety with better shrinking.
+    /// This proptest provides randomized coverage with better shrinking.
     #[test]
     fn cardinality_seq_add_distributes_over_alt_join(
         a in cardinality_strategy(),

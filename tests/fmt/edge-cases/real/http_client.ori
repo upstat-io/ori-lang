@@ -1,7 +1,6 @@
 // Golden test: HTTP client with capabilities
 // Spec: 09-capabilities.md § Capability System
 // Design: tooling/formatter/design/appendices/A-edge-cases.md
-
 use std.testing { assert, assert_eq }
 
 type Method = Get | Post | Put;
@@ -20,20 +19,21 @@ type ApiError = Network(msg: str) | Timeout | NotFound;
 
 @get (url: str) -> Result<Response, ApiError> uses Http = {
     let request = build_request(method: Get, url: url, body: "");
-    mock_send_request(request: request)
+    mock_send_request(req: request)
 }
 
 @post (url: str, body: str) -> Result<Response, ApiError> uses Http = {
     let request = build_request(method: Post, url: url, body: body);
-    mock_send_request(request: request)
+    mock_send_request(req: request)
 }
 
-@mock_send_request (request: Request) -> Result<Response, ApiError> = {
-    if request.url == "" then Err(Network(msg: "empty URL"))
-    else match request.method {
-        Get -> Ok(Response { status: 200, body: "GET " + request.url }),
-        Post -> Ok(Response { status: 201, body: request.body }),
-        Put -> Ok(Response { status: 200, body: request.body }),
+@mock_send_request (req: Request) -> Result<Response, ApiError> = {
+    let body = "GET " + req.url;
+    if req.url == "" then Err(Network(msg: "empty URL"))
+    else match req.method {
+        Get -> Ok(Response { status: 200, body: body }),
+        Post -> Ok(Response { status: 201, body: req.body }),
+        Put -> Ok(Response { status: 200, body: req.body }),
     }
 }
 
@@ -76,7 +76,7 @@ type ApiError = Network(msg: str) | Timeout | NotFound;
 
 @test_mock_send_request tests @mock_send_request () -> void = {
     let request = build_request(method: Get, url: "", body: "");
-    let result = mock_send_request(request: request);
+    let result = mock_send_request(req: request);
 
     assert(
         cond: match result {

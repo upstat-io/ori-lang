@@ -1,4 +1,4 @@
-//! Free-function method dispatch for `str` and `range` values.
+//! Free-function method dispatch for `str` values.
 //!
 //! These dispatchers need no interpreter access (no user `@hash`/`@eq` calls).
 
@@ -11,6 +11,36 @@ use super::super::helpers::{
     require_str_arg,
 };
 use super::super::DispatchCtx;
+
+#[derive(Clone, Copy)]
+enum PadSide {
+    Start,
+    End,
+}
+
+impl PadSide {
+    const fn method_name(self) -> &'static str {
+        match self {
+            Self::Start => "pad_start",
+            Self::End => "pad_end",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Utf8DecodeMode {
+    CheckedResult,
+    LossyString,
+}
+
+impl Utf8DecodeMode {
+    const fn method_name(self) -> &'static str {
+        match self {
+            Self::CheckedResult => "from_utf8",
+            Self::LossyString => "from_utf8_unchecked",
+        }
+    }
+}
 
 /// Dispatch methods on string values.
 #[expect(
@@ -105,21 +135,10 @@ pub fn dispatch_string_method(
         Ok(Value::string(s.replace(pattern, replacement)))
     // split(separator) -> [str]
     } else if method == n.split {
-        require_args("split", 1, args.len())?;
-        let sep = require_str_arg("split", &args, 0)?;
-        let parts: Vec<Value> = if sep.is_empty() {
-            // Empty separator: split into individual characters
-            s.chars().map(|c| Value::string(c.to_string())).collect()
-        } else {
-            s.split(sep).map(|p| Value::string(p.to_string())).collect()
-        };
-        Ok(Value::list(parts))
+        str_split(&s, &args)
     // repeat(count) -> str
     } else if method == n.repeat {
-        require_args("repeat", 1, args.len())?;
-        let count = require_int_arg("repeat", &args, 0)?;
-        let n_usize = nonnegative_usize(count, "repeat", "non-negative int")?;
-        Ok(Value::string(s.repeat(n_usize)))
+        str_repeat(&s, &args)
     // Into trait: str -> Error (wraps string as error message)
     } else if method == n.into {
         require_args("into", 0, args.len())?;
@@ -135,12 +154,7 @@ pub fn dispatch_string_method(
 /// pre-interned Name fields.
 fn dispatch_string_method_str(s: &str, method: &str, args: &[Value]) -> EvalResult {
     match method {
-        "as_bytes" | "to_bytes" | "bytes" => {
-            require_args(method, 0, args.len())?;
-            Ok(Value::list(
-                s.as_bytes().iter().map(|b| Value::Byte(*b)).collect(),
-            ))
-        }
+        "as_bytes" | "to_bytes" | "bytes" => str_as_bytes(s, method, args),
         "byte_len" => {
             require_args("byte_len", 0, args.len())?;
             len_to_value(s.len(), "str")
@@ -151,28 +165,11 @@ fn dispatch_string_method_str(s: &str, method: &str, args: &[Value]) -> EvalResu
         }
         "index_of" => str_find_char_index(s, "index_of", args, |h, n| h.find(n)),
         "last_index_of" => str_find_char_index(s, "last_index_of", args, |h, n| h.rfind(n)),
-        "lines" => {
-            require_args("lines", 0, args.len())?;
-            Ok(Value::list(
-                s.lines().map(|l| Value::string(l.to_string())).collect(),
-            ))
-        }
-        "pad_start" => str_pad(s, "pad_start", args, true),
-        "pad_end" => str_pad(s, "pad_end", args, false),
-        "parse_int" | "to_int" => {
-            require_args(method, 0, args.len())?;
-            match s.trim().parse::<i64>() {
-                Ok(n) => Ok(Value::some(Value::int(n))),
-                Err(_) => Ok(Value::None),
-            }
-        }
-        "parse_float" | "to_float" => {
-            require_args(method, 0, args.len())?;
-            match s.trim().parse::<f64>() {
-                Ok(f) => Ok(Value::some(Value::Float(f))),
-                Err(_) => Ok(Value::None),
-            }
-        }
+        "lines" => str_lines(s, args),
+        "pad_start" => str_pad(s, args, PadSide::Start),
+        "pad_end" => str_pad(s, args, PadSide::End),
+        "parse_int" | "to_int" => str_parse_int(s, method, args),
+        "parse_float" | "to_float" => str_parse_float(s, method, args),
         "trim_start" => {
             require_args("trim_start", 0, args.len())?;
             Ok(Value::string(s.trim_start().to_string()))
@@ -181,8 +178,60 @@ fn dispatch_string_method_str(s: &str, method: &str, args: &[Value]) -> EvalResu
             require_args("trim_end", 0, args.len())?;
             Ok(Value::string(s.trim_end().to_string()))
         }
-        "from_utf8" | "from_utf8_unchecked" => str_from_utf8(method, args),
+        "from_utf8" => str_from_utf8(args, Utf8DecodeMode::CheckedResult),
+        "from_utf8_unchecked" => str_from_utf8(args, Utf8DecodeMode::LossyString),
         _ => Err(no_such_method(method, "str").into()),
+    }
+}
+
+fn str_split(s: &str, args: &[Value]) -> EvalResult {
+    require_args("split", 1, args.len())?;
+    let sep = require_str_arg("split", args, 0)?;
+    let parts: Vec<Value> = if sep.is_empty() {
+        // Empty separator: split into individual characters
+        s.chars().map(|c| Value::string(c.to_string())).collect()
+    } else {
+        s.split(sep).map(|p| Value::string(p.to_string())).collect()
+    };
+    Ok(Value::list(parts))
+}
+
+fn str_repeat(s: &str, args: &[Value]) -> EvalResult {
+    require_args("repeat", 1, args.len())?;
+    let count = require_int_arg("repeat", args, 0)?;
+    let count = nonnegative_usize(count, "repeat", "non-negative int")?;
+    Ok(Value::string(s.repeat(count)))
+}
+
+fn str_as_bytes(s: &str, method: &str, args: &[Value]) -> EvalResult {
+    require_args(method, 0, args.len())?;
+    Ok(Value::list(
+        s.as_bytes().iter().map(|b| Value::Byte(*b)).collect(),
+    ))
+}
+
+fn str_lines(s: &str, args: &[Value]) -> EvalResult {
+    require_args("lines", 0, args.len())?;
+    Ok(Value::list(
+        s.lines()
+            .map(|line| Value::string(line.to_string()))
+            .collect(),
+    ))
+}
+
+fn str_parse_int(s: &str, method: &str, args: &[Value]) -> EvalResult {
+    require_args(method, 0, args.len())?;
+    match s.trim().parse::<i64>() {
+        Ok(n) => Ok(Value::some(Value::int(n))),
+        Err(_) => Ok(Value::None),
+    }
+}
+
+fn str_parse_float(s: &str, method: &str, args: &[Value]) -> EvalResult {
+    require_args(method, 0, args.len())?;
+    match s.trim().parse::<f64>() {
+        Ok(f) => Ok(Value::some(Value::Float(f))),
+        Err(_) => Ok(Value::None),
     }
 }
 
@@ -205,8 +254,9 @@ fn str_find_char_index(
     }
 }
 
-/// Pad a string to `width` characters using `fill`, prepending or appending.
-fn str_pad(s: &str, method: &str, args: &[Value], prepend: bool) -> EvalResult {
+/// Pad a string to `width` characters using `fill` on the selected side.
+fn str_pad(s: &str, args: &[Value], side: PadSide) -> EvalResult {
+    let method = side.method_name();
     require_args(method, 2, args.len())?;
     let width = require_int_arg(method, args, 0)?;
     let fill = require_str_arg(method, args, 1)?;
@@ -217,15 +267,15 @@ fn str_pad(s: &str, method: &str, args: &[Value], prepend: bool) -> EvalResult {
     }
     let pad_count = width_usize.saturating_sub(current_len);
     let pad: String = fill.chars().cycle().take(pad_count).collect();
-    if prepend {
-        Ok(Value::string(format!("{pad}{s}")))
-    } else {
-        Ok(Value::string(format!("{s}{pad}")))
+    match side {
+        PadSide::Start => Ok(Value::string(format!("{pad}{s}"))),
+        PadSide::End => Ok(Value::string(format!("{s}{pad}"))),
     }
 }
 
 /// Parse a `[byte]` argument into a `Vec<u8>`, then convert to a string.
-fn str_from_utf8(method: &str, args: &[Value]) -> EvalResult {
+fn str_from_utf8(args: &[Value], mode: Utf8DecodeMode) -> EvalResult {
+    let method = mode.method_name();
     require_args(method, 1, args.len())?;
     let Value::List(ref bytes) = args[0] else {
         return Err(ori_patterns::wrong_arg_type(method, "[byte]").into());
@@ -238,20 +288,19 @@ fn str_from_utf8(method: &str, args: &[Value]) -> EvalResult {
         })
         .collect();
     let bv = byte_vec?;
-    if method == "from_utf8" {
-        match String::from_utf8(bv) {
+    match mode {
+        Utf8DecodeMode::CheckedResult => match String::from_utf8(bv) {
             Ok(s) => Ok(Value::ok(Value::string(s))),
             Err(e) => Ok(Value::err(Value::error(e.to_string()))),
-        }
-    } else {
+        },
         // Why: from_utf8_unchecked still validates in the interpreter (checked
         // decode + lossy fallback) rather than trusting the bytes.
-        match String::from_utf8(bv) {
+        Utf8DecodeMode::LossyString => match String::from_utf8(bv) {
             Ok(s) => Ok(Value::string(s)),
             Err(e) => Ok(Value::string(
                 String::from_utf8_lossy(e.as_bytes()).into_owned(),
             )),
-        }
+        },
     }
 }
 
@@ -267,107 +316,6 @@ fn eval_str_slice(s: &str, name: &str, args: &[Value]) -> EvalResult {
     let ustart = ustart.min(uend);
     let result: String = chars[ustart..uend].iter().collect();
     Ok(Value::string(result))
-}
-
-/// Dispatch methods on range values.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Consistent method dispatch signature"
-)]
-pub fn dispatch_range_method(
-    receiver: Value,
-    method: Name,
-    args: Vec<Value>,
-    ctx: &DispatchCtx<'_>,
-) -> EvalResult {
-    let Value::Range(r) = receiver else {
-        unreachable!("dispatch_range_method called with non-range receiver")
-    };
-
-    let n = ctx.names;
-
-    if method == n.len {
-        if r.is_unbounded() {
-            return Err(ori_patterns::unbounded_range_length().into());
-        }
-        len_to_value(r.len(), "range")
-    } else if method == n.contains {
-        require_args("contains", 1, args.len())?;
-        let val = require_int_arg("contains", &args, 0)?;
-        Ok(Value::Bool(r.contains(val)))
-    } else if method == n.iter {
-        require_args("iter", 0, args.len())?;
-        Ok(Value::iterator(IteratorValue::from_range(
-            r.start,
-            r.end,
-            r.step,
-            r.inclusive,
-        )))
-    // Additional range methods (cold path — string-based dispatch)
-    } else {
-        let method_str = ctx.interner.lookup(method);
-        dispatch_range_method_str(&r, method_str, &args)
-    }
-}
-
-/// String-based dispatch for range methods not covered by Name-based dispatch.
-fn dispatch_range_method_str(
-    r: &ori_patterns::RangeValue,
-    method: &str,
-    args: &[Value],
-) -> EvalResult {
-    match method {
-        "count" => {
-            require_args("count", 0, args.len())?;
-            if r.is_unbounded() {
-                return Err(ori_patterns::unbounded_range_length().into());
-            }
-            len_to_value(r.len(), "range")
-        }
-        "is_empty" => {
-            require_args("is_empty", 0, args.len())?;
-            #[expect(clippy::len_zero, reason = "RangeValue has no is_empty()")]
-            Ok(Value::Bool(r.len() == 0))
-        }
-        "step_by" => {
-            require_args("step_by", 1, args.len())?;
-            let step = require_int_arg("step_by", args, 0)?;
-            if step == 0 {
-                return Err(ori_patterns::wrong_arg_type("step_by", "non-zero int").into());
-            }
-            let new_range = ori_patterns::RangeValue {
-                start: r.start,
-                end: r.end,
-                step,
-                inclusive: r.inclusive,
-            };
-            Ok(Value::Range(new_range))
-        }
-        "to_list" => {
-            require_args("to_list", 0, args.len())?;
-            if r.is_unbounded() {
-                return Err(ori_patterns::unbounded_range_length().into());
-            }
-            let items: Vec<Value> = r.iter().map(Value::int).collect();
-            Ok(Value::list(items))
-        }
-        // Collect range into a list (also dispatched by CollectionMethodResolver)
-        "collect" => {
-            require_args("collect", 0, args.len())?;
-            if r.is_unbounded() {
-                return Err(ori_patterns::unbounded_range_length().into());
-            }
-            let items: Vec<Value> = r.iter().map(Value::int).collect();
-            Ok(Value::list(items))
-        }
-        // Higher-order methods requiring closures (dispatched by CollectionMethodResolver
-        // in production; recognized here so dispatch coverage test sees non-UndefinedMethod)
-        "all" | "any" | "filter" | "find" | "fold" | "map" => {
-            require_args(method, 1, args.len())?;
-            Err(ori_patterns::wrong_arg_type(method, "function").into())
-        }
-        _ => Err(no_such_method(method, "range").into()),
-    }
 }
 
 #[cfg(test)]

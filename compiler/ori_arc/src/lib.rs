@@ -16,34 +16,16 @@
 //!
 //! # Design
 //!
-//! Three-way classification (`isScalar` / `isPossibleRef` / `isDefiniteRef`
-//! on `IRType`) over an LCNF basic-block IR — historical influence: Lean 4's
-//! three-way classification SHAPE; Ori's formulation per Spec: Annex E §AIMS.
+//! Three-way classification separates scalar, possible-reference, and
+//! definite-reference values in LCNF ARC IR. Spec: Annex E §AIMS.
 //! Classification is **monomorphized** — it operates on concrete types after
 //! type parameter substitution.
 //!
-//! # Pipeline (AIMS unified lattice)
+//! # Pipeline
 //!
-//! ```text
-//! CanExpr → lower → ArcFunction
-//!   Interprocedural (once):
-//!     1. analyze_program()         — MemoryContract per function (SCC fixpoint)
-//!     2. apply_ownership()         — Populate ArcParam.ownership
-//!   Per-function (steps 3–12):
-//!     3. compute_var_reprs()       — ValueRepr per variable
-//!     4. analyze_function()        — Backward dataflow → AimsStateMap
-//!     5. realize_rc_reuse()        — Phase 1: ownership events + reuse (pre-merge)
-//!     6. verify()                  — ARC IR sanity check
-//!     7. detect/rewrite tail calls — CFG optimization
-//!     8. merge_blocks()            — CFG cleanup
-//!     9. realize_annotations()     — Phase 2: COW + drop hints (post-merge)
-//!    10. verify()                  — Final sanity check
-//!    11. FBIP enforcement          — Read-only diagnostic
-//! ```
-//!
-//! Production entry: [`realize_closed_program()`]. The current `RcInc` and
-//! `RcDec` instruction names are transitional spellings for backend-neutral
-//! logical ownership events; physical backends choose their realization.
+//! [`realize_closed_program()`] freezes whole-program contracts, realizes
+//! logical ownership and reuse facts, and publishes immutable backend inputs.
+//! Physical projections consume those facts without rerunning AIMS analysis.
 
 pub mod aims;
 mod block_merge;
@@ -135,10 +117,6 @@ pub use liveness::{
 pub use lower::{lower_function_can, ArcLoweringInput, ArcProblem};
 pub use operator_calls::{rewrite_operator_trait_calls, OperatorCallResolutionError};
 pub use ownership::{AnnotatedParam, AnnotatedSig, DerivedOwnership, Ownership};
-pub use rc_insert::annotate_arg_ownership;
-// Legacy ad hoc RC insertion (insert_rc_ops_with_ownership,
-// insert_external_invoke_cleanup) has been deleted. AIMS freezes the logical
-// event plan; each validated physical projection chooses its own mechanism.
 pub use uniqueness::{CowAnnotations, CowMode, DropHints, Uniqueness};
 
 pub use ir::collect_all_arc_functions;

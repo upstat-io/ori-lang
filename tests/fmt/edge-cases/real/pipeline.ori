@@ -1,7 +1,6 @@
 // Golden test: Data processing pipeline
 // Spec: 10-patterns.md § Pattern Expressions
 // Design: tooling/formatter/design/appendices/A-edge-cases.md
-
 use std.testing { assert_eq }
 
 type DataRecord = { id: int, value: int, category: str, valid: bool }
@@ -29,8 +28,8 @@ type PipelineStats = { total: int, processed: int, filtered: int, errors: int }
         record;
 
 @process_pipeline (records: [DataRecord]) -> [ProcessedRecord] =
-    for record in records if validate_record(record: record) yield
-        transform_record(record: record);
+    for r in records if validate_record(record: r) yield
+        transform_record(record: r);
 
 @compute_stats (input: [DataRecord], output: [ProcessedRecord]) -> PipelineStats = {
     let total = input.length();

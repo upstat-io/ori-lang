@@ -4,7 +4,7 @@
 //! [`realize_annotations`] consumes the same state after merging. Both use the
 //! shared [`AimsStateMap`] and decision functions.
 
-pub mod decide;
+mod decide;
 #[cfg(test)]
 mod dimension_consumer;
 mod emit_unified;
@@ -131,9 +131,6 @@ pub struct AnnotationEnv<'a> {
 }
 
 /// Derives COW and drop annotations from post-merge IR in one walk.
-///
-/// Each candidate site receives one [`AnnotationSiteContext`], so COW and drop
-/// decisions read the same converged facts.
 pub(crate) fn realize_annotations(
     func: &ArcFunction,
     env: &AnnotationEnv<'_>,
@@ -147,7 +144,6 @@ pub(crate) fn realize_annotations(
     let _span = tracing::debug_span!("realize_annotations").entered();
 
     let cow_names = crate::borrow::all_cow_method_names(env.interner);
-    let param_vars: rustc_hash::FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
     let param_borrowed_vars = collect_param_borrowed_vars(func);
     let rc_incremented =
         collect_rc_incremented_vars(func, env.state_map.birth_site_partition(), env.contracts);
@@ -162,7 +158,6 @@ pub(crate) fn realize_annotations(
         state_map: env.state_map,
         pool: env.pool,
         cow_names: &cow_names,
-        param_vars: &param_vars,
         param_borrowed_vars: &param_borrowed_vars,
         rc_incremented: &rc_incremented,
         borrowed_call_args: &borrowed_call_args,
@@ -201,10 +196,49 @@ struct AnnotationWalkCtx<'a> {
     state_map: &'a AimsStateMap,
     pool: &'a Pool,
     cow_names: &'a rustc_hash::FxHashSet<Name>,
-    param_vars: &'a rustc_hash::FxHashSet<ArcVarId>,
     param_borrowed_vars: &'a rustc_hash::FxHashSet<ArcVarId>,
     rc_incremented: &'a rustc_hash::FxHashSet<ArcVarId>,
     borrowed_call_args: &'a rustc_hash::FxHashSet<ArcVarId>,
+}
+
+fn cow_site_context(
+    ctx: &AnnotationWalkCtx<'_>,
+    blk: crate::ir::ArcBlockId,
+    var: ArcVarId,
+) -> decide::CowSiteContext {
+    decide::CowSiteContext {
+        uniqueness: ctx.state_map.effective_uniqueness_at_block_entry(blk, var),
+        rc_incremented: ctx.rc_incremented.contains(&var),
+        is_excluded: ctx.state_map.is_excluded(var),
+        borrows: decide::CowBorrowFacts {
+            is_disjoint_from_siblings: crate::aims::emit_rc::is_borrow_disjoint_from_siblings(
+                ctx.state_map,
+                var,
+                blk,
+            ),
+            has_active_borrows: crate::aims::emit_rc::has_borrows_from_aggregate(
+                ctx.state_map,
+                var,
+            ),
+        },
+    }
+}
+
+fn drop_site_context(
+    ctx: &AnnotationWalkCtx<'_>,
+    blk: crate::ir::ArcBlockId,
+    var: ArcVarId,
+) -> decide::DropSiteContext {
+    decide::DropSiteContext {
+        uniqueness: ctx.state_map.effective_uniqueness_at_block_entry(blk, var),
+        rc_incremented: ctx.rc_incremented.contains(&var),
+        is_excluded: ctx.state_map.is_excluded(var),
+        is_collection: crate::aims::emit_rc::is_collection_var(ctx.func, var, ctx.pool),
+        borrows: decide::DropBorrowFacts {
+            is_param_borrowed: ctx.param_borrowed_vars.contains(&var),
+            is_borrowed_call_arg: ctx.borrowed_call_args.contains(&var),
+        },
+    }
 }
 
 /// Applies COW and drop decisions to one block and its terminator.
@@ -217,64 +251,40 @@ fn annotate_block(
     drop_hints: &mut DropHints,
     synergy: &mut metrics::SynergyMetrics,
 ) {
-    use crate::aims::emit_rc::{
-        has_borrows_from_aggregate, is_borrow_disjoint_from_siblings, is_collection_var,
-    };
-    use crate::aims::realize::decide::{decide_annotations, AnnotationSiteContext};
+    use crate::aims::realize::decide::{decide_annotation, AnnotationDecision, AnnotationSite};
 
     for (instr_idx, instr) in block.body.iter().enumerate() {
-        let is_cow_site = matches!(
-            instr,
-            ArcInstr::Apply { func: callee, args, .. }
-                if ctx.cow_names.contains(callee) && !args.is_empty()
-        );
-        let is_drop_site = matches!(instr, ArcInstr::RcDec { .. });
-
-        if !is_cow_site && !is_drop_site {
-            continue;
-        }
-
-        let var = match instr {
-            ArcInstr::Apply { args, .. } if is_cow_site => args[0],
-            ArcInstr::RcDec { var, .. } => *var,
+        let (var, site) = match instr {
+            ArcInstr::Apply {
+                func: callee, args, ..
+            } if ctx.cow_names.contains(callee) && !args.is_empty() => {
+                let receiver = args[0];
+                (
+                    receiver,
+                    AnnotationSite::Cow(cow_site_context(ctx, blk, receiver)),
+                )
+            }
+            ArcInstr::RcDec { var, .. } => (
+                *var,
+                AnnotationSite::Drop(drop_site_context(ctx, blk, *var)),
+            ),
             _ => continue,
         };
 
-        let state = ctx.state_map.var_state_at_block_entry(blk, var);
-        // INVARIANT: Only uniqueness is contract-narrowed at COW sites.
-        let site_ctx = AnnotationSiteContext {
-            var,
-            uniqueness: ctx.state_map.effective_uniqueness_at_block_entry(blk, var),
-            rc_incremented: ctx.rc_incremented.contains(&var),
-            is_param: ctx.param_vars.contains(&var),
-            is_param_borrowed: ctx.param_borrowed_vars.contains(&var),
-            is_borrowed_call_arg: ctx.borrowed_call_args.contains(&var),
-            rc_incremented_set: ctx.rc_incremented,
-            is_excluded: ctx.state_map.is_excluded(var),
-            access: state.access,
-            consumption: state.consumption,
-            cardinality: state.cardinality,
-            shape: ctx.state_map.var_shape(var),
-            is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, var, blk),
-            has_active_borrows: has_borrows_from_aggregate(ctx.state_map, var),
-            is_collection: is_collection_var(ctx.func, var, ctx.pool),
-        };
-
-        let decisions = decide_annotations(&site_ctx, is_cow_site, is_drop_site);
-
-        if let Some(mode) = decisions.cow {
-            synergy.total_cow_decisions += 1;
-            tracing::debug!(
-                block_idx,
-                instr_idx,
-                receiver = var.raw(),
-                ?mode,
-                "COW annotation"
-            );
-            cow_annotations.set(block_idx, instr_idx, mode);
-        }
-        if decisions.drop_hint {
-            drop_hints.mark_unique(block_idx, instr_idx);
+        match decide_annotation(site) {
+            AnnotationDecision::Cow(mode) => {
+                synergy.total_cow_decisions += 1;
+                tracing::debug!(
+                    block_idx,
+                    instr_idx,
+                    receiver = var.raw(),
+                    ?mode,
+                    "COW annotation"
+                );
+                cow_annotations.set(block_idx, instr_idx, mode);
+            }
+            AnnotationDecision::DropHint(true) => drop_hints.mark_unique(block_idx, instr_idx),
+            AnnotationDecision::DropHint(false) => {}
         }
     }
 
@@ -284,30 +294,8 @@ fn annotate_block(
     {
         if ctx.cow_names.contains(callee) && !args.is_empty() {
             let receiver = args[0];
-            let state = ctx.state_map.var_state_at_block_entry(blk, receiver);
-            // INVARIANT: Invoke and Apply sites use the same effective uniqueness.
-            let site_ctx = AnnotationSiteContext {
-                var: receiver,
-                uniqueness: ctx
-                    .state_map
-                    .effective_uniqueness_at_block_entry(blk, receiver),
-                rc_incremented: ctx.rc_incremented.contains(&receiver),
-                is_param: ctx.param_vars.contains(&receiver),
-                is_param_borrowed: ctx.param_borrowed_vars.contains(&receiver),
-                is_borrowed_call_arg: ctx.borrowed_call_args.contains(&receiver),
-                rc_incremented_set: ctx.rc_incremented,
-                is_excluded: ctx.state_map.is_excluded(receiver),
-                access: state.access,
-                consumption: state.consumption,
-                cardinality: state.cardinality,
-                shape: ctx.state_map.var_shape(receiver),
-                is_borrow_disjoint: is_borrow_disjoint_from_siblings(ctx.state_map, receiver, blk),
-                has_active_borrows: has_borrows_from_aggregate(ctx.state_map, receiver),
-                is_collection: is_collection_var(ctx.func, receiver, ctx.pool),
-            };
-
-            let decisions = decide_annotations(&site_ctx, true, false);
-            if let Some(mode) = decisions.cow {
+            let site = AnnotationSite::Cow(cow_site_context(ctx, blk, receiver));
+            if let AnnotationDecision::Cow(mode) = decide_annotation(site) {
                 synergy.total_cow_decisions += 1;
                 cow_annotations.set(block_idx, block.body.len(), mode);
             }

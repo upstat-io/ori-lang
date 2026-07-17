@@ -1,0 +1,1 @@
+@f () -> [int] = for:lp x in [1, 2, 3] yield {if x == 2 then continue:lp 0; x }

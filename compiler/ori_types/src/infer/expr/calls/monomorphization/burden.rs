@@ -36,9 +36,8 @@ pub(crate) fn compose_builtin_burdens_for_resolved_types(engine: &mut InferEngin
     // `collect_candidate_indices` restricts to generic-builtin tags + the
     // just-materialized concrete user-composite `Applied`s whose flags show no
     // remaining type variables. Composed specs accumulate in the engine's
-    // `composed_burdens` Vec, drained at body-pass end via
-    // `take_composed_burdens` and flushed into the TypeRegistry burden
-    // surface by `ModuleChecker::flush_composed_burdens`.
+    // `composed_burdens` Vec, drained and registered in the `TypeRegistry` by
+    // the body-finalization spine.
     let snapshot_indices: Vec<Idx> = {
         let pool = engine.pool();
         collect_candidate_indices(pool)

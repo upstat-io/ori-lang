@@ -122,8 +122,8 @@ fn infer_let_binding_impl(
 
 /// Preserve a direct fixed-list capacity literal as a value-domain constraint.
 ///
-/// The ordinary type representation currently erases fixed-list capacity to
-/// the list carrier. This side constraint prevents a call such as
+/// The ordinary type representation erases fixed-list capacity to the list
+/// carrier. This side constraint prevents a call such as
 /// `let xs: [int, max 3] = value.first_n()` from losing `N = 3` before the
 /// shared method-monomorphization producer runs.
 fn fixed_list_literal_capacity(arena: &ExprArena, parsed: &ParsedType) -> Option<ConstGenericTerm> {

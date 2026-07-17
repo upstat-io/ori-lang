@@ -41,7 +41,7 @@ use crate::{Idx, Item, Rank, Tag, TypeFlags};
 
 /// The unified type pool - stores all types in the compilation.
 ///
-/// All types in the system are stored here and referenced by `Idx`.
+/// The pool stores every type and exposes `Idx` references to them.
 /// This provides:
 /// - O(1) type equality (index comparison)
 /// - Automatic deduplication (each unique type stored once)
@@ -430,12 +430,16 @@ impl Pool {
         (idx.raw() as usize) < self.items.len()
     }
 
-    /// Iterate every pool `Idx` in interning order (`Idx(0)..Idx(len)`). SSOT for
-    /// a full-pool linear walk: the saturating `usize -> u32` length conversion
-    /// and `Idx::from_raw` mapping live here, not duplicated at each scan site.
+    /// Iterate every pool `Idx` in interning order (`Idx(0)..Idx(len)`).
+    ///
+    /// This is the canonical full-pool walk and enforces the `Idx` capacity
+    /// before constructing raw indices.
     /// Callers layer their own tag/flag/resolution filter on top.
     pub fn iter_indices(&self) -> impl Iterator<Item = Idx> {
-        (0..u32::try_from(self.len()).unwrap_or(u32::MAX)).map(Idx::from_raw)
+        let Ok(len) = u32::try_from(self.len()) else {
+            unreachable!("type pool length exceeds the u32 Idx domain");
+        };
+        (0..len).map(Idx::from_raw)
     }
 }
 

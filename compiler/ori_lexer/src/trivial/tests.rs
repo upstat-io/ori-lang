@@ -115,7 +115,6 @@ fn non_trivial_returns_none() {
         RawTag::InvalidByte,
         RawTag::UnterminatedString,
         RawTag::UnterminatedChar,
-        RawTag::InvalidEscape,
         RawTag::UnterminatedTemplate,
         RawTag::InteriorNull,
         RawTag::Whitespace,
@@ -225,7 +224,6 @@ fn every_raw_tag_has_explicit_routing() {
         RawTag::UnterminatedChar,
         RawTag::UnterminatedTemplate,
         RawTag::Backslash,
-        RawTag::InvalidEscape,
         // Trivia (debug_assert in cook — handled by driver, not cook)
         RawTag::Whitespace,
         RawTag::Newline,

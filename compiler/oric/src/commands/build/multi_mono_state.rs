@@ -294,7 +294,7 @@ pub(crate) fn build_imported_mono_state(
 
     // Physical imports carry producer-authored facts, but their semantic Idx
     // coordinates are pool-local. Rebuild every exported, non-generic
-    // signature into the same merged pool that will validate those facts.
+    // signature into the merged pool used to validate those facts.
     let re_interned_function_sigs = re_intern_public_function_sigs(
         &imported_type_results,
         &imported_pools,

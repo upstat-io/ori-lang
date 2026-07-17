@@ -40,6 +40,18 @@ type TupHolder = { tag: int, t: (int, str) }
     a.compare(other: b)
 }
 
+@test_result_field_err_after_ok tests @res_err_ok () -> void = {
+    let a = ResHolder { tag: 0, r: Err(0) };
+    let b = ResHolder { tag: 0, r: Ok(99) };
+    assert(cond: a.compare(other: b).is_greater())
+}
+
+@res_err_ok () -> Ordering = {
+    let a = ResHolder { tag: 0, r: Err(0) };
+    let b = ResHolder { tag: 0, r: Ok(99) };
+    a.compare(other: b)
+}
+
 // Err(1) < Err(2): same-variant Err payload recursion.
 @test_result_field_err_payload_orders tests @res_err_payload () -> void = {
     let a = ResHolder { tag: 0, r: Err(1) };
@@ -97,6 +109,30 @@ type TupHolder = { tag: int, t: (int, str) }
     let a = ResHolder { tag: 3, r: Ok(9) };
     let b = ResHolder { tag: 3, r: Ok(9) };
     a.hash() == b.hash()
+}
+
+@test_result_field_typed_payload_hash_stable tests @res_typed_hash_stable () -> void = {
+    assert(cond: res_typed_hash_stable())
+}
+
+@res_typed_hash_stable () -> bool = {
+    let left: Result<int, int> = Ok(4);
+    let right: Result<int, int> = Ok(4);
+    let oracle: Result<int, int> = Ok(4);
+    let a = ResHolder { tag: 6, r: left };
+    let b = ResHolder { tag: 6, r: right };
+    let c = ResHolder { tag: 6, r: oracle };
+    a.hash() == b.hash() && b.hash() == c.hash()
+}
+
+@test_result_field_tag_breaks_payload_tie tests @res_tag_tie () -> void = {
+    assert(cond: res_tag_tie())
+}
+
+@res_tag_tie () -> bool = {
+    let a = ResHolder { tag: 1, r: Ok(4) };
+    let b = ResHolder { tag: 2, r: Ok(4) };
+    a.compare(other: b).is_less() && a.hash() != b.hash()
 }
 
 // Tuple field — Compare (lexicographic; field is the ONLY differing component)
@@ -171,7 +207,7 @@ type TupHolder = { tag: int, t: (int, str) }
 
 // Exact-value parity oracle (L9) — golden hash values derived from the
 // shared semantic algorithms. The SAME assert runs on interp + LLVM via
-// dual-exec. Behavioral "distinct/equal" pins above can be satisfied by a
+// dual-exec. Behavioral "distinct/equal" checks can be satisfied by a
 // self-consistent-but-wrong LLVM hash (XOR vs hash_combine, discriminant 0/1
 // vs 2/3); these golden pins cannot. Re-bless only if the derive hash
 // algorithm changes for BOTH backends together.
@@ -254,34 +290,8 @@ type NestHolder = { tag: int, n: (int, (int, int)) }
     n.hash()
 }
 
-// Heap/mixed-arm-payload Result (Result<str, int>) is out of scope here: its
-// derived Eq path (already wired, independent of the Compare/Hash gap) ALREADY
-// miscompiles on LLVM — `icmp on non-int operands` on the str fat-pointer,
-// because the heterogeneous-arm Result inline-extract path can't handle a str
-// (24B) Ok arm vs int (8B) Err arm. That heap/mixed-arm-payload Result derived
-// codegen gap is a separate tracked issue, orthogonal to the Compare/Hash
-// const-fold this fix removes. Scalar-payload Result (Result<int,int>,
-// homogeneous arms) above is the in-scope Result cell.
-
-// Boxed/recursive-Result-payload (the compare_result_boxed_payload branch,
-// fired only when payload_type_is_rc_boxed) is out of scope here: every shape
-// reaching that branch carries an orthogonal blocker this fix cannot validate
-// end-to-end —
-//   - a recursive Result payload (`type Chain = Link(rest: Result<Chain,int>)`)
-//     fails derived Comparable on the INTERPRETER oracle itself with
-//     E6099 "cannot compare variant with variant" (a separate recursive-derived-
-//     Comparable gap; the oracle can't bless it);
-//   - a list/collection Result payload (`Result<[int],int>`) needs the
-//     collection-arm Compare/Hash (a separate tracked issue) AND
-//     ori_list_eq_scalar (JIT-unregistered) to compare at all.
-// The boxed branch is still authored by mirroring emit_option's boxed-payload
-// handling and reusing the same compare_result_boxed_payload primitive
-// emit_result_eq already drives; it is structurally covered, not end-to-end
-// testable within this fix's scope.
-
-// Option field — Compare + Hash. The derived Option hash must match the interp
-// oracle exactly: Some(x) -> hash_combine(1, h(x)), None -> 0 (NOT the XOR fold
-// the codegen previously used). Golden exact-value pins catch the XOR drift.
+// Option field compare and hash use `hash_combine(1, h(x))` for `Some(x)` and
+// zero for `None`, matching the interpreter oracle exactly.
 
 #[derive(Eq, Comparable, Hashable)]
 type OptHolder = { tag: int, o: Option<int> }

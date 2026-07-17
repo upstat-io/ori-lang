@@ -126,9 +126,9 @@ pub(super) fn close_derived_call_plans(
 /// A method call on a rigid receiver (`T: Debug`, then `value.debug()`) cannot
 /// select its concrete producer while the generic body is checked. The
 /// concrete receiver first exists on the caller's [`MonoInstance`]. Close that
-/// semantic demand here, before generated-body closure, so every executor sees
+/// semantic demand before generated-body closure, so every executor sees
 /// the same exact [`MethodProducer::Derived`] specialization in the typed mono
-/// inventory. The normal generated-body worklist below then closes calls made
+/// inventory. The generated-body worklist then closes calls made
 /// by the newly reachable derived body.
 fn seed_bound_derived_monos(
     pool: &mut Pool,

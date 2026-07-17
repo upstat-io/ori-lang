@@ -141,29 +141,36 @@ impl Interpreter<'_> {
             MethodResolution::Collection(collection_method) => {
                 self.eval_collection_method(receiver, collection_method, &args)
             }
-            MethodResolution::Builtin => {
-                if method == self.builtin_method_names.hash {
-                    self.eval_builtin_hash(receiver, &args)
-                } else {
-                    match receiver {
-                        // Map/Set key handling may invoke user `@hash`/`@eq`, which needs
-                        // interpreter access; route to the interpreter-method dispatchers.
-                        Value::Map(_) => self.dispatch_map_method(receiver, method, args),
-                        Value::Set(_) => self.dispatch_set_method(receiver, method, args),
-                        _ => {
-                            let ctx = DispatchCtx {
-                                names: &self.builtin_method_names,
-                                interner: self.interner,
-                            };
-                            dispatch_builtin_method(receiver, method, args, &ctx)
-                        }
-                    }
-                }
-            }
+            MethodResolution::Builtin => self.eval_resolved_builtin(receiver, method, args),
             MethodResolution::NotFound => {
                 let method_str = self.interner.lookup(method);
                 let type_str = self.interner.lookup(type_name);
                 Err(crate::errors::no_such_method(method_str, type_str).into())
+            }
+        }
+    }
+
+    fn eval_resolved_builtin(
+        &mut self,
+        receiver: Value,
+        method: Name,
+        args: Vec<Value>,
+    ) -> EvalResult {
+        if method == self.builtin_method_names.hash {
+            return self.eval_builtin_hash(receiver, &args);
+        }
+
+        match receiver {
+            // Map/Set key handling may invoke user `@hash`/`@eq`, which needs
+            // interpreter access; route to the interpreter-method dispatchers.
+            Value::Map(_) => self.dispatch_map_method(receiver, method, args),
+            Value::Set(_) => self.dispatch_set_method(receiver, method, args),
+            _ => {
+                let ctx = DispatchCtx {
+                    names: &self.builtin_method_names,
+                    interner: self.interner,
+                };
+                dispatch_builtin_method(receiver, method, args, &ctx)
             }
         }
     }

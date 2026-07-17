@@ -32,16 +32,12 @@
 
 mod demand_propagation;
 mod extract;
-#[cfg(test)]
-mod impl_method_contracts;
 mod scc_driver;
 mod use_count;
 
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-use impl_method_contracts::{augment_contracts_with_impl_callees, compute_impl_method_contracts};
 pub use scc_driver::analyze_program;
 pub(crate) use scc_driver::analyze_program_with_external_contracts_and_boundaries;
 

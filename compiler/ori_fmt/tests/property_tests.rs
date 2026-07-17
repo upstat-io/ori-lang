@@ -126,7 +126,7 @@ fn bool_literal_strategy() -> impl Strategy<Value = String> {
     prop_oneof![Just("true".to_string()), Just("false".to_string())]
 }
 
-/// Generate a string literal (simple, no escapes for now).
+/// Generate an alphanumeric string literal without escapes.
 fn string_literal_strategy() -> impl Strategy<Value = String> {
     prop::string::string_regex("[a-zA-Z0-9 _]{0,30}")
         .expect("valid regex")
@@ -424,7 +424,7 @@ fn test_idempotence(source: &str) -> PropIdemOutcome {
         return PropIdemOutcome::GeneratedSourceInvalid;
     };
 
-    // Output of the formatter must re-parse; failure here is a round-trip break.
+    // Formatter output must re-parse; a failure is a round-trip break.
     let Ok(second) = parse_and_format_with_comments(&first).or_else(|_| parse_and_format(&first))
     else {
         return PropIdemOutcome::ReparseBreakTracked;
@@ -458,7 +458,7 @@ fn idempotence_case_result(source: &str) -> Result<(), TestCaseError> {
 
 /// Deterministic-`#[test]` assertion on a FIXED, hand-written, valid input.
 /// `ctx` names the construct under test. Unlike the proptest path, a fixed input
-/// MUST round-trip: a `ReparseBreakTracked` here is a real `format -> parse`
+/// MUST round-trip: `ReparseBreakTracked` is a real `format -> parse`
 /// regression for that construct (no synthetic-input excuse), so it fails. A
 /// `GeneratedSourceInvalid` on a hand-written valid input is also a failure
 /// (the input was supposed to parse). Panics on any non-`Pass` outcome.

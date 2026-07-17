@@ -56,12 +56,6 @@ fn test_absolute_source_path_is_relative_to_working_tree() {
 }
 
 #[test]
-fn test_resolve_without_revision_omits_revision_suffix() {
-    let result = resolve_expected(Path::new("tests/rc/basic.ori"), "ll", None);
-    assert_eq!(result, Path::new("tests/rc/basic.ll"));
-}
-
-#[test]
 fn test_resolve_with_revision_inserts_suffix_before_extension() {
     let result = resolve_expected(Path::new("tests/rc/basic.ori"), "ll", Some("release"));
     assert_eq!(result, Path::new("tests/rc/basic.release.ll"));
@@ -87,4 +81,10 @@ fn test_resolve_actual_with_revision_inserts_suffix_before_extension() {
         result,
         Path::new("target/test-harness/tests/rc/basic.debug.ll")
     );
+}
+
+#[test]
+#[should_panic(expected = "test artifact path must end in a filename")]
+fn test_stemless_artifact_path_is_rejected() {
+    drop(resolve_expected(Path::new("/"), "ll", None));
 }

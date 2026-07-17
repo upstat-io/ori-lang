@@ -100,9 +100,7 @@ fn resolve_iter(interner: &StringInterner, method: &str) -> MethodResolution {
 
 /// All iterator methods from `all_iterator_variants()` resolve correctly.
 ///
-/// Uses the canonical variant list as source of truth — if a new variant
-/// is added there but not wired into `resolve_iterator_method()`, this
-/// test will catch the drift.
+/// The canonical variant list must agree with `resolve_iterator_method()`.
 #[test]
 fn iterator_methods_resolve() {
     let interner = StringInterner::new();

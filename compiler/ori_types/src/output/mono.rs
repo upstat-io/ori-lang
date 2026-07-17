@@ -29,10 +29,9 @@ pub enum ConstGenericTerm {
 /// Unifies type substitution (`T → int`) and const value substitution
 /// (`$N → 42`). Parallel to the function's generic parameter list.
 ///
-/// This design matches the convergent pattern across reference compilers:
-/// - Rust: `GenericArgKind::Type | Const | Lifetime`
-/// - Zig: uniform `InternPool.Index` for types and comptime values
-/// - Lean 4: `Expr`-based key (types and values are both expressions)
+/// Reference compilers likewise use one generic-argument representation:
+/// Rust uses `GenericArgKind::Type | Const | Lifetime`, Zig uses a uniform
+/// `InternPool.Index`, and Lean 4 uses expression-based keys.
 ///
 /// Using a single enum avoids impedance mismatches when generic parameter
 /// lists contain both type and const params (e.g., `@f<T with Clone, $N: int>`).
@@ -303,7 +302,7 @@ pub struct DeferredMonoCall {
     /// entry into `ModuleChecker.mono_dispatch_pre_dedup` once the deferred
     /// call resolves to a concrete `MonoInstance`. After dedup-remap (per
     /// the `check/mod.rs` export pipeline), the entry lands in
-    /// `TypedModule.mono_dispatch_map` and flows downstream symmetrically
+    /// `TypedModule.mono_dispatch_map` and follows the same path
     /// with eager-path entries.
     pub call_expr_id: ExprId,
 }

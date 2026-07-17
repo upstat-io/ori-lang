@@ -229,7 +229,7 @@ fn lower_await_is_transparent() {
         &mut problems,
     );
 
-    // Await is now transparent — just evaluates inner expression, no problems
+    // The lowered fixture evaluates its inner expression without ARC problems.
     assert_eq!(problems.len(), 0);
     // The function should have lowered the inner unit expression
     assert!(!func.blocks.is_empty());

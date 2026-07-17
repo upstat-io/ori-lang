@@ -62,12 +62,9 @@ impl InferEngine<'_> {
     /// `(call_expr_id, MonoInstanceId)` entry into `mono_dispatch_pre_dedup`
     /// for later remap-and-publish in [`crate::TypedModule::mono_dispatch_map`].
     /// The [`MonoInstanceId`] is the pre-push length of `mono_instances`
-    /// (this body's local index space). The body-pass absorbs both vectors
-    /// together via
-    /// [`crate::check::ModuleChecker::accumulate_mono_session`], which
-    /// offsets the local index into module-wide position before
-    /// [`crate::check::ModuleChecker::finish_with_pool`] remaps once more
-    /// across dedup + sort.
+    /// (this body's local index space). Body finalization absorbs both vectors
+    /// together, offsets the local index into module-wide position, then module
+    /// finalization remaps once more across deduplication and sorting.
     ///
     /// Used by the eager call-site path
     /// (`infer::expr::calls::monomorphization::maybe_record_mono_instance`).
@@ -75,18 +72,14 @@ impl InferEngine<'_> {
     /// until
     /// §C.2 sub-step 1b-deferred extends `DeferredMonoCall` to carry
     /// `ExprId`.
-    pub fn record_mono_with_dispatch(
+    pub(super) fn record_mono_with_dispatch(
         &mut self,
         call_expr_id: ExprId,
         instance: crate::MonoInstance,
     ) {
-        // Saturating `Vec::len() → u32` matches the workspace pattern at
-        // `pool/substitute/mod.rs` and `ModuleChecker::accumulate_mono_session`;
-        // strict workspace clippy denies `cast_possible_truncation` and
-        // `expect`/`unwrap`. Per-body mono counts cannot reach `u32::MAX`
-        // in practice — 4 billion mono instances inside a single body is
-        // structurally unreachable for any compilable module.
-        let local_idx = u32::try_from(self.mono_instances.len()).unwrap_or(u32::MAX);
+        let Ok(local_idx) = u32::try_from(self.mono_instances.len()) else {
+            unreachable!("body mono-instance table exceeds MonoInstanceId capacity");
+        };
         self.mono_instances.push(instance);
         self.mono_dispatch_pre_dedup
             .push((call_expr_id, MonoInstanceId::new(local_idx)));
@@ -103,7 +96,7 @@ impl InferEngine<'_> {
     ///
     /// `key` is the module-wide AST `ExprId` of the `AssignTarget` node;
     /// `level_types` are the resolved receiver-read types per chain level
-    /// (length `steps + 1`). Consumed downstream by `ori_canon` to synthesize
+    /// (length `steps + 1`). Canonical lowering consumes the plan to synthesize
     /// the pure-reassignment form.
     pub fn record_assign_desugar(&mut self, key: ExprId, level_types: Vec<Idx>) {
         self.assign_desugars
@@ -162,7 +155,7 @@ impl InferEngine<'_> {
     /// `infer::expr::calls::monomorphization::maybe_record_mono_instance`
     /// after substituting type args into the relevant `BURDEN_TABLE`
     /// template via `registry::burden_compose::compose_user_burden`.
-    pub fn record_composed_burden(
+    pub(super) fn record_composed_burden(
         &mut self,
         idx: crate::Idx,
         spec: crate::registry::burden::UserBurdenSpec,
@@ -170,13 +163,9 @@ impl InferEngine<'_> {
         self.composed_burdens.push((idx, spec));
     }
 
-    /// Take composed-burden entries, leaving an empty vector. Body-pass
-    /// extractor consumed by the module checker; entries flush into
-    /// `TypeRegistry::burden` via
-    /// `crate::check::ModuleChecker::flush_composed_burdens` from
-    /// `bodies::finalize_body_and_export`. Downstream codegen reads the
-    /// registered spec via `TypeRegistry::burden(idx)` without
-    /// re-deriving.
+    /// Take composed-burden entries, leaving an empty vector. Body
+    /// finalization registers each drained entry in the `TypeRegistry`, where
+    /// codegen reads it via `TypeRegistry::burden(idx)`.
     ///
     /// Runs a final pool sweep (`compose_builtin_burdens_for_resolved_types`)
     /// before draining so that collection instances minted by literals

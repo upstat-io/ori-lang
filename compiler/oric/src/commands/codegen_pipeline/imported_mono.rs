@@ -94,12 +94,11 @@ pub(crate) fn build_imported_mono_functions(
     let mut imported_mono_fns: Vec<ImportedMonoFn> = Vec::new();
     let mut name_to_index: FxHashMap<ori_ir::Name, usize> = FxHashMap::default();
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
-    )]
     for (idx, instance) in type_result.typed.mono_instances.iter().enumerate() {
-        let instance_id = ori_ir::canon::MonoInstanceId::new(idx as u32);
+        let Ok(raw_instance_id) = u32::try_from(idx) else {
+            unreachable!("imported mono-instance table exceeds the u32 dispatch-ID domain");
+        };
+        let instance_id = ori_ir::canon::MonoInstanceId::new(raw_instance_id);
 
         // Defense-in-depth: a poison MonoInstance (a generic/impl/method arg
         // carrying a type-error) that slipped the ori_types record gates must
@@ -259,6 +258,7 @@ fn stable_symbol_hash(symbol: &str) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     for &byte in symbol.as_bytes() {
         hash ^= u64::from(byte);
+        // Why: FNV-1a defines multiplication modulo 2^64.
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     hash

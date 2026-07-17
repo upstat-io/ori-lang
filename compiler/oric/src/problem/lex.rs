@@ -6,7 +6,7 @@
 
 use crate::diagnostic::{Diagnostic, ErrorCode, Suggestion};
 use crate::ir::Span;
-use ori_lexer::lex_error::{LexError, LexErrorKind, UnicodeEscapeDetail};
+use ori_lexer::lex_error::{LexError, LexErrorKind, UnicodeEscapeDetail, UnsupportedOperator};
 
 /// Lex-time warnings detected during tokenization.
 ///
@@ -119,9 +119,10 @@ fn diagnostic_for_lex_kind(kind: &LexErrorKind, span: Span) -> Diagnostic {
             "could not parse as a float",
         ),
         LexErrorKind::InvalidByte { byte } => invalid_byte_error(span, *byte),
-        LexErrorKind::StrictEqualityOperator { operator } => strict_equality_error(span, operator),
+        LexErrorKind::UnsupportedOperator { operator } => {
+            unsupported_operator_error(span, *operator)
+        }
         LexErrorKind::SingleQuoteString => single_quote_string_error(span),
-        LexErrorKind::IncrementOperator { operator } => increment_operator_error(span, operator),
         LexErrorKind::StandaloneBackslash => simple_lex_error(
             ErrorCode::E0013,
             span,
@@ -161,7 +162,7 @@ fn diagnostic_for_lex_kind(kind: &LexErrorKind, span: Span) -> Diagnostic {
         LexErrorKind::ReservedFutureKeyword { keyword } => simple_lex_error(
             ErrorCode::E0015,
             span,
-            format!("`{keyword}` is reserved for future use"),
+            format!("`{}` is reserved for future use", keyword.spelling()),
             "reserved keyword",
         ),
     }
@@ -248,10 +249,14 @@ fn invalid_byte_error(span: Span, byte: u8) -> Diagnostic {
     }
 }
 
-fn strict_equality_error(span: Span, operator: &str) -> Diagnostic {
-    let replacement = if operator == "!==" { "!=" } else { "==" };
+fn strict_equality_error(
+    span: Span,
+    operator: UnsupportedOperator,
+    replacement: &str,
+) -> Diagnostic {
+    let spelling = operator.spelling();
     Diagnostic::error(ErrorCode::E0008)
-        .with_message(format!("`{operator}` is not an Ori equality operator"))
+        .with_message(format!("`{spelling}` is not an Ori equality operator"))
         .with_label(span, "cross-language equality habit")
         .with_note("Ori uses structural equality operators, not strict equality")
         .with_suggestion(format!("use `{replacement}` instead"))
@@ -265,12 +270,21 @@ fn single_quote_string_error(span: Span) -> Diagnostic {
         .with_suggestion("use double quotes for string literals")
 }
 
-fn increment_operator_error(span: Span, operator: &str) -> Diagnostic {
+fn increment_operator_error(span: Span, operator: UnsupportedOperator) -> Diagnostic {
+    let spelling = operator.spelling();
     Diagnostic::error(ErrorCode::E0010)
-        .with_message(format!("`{operator}` is not an Ori operator"))
+        .with_message(format!("`{spelling}` is not an Ori operator"))
         .with_label(span, "increment operators are not supported")
         .with_note("Ori uses explicit assignment for updates")
         .with_suggestion("write the update explicitly, such as `x = x + 1`")
+}
+
+fn unsupported_operator_error(span: Span, operator: UnsupportedOperator) -> Diagnostic {
+    match operator {
+        UnsupportedOperator::StrictEqual => strict_equality_error(span, operator, "=="),
+        UnsupportedOperator::StrictNotEqual => strict_equality_error(span, operator, "!="),
+        UnsupportedOperator::Increment => increment_operator_error(span, operator),
+    }
 }
 
 fn unicode_confusable_error(span: Span, found: char, suggested: char, name: &str) -> Diagnostic {

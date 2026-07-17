@@ -10,8 +10,8 @@
 //! are rejected for `Range<float>` by the type checker).
 
 use crate::{
-    MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef,
-    TypeParamArity, TypeProjection, TypeTag,
+    BackendRequirement, MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ParamDef,
+    ReturnTag, TypeDef, TypeParamArity, TypeProjection, TypeTag,
 };
 
 // Parameter arrays
@@ -71,7 +71,7 @@ static RANGE_METHODS: &[MethodDef] = &[
         ReturnTag::ListOf(TypeProjection::Element),
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "contains",
@@ -79,16 +79,23 @@ static RANGE_METHODS: &[MethodDef] = &[
         BOOL,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
-    MethodDef::compound("count", &[], INT, None, Ownership::Borrow, false),
+    MethodDef::compound(
+        "count",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    ),
     MethodDef::compound(
         "filter",
         &PREDICATE_PARAM,
         ReturnTag::ListOf(TypeProjection::Element),
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "fold",
@@ -96,7 +103,7 @@ static RANGE_METHODS: &[MethodDef] = &[
         ReturnTag::Fresh,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "is_empty",
@@ -104,7 +111,7 @@ static RANGE_METHODS: &[MethodDef] = &[
         BOOL,
         Some("IsEmpty"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "iter",
@@ -112,17 +119,24 @@ static RANGE_METHODS: &[MethodDef] = &[
         ReturnTag::DoubleEndedIteratorOf(TypeProjection::Element),
         Some("Iterable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
-    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false)
-        .with_runtime(MethodRuntime::Length),
+    MethodDef::compound(
+        "len",
+        &[],
+        INT,
+        Some("Len"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Length),
     MethodDef::compound(
         "map",
         &TRANSFORM_PARAM,
         ReturnTag::Fresh,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "step_by",
@@ -130,7 +144,7 @@ static RANGE_METHODS: &[MethodDef] = &[
         ReturnTag::SelfType,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "to_list",
@@ -138,7 +152,7 @@ static RANGE_METHODS: &[MethodDef] = &[
         ReturnTag::ListOf(TypeProjection::Element),
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
 ];
 

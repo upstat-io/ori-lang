@@ -7,7 +7,7 @@
 //!
 //! Protocol builtins are dispatched via [`ProtocolBuiltin::from_name()`],
 //! ensuring an exhaustive match — adding a new variant to the enum forces
-//! a handler here. `ori_list_take` is NOT a protocol builtin (it's a real
+//! a handler. `ori_list_take` is NOT a protocol builtin (it's a real
 //! runtime function with special sret handling).
 //!
 //! | Protocol              | Purpose                                  | Intercepted?     |
@@ -32,9 +32,9 @@ use crate::codegen::value_id::ValueId;
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Try to handle an internal protocol call.
     ///
-    /// Returns `true` if the callee was a recognized protocol and was emitted
-    /// (or silently skipped for unsupported types). Returns `false` if the
-    /// callee is not a protocol and should go through normal dispatch.
+    /// Returns `true` if the callee was a recognized protocol and was emitted.
+    /// Returns `false` if the callee is not a protocol and should go through
+    /// normal dispatch.
     pub(super) fn try_emit_protocol(
         &mut self,
         dst: ArcVarId,
@@ -43,25 +43,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         func: &ArcFunction,
     ) -> bool {
         // Central protocol dispatch — exhaustive match enforced by compiler.
-        // Adding a new ProtocolBuiltin variant will cause a compile error here.
-        // `from_name` is the registry's str-keyed accessor; identity checks
-        // below use pre-interned `Name`s per interning discipline.
+        // Adding a ProtocolBuiltin variant makes this match non-exhaustive.
+        // `from_name` is the registry's str-keyed accessor; protocol identity
+        // checks use pre-interned `Name`s per interning discipline.
         if let Some(protocol) = ProtocolBuiltin::from_name(self.interner.lookup(callee)) {
             // IterNext uses decomposed emission (tag + scratch pointer separately)
             // to avoid building an intermediate {i64, T} wrapper struct.
             if matches!(protocol, ProtocolBuiltin::IterNext) {
-                assert!(
-                    args.len() >= 2,
-                    "__iter_next requires 2 args, got {}",
-                    args.len()
-                );
-                let iter_ptr = self.var(args[0]);
-                let elem_ty = func.var_type(args[1]);
-                if let Some((tag, scratch, elem_llvm_ty)) = self.emit_iter_next(iter_ptr, elem_ty) {
-                    self.iter_next_decomposed
-                        .insert(dst, (tag, scratch, elem_llvm_ty));
-                    self.def_var(dst, super::context::EmittedValue::Immediate(tag));
-                }
+                self.emit_decomposed_iter_next(dst, args, func);
                 return true;
             }
 
@@ -73,81 +62,31 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             let result = match protocol {
-                ProtocolBuiltin::Cast => {
-                    // __cast(value) — `as` conversions (ARC IR has no cast
-                    // instruction). Supported primitive pairs emit inline
-                    // (incl. range-checked int->byte / int->char), matching
-                    // `ori_eval::eval_can_cast` for dual-execution parity.
-                    // Unsupported pairs (str->int / str->float parse,
-                    // value->str) fall through to normal dispatch
-                    // (unresolved-function error).
-                    return match self.try_emit_cast(dst, args, func) {
-                        Some(val) => {
-                            self.def_var_repr(dst, val, func);
-                            true
-                        }
-                        None => false,
-                    };
-                }
-
-                ProtocolBuiltin::CollectSet => {
-                    // __collect_set(iter).
-                    // Type-directed rewrite from collect() when target type is Set<T>.
-                    assert!(!args.is_empty(), "__collect_set requires at least 1 arg");
-                    let iter_ptr = self.var(args[0]);
-                    let iter_ty = func.var_type(args[0]);
-                    let elem_ty = self.pool.iterator_elem(iter_ty);
-                    self.emit_iter_collect_set(iter_ptr, elem_ty)
-                }
+                ProtocolBuiltin::Cast => return self.try_emit_cast_protocol(dst, args, func),
+                ProtocolBuiltin::CollectSet => require_protocol_result(
+                    "__collect_set",
+                    self.emit_collect_set_protocol(args, func),
+                ),
                 ProtocolBuiltin::Index => {
-                    // __index(receiver, index).
-                    // Desugared from `receiver[index]` by ARC lowering.
-                    // List: returns T directly (panics OOB). Map: returns Option<V>.
-                    assert!(
-                        args.len() >= 2,
-                        "__index requires 2 args, got {}",
-                        args.len()
-                    );
-                    let receiver_ty = func.var_type(args[0]);
-                    let type_info = self.type_info.get(receiver_ty);
-                    let recv = self.var(args[0]);
-                    let idx = self.var(args[1]);
-                    match &type_info {
-                        TypeInfo::List { element } => {
-                            self.emit_list_index(recv, idx, *element, receiver_ty)
-                        }
-                        TypeInfo::Map { key, value } => {
-                            self.emit_map_get(recv, idx, *key, *value, Some(receiver_ty))
-                        }
-                        TypeInfo::Str => self.emit_str_index(recv, idx),
-                        _ => {
-                            tracing::warn!(
-                                ?type_info,
-                                "__index on unsupported type — type checker should prevent this"
-                            );
-                            None
-                        }
-                    }
+                    require_protocol_result("__index", self.emit_index_protocol(args, func))
                 }
-                // IterNext handled above via early return.
-                ProtocolBuiltin::IterNext => unreachable!("IterNext handled above"),
-                // Filtered out by the is_intercepted() check above.
+                // IterNext returns before generic protocol emission.
+                ProtocolBuiltin::IterNext => unreachable!("IterNext uses decomposed emission"),
+                // `is_intercepted` excludes Iter and IterDrop.
                 ProtocolBuiltin::Iter | ProtocolBuiltin::IterDrop => {
-                    unreachable!("Iter/IterDrop filtered by is_intercepted() above")
+                    unreachable!("Iter/IterDrop are not intercepted protocols")
                 }
             };
-            if let Some(val) = result {
-                self.def_var_repr(dst, val, func);
-            }
+            self.def_var_repr(dst, result, func);
             return true;
         }
 
         // ori_list_take: NOT a protocol builtin — it's a real runtime function
         // with special sret handling (has `ori_` prefix, exists in RT_FUNCTIONS).
         if callee == self.list_rt_names.take && !args.is_empty() {
-            if let Some(val) = self.emit_list_take(dst, args[0], func) {
-                self.def_var_repr(dst, val, func);
-            }
+            let result =
+                require_protocol_result("ori_list_take", self.emit_list_take(dst, args[0], func));
+            self.def_var_repr(dst, result, func);
             return true;
         }
 
@@ -156,13 +95,85 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Expands to ori_list_slice_drop(data, len, cap, n, elem_size, out_ptr).
         if callee == self.list_rt_names.slice_drop && args.len() >= 2 {
             let list_ty = func.var_type(args[0]);
-            if let Some(val) = self.emit_list_slice_drop(args[0], args[1], list_ty, func) {
-                self.def_var_repr(dst, val, func);
-            }
+            let result = require_protocol_result(
+                "ori_list_slice_drop",
+                self.emit_list_slice_drop(args[0], args[1], list_ty, func),
+            );
+            self.def_var_repr(dst, result, func);
             return true;
         }
 
         false
+    }
+
+    fn emit_decomposed_iter_next(&mut self, dst: ArcVarId, args: &[ArcVarId], func: &ArcFunction) {
+        assert!(
+            args.len() >= 2,
+            "__iter_next requires 2 args, got {}",
+            args.len()
+        );
+        let iter_ptr = self.var(args[0]);
+        let elem_ty = func.var_type(args[1]);
+        let (tag, scratch, elem_llvm_ty) =
+            require_protocol_result("__iter_next", self.emit_iter_next(iter_ptr, elem_ty));
+        self.iter_next_decomposed
+            .insert(dst, (tag, scratch, elem_llvm_ty));
+        self.def_var(dst, super::context::EmittedValue::Immediate(tag));
+    }
+
+    /// Emit a supported `as` conversion, or leave unsupported conversions for
+    /// normal dispatch so they retain the unresolved-function diagnostic.
+    fn try_emit_cast_protocol(
+        &mut self,
+        dst: ArcVarId,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) -> bool {
+        match self.try_emit_cast(dst, args, func) {
+            Some(val) => {
+                self.def_var_repr(dst, val, func);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Emit the type-directed `collect()` rewrite for a `Set<T>` target.
+    fn emit_collect_set_protocol(
+        &mut self,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) -> Option<ValueId> {
+        assert!(!args.is_empty(), "__collect_set requires at least 1 arg");
+        let iter_ptr = self.var(args[0]);
+        let iter_ty = func.var_type(args[0]);
+        let elem_ty = self.pool.iterator_elem(iter_ty);
+        self.emit_iter_collect_set(iter_ptr, elem_ty)
+    }
+
+    /// Emit `receiver[index]` after ARC lowering has selected the index
+    /// protocol. The receiver representation determines the runtime operation.
+    fn emit_index_protocol(&mut self, args: &[ArcVarId], func: &ArcFunction) -> Option<ValueId> {
+        assert!(
+            args.len() >= 2,
+            "__index requires 2 args, got {}",
+            args.len()
+        );
+        let receiver_ty = func.var_type(args[0]);
+        let type_info = self.type_info.get(receiver_ty);
+        let recv = self.var(args[0]);
+        let idx = self.var(args[1]);
+        match &type_info {
+            TypeInfo::List { element } => self.emit_list_index(recv, idx, *element, receiver_ty),
+            TypeInfo::Map { key, value } => {
+                self.emit_map_get(recv, idx, *key, *value, Some(receiver_ty))
+            }
+            TypeInfo::Str => self.emit_str_index(recv, idx),
+            unsupported => panic!(
+                "LLVM `__index` received non-indexable receiver {unsupported:?}; restrict index \
+                 protocol lowering to List, Map, or Str before ARC code generation"
+            ),
+        }
     }
 
     /// Emit `ori_list_slice_drop(data, len, cap, n, elem_size, out_ptr)` for
@@ -218,7 +229,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// for-yield result is freed solely via `IterState::Drop` (the iter-consumed
     /// shape, caller `elem_dec_fn = None`), the null header runs zero element
     /// cleanup and heap elements leak. Store `elem_dec_fn` + `elem_count` on the
-    /// result here, mirroring the Construct List / collect-consumer finalizers
+    /// result, mirroring the Construct List / collect-consumer finalizers
     /// (CG:RT-4 `elem_dec_fn` contract). The element type is derived from the
     /// RESULT `dst`'s `[T]` type — `list_var` is the scratch `OriList` handle
     /// (`Tag::Int` in ARC IR) and would mis-type the dec fn.
@@ -295,5 +306,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         full_args.push(out_alloca);
         self.builder.call(func_id, &full_args, label);
         Some(self.builder.load(result_ty, out_alloca, "manual.sret.val"))
+    }
+}
+
+fn require_protocol_result<T>(protocol: &str, result: Option<T>) -> T {
+    let Some(result) = result else {
+        panic!(
+            "LLVM `{protocol}` protocol emission produced no result; verify its receiver type and \
+             result layout before ARC code generation"
+        );
+    };
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_protocol_result;
+
+    #[test]
+    #[should_panic(expected = "verify its receiver type and result layout")]
+    fn missing_protocol_result_fails_loudly() {
+        require_protocol_result::<()>("__index", None);
     }
 }

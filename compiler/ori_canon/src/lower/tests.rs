@@ -272,9 +272,8 @@ fn lower_template_full() {
 fn lower_while_desugars_to_loop_with_break_guard() {
     // `while c do body` -> `loop { if !c then break; body }`.
     // Positive pin: the canonical shape is a CanExpr::Loop whose body Block has
-    // a single `if (!c) then break` guard statement and the body as its result;
-    // no ExprKind::While reaches the backends (canonicalization.md while->loop
-    // control-flow lowering).
+    // a single `if (!c) then break` guard statement and the body as its result.
+    // Canonicalization eliminates `ExprKind::While` from backend input.
     let mut arena = ExprArena::new();
     let interner = test_interner();
     let cond_name = interner.intern("c");

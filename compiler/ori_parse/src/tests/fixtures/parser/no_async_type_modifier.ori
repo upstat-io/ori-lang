@@ -1,0 +1,2 @@
+
+@example () -> async int = 42;

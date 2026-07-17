@@ -274,6 +274,21 @@ pub struct ParamDef {
     pub ownership: Ownership,
 }
 
+/// Whether a method requires an implementation in every admitted executor.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum BackendRequirement {
+    /// Every admitted semantic and physical executor implements the method.
+    Required,
+    /// The method does not require a physical backend handler.
+    NotRequired,
+}
+
+impl BackendRequirement {
+    pub(crate) const fn is_required(self) -> bool {
+        matches!(self, Self::Required)
+    }
+}
+
 /// Complete specification of a single builtin method.
 ///
 /// This is the single source of truth for a method's signature, ownership
@@ -383,7 +398,7 @@ impl MethodDef {
         returns: ReturnTag,
         trait_name: Option<&'static str>,
         receiver: Ownership,
-        backend_required: bool,
+        backend_requirement: BackendRequirement,
     ) -> Self {
         Self {
             name,
@@ -393,7 +408,7 @@ impl MethodDef {
             runtime: None,
             trait_name,
             pure: true,
-            backend_required,
+            backend_required: backend_requirement.is_required(),
             kind: MethodKind::Instance,
             dei_only: false,
             dei_propagation: DeiPropagation::NotApplicable,

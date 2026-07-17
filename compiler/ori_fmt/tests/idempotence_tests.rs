@@ -27,10 +27,9 @@ fn fixture_without_trailing_newline(source: &'static str) -> &'static str {
 /// Repo-relative paths whose formatted output fails to re-parse — a
 /// `format -> parse` round-trip defect (Spec: Annex D — formatting must preserve
 /// observable semantics, so the output must re-parse). The harness counts these
-/// as KNOWN-tracked breaks, FAILS on any NEW re-parse break, and FAILS when a
-/// listed file re-parses clean again (stale-entry guard, mirroring
-/// DISPOSITION_DRIFT:stale-tracking) so the list shrinks as each break is fixed.
-/// The sole entry is a nested tuple-index `.0.0` round-trip break (BUG-07-339).
+/// as known breaks, fails on any unlisted re-parse break, and fails when a
+/// listed file re-parses cleanly. The sole entry is a nested tuple-index
+/// `.0.0` round-trip break.
 const KNOWN_REPARSE_BREAKS: &[&str] = &["tests/spec/types/tuple_types.ori"];
 
 /// Classification of a single file's idempotence + round-trip check.
@@ -40,7 +39,7 @@ enum IdemOutcome {
     /// Source itself does not parse — a legitimate skip (the input never parsed).
     SourceParseSkip,
     /// Formatter output failed to re-parse AND the file is in
-    /// `KNOWN_REPARSE_BREAKS` — a BUG-07-339-tracked round-trip break.
+    /// `KNOWN_REPARSE_BREAKS` — a tracked round-trip break.
     KnownReparseBreak,
     /// Formatter output failed to re-parse and the file is NOT tracked — a NEW
     /// round-trip defect. Hard failure.
@@ -49,7 +48,7 @@ enum IdemOutcome {
     IdempotenceFailure(String),
 }
 
-/// Whether `repo_rel` is a tracked BUG-07-339 re-parse break.
+/// Whether `repo_rel` is a tracked re-parse break.
 fn is_known_reparse_break(repo_rel: &str) -> bool {
     KNOWN_REPARSE_BREAKS.contains(&repo_rel)
 }
@@ -220,7 +219,7 @@ fn normalize_whitespace(source: &str) -> String {
 ///
 /// A source that does not parse is a legitimate skip. A formatter output that
 /// does not re-parse is a round-trip defect — tracked when listed in
-/// `KNOWN_REPARSE_BREAKS` (BUG-07-339), a hard failure when not.
+/// `KNOWN_REPARSE_BREAKS`, and is a hard failure otherwise.
 fn test_idempotence_for_file(path: &Path) -> IdemOutcome {
     let source = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -275,13 +274,12 @@ struct DirIdemResult {
     passed: usize,
     /// Source did not parse (legitimate skip).
     skipped: usize,
-    /// Re-parse breaks listed in `KNOWN_REPARSE_BREAKS` (BUG-07-339), observed
-    /// to still break in this run.
+    /// Re-parse breaks listed in `KNOWN_REPARSE_BREAKS` that remain reproducible.
     known_breaks_hit: Vec<String>,
     /// Repo-relative paths whose SOURCE did not parse this run (`SourceParseSkip`).
     /// A `KNOWN_REPARSE_BREAKS` entry that dropped to `SourceParseSkip` is NOT a
     /// genuine fix — its source regressed to unparseable, the opposite of its
-    /// output re-parsing clean — so the stale-check MUST NOT flag it (BUG-07-339).
+    /// output re-parsing cleanly, so the stale check must not flag it.
     source_skipped: Vec<String>,
     /// New round-trip breaks + idempotence mismatches — hard failures.
     failures: Vec<String>,
@@ -304,7 +302,7 @@ fn run_idempotence_tests_for_dir(dir: &Path) -> DirIdemResult {
             }
             IdemOutcome::NewReparseBreak(detail) => {
                 result.failures.push(format!(
-                    "{}: NEW re-parse break (not in BUG-07-339 allowlist): {}",
+                    "{}: new re-parse break (not in KNOWN_REPARSE_BREAKS): {}",
                     file.display(),
                     detail
                 ));
@@ -322,8 +320,7 @@ fn run_idempotence_tests_for_dir(dir: &Path) -> DirIdemResult {
 
 /// Fail if any `KNOWN_REPARSE_BREAKS` entry was NOT observed to break across the
 /// union of files this run scanned — a stale tracked entry (the round-trip
-/// defect is fixed; the allowlist must shrink), mirroring
-/// DISPOSITION_DRIFT:stale-tracking.
+/// defect is fixed and the allowlist must shrink).
 fn assert_no_stale_known_breaks(
     hit_repo_rels: &[String],
     scanned_repo_rels: &[String],
@@ -348,7 +345,7 @@ fn assert_no_stale_known_breaks(
     }
     assert!(
         stale.is_empty(),
-        "{} stale KNOWN_REPARSE_BREAKS entries now re-parse clean — remove them from the allowlist (BUG-07-339 progress):\n{}",
+        "{} stale KNOWN_REPARSE_BREAKS entries now re-parse cleanly; remove them from the allowlist:\n{}",
         stale.len(),
         stale.join("\n")
     );
@@ -363,11 +360,11 @@ fn scanned_repo_relatives(dir: &Path) -> Vec<String> {
 }
 
 /// Assert a single directory's run carries no NEW round-trip break / idempotence
-/// failure, and no stale tracked break. Known BUG-07-339 breaks are reported but
-/// do not fail the run.
+/// failure and no stale tracked break. Known breaks are reported but do not
+/// fail the run.
 fn assert_dir_idem_clean(label: &str, dir: &Path, result: &DirIdemResult) {
     println!(
-        "{}: {} passed, {} skipped, {} known-reparse-break (BUG-07-339), {} failed",
+        "{}: {} passed, {} skipped, {} known-reparse-break, {} failed",
         label,
         result.passed,
         result.skipped,
@@ -449,8 +446,11 @@ fn idempotence_comprehensive() {
     }
 
     println!(
-        "\nComprehensive idempotence: {} passed, {} skipped, {} known-reparse-break (BUG-07-339), {} failed",
-        total_passed, total_skipped, total_known_breaks, all_failures.len()
+        "\nComprehensive idempotence: {} passed, {} skipped, {} known-reparse-break, {} failed",
+        total_passed,
+        total_skipped,
+        total_known_breaks,
+        all_failures.len()
     );
 
     assert_no_stale_known_breaks(&all_hit, &all_scanned, &all_source_skipped);

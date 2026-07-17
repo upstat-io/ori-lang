@@ -155,7 +155,6 @@ impl RawTag {
             Self::InvalidByte => "invalid byte",
             Self::UnterminatedString => "unterminated string",
             Self::UnterminatedChar => "unterminated character literal",
-            Self::InvalidEscape => "invalid escape",
             Self::UnterminatedTemplate => "unterminated template",
             Self::InteriorNull => "interior null byte",
             Self::Eof => "end of file",

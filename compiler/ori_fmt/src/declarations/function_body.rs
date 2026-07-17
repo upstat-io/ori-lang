@@ -18,6 +18,18 @@ use crate::width::ALWAYS_STACKED;
 
 use super::ModuleFormatter;
 
+#[derive(Clone, Copy)]
+pub(crate) enum BodyBreakPolicy {
+    AllowStructuralNewline,
+    OverflowOnly,
+}
+
+impl BodyBreakPolicy {
+    const fn allows_structural_newline(self) -> bool {
+        matches!(self, Self::AllowStructuralNewline)
+    }
+}
+
 /// Emit a function-declaration body. Block bodies are FORCED to broken
 /// (stacked) form per Annex D §671; all other shapes delegate to
 /// `Formatter::format` (inline-vs-broken decision tree).
@@ -47,7 +59,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// (`should_break_body_to_newline`, gated by `allow_force_newline`) OR the
     /// inline head overflows and the newline layout fits; else inline-head with
     /// internal breaking. Emits the trailing `;` for non-block bodies.
-    pub(crate) fn emit_expr_body(&mut self, body: ExprId, allow_force_newline: bool) {
+    pub(crate) fn emit_expr_body(&mut self, body: ExprId, policy: BodyBreakPolicy) {
         let body_width = self.width_calc.width(body);
         // " = "
         let space_after_eq = 3;
@@ -55,7 +67,8 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             body_width != ALWAYS_STACKED && self.ctx.fits(space_after_eq + body_width);
 
         let break_to_newline = !fits_inline
-            && ((allow_force_newline && self.should_break_body_to_newline(body, body_width))
+            && ((policy.allows_structural_newline()
+                && self.should_break_body_to_newline(body, body_width))
                 || self.inline_head_overflows(body));
 
         let ends_with_brace = if break_to_newline {

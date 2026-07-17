@@ -18,16 +18,4 @@ pub use predicates::{
 };
 pub use reverse::{ori_iter_rfind, ori_iter_rfold};
 
-use super::IterState;
-
-/// Take ownership of an opaque iterator handle at a consuming ABI boundary.
-///
-/// Holding the state in a `Box` for the whole operation makes every consumer
-/// release the iterator during stack unwinding as well as on normal return.
-fn take_iter(iter: *mut u8) -> Option<Box<IterState>> {
-    if iter.is_null() {
-        None
-    } else {
-        Some(unsafe { Box::from_raw(iter.cast::<IterState>()) })
-    }
-}
+pub(super) use super::take_iter;

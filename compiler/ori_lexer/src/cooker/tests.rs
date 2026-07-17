@@ -165,7 +165,7 @@ fn integer_overflow() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::Int, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -179,7 +179,7 @@ fn float_overflow_is_error() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::Float, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn float_max_finite_is_valid() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::Float, 0, source.len() as u32);
     assert!(matches!(result.kind, TokenKind::Float(_)));
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 // Malformed numeric literals
@@ -203,7 +203,7 @@ fn hex_int_no_digits_is_error() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::HexInt, 0, 2);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -214,7 +214,7 @@ fn bin_int_only_underscores_is_error() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::BinInt, 0, 3);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -356,7 +356,7 @@ fn decimal_duration_nanoseconds_error() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::Duration, 0, 5);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -393,7 +393,7 @@ fn decimal_size_bytes_error() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::Size, 0, 4);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -457,7 +457,7 @@ fn error_tags_produce_error_kind() {
 
     let result = cooker.cook(RawTag::InvalidByte, 0, 1);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -528,7 +528,7 @@ fn duration_integer_overflow_is_error() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::Duration, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -542,7 +542,7 @@ fn duration_max_valid_hours() {
         result.kind,
         TokenKind::Duration(2_562_047, DurationUnit::Hours)
     );
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 #[test]
@@ -553,7 +553,7 @@ fn duration_seconds_overflow_is_error() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::Duration, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -564,7 +564,7 @@ fn size_terabytes_overflow_is_error() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::Size, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -575,7 +575,7 @@ fn size_bytes_exceeding_i64_is_error() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::Size, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -586,7 +586,7 @@ fn decimal_duration_overflow_is_error() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::Duration, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -597,7 +597,7 @@ fn decimal_size_overflow_is_error() {
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     let result = cooker.cook(RawTag::Size, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 // Suffix detection
@@ -610,14 +610,16 @@ fn decimal_size_overflow_is_error() {
 fn all_duration_units_detected_by_suffix() {
     for unit in DurationUnit::all() {
         let input = format!("1{}", unit.suffix());
-        let (suffix_len, detected) = detect_duration_suffix(&input);
+        let detected = detect_duration_suffix(&input);
+        let detected_unit = match detected {
+            DetectedUnit::OneByte(unit) | DetectedUnit::TwoBytes(unit) => unit,
+            DetectedUnit::Missing => {
+                panic!("detect_duration_suffix({input:?}) did not recognize suffix for {unit:?}")
+            }
+        };
         assert_eq!(
-            detected, unit,
-            "detect_duration_suffix({input:?}) returned {detected:?}, expected {unit:?}"
-        );
-        assert!(
-            suffix_len > 0,
-            "detect_duration_suffix({input:?}) returned suffix_len=0 for {unit:?}"
+            detected_unit, unit,
+            "detect_duration_suffix({input:?}) returned {detected_unit:?}, expected {unit:?}"
         );
     }
 }
@@ -627,14 +629,16 @@ fn all_duration_units_detected_by_suffix() {
 fn all_size_units_detected_by_suffix() {
     for unit in SizeUnit::all() {
         let input = format!("1{}", unit.suffix());
-        let (suffix_len, detected) = detect_size_suffix(&input);
+        let detected = detect_size_suffix(&input);
+        let detected_unit = match detected {
+            DetectedUnit::OneByte(unit) | DetectedUnit::TwoBytes(unit) => unit,
+            DetectedUnit::Missing => {
+                panic!("detect_size_suffix({input:?}) did not recognize suffix for {unit:?}")
+            }
+        };
         assert_eq!(
-            detected, unit,
-            "detect_size_suffix({input:?}) returned {detected:?}, expected {unit:?}"
-        );
-        assert!(
-            suffix_len > 0,
-            "detect_size_suffix({input:?}) returned suffix_len=0 for {unit:?}"
+            detected_unit, unit,
+            "detect_size_suffix({input:?}) returned {detected_unit:?}, expected {unit:?}"
         );
     }
 }
@@ -643,28 +647,54 @@ fn all_size_units_detected_by_suffix() {
 fn duration_suffix_detection() {
     assert_eq!(
         detect_duration_suffix("100ns"),
-        (2, DurationUnit::Nanoseconds)
+        DetectedUnit::TwoBytes(DurationUnit::Nanoseconds)
     );
     assert_eq!(
         detect_duration_suffix("50us"),
-        (2, DurationUnit::Microseconds)
+        DetectedUnit::TwoBytes(DurationUnit::Microseconds)
     );
     assert_eq!(
         detect_duration_suffix("100ms"),
-        (2, DurationUnit::Milliseconds)
+        DetectedUnit::TwoBytes(DurationUnit::Milliseconds)
     );
-    assert_eq!(detect_duration_suffix("5s"), (1, DurationUnit::Seconds));
-    assert_eq!(detect_duration_suffix("10m"), (1, DurationUnit::Minutes));
-    assert_eq!(detect_duration_suffix("2h"), (1, DurationUnit::Hours));
+    assert_eq!(
+        detect_duration_suffix("5s"),
+        DetectedUnit::OneByte(DurationUnit::Seconds)
+    );
+    assert_eq!(
+        detect_duration_suffix("10m"),
+        DetectedUnit::OneByte(DurationUnit::Minutes)
+    );
+    assert_eq!(
+        detect_duration_suffix("2h"),
+        DetectedUnit::OneByte(DurationUnit::Hours)
+    );
+    assert_eq!(detect_duration_suffix("10"), DetectedUnit::Missing);
 }
 
 #[test]
 fn size_suffix_detection() {
-    assert_eq!(detect_size_suffix("100b"), (1, SizeUnit::Bytes));
-    assert_eq!(detect_size_suffix("4kb"), (2, SizeUnit::Kilobytes));
-    assert_eq!(detect_size_suffix("10mb"), (2, SizeUnit::Megabytes));
-    assert_eq!(detect_size_suffix("1gb"), (2, SizeUnit::Gigabytes));
-    assert_eq!(detect_size_suffix("1tb"), (2, SizeUnit::Terabytes));
+    assert_eq!(
+        detect_size_suffix("100b"),
+        DetectedUnit::OneByte(SizeUnit::Bytes)
+    );
+    assert_eq!(
+        detect_size_suffix("4kb"),
+        DetectedUnit::TwoBytes(SizeUnit::Kilobytes)
+    );
+    assert_eq!(
+        detect_size_suffix("10mb"),
+        DetectedUnit::TwoBytes(SizeUnit::Megabytes)
+    );
+    assert_eq!(
+        detect_size_suffix("1gb"),
+        DetectedUnit::TwoBytes(SizeUnit::Gigabytes)
+    );
+    assert_eq!(
+        detect_size_suffix("1tb"),
+        DetectedUnit::TwoBytes(SizeUnit::Terabytes)
+    );
+    assert_eq!(detect_size_suffix("10"), DetectedUnit::Missing);
 }
 
 // Decimal unit value parsing
@@ -909,7 +939,7 @@ fn cook_template_head_strips_delimiters_and_interns() {
         TokenKind::TemplateHead(name) => assert_eq!(interner.lookup(name), "hello "),
         other => panic!("expected TemplateHead, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
     assert!(cooker.errors().is_empty());
 }
 
@@ -924,7 +954,7 @@ fn cook_template_middle_strips_delimiters_and_interns() {
         TokenKind::TemplateMiddle(name) => assert_eq!(interner.lookup(name), " world "),
         other => panic!("expected TemplateMiddle, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 #[test]
@@ -938,7 +968,7 @@ fn cook_template_tail_strips_delimiters_and_interns() {
         TokenKind::TemplateTail(name) => assert_eq!(interner.lookup(name), " end"),
         other => panic!("expected TemplateTail, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 #[test]
@@ -952,7 +982,7 @@ fn cook_template_complete_strips_backticks_and_interns() {
         TokenKind::TemplateFull(name) => assert_eq!(interner.lookup(name), "no interp"),
         other => panic!("expected TemplateFull, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 #[test]
@@ -966,7 +996,7 @@ fn cook_template_segment_with_escape() {
         TokenKind::TemplateHead(name) => assert_eq!(interner.lookup(name), "hello\n"),
         other => panic!("expected TemplateHead, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 #[test]
@@ -980,7 +1010,7 @@ fn cook_format_spec_strips_colon_prefix() {
         TokenKind::FormatSpec(name) => assert_eq!(interner.lookup(name), ">10.2f"),
         other => panic!("expected FormatSpec, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 // Template segment error propagation — negative regression tests for 02.1
@@ -999,7 +1029,7 @@ fn cook_template_head_with_invalid_escape_sets_had_error() {
         }
         other => panic!("expected TemplateHead, got {other:?}"),
     }
-    assert!(result.had_error, "invalid escape must set had_error");
+    assert!(result.had_error(), "invalid escape must set had_error");
     assert_eq!(cooker.errors().len(), 1);
     assert!(matches!(
         cooker.errors()[0].kind,
@@ -1020,7 +1050,7 @@ fn cook_template_middle_with_invalid_escape_sets_had_error() {
         }
         other => panic!("expected TemplateMiddle, got {other:?}"),
     }
-    assert!(result.had_error, "invalid escape must set had_error");
+    assert!(result.had_error(), "invalid escape must set had_error");
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -1037,6 +1067,6 @@ fn cook_template_tail_with_invalid_escape_sets_had_error() {
         }
         other => panic!("expected TemplateTail, got {other:?}"),
     }
-    assert!(result.had_error, "invalid escape must set had_error");
+    assert!(result.had_error(), "invalid escape must set had_error");
     assert_eq!(cooker.errors().len(), 1);
 }

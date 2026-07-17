@@ -45,6 +45,18 @@ pub use sources::{
 // Re-export types used by submodules (consumers needs these from state).
 pub(crate) use state::{ElemBuf, FoldFn, ForEachFn, IterState, PredicateFn};
 
+/// Take ownership of an opaque iterator handle at an ABI ownership boundary.
+///
+/// Returning the state in a `Box` ensures normal returns and unwinding both
+/// release the iterator allocation exactly once.
+pub(super) fn take_iter(iter: *mut u8) -> Option<Box<IterState>> {
+    if iter.is_null() {
+        return None;
+    }
+    // SAFETY: Every non-null handle comes from `Box::into_raw<IterState>`, and each consuming ABI boundary recovers that allocation exactly once.
+    Some(unsafe { Box::from_raw(iter.cast::<IterState>()) })
+}
+
 // Extern C API — Core
 
 /// Advance the iterator, writing the next element to `out_ptr`.
@@ -57,7 +69,9 @@ pub extern "C-unwind" fn ori_iter_next(iter: *mut u8, out_ptr: *mut u8, elem_siz
         return 0;
     }
     state::assert_elem_size(elem_size, "ori_iter_next");
+    // SAFETY: The live handle points to an aligned `IterState` allocation that remains caller-owned throughout this borrowed advance.
     let state = unsafe { &mut *iter.cast::<IterState>() };
+    // SAFETY: The ABI caller provides `out_ptr` writable for `elem_size` bytes, and `state` preserves its variant-specific source allocation invariants.
     let has_next = unsafe { state.next(out_ptr, elem_size) };
     i8::from(has_next)
 }
@@ -73,23 +87,22 @@ pub extern "C-unwind" fn ori_iter_next_back(iter: *mut u8, out_ptr: *mut u8, ele
         return 0;
     }
     state::assert_elem_size(elem_size, "ori_iter_next_back");
+    // SAFETY: The live handle points to an aligned `IterState` allocation that remains caller-owned throughout this borrowed advance.
     let state = unsafe { &mut *iter.cast::<IterState>() };
+    // SAFETY: The ABI caller provides `out_ptr` writable for `elem_size` bytes, and `state` preserves its variant-specific source allocation invariants.
     let has_next = unsafe { state.next_back(out_ptr, elem_size) };
     i8::from(has_next)
 }
 
 // Extern C API — Cleanup
 
-/// Drop (free) an iterator handle and all its internal state.
+/// Drop iterator state and release all resources it owns.
 ///
-/// Must be called when the iterator is no longer needed to prevent leaks.
-/// Called automatically at the end of for-loops over iterators.
+/// Generated for-loop cleanup sends every live handle through this consuming
+/// boundary exactly once.
 #[no_mangle]
 pub extern "C" fn ori_iter_drop(iter: *mut u8) {
-    if iter.is_null() {
-        return;
-    }
-    drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+    drop(take_iter(iter));
 }
 
 #[cfg(test)]

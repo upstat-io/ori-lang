@@ -3,11 +3,11 @@
 //! Contains the heavy implementation details:
 //! - LLVM codegen orchestration (`run_codegen_pipeline`)
 //!
-//! Helpers extracted into sibling modules:
-//! - `borrow_inference`: complete pre-AIMS ARC batch lowering
-//! - `exports`: callable-contract and public-export projection
-//! - `pc2_hooks`: PC-2 invariant check helper for AOT pre-mono / mono sites
-//! - `finalize`: ARC phase dumps + post-codegen diagnostics-and-verify
+//! Supporting modules divide the pipeline by responsibility:
+//! - [`borrow_inference`]: complete pre-AIMS ARC batch lowering
+//! - [`exports`]: callable-contract and public-export projection
+//! - [`pc2_hooks`]: PC-2 invariant checks for AOT pre-mono and mono sites
+//! - [`finalize`]: ARC phase dumps, diagnostics, and verification
 //!
 //! Called from `compile_common::compile_to_llvm_with_imported_monos` and
 //! `compile_common::compile_to_llvm_with_imports`.

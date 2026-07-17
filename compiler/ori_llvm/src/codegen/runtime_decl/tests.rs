@@ -340,9 +340,7 @@ fn panic_functions_noreturn_not_nounwind() {
 /// Verifies that every function in `RT_FUNCTIONS` has a `jit_allowed` classification
 /// and that JIT + AOT-only partitions cover all entries exactly.
 ///
-/// Since `jit_allowed` is now a field on `RtFn`, every entry is inherently
-/// covered. This test validates that the partition counts match expectations
-/// and no entry is accidentally miscategorized.
+/// The `jit_allowed` field places every entry in exactly one partition.
 #[test]
 fn declared_functions_all_have_jit_classification() {
     let total = all_names().count();
@@ -390,7 +388,7 @@ fn jit_symbol_mappings_match_jit_allowed() {
 
 /// Verifies that `elem_dec`/`elem_count` buffer helpers are registered
 /// as JIT-allowed symbols, so MCJIT can resolve them when compiling list/set
-/// literals. Regression guard for RC header V5 JIT availability.
+/// literals.
 #[test]
 fn jit_symbols_include_elem_header_helpers() {
     use crate::evaluator::jit_symbol_mappings;
@@ -489,8 +487,7 @@ fn all_non_unwinding_functions_have_nounwind() {
 /// Ensures no production code uses raw `get_function("ori_*")` to look up
 /// runtime functions. All call sites should use `runtime_fn` instead,
 /// which lazily declares + caches. Raw `get_function` bypasses the cache,
-/// creates duplicate `FunctionId`s, and will break when AOT migrates to
-/// lazy declaration.
+/// creating duplicate `FunctionId`s that violate lazy declaration.
 ///
 /// Test files are excluded — they legitimately use `get_function` to
 /// verify declarations exist.

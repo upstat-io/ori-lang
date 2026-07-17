@@ -392,7 +392,7 @@ fn invoke_indirect_no_live_iterators_no_cleanup() {
     );
 }
 
-/// A resource on a sibling branch is not live at an unreachable invoke.
+/// A resource on a disjoint branch is not live at an unreachable invoke.
 #[test]
 fn sibling_branch_iterator_not_live_at_invoke() {
     let interner = StringInterner::new();

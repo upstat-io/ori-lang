@@ -101,18 +101,8 @@ impl<'a> Compiler<'a> {
         &mut self,
         function: &ArcFunction,
     ) -> Result<BytecodeFunction, CompileError> {
-        let starts = block_starts(function)?;
+        let (starts, capacity) = block_starts(function)?;
         let register_rc_strategies = function.var_rc_strategies.clone().into_boxed_slice();
-        let capacity = function
-            .blocks
-            .iter()
-            .try_fold(0_usize, |total, block| {
-                total.checked_add(block.body.len().saturating_add(1))
-            })
-            .ok_or(CompileError::FunctionTooLarge {
-                function: function.name,
-                count: usize::MAX,
-            })?;
         let mut ops = Vec::with_capacity(capacity);
         for (block_index, block) in function.blocks.iter().enumerate() {
             for (instruction_index, instruction) in block.body.iter().enumerate() {
@@ -398,7 +388,7 @@ const fn register_class(
     }
 }
 
-fn block_starts(function: &ArcFunction) -> Result<Vec<Pc>, CompileError> {
+fn block_starts(function: &ArcFunction) -> Result<(Vec<Pc>, usize), CompileError> {
     let mut starts = Vec::with_capacity(function.blocks.len());
     let mut next = 0_usize;
     for block in &function.blocks {
@@ -412,7 +402,7 @@ fn block_starts(function: &ArcFunction) -> Result<Vec<Pc>, CompileError> {
             })?;
     }
     Pc::new(next, function.name)?;
-    Ok(starts)
+    Ok((starts, next))
 }
 
 fn block_pc(function: Name, starts: &[Pc], block: ArcBlockId) -> Result<Pc, CompileError> {

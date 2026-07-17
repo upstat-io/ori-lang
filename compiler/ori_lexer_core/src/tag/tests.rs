@@ -238,11 +238,9 @@ fn all_covers_every_distinct_discriminant() {
         all.len(),
         discriminants.len()
     );
-    // The 80-entry contract is mirrored in the `ALL: [RawTag; 80]` type. Adding a
-    // variant forces updating the array literal AND this pin in lockstep.
     assert_eq!(
         all.len(),
-        80,
-        "RawTag::ALL length drifted from the documented 80-variant SSOT"
+        79,
+        "RawTag::ALL must enumerate all 79 RawTag variants"
     );
 }

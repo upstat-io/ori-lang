@@ -104,7 +104,7 @@ impl Lowerer<'_> {
         );
         let can_id = self.finish_eager_iter_adapter(adapter_call, adapter_ty, span, ty);
         // Named-arg method calls desugar to the same positional `MethodCall` as
-        // `lower_method_call`; publish the typeck mono-dispatch entry here too so
+        // `lower_method_call`; also publish the typeck mono-dispatch entry so
         // a monomorphized method invoked with named args (e.g. `h.map(f: ...)`)
         // carries its `mono_instance_id` to codegen. Without it the apply falls
         // to the arg-type fallback, which mis-handles closure-typed params.

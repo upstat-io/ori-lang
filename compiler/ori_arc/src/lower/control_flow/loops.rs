@@ -5,8 +5,8 @@
 //! exit/continue targets so `break` and `continue` (in `mod.rs`) can
 //! emit jumps to the correct blocks.
 //!
-//! For-loop variant implementations (iterator, option, range) live in
-//! the sibling [`for_loops`](super::for_loops) module.
+//! [`for_loops`](super::for_loops) implements iterator, option, and range
+//! variants.
 
 use ori_ir::canon::CanId;
 use ori_types::Idx;

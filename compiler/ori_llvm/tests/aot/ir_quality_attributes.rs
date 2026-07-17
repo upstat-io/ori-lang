@@ -193,10 +193,8 @@ fn test_checked_op_catch_fn_not_nounwind() {
 
 /// Regression: same as [`test_checked_op_catch_fn_not_nounwind`], for `byte`.
 /// Pins the `Tag::is_checked_int_arithmetic()` widening (`Int | Byte |
-/// Duration | Size`) — byte checked ops inside a same-frame `catch(expr:)`
-/// were previously never registered in `catch_scoped_checked_ops`, so their
-/// panics took the uncaught path (escaping the catch, aborting) instead of
-/// routing to the landing pad.
+/// Duration | Size`): byte checked ops inside a same-frame `catch(expr:)`
+/// register in `catch_scoped_checked_ops` and route panics to the landing pad.
 #[test]
 fn test_checked_op_catch_fn_not_nounwind_byte() {
     let ir = compile_and_capture_ir(include_str!(
@@ -302,24 +300,17 @@ fn test_closure_call_gets_nounwind_via_posthoc() {
     assert_fn_has_attr(&ir, "main", "nounwind");
 }
 
-/// Generic function with may-unwind body must NOT be treated as intercepted.
-///
-/// Regression test for `is_callee_intercepted()` previously fell
-/// through to the builtin method heuristic for generic calls with builtin-typed
-/// first args. A call like `might_panic(s)` where `s: str` would be treated as
-/// an intercepted builtin (nounwind), even though the monomorphized function
-/// may unwind via `panic()`. The fix adds a `mono_dispatch` check before the
-/// builtin heuristic.
+/// Generic functions with may-unwind bodies must not be treated as intercepted.
+/// A `mono_dispatch` match takes precedence over the builtin method heuristic
+/// even when the first argument has a builtin type such as `str`.
 #[test]
 fn test_generic_call_with_builtin_arg_not_treated_as_intercepted() {
     let ir = compile_and_capture_ir(
         include_str!("fixtures/ir_quality_attributes/generic_call_with_builtin_arg_not_treated_as_intercepted.ori"),
     );
 
-    // `might_panic` contains `panic()` — it MUST NOT be nounwind.
-    // Before the fix, mono_dispatch was not checked, so `might_panic(x: "hello")`
-    // would be classified as an intercepted builtin (str receiver), making main
-    // appear nounwind despite calling a may-unwind generic function.
+    // `mono_dispatch` identifies `might_panic` as a may-unwind generic call even
+    // though its first argument has the builtin `str` type.
     assert_fn_lacks_attr(&ir, "_ori_main", "nounwind");
     assert_fn_lacks_attr(&ir, "main", "nounwind");
 }
@@ -467,16 +458,9 @@ fn test_scalar_params_have_noundef() {
 /// return `noundef`.
 #[test]
 fn test_indirect_params_have_noundef() {
-    let ir = compile_and_capture_ir(
-        r#"
-@greet (name: str) -> str = `Hello, {name}`;
-
-@main () -> void = {
-    let msg = greet(name: "world");
-    print(msg: msg)
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/indirect_str_param_attributes.ori"
+    ));
 
     // _ori_greet: str param (Indirect → ptr noundef), str return (Sret → void).
     // The pointer param gets noundef; the sret pointer does NOT get noundef
@@ -503,16 +487,9 @@ fn test_indirect_params_have_noundef() {
 /// eliminate null checks and enable speculative loads.
 #[test]
 fn test_indirect_params_have_nonnull() {
-    let ir = compile_and_capture_ir(
-        r#"
-@greet (name: str) -> str = `Hello, {name}`;
-
-@main () -> void = {
-    let msg = greet(name: "world");
-    print(msg: msg)
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/indirect_str_param_attributes.ori"
+    ));
 
     let greet_decl = ir
         .lines()
@@ -535,16 +512,9 @@ fn test_indirect_params_have_nonnull() {
 /// loads without null/bounds checks.
 #[test]
 fn test_indirect_params_have_dereferenceable() {
-    let ir = compile_and_capture_ir(
-        r#"
-@greet (name: str) -> str = `Hello, {name}`;
-
-@main () -> void = {
-    let msg = greet(name: "world");
-    print(msg: msg)
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/indirect_str_param_attributes.ori"
+    ));
 
     let greet_decl = ir
         .lines()
@@ -631,10 +601,26 @@ fn test_iter_next_no_wrapper_struct() {
         "expected 0 insertvalue in @count (iter_next decomposed), got {insertvalue_count}.\nIR:\n{count_ir}"
     );
 
-    // ori_str_len should read from iter_next.scratch directly, not a separate alloca.
+    let scratch_ptr = count_ir
+        .lines()
+        .find_map(|line| {
+            let (_, arguments) = line.split_once("@ori_iter_next(")?;
+            let (_, scratch_and_tail) = arguments.split_once(", ptr ")?;
+            scratch_and_tail.split_once(',').map(|(scratch, _)| scratch)
+        })
+        .expect("expected ori_iter_next call with a scratch pointer");
+
+    let scratch_alloca = format!("{scratch_ptr} = alloca {{ i64, i64, ptr }}");
     assert!(
-        count_ir.contains("call i64 @ori_str_len(ptr %iter_next.scratch)"),
-        "expected ori_str_len to receive iter_next.scratch directly.\nIR:\n{count_ir}"
+        count_ir.contains(&scratch_alloca),
+        "expected iter_next scratch argument to name its element alloca.\nIR:\n{count_ir}"
+    );
+
+    // The element consumer must read from the same scratch buffer passed to iter_next.
+    let str_len_call = format!("call i64 @ori_str_len(ptr {scratch_ptr})");
+    assert!(
+        count_ir.contains(&str_len_call),
+        "expected ori_str_len to receive the iter_next scratch pointer directly.\nIR:\n{count_ir}"
     );
 }
 
@@ -800,21 +786,9 @@ fn test_iter_for_yield_semantic_pin() {
 /// mark the sret pointer `noundef`. Regular params should still have `noundef`.
 #[test]
 fn test_closure_wrapper_sret_no_noundef() {
-    let ir = crate::util::compile_and_capture_ir(
-        r#"
-@apply_transform (items: [str], transform: (str) -> str) -> [str] =
-    for item in items yield transform(item);
-
-@main () -> void = {
-    let $prefix = "hello-prefix-over-twenty-three!";
-    let $result = apply_transform(
-        items: ["world"],
-        transform: (s: str) -> str = `{prefix}: {s}`,
-    );
-    print(msg: result[0])
-}
-"#,
-    );
+    let ir = crate::util::compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/closure_wrapper_sret_no_noundef.ori"
+    ));
 
     // Find any _ori_partial_* wrapper declaration — these are closure wrappers.
     // The test program captures `prefix` in a lambda returning `str` (>16 bytes),
@@ -825,9 +799,7 @@ fn test_closure_wrapper_sret_no_noundef() {
             && l.contains("sret(")
     });
 
-    // Semantic pin: the wrapper MUST be emitted. If this assert fires, the test
-    // program no longer produces a closure wrapper — fix the program or the
-    // compiler, don't weaken the test to a no-op.
+    // The fixture's capturing closure must emit an sret wrapper.
     let decl = wrapper_decl.expect(
         "expected at least one _ori_partial_* wrapper with sret in IR — \
          the capturing closure returning str must emit a wrapper",

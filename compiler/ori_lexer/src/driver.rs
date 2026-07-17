@@ -151,19 +151,17 @@ pub(crate) fn lex_driver<const WITH_METADATA: bool>(
                 // Try the trivial fast path: operators and delimiters that
                 // map 1:1 from RawTag to TokenKind with no data or side effects.
                 // Bypasses cook() and discriminant_index() entirely.
-                let (kind, tag, had_error, was_contextual) =
-                    if let Some((kind, tag)) = try_trivial(raw.tag) {
-                        (kind, tag, false, false)
-                    } else {
-                        let result = cooker.cook(raw.tag, offset, raw.len);
-                        trace!(offset, raw_tag = ?raw.tag, kind = ?result.kind, "cooked token");
-                        (
-                            result.kind,
-                            result.tag,
-                            result.had_error,
-                            result.contextual_kw,
-                        )
-                    };
+                let result = if let Some((kind, tag)) = try_trivial(raw.tag) {
+                    crate::cooker::CookResult::trivial(kind, tag)
+                } else {
+                    let result = cooker.cook(raw.tag, offset, raw.len);
+                    trace!(offset, raw_tag = ?raw.tag, kind = ?result.kind, "cooked token");
+                    result
+                };
+                let had_error = result.had_error();
+                let was_contextual = result.is_contextual_keyword();
+                let kind = result.kind;
+                let tag = result.tag;
 
                 if WITH_METADATA {
                     if let Some((doc_span, doc_marker)) = pending_doc.take() {

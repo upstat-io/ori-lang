@@ -60,18 +60,16 @@ pub(crate) type VariantCtors = FxHashMap<Name, (Name, u32, usize)>;
 
 /// Scan the pool for all enum types and build a reverse lookup map
 /// from variant name to its parent enum info.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "pool indices and variant counts never exceed u32"
-)]
 fn build_variant_ctors(pool: &Pool) -> VariantCtors {
     let mut map = VariantCtors::default();
-    for raw in 0..pool.len() as u32 {
-        let idx = Idx::from_raw(raw);
+    for idx in pool.iter_indices() {
         if pool.tag(idx) == Tag::Enum {
             let enum_name = pool.enum_name(idx);
             for (vi, (vname, fields)) in pool.enum_variants(idx).into_iter().enumerate() {
-                map.insert(vname, (enum_name, vi as u32, fields.len()));
+                let Ok(variant_index) = u32::try_from(vi) else {
+                    unreachable!("enum variant index exceeds the u32 ARC IR domain");
+                };
+                map.insert(vname, (enum_name, variant_index, fields.len()));
             }
         }
     }
@@ -205,9 +203,8 @@ pub fn lower_function_can(
 
     let mut func = builder.finish(name, arc_params, return_type, entry, is_fbip);
 
-    // Pre-populate value representations so every variable has a correct
-    // repr from the moment it exists. `run_arc_pipeline` will re-compute
-    // (same values) as a consistency check.
+    // Every variable carries its representation before the ARC pipeline runs.
+    // The pipeline recomputes the same values as a consistency check.
     let classifier = ArcClassifier::new(pool);
     let representations = ir::compute_var_reprs(&func, &classifier, pool);
     func.replace_variable_representations(representations);

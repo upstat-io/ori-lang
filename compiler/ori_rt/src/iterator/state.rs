@@ -89,6 +89,15 @@ pub(crate) type FoldFn = extern "C-unwind" fn(*mut u8, *const u8, *const u8, *mu
 /// Null at the ABI boundary means the mapped result has no RC children.
 pub(crate) type ElemDecFn = extern "C" fn(*mut u8);
 
+/// Source phase for a cycling iterator.
+///
+/// The source exists only while the first pass is being buffered. Once that
+/// pass ends, the iterator permanently replays its owned buffer.
+pub(crate) enum CycleSource {
+    Reading(Box<IterState>),
+    Replaying,
+}
+
 /// Iterator state machine. Each variant corresponds to an iterator source
 /// or adapter from the evaluator's `IteratorValue` enum.
 pub(crate) enum IterState {
@@ -132,7 +141,7 @@ pub(crate) enum IterState {
         transform_fn: TransformFn,
         transform_env: *mut u8,
         in_size: i64,
-        /// Releases a yielded map result when a downstream adapter consumes or
+        /// Releases a yielded map result when another adapter consumes or
         /// discards it instead of forwarding it to the terminal consumer.
         output_dec_fn: Option<ElemDecFn>,
     },
@@ -197,11 +206,10 @@ pub(crate) enum IterState {
     /// inc (e.g. `ori_iter_collect`'s `elem_inc_fn`) is a SEPARATE ownership
     /// domain covering the yielded aliases; the buffer never yields ownership.
     Cycled {
-        source: Option<Box<IterState>>,
+        source: CycleSource,
         buffer: Vec<u8>,
         buf_pos: usize,
         elem_size: i64,
-        source_exhausted: bool,
         elem_inc_fn: Option<extern "C" fn(*mut u8)>,
         elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     },
@@ -303,8 +311,7 @@ impl IterState {
             | Self::TakeN { source, .. }
             | Self::SkipN { source, .. }
             | Self::Cycled {
-                source: Some(source),
-                source_exhausted: false,
+                source: CycleSource::Reading(source),
                 ..
             } => source.release_last_yield(elem_ptr),
             Self::Enumerated { source, .. } => {

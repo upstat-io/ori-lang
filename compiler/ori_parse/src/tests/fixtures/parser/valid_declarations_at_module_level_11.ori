@@ -1,0 +1,4 @@
+type Bar = { v: int }
+extend Bar {
+    @val (self) -> int = self.v;
+}

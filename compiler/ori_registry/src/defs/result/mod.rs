@@ -11,8 +11,8 @@
 //! for error trace inspection.
 
 use crate::{
-    MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ParamDef, ResultRuntime,
-    ReturnTag, TypeDef, TypeParamArity, TypeProjection, TypeTag, ONE_SELF_OWNED,
+    BackendRequirement, MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ParamDef,
+    ResultRuntime, ReturnTag, TypeDef, TypeParamArity, TypeProjection, TypeTag, ONE_SELF_OWNED,
 };
 
 use super::params::{CLOSURE_PARAM, MESSAGE_PARAM};
@@ -42,29 +42,43 @@ static RESULT_METHODS: &[MethodDef] = &[
         FRESH,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::AndThen)),
-    MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false)
-        .with_runtime(MethodRuntime::Result(ResultRuntime::Clone)),
+    MethodDef::compound(
+        "clone",
+        &[],
+        SELF,
+        Some("Clone"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::Clone)),
     MethodDef::compound(
         "compare",
         &ONE_SELF_OWNED,
         ORD,
         Some("Comparable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::Compare)),
-    MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false)
-        .with_runtime(MethodRuntime::Result(ResultRuntime::Debug)),
+    MethodDef::compound(
+        "debug",
+        &[],
+        STR,
+        Some("Debug"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::Debug)),
     MethodDef::compound(
         "equals",
         &ONE_SELF_OWNED,
         BOOL,
         Some("Eq"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::Equals)),
     MethodDef::compound(
@@ -73,7 +87,7 @@ static RESULT_METHODS: &[MethodDef] = &[
         ReturnTag::OptionOf(TypeProjection::Err),
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::Err)),
     MethodDef::compound(
@@ -82,7 +96,7 @@ static RESULT_METHODS: &[MethodDef] = &[
         ReturnTag::OkType,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::Expect)),
     MethodDef::compound(
@@ -91,7 +105,7 @@ static RESULT_METHODS: &[MethodDef] = &[
         ReturnTag::ErrType,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::ExpectErr)),
     MethodDef::compound(
@@ -100,24 +114,52 @@ static RESULT_METHODS: &[MethodDef] = &[
         BOOL,
         Some("Traceable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::HasTrace)),
-    MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, false)
-        .with_runtime(MethodRuntime::Result(ResultRuntime::Hash)),
-    MethodDef::compound("is_err", &[], BOOL, None, Ownership::Borrow, false)
-        .with_runtime(MethodRuntime::Result(ResultRuntime::IsErr)),
-    MethodDef::compound("is_ok", &[], BOOL, None, Ownership::Borrow, false)
-        .with_runtime(MethodRuntime::Result(ResultRuntime::IsOk)),
-    MethodDef::compound("map", &CLOSURE_PARAM, FRESH, None, Ownership::Borrow, false)
-        .with_runtime(MethodRuntime::Result(ResultRuntime::Map)),
+    MethodDef::compound(
+        "hash",
+        &[],
+        INT,
+        Some("Hashable"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::Hash)),
+    MethodDef::compound(
+        "is_err",
+        &[],
+        BOOL,
+        None,
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::IsErr)),
+    MethodDef::compound(
+        "is_ok",
+        &[],
+        BOOL,
+        None,
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::IsOk)),
+    MethodDef::compound(
+        "map",
+        &CLOSURE_PARAM,
+        FRESH,
+        None,
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Result(ResultRuntime::Map)),
     MethodDef::compound(
         "map_err",
         &CLOSURE_PARAM,
         FRESH,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::MapErr)),
     MethodDef::compound(
@@ -126,7 +168,7 @@ static RESULT_METHODS: &[MethodDef] = &[
         ReturnTag::OptionOf(TypeProjection::Ok),
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::Ok)),
     MethodDef::compound(
@@ -135,7 +177,7 @@ static RESULT_METHODS: &[MethodDef] = &[
         FRESH,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::OrElse)),
     MethodDef::compound(
@@ -144,7 +186,7 @@ static RESULT_METHODS: &[MethodDef] = &[
         STR,
         Some("Printable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::ToString),
     MethodDef::compound(
@@ -153,7 +195,7 @@ static RESULT_METHODS: &[MethodDef] = &[
         STR,
         Some("Traceable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::Trace)),
     MethodDef::compound(
@@ -162,7 +204,7 @@ static RESULT_METHODS: &[MethodDef] = &[
         FRESH,
         Some("Traceable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::TraceEntries)),
     MethodDef::compound(
@@ -171,7 +213,7 @@ static RESULT_METHODS: &[MethodDef] = &[
         ReturnTag::OkType,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::Unwrap)),
     MethodDef::compound(
@@ -180,7 +222,7 @@ static RESULT_METHODS: &[MethodDef] = &[
         ReturnTag::ErrType,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::UnwrapErr)),
     MethodDef::compound(
@@ -189,7 +231,7 @@ static RESULT_METHODS: &[MethodDef] = &[
         ReturnTag::OkType,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     )
     .with_runtime(MethodRuntime::Result(ResultRuntime::UnwrapOr)),
 ];

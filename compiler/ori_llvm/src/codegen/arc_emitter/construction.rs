@@ -105,6 +105,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return self.emit_niche_variant_construct(llvm_ty, arg_vals, &encoding, variant);
         }
 
+        self.emit_explicit_tag_variant_construct(ty, llvm_ty, variant, arg_vals, arc_args)
+    }
+
+    fn emit_explicit_tag_variant_construct(
+        &mut self,
+        ty: Idx,
+        llvm_ty: LLVMTypeId,
+        variant: u32,
+        arg_vals: &[ValueId],
+        arc_args: &[ArcVarId],
+    ) -> ValueId {
         let tag = self
             .builder
             .const_int_for_struct_field(llvm_ty, 0, u64::from(variant));
@@ -358,8 +369,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Construct a niche-encoded enum variant.
     ///
     /// Niche layout has no tag field — payload fields start at struct index 0.
-    /// For the niche variant (e.g., None): create a zeroinit struct; `SetTag`
-    /// will write the niche value afterward.
+    /// For the niche variant (e.g., None), this creates a zero-initialized
+    /// struct whose `SetTag` instruction writes the niche value.
     /// For the data variant (e.g., Some(val)): insert payload at index 0.
     fn emit_niche_variant_construct(
         &mut self,

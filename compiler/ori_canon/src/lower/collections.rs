@@ -219,8 +219,8 @@ impl Lowerer<'_> {
 
     /// If the typeck-side `mono_dispatch_map` carries an entry for this AST
     /// `ExprId`, append the `(CanId, MonoInstanceId)` translation to the
-    /// lowerer's accumulator. The accumulator is sorted in `Lowerer::finish`
-    /// for binary-search lookup downstream (sub-steps 1d/1e/1f).
+    /// lowerer's accumulator. `Lowerer::finish` sorts the accumulator for
+    /// binary-search lookup (sub-steps 1d/1e/1f).
     pub(crate) fn record_mono_dispatch_if_present(&mut self, call_expr_id: ExprId, can_id: CanId) {
         if let Some(&mono_id) = self.typed.mono_dispatch_map.get(call_expr_id) {
             self.mono_dispatch_map_can.push((can_id, mono_id));
@@ -230,9 +230,8 @@ impl Lowerer<'_> {
     /// Rewrite `collect` → `__collect_set` when the resolved type is `Set<T>`.
     ///
     /// The type checker stores the resolved return type for each expression.
-    /// When bidirectional checking determined that `collect()` should produce
-    /// a `Set<T>`, the `ty` will have tag `Set`. We rewrite the method name
-    /// so the evaluator can dispatch to the correct collector.
+    /// A bidirectionally checked `collect()` expression has a `Set`-tagged
+    /// result type when it requires the set collector.
     fn specialize_collect(&self, method: Name, ty: TypeId) -> Name {
         if method != self.name_collect {
             return method;

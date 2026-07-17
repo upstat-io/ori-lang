@@ -62,7 +62,7 @@ fn intern_name_set(names: &[&str], interner: &StringInterner) -> FxHashSet<Name>
 ///    and `.iter()`.
 /// 2. **Protocol builtins**: `ProtocolBuiltin::ALL` entries with all-borrowed
 ///    args (`__index`, `__cast`). These are ARC pipeline internals, not
-///    regular builtin methods, so they live in `ori_ir` rather than the registry.
+///    regular builtin methods, so [`ProtocolBuiltin`] supplies them directly.
 pub fn borrowing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
     // Base set from registry (type method definitions)
     let mut names: FxHashSet<Name> = ori_registry::borrowing_method_names()

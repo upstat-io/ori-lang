@@ -42,8 +42,8 @@ impl Lowerer<'_> {
         let bodies: Vec<_> = src_arms.iter().map(|arm| arm.body).collect();
 
         // Lower guards from ExprId → CanId and take ownership of patterns
-        // in a single pass. Guards must be lowered here (where we have &mut self)
-        // rather than inside compile_patterns (which only borrows &self).
+        // in a single pass. Guard lowering requires `&mut self`, whereas
+        // `compile_patterns` only borrows `&self`.
         let pattern_data: Vec<_> = patterns_and_guards
             .drain(..)
             .map(|(pat, guard)| {

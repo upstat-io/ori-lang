@@ -77,7 +77,7 @@ pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] = &[
     "join",
 ];
 
-/// Check if a callee will be intercepted by builtin handlers during emission.
+/// Determine whether builtin handlers intercept a callee during emission.
 ///
 /// Intercepted calls always emit `call` (never `invoke`), so they skip the
 /// ARC-IR `Invoke` path. Most intercepts are nounwind — but a small set of
@@ -138,8 +138,7 @@ pub(crate) fn is_callee_intercepted(
                     return true;
                 }
             } else {
-                // Builtin type but no type_idx_to_name entry — method
-                // dispatch chain can't resolve it, will be intercepted.
+                // A missing builtin type name routes the call to its handler.
                 return true;
             }
         }
@@ -281,17 +280,15 @@ pub struct CodegenContext {
     /// (`FunctionId`, ABI). A generic composite (`P3Pair<int,str>`, `Box<Box<int>>`)
     /// emits one derived method per concrete instantiation, each keyed here by the
     /// materialized concrete `Struct`/`Enum` `Idx` (`pool.resolve_fully(Applied)`), so
-    /// nested + multi-instantiation dispatch resolves the layout-correct body
+    /// nested and multi-instantiation dispatch resolves the layout-correct body.
     /// Resolution prefers this map; non-generic types fall back to the
     /// type-name-keyed `method_functions`.
     pub mono_derive_functions: FxHashMap<(Idx, Name), (FunctionId, FunctionAbi)>,
     /// Monomorphized generic dispatch: original name → `[(concrete_param_types, mangled_name)]`.
     ///
     /// When a non-generic function calls a generic one (e.g., `identity(42)`), the ARC IR
-    /// uses the original name (`"identity"`), but the LLVM function is declared under the
-    /// mangled name (`"identity$m$int"`). This index resolves the call by matching arg types
-    /// — the legacy fallback used when the call site does not carry a `MonoInstanceId`
-    /// (e.g., deferred-resolution mono instances awaiting sub-step 1b-deferred wiring).
+    /// Call sites without a `MonoInstanceId` use this index to match argument
+    /// types against the mangled LLVM declaration.
     pub mono_dispatch: FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
     /// Monomorphized generic dispatch keyed by abstract instance id.
     ///
@@ -301,7 +298,7 @@ pub struct CodegenContext {
     /// `lookup_mono_dispatch` resolves the call directly via this map — no
     /// argument-type matching, no generic-name lookup. The mangled string
     /// remains owned exclusively by `ori_llvm` (computed in
-    /// `mangle_mono_name`); upstream phases only ever produce the abstract
+    /// `mangle_mono_name`); frontend phases produce only the abstract
     /// index, satisfying the phase-purity contract for LLVM-specific names.
     pub mono_dispatch_by_id: FxHashMap<MonoInstanceId, Name>,
     /// Known-nounwind user function names: `Invoke` terminators calling these
@@ -326,7 +323,7 @@ pub struct CodegenContext {
     pub retain_plans: RetainPlanTable,
     /// Whether this context is bound to a closed executable artifact.
     /// A bound context fails closed on missing closure facts; it never consults
-    /// the transitional per-lambda ownership map above.
+    /// the per-lambda ownership fallback.
     pub executable_facts_bound: bool,
     /// Memoized `ori_arc::type_drop_may_unwind` results keyed by type `Idx`.
     ///

@@ -63,11 +63,11 @@ impl UnifyEngine<'_> {
         }
 
         // Canonicalize the scheme body to `Tag::BoundVar` leaves.
-        // The body returned by upstream inference contains
+        // The inferred body contains
         // `Tag::Var` leaves whose var_states were just mutated to
-        // `VarState::Generalized` above; rewrite them to `Tag::BoundVar` with
+        // `VarState::Generalized`; rewrite those variables to `Tag::BoundVar` with
         // `data = var_id` so the scheme body matches the target representation
-        // and downstream consumers (PC-2 validator, codegen, instantiation)
+        // so the PC-2 validator, codegen, and instantiation
         // see a single canonical shape.
         let body = rewrite_generalized_to_bound_var(self.pool, ty, &vars);
 
@@ -94,7 +94,7 @@ impl UnifyEngine<'_> {
     fn collect_free_vars_inner(&self, ty: Idx, min_rank: Rank, vars: &mut Vec<u32>) {
         // Fast path: no variables. `Tag::BoundVar` sets `HAS_BOUND_VAR`, not
         // `HAS_VAR` (TF-1), so scheme bodies whose only inner
-        // variables are bound short-circuit here.
+        // variables are bound, short-circuit.
         if !self.pool.flags(ty).contains(TypeFlags::HAS_VAR) {
             return;
         }
@@ -148,8 +148,8 @@ impl UnifyEngine<'_> {
 ///
 /// Called once per `generalize()` invocation, between `var_states` mutation
 /// and scheme construction. The substitution applies because
-/// `substitute_var` matches by `var_id` directly and no longer carries a
-/// Generalized-state fallback (orphan
+/// `substitute_var` matches by `var_id` directly and has no generalized-state
+/// fallback (orphan
 /// `Tag::Var(Generalized)` entries simply fall through to return `ty`
 /// unchanged).
 fn rewrite_generalized_to_bound_var(pool: &mut Pool, body: Idx, scheme_var_ids: &[u32]) -> Idx {

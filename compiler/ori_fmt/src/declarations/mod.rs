@@ -41,6 +41,7 @@ mod tests_fmt;
 mod traits;
 mod types;
 
+pub(crate) use function_body::BodyBreakPolicy;
 pub(crate) use parsed_types::format_parsed_type;
 
 use crate::comments::CommentIndex;

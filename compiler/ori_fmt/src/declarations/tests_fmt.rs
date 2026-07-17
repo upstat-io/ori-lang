@@ -7,7 +7,7 @@ use ori_ir::ast::items::{ExpectedError, TestBackend, TestDef};
 use ori_ir::{ExprId, StringLookup};
 
 use super::parsed_types::format_parsed_type;
-use super::ModuleFormatter;
+use super::{BodyBreakPolicy, ModuleFormatter};
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format a test definition including attributes and body.
@@ -119,6 +119,6 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// `allow_force_newline = false`: test bodies keep their existing layout
     /// (no if/for force-newline) and gain ONLY the over-width-head break.
     fn format_test_body(&mut self, body: ExprId) {
-        self.emit_expr_body(body, false);
+        self.emit_expr_body(body, BodyBreakPolicy::OverflowOnly);
     }
 }

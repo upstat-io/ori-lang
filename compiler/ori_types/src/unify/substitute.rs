@@ -23,7 +23,7 @@ impl UnifyEngine<'_> {
     /// // Given scheme: ∀a. a -> a
     /// let concrete = engine.instantiate(scheme);  // $1 -> $1 (fresh var)
     /// engine.unify(concrete_param, Idx::INT);     // $1 unified with int
-    /// // Now concrete is: int -> int
+    /// // `concrete` resolves to `int -> int`.
     /// ```
     pub fn instantiate(&mut self, scheme_idx: Idx) -> Idx {
         self.instantiate_with_subst(scheme_idx).0

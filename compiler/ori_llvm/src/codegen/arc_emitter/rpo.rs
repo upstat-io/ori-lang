@@ -58,13 +58,12 @@ fn rpo_dfs(
 /// RPO guarantees that a block's dominators (and thus variable definitions
 /// from preceding blocks) are visited before the block itself.
 ///
+/// # Extra roots
+///
 /// `extra_roots` seeds the DFS from additional entry points beyond
-/// `func.entry`. Same-frame landing blocks for inline checked-ops
-/// have no CFG predecessor — an inline checked-op references its
-/// landing block via metadata — so without seeding them here their landing-pad
-/// prelude (emitted in the RPO loop) would never run. Each extra root is
-/// converted to RPO separately and appended AFTER the entry-reachable RPO, so
-/// cleanup operands have already been materialized when the landing block emits.
+/// `func.entry`. Metadata-referenced landing blocks have no CFG predecessor,
+/// so each must be seeded as a block root. Extra-root RPO follows the
+/// entry-reachable RPO so cleanup operands are materialized first.
 pub(super) fn compute_block_rpo(
     func: &ArcFunction,
     dead: &FxHashSet<usize>,

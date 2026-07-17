@@ -1,16 +1,8 @@
-//! Parentheses rules: preserve user parens, add when semantically needed.
+//! Parentheses rules add grouping when semantics require it.
 //!
-//! # Decision
-//!
-//! Preserve all user parentheses. Add when semantically needed, never remove.
-//!
-//! # Current Limitation
-//!
-//! **User parentheses are NOT currently preserved.** The AST does not track
-//! whether parentheses were explicitly written by the user, so user-added
-//! parentheses for clarity may be removed if they are not semantically
-//! required. Preserving them requires a `has_explicit_parens` field set
-//! during parsing.
+//! The AST does not retain whether a user wrote explicit parentheses, so the
+//! formatter may remove redundant grouping while preserving precedence and
+//! associativity.
 //!
 //! Spec: Annex D §Method-Style Match, §Method Chains.
 

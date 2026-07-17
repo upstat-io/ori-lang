@@ -13,7 +13,7 @@ use ori_ir::{
 
 use crate::rules::{map_key_needs_brackets, needs_parens, ParenPosition};
 
-use super::{needs_binary_parens, Formatter};
+use super::{needs_binary_parens, BinaryOperandSide, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emits a map key, bracketing computed expressions.
@@ -141,11 +141,11 @@ impl<I: StringLookup> Formatter<'_, I> {
     }
 
     fn emit_inline_binary(&mut self, left: ExprId, op: BinaryOp, right: ExprId) {
-        self.emit_binary_operand_inline(left, op, true);
+        self.emit_binary_operand_inline(left, op, BinaryOperandSide::Left);
         self.ctx.emit_space();
         self.ctx.emit(op.as_symbol());
         self.ctx.emit_space();
-        self.emit_binary_operand_inline(right, op, false);
+        self.emit_binary_operand_inline(right, op, BinaryOperandSide::Right);
     }
 
     fn emit_inline_unary(&mut self, op: UnaryOp, operand: ExprId) {
@@ -427,8 +427,13 @@ impl<I: StringLookup> Formatter<'_, I> {
     }
 
     /// Emits a binary operand, adding parentheses when precedence requires them.
-    fn emit_binary_operand_inline(&mut self, operand: ExprId, parent_op: BinaryOp, is_left: bool) {
-        let needs_parens = needs_binary_parens(self.arena, operand, parent_op, is_left);
+    fn emit_binary_operand_inline(
+        &mut self,
+        operand: ExprId,
+        parent_op: BinaryOp,
+        side: BinaryOperandSide,
+    ) {
+        let needs_parens = needs_binary_parens(self.arena, operand, parent_op, side);
         self.emit_parenthesized_if(needs_parens, operand, Self::emit_inline);
     }
 }

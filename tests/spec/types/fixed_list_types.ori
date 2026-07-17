@@ -1,8 +1,5 @@
-// Spec: 06-types.md § Compound Types - Fixed-Capacity List
-// Tests for [T, max N] fixed-capacity lists
-//
-// STATUS: Lexer [OK], Parser [OK] - fixed-capacity list type syntax supported
-// Parser now recognizes [T, max N] and [T, max $N] fixed-capacity list types.
+// Spec: Clause 6, fixed-capacity lists.
+// Both literal and const-generic capacities use `[T, max N]` syntax.
 
 use std.testing { assert, assert_eq }
 

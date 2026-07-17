@@ -126,7 +126,7 @@ impl Evaluator<'_> {
 
             // Method bodies retain their defining module's arena, canonical IR,
             // and lexical captures just like imported functions do. Registering
-            // them here makes imported impl/extend/def-impl methods visible to
+            // registering them makes imported impl/extend/def-impl methods visible to
             // runtime dispatch in the consuming module.
             let config = MethodCollectionConfig {
                 module: &imp_module.parse_output.module,

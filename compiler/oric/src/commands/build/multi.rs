@@ -176,7 +176,7 @@ pub(super) struct CompiledModuleInfo {
     /// that `pub` and `#repr(...)` types are not incorrectly narrowed.
     pub(super) exported_type_metadata: Vec<ori_types::ExportedTypeMetadata>,
     /// Merkle hashes of collection types in public function signatures.
-    /// Forwarded for downstream metadata only; does not suppress narrowing.
+    /// Forwarded as metadata only; does not suppress narrowing.
     pub(super) exported_collection_surfaces: Vec<u64>,
 }
 

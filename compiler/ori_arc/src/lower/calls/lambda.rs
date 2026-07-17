@@ -54,10 +54,8 @@ impl ArcLowerer<'_> {
         // substitution before AIMS and executable-artifact closure.
         let resolved_ty = self.pool.resolve_fully(ty);
         // Unwrap Scheme to reach the inner Function type.
-        // Polymorphic lambdas (e.g., `a -> b -> a + b`) have type
-        // `forall t14. t14 -> t14 -> t14` (Tag::Scheme). The inner body is
-        // Function([BoundVar(0)], ...). Without unwrapping, the tag check
-        // below fails and all params default to Idx::UNIT.
+        // Why: A polymorphic lambda's `Function` tag is inside its `Scheme`;
+        // resolving parameters against the wrapper would default them to unit.
         let fn_ty = if self.pool.tag(resolved_ty) == Tag::Scheme {
             self.pool.scheme_body(resolved_ty)
         } else {

@@ -171,7 +171,7 @@ impl<'pool> InferEngine<'pool> {
     /// `RigidVar` AND the declared bounds set for that `RigidVar` contains
     /// `trait_name`.
     ///
-    /// Supertrait transitivity is NOT applied here — a binder declared
+    /// This lookup does NOT apply supertrait transitivity — a binder declared
     /// `T: Hashable` does not implicitly satisfy `Eq` via Hashable's
     /// supertrait chain at this query layer. Callers requiring supertrait
     /// transitivity should expand the bound list at registration time.

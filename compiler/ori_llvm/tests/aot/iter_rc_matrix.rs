@@ -10,9 +10,9 @@
 //!   Pattern: P1=full, P2=break, P3=yield-transform, P4=two-call, P5=nested,
 //!            P6=guard, P7=unwind, P8=continue
 //!
-//! E7 (Set<int>) is covered via list-collect guards: the E7 fixtures
-//! exercise list collect + iteration as a positive regression guard;
-//! they do NOT exercise `__collect_set`. `Set<str>` iteration works (see `sets.rs`).
+//! E7 (Set<int>) is covered through list collection and iteration; these
+//! fixtures do not exercise `__collect_set`. `Set<str>` iteration has separate
+//! coverage.
 //! E2×P5 for-yield excluded — nested yield of [int] collapses to flat int; covered by P1.
 
 use crate::util::assert_aot_success;
@@ -357,7 +357,7 @@ fn test_iter_rc_for_do_map_continue() {
     );
 }
 
-// E7: list-collect guard — exercises list collect + iteration as a regression guard (not __collect_set)
+// E7 exercises list collection and iteration, not `__collect_set`.
 
 #[test]
 fn test_iter_rc_for_do_set_int_full() {

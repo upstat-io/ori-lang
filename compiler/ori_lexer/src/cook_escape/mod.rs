@@ -134,7 +134,9 @@ fn parse_unicode_escape(
 
     // Check for invalid characters before '}'
     if i < bytes.len() && bytes[i] != b'}' {
-        let ch = content[i..].chars().next().unwrap_or('?');
+        let Some(ch) = content[i..].chars().next() else {
+            unreachable!("unicode-escape cursor points inside a nonempty UTF-8 suffix");
+        };
         let ch_offset = backslash_offset + 1 + i as u32;
         let span = Span::new(ch_offset, ch_offset + ch.len_utf8() as u32);
         errors.push(LexError::invalid_unicode_escape(
@@ -200,8 +202,9 @@ fn parse_unicode_escape(
     let consumed = i + 1;
     let hex_str = &content[digit_start..i];
 
-    // Why: all digits validated as hex above, so radix-16 parse is infallible
-    let codepoint = u32::from_str_radix(hex_str, 16).unwrap_or(u32::MAX);
+    let Ok(codepoint) = u32::from_str_radix(hex_str, 16) else {
+        unreachable!("validated Unicode escape must contain at most six hexadecimal digits");
+    };
 
     // Check for surrogate codepoints (U+D800–U+DFFF)
     if (0xD800..=0xDFFF).contains(&codepoint) {
@@ -327,7 +330,9 @@ fn unescape_with_context(
                 result.push(b as char);
                 i += 1;
             } else {
-                let ch = content[i..].chars().next().unwrap_or('\0');
+                let Some(ch) = content[i..].chars().next() else {
+                    unreachable!("escape cooker cursor points inside a nonempty UTF-8 suffix");
+                };
                 result.push(ch);
                 i += ch.len_utf8();
             }

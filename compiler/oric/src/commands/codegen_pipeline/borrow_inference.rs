@@ -153,7 +153,7 @@ fn lower_imported_mono_groups(
 /// Lowers each function (local, mono, imported mono) to ARC IR. Returns one
 /// cache of pre-lowered ARC functions for zero-copy consumption by
 /// shared executable realization and subsequent backend projection.
-/// ARC lowering diagnostics are emitted here. The returned lowered state has
+/// ARC lowering emits diagnostics. The returned lowered state has
 /// not crossed the shared specialization and target-closure seam.
 #[cfg(feature = "llvm")]
 pub(super) fn lower_arc_batch(

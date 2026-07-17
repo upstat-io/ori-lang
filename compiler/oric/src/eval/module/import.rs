@@ -1,7 +1,7 @@
 //! Import registration for the evaluator.
 //!
 //! Handles registering resolved imports into the evaluator's `Environment`.
-//! Path resolution lives in [`crate::imports`]; this module only handles
+//! [`crate::imports`] resolves paths; this module handles
 //! the eval-specific concern of building `FunctionValue`s and binding them.
 //!
 //! ## Visibility
@@ -175,8 +175,8 @@ pub(crate) fn register_imports(
         is_test_module(current_file) && is_parent_module_import(current_file, import_path);
 
     // Build FxHashMap for O(1) function lookup instead of O(n) linear scan.
-    // Keyed by Name (u32) rather than &str — avoids interner lookups on both
-    // the build side and the per-item lookup loop below. String lookup is only
+    // Keyed by Name (u32) rather than &str — avoids interner lookups during
+    // map construction and per-item lookup. String lookup is only
     // needed on the cold error path for diagnostic messages.
     let func_by_name: FxHashMap<Name, &crate::ir::Function> = imported
         .result
@@ -311,7 +311,7 @@ fn register_module_alias(
             // Bind the function directly under the qualified name `"alias.func"`
             // so a canon-rewritten alias-qualified call
             // (`Call(FunctionRef("alias.func"))`) resolves on the eval backend,
-            // matching the AOT/LLVM path. The namespace binding below remains for
+            // matching the AOT/LLVM path. The namespace binding remains for
             // any residual `Value::ModuleNamespace` dispatch.
             let qualified = interner.intern(&ori_ir::qualified_alias_name(
                 interner.lookup(alias),

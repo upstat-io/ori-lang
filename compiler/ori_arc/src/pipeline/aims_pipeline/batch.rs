@@ -190,12 +190,15 @@ fn contract_coherence_problems(
     let mut problems = Vec::new();
     for (function, &(_, missed_reuses)) in functions.iter().zip(reuse_updates) {
         let contract = contracts.get_required(&function.name, "contract_coherence_oracle");
+        let Ok(missed_reuses) = u32::try_from(missed_reuses) else {
+            unreachable!("missed-reuse count exceeds the u32 coherence-oracle domain");
+        };
         let mismatches = crate::aims::verify::oracle::verify_coherence(
             function,
             contract,
             contracts,
             interner,
-            u32::try_from(missed_reuses).unwrap_or(u32::MAX),
+            missed_reuses,
         );
         let unsafe_mismatches: Vec<_> = mismatches
             .into_iter()

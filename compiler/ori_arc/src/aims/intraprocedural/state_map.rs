@@ -4,7 +4,7 @@
 //! boundaries (entry and exit). Per-instruction states are NOT stored — they are
 //! re-derived during emission by replaying transfer functions within each block.
 //!
-//! The state map is the **analysis fact source** for all downstream consumers:
+//! The state map is the **analysis fact source** consumed by:
 //! RC emission, reuse emission, COW annotation, drop hints, and FIP certification.
 
 mod aliases;
@@ -68,7 +68,7 @@ pub struct AimsStateMap {
     invoke_edge_states: FxHashMap<ArcBlockId, InvokeEdgeState>,
 
     /// Borrow provenance side table.
-    /// Sparse: only entries for variables currently in `AccessClass::Borrowed`.
+    /// Sparse: contains only variables in `AccessClass::Borrowed`.
     /// Per-variable (not per-point) — see module doc for precision trade-off.
     borrow_sources: FxHashMap<ArcVarId, BorrowSource>,
 
@@ -93,7 +93,7 @@ pub struct AimsStateMap {
     /// instructions.
     ///
     /// Populated PRE-WALK by [`compute_project_alias_sources`](super::project_aliases::compute_project_alias_sources)
-    /// — a clone of the local worklist input is also installed here so
+    /// — the side table also stores a clone of the local worklist input so
     /// post-convergence consumers can query it after the lattice converges.
     /// Read-only thereafter (PL-5 no-stale-summary invariant).
     ///
@@ -134,7 +134,7 @@ pub struct AimsStateMap {
     /// the SOURCE's class (NOT the destination's class) — for `Direct` and
     /// `Conditional` shapes the two coincide via union; for `Project`
     /// shape (no union) source-class is the source arg's pre-existing
-    /// class, and keying by source-class is the only way the downstream
+    /// class, and keying by source-class is the only way the
     /// `should_suppress_apply_aliased_dec` helper can find the apply
     /// source for a Project return.
     class_apply_alias_source_candidates: FxHashMap<u32, FxHashSet<ArcVarId>>,
@@ -231,8 +231,8 @@ pub struct AimsStateMap {
     /// Per-Invoke-block-and-dst demand captured BEFORE the normal-successor's
     /// strip removes the Invoke-defined dst from its entry state. Keyed by
     /// `(invoke_owner_block, invoke_dst)` — predecessor lookups for an
-    /// Invoke-terminator dst find the captured demand here, even though the
-    /// successor's `block_entry_states` no longer carries the var.
+    /// Invoke-terminator dst find the captured demand in this table, even though the
+    /// successor's `block_entry_states` excludes the variable.
     ///
     /// # Why this exists
     ///
@@ -257,7 +257,7 @@ pub struct AimsStateMap {
     ///
     /// `var_state_at_block_exit` consults this table FIRST for any var, falling
     /// back to standard `block_exit_states` when no entry exists. Empty by
-    /// default — non-Invoke vars never have entries here.
+    /// default — non-Invoke vars never have entries.
     invoke_def_demand: FxHashMap<(ArcBlockId, ArcVarId), AimsState>,
 
     /// Converged BACKWARD-demand state at an intra-block instruction's

@@ -1,6 +1,6 @@
 //! Cross-module import-info gathering for the multi-file build pipeline.
 //!
-//! Resolves each module's imports against already-compiled sibling modules:
+//! Resolves each module's imports against already-compiled dependency modules:
 //! function signatures (for correct calling conventions), exported type
 //! metadata (for `ReprPlan` narrowing exemptions), and exported collection
 //! surface hashes (transitive metadata propagation).
@@ -108,7 +108,7 @@ pub(super) fn build_import_infos(
 ) -> Result<Vec<crate::commands::compile_common::ImportedFunctionInfo>, String> {
     // Call-site local/aliased names keyed by (imported module path, exported
     // fn name). Only functions the host names in a `use` get local keys;
-    // module-alias imports expand to qualified `alias.fn` entries upstream.
+    // module-alias imports expand to qualified `alias.fn` entries during resolution.
     // ONE exported fn can carry SEVERAL local names (`use { f as g, f as h }`,
     // or a named import plus a module-alias qualified entry) - every alias
     // needs its own registration or its call sites miss callee resolution.
@@ -219,7 +219,7 @@ pub(super) fn collect_imported_type_metadata(
 ///
 /// Parallel to `collect_imported_type_metadata()` but collects merkle hashes
 /// of collection types (List, Set) in imported public function signatures.
-/// Forwarded for downstream metadata only (A→B→C transitive propagation);
+/// Forwarded as metadata only (A→B→C transitive propagation);
 /// imported surfaces do not suppress narrowing.
 pub(super) fn collect_imported_collection_surfaces(
     source_path: &Path,

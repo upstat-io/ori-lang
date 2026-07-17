@@ -14,14 +14,8 @@ use crate::aims::lattice::{
     AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ReuseCtorKind,
     ShapeClass, Uniqueness,
 };
-use crate::aims::realize::decide::{decide_cow, AnnotationSiteContext};
-use crate::ir::ArcVarId;
+use crate::aims::realize::decide::{decide_cow, CowBorrowFacts, CowSiteContext};
 use crate::uniqueness::CowMode;
-use rustc_hash::FxHashSet;
-
-fn v(n: u32) -> ArcVarId {
-    ArcVarId::new(n)
-}
 
 /// Build an `AimsState` with the given dimensions; the rest default to a
 /// plausible owned-value shape. Each pin overrides only the dimension(s) under
@@ -45,27 +39,12 @@ fn state(
     }
 }
 
-/// Build an `AnnotationSiteContext` for `decide_cow` with the given uniqueness.
-/// `is_borrow_disjoint` / `has_active_borrows` default to the no-borrow case so
-/// the Uniqueness dimension alone drives the DP-9 `cow_mode` routing. The
-/// borrowed `rc_incremented_set` is empty (no physical-refcount confound).
-fn cow_ctx(uniqueness: Uniqueness, empty: &FxHashSet<ArcVarId>) -> AnnotationSiteContext<'_> {
-    AnnotationSiteContext {
-        var: v(0),
+fn cow_ctx(uniqueness: Uniqueness) -> CowSiteContext {
+    CowSiteContext {
         uniqueness,
         rc_incremented: false,
-        is_param: false,
-        is_param_borrowed: false,
-        is_borrowed_call_arg: false,
-        rc_incremented_set: empty,
         is_excluded: false,
-        access: AccessClass::Owned,
-        consumption: Consumption::Linear,
-        cardinality: Cardinality::Once,
-        shape: ShapeClass::NonReusable,
-        is_borrow_disjoint: false,
-        has_active_borrows: false,
-        is_collection: false,
+        borrows: CowBorrowFacts::default(),
     }
 }
 
@@ -80,10 +59,9 @@ fn cow_ctx(uniqueness: Uniqueness, empty: &FxHashSet<ArcVarId>) -> AnnotationSit
 /// the in-place fast path with no runtime `IsShared` check.
 #[test]
 fn uniqueness_unique_decides_static_unique_cow() {
-    let empty = FxHashSet::default();
-    let ctx = cow_ctx(Uniqueness::Unique, &empty);
+    let ctx = cow_ctx(Uniqueness::Unique);
     assert_eq!(
-        decide_cow(&ctx),
+        decide_cow(ctx),
         CowMode::StaticUnique,
         "Uniqueness=Unique with no active borrow must drive StaticUnique COW"
     );
@@ -93,10 +71,9 @@ fn uniqueness_unique_decides_static_unique_cow() {
 /// copy path.
 #[test]
 fn uniqueness_shared_decides_static_shared_cow() {
-    let empty = FxHashSet::default();
-    let ctx = cow_ctx(Uniqueness::Shared, &empty);
+    let ctx = cow_ctx(Uniqueness::Shared);
     assert_eq!(
-        decide_cow(&ctx),
+        decide_cow(ctx),
         CowMode::StaticShared,
         "Uniqueness=Shared must drive StaticShared COW (always copy)"
     );
@@ -108,9 +85,8 @@ fn uniqueness_shared_decides_static_shared_cow() {
 /// mutation on a possibly-aliased value (UAF). This pin rejects that.
 #[test]
 fn uniqueness_maybe_shared_does_not_decide_static_unique_cow() {
-    let empty = FxHashSet::default();
-    let ctx = cow_ctx(Uniqueness::MaybeShared, &empty);
-    let mode = decide_cow(&ctx);
+    let ctx = cow_ctx(Uniqueness::MaybeShared);
+    let mode = decide_cow(ctx);
     assert_ne!(
         mode,
         CowMode::StaticUnique,

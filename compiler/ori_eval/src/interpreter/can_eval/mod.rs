@@ -10,7 +10,7 @@ use ori_ir::canon::{
     CanBindingPatternId, CanExpr, CanId, CanNamedExprRange, CanParamRange, CanRange, CanonResult,
     ConstantId, DecisionTreeId, MonoConstBinding, MonoInstanceId,
 };
-use ori_ir::{FunctionExpKind, Name, Span};
+use ori_ir::{DurationUnit, FunctionExpKind, Name, SizeUnit, Span};
 use ori_patterns::{ControlAction, EvalError, EvalResult, Value};
 use ori_stack::ensure_sufficient_stack;
 use smallvec::SmallVec;
@@ -22,6 +22,12 @@ use crate::errors::{
 };
 use crate::exec::expr;
 use crate::Mutability;
+
+#[derive(Clone, Copy)]
+struct CanForMode {
+    is_yield: bool,
+    label: Name,
+}
 
 impl Interpreter<'_> {
     /// Evaluates one canonical expression with stack safety.
@@ -72,14 +78,8 @@ impl Interpreter<'_> {
             CanExpr::Bool(b) => Ok(Value::Bool(b)),
             CanExpr::Str(name) => Ok(Value::string_static(self.interner.lookup_static(name))),
             CanExpr::Char(c) => Ok(Value::Char(c)),
-            CanExpr::Duration { value, unit } => Ok(Value::Duration(
-                unit.to_nanos(value)
-                    .ok_or_else(|| integer_overflow("duration literal"))?,
-            )),
-            CanExpr::Size { value, unit } => Ok(Value::Size(
-                unit.to_bytes(value)
-                    .ok_or_else(|| integer_overflow("size literal"))?,
-            )),
+            CanExpr::Duration { value, unit } => eval_can_duration(value, unit),
+            CanExpr::Size { value, unit } => eval_can_size(value, unit),
             CanExpr::Unit => Ok(Value::Void),
             CanExpr::Constant(id) => Ok(self.eval_can_constant(id)),
             CanExpr::Ident(name) => self.eval_can_ident(can_id, name),
@@ -121,7 +121,14 @@ impl Interpreter<'_> {
                 is_yield,
                 label,
                 ..
-            } => self.eval_can_for_expr(can_id, pattern, iter, guard, body, (is_yield, label)),
+            } => self.eval_can_for_expr(
+                can_id,
+                pattern,
+                iter,
+                guard,
+                body,
+                CanForMode { is_yield, label },
+            ),
             CanExpr::Loop { body, label, .. } => self.eval_can_loop(body, label),
             CanExpr::Break { value, label, .. } => self.eval_can_break(value, label),
             CanExpr::Continue { value, label, .. } => self.eval_can_continue(value, label),
@@ -341,12 +348,11 @@ impl Interpreter<'_> {
         iter: CanId,
         guard: CanId,
         body: CanId,
-        mode: (bool, Name),
+        mode: CanForMode,
     ) -> EvalResult {
-        let (is_yield, label) = mode;
         let iter_value = self.eval_can(iter)?;
         let span = self.can_span(can_id);
-        self.eval_can_for(pattern, &iter_value, guard, body, is_yield, label)
+        self.eval_can_for(pattern, &iter_value, guard, body, mode.is_yield, mode.label)
             .map_err(|error| Self::attach_span(error, span))
     }
 
@@ -433,6 +439,20 @@ impl Interpreter<'_> {
             self.can_span(can_id),
         ))
     }
+}
+
+fn eval_can_duration(value: u64, unit: DurationUnit) -> EvalResult {
+    Ok(Value::Duration(
+        unit.to_nanos(value)
+            .ok_or_else(|| integer_overflow("duration literal"))?,
+    ))
+}
+
+fn eval_can_size(value: u64, unit: SizeUnit) -> EvalResult {
+    Ok(Value::Size(
+        unit.to_bytes(value)
+            .ok_or_else(|| integer_overflow("size literal"))?,
+    ))
 }
 
 /// Converts a constant-pool value to its runtime representation.

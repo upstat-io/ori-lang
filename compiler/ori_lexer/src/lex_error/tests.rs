@@ -222,8 +222,10 @@ fn encoding_and_top_level_factories_produce_expected_fields() {
         ),
         (
             s,
-            LexError::reserved_future_keyword(s, "asm"),
-            LexErrorKind::ReservedFutureKeyword { keyword: "asm" },
+            LexError::reserved_future_keyword(s, FutureKeyword::Asm),
+            LexErrorKind::ReservedFutureKeyword {
+                keyword: FutureKeyword::Asm,
+            },
             1,
         ),
     ];
@@ -349,11 +351,24 @@ fn every_lex_error_kind_has_error_code() {
         (LexErrorKind::FloatParseError, "E0003"),
         (LexErrorKind::InvalidByte { byte: 0xFF }, "E0002"),
         (
-            LexErrorKind::StrictEqualityOperator { operator: "===" },
+            LexErrorKind::UnsupportedOperator {
+                operator: UnsupportedOperator::StrictEqual,
+            },
+            "E0008",
+        ),
+        (
+            LexErrorKind::UnsupportedOperator {
+                operator: UnsupportedOperator::StrictNotEqual,
+            },
             "E0008",
         ),
         (LexErrorKind::SingleQuoteString, "E0009"),
-        (LexErrorKind::IncrementOperator { operator: "++" }, "E0010"),
+        (
+            LexErrorKind::UnsupportedOperator {
+                operator: UnsupportedOperator::Increment,
+            },
+            "E0010",
+        ),
         (LexErrorKind::StandaloneBackslash, "E0013"),
         (
             LexErrorKind::UnicodeConfusable {
@@ -369,7 +384,9 @@ fn every_lex_error_kind_has_error_code() {
         (LexErrorKind::Utf16BeBom, "E0002"),
         (LexErrorKind::DecimalNotRepresentable, "E0014"),
         (
-            LexErrorKind::ReservedFutureKeyword { keyword: "asm" },
+            LexErrorKind::ReservedFutureKeyword {
+                keyword: FutureKeyword::Asm,
+            },
             "E0015",
         ),
     ];
@@ -485,7 +502,7 @@ fn invalid_unicode_escape_every_detail_produces_expected_fields() {
 
 #[test]
 fn escape_suggestions_mention_unicode() {
-    // Verify existing escape error factories now mention \u{...}
+    // Both escape diagnostics name the Unicode escape form.
     let s = Span::new(0, 2);
     let str_err = LexError::invalid_string_escape(s, 'q');
     assert!(str_err.suggestions[0].message.contains(r"\u{...}"));

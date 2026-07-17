@@ -909,8 +909,7 @@ fn test_infer_match_cross_arm_binding_leak_errors() {
     let match_expr = alloc(&mut arena, ExprKind::Match { scrutinee, arms });
     let _ = infer_expr(&mut engine, &arena, match_expr);
 
-    // Assert the SPECIFIC unbound-identifier error, so an unrelated error cannot
-    // false-pass this regression guard.
+    // Require the specific unbound-identifier error rather than any error.
     assert!(
         engine
             .errors()
@@ -1083,7 +1082,7 @@ fn test_infer_for_guard_not_bool() {
 
 // FunctionSeq::ForPattern tests — `for(over:, [map:,] match:, default:)`.
 // Exercises `infer_for_pattern` in sequences.rs, distinct from the
-// ExprKind::For loop forms (for/do, for/yield) tested above.
+// This path is distinct from ExprKind::For loop forms (`for`/`do`, `for`/`yield`).
 
 /// Basic `for(over:, match:, default:)`: a Binding pattern arm returns the
 /// list's element type; `default` of the same type unifies cleanly.
@@ -1125,7 +1124,7 @@ fn test_infer_for_pattern_basic_binding_arm() {
     assert!(!engine.has_errors());
 }
 
-/// Negative pin clamping the basic case above: a `default` whose type does
+/// Negative case: a `default` whose type does
 /// NOT unify with the arm's type reports an error rather than silently
 /// picking one side.
 #[test]
@@ -1726,11 +1725,9 @@ fn test_infer_block_let_annotation_type_mismatch() {
     assert!(engine.has_errors(), "Type mismatch should produce an error");
 }
 
-/// Matrix cell for `infer_stmt`'s `StmtKind::Expr` arm (shared by ordinary
-/// blocks and try blocks), previously untested: a leading
-/// expression-statement's value is discarded (evaluated for side effects),
-/// so the block's type comes from the trailing result, unaffected by the
-/// statement's own type.
+/// A leading expression statement in an ordinary or `try` block is evaluated
+/// for side effects and discarded, so the trailing result determines the
+/// block's type.
 #[test]
 fn test_infer_block_expr_statement_type_discarded() {
     test_engine!(pool, engine);
@@ -1763,7 +1760,7 @@ fn test_infer_block_expr_statement_type_discarded() {
     assert!(!engine.has_errors());
 }
 
-/// Negative pin clamping the cell above: `infer_stmt`'s `StmtKind::Expr` arm
+/// Negative case: `infer_stmt`'s `StmtKind::Expr` arm
 /// discards the synthesized type (`let _ = infer_expr(...)`) but MUST still
 /// run inference — a type error inside a side-effect-only statement is not
 /// silently swallowed just because its value is unused.
@@ -2146,8 +2143,7 @@ fn test_infer_coalesce_option_chain_bare_none() {
     );
 }
 
-/// Original unwrap behavior preserved: `Option<int> ?? int -> int`
-/// Semantic pin: would fail if we always returned wrapper type.
+/// `Option<int> ?? int` resolves to the unwrapped `int` type.
 #[test]
 fn test_infer_coalesce_unwrap_preserved() {
     test_engine!(pool, engine);
@@ -2507,7 +2503,7 @@ fn test_resolve_self_type_creates_fresh_var() {
     let parsed = ParsedType::SelfType;
     let ty = resolve_parsed_type(&mut engine, &arena, &parsed);
 
-    // For now, SelfType creates a fresh variable
+    // SelfType creates a fresh variable.
     assert_eq!(engine.pool().tag(ty), Tag::Var);
 }
 
@@ -4174,7 +4170,7 @@ fn test_stmt_annotated_let_explicit_question_unwraps_result_type() {
     assert!(!engine.has_errors());
 }
 
-/// Negative pin clamping the positive test above:
+/// Negative case for explicit Result propagation:
 /// `let x: str = Ok(42)?` unwraps to `int`, which does NOT match
 /// the `str` annotation.
 /// `infer_let_binding_impl` must report the mismatch against the unwrapped payload
@@ -4351,9 +4347,8 @@ fn assert_lambda_with_body_does_not_generalize(arena: &mut ExprArena, body: Expr
 }
 
 /// `(x) -> foo(outer)` — capture flows through `Call.args`, not
-/// `Call.func`. Old code only walked `func`; `args` were in the `_ => false`
-/// wildcard. `foo` is a `FunctionRef` (module-level @name — never a capture
-/// of lambda params), so the test isolates the arg-slice blindspot.
+/// `Call.func`. `foo` is a module-level `FunctionRef`, so only the argument
+/// contributes an outer capture.
 #[test]
 fn test_capturing_lambda_via_call_arg_does_not_generalize() {
     let mut arena = ExprArena::new();
@@ -4387,8 +4382,7 @@ fn test_capturing_lambda_via_method_arg_does_not_generalize() {
 }
 
 /// `(x) -> { outer }` — capture flows through `Block.result`.
-/// Old code had `Block` in the `_ => false` wildcard; new code must walk
-/// both `result` and every `stmts` entry.
+/// Traversal covers both `result` and every `stmts` entry.
 #[test]
 fn test_capturing_lambda_via_block_does_not_generalize() {
     let mut arena = ExprArena::new();
@@ -4404,7 +4398,7 @@ fn test_capturing_lambda_via_block_does_not_generalize() {
 }
 
 /// `(x) -> [outer, 1]` — capture flows through list-literal elements.
-/// Old code had `List` in `_ => false`; new code must walk every element.
+/// Traversal covers every element.
 #[test]
 fn test_capturing_lambda_via_list_literal_does_not_generalize() {
     let mut arena = ExprArena::new();
@@ -4416,8 +4410,7 @@ fn test_capturing_lambda_via_list_literal_does_not_generalize() {
 }
 
 /// `(x) -> {"key": outer}` — capture flows through map-entry values.
-/// Old code had `Map` in `_ => false`; new code must walk every key and value
-/// in each `MapEntry`.
+/// Traversal covers every key and value in each `MapEntry`.
 #[test]
 fn test_capturing_lambda_via_map_literal_does_not_generalize() {
     let mut arena = ExprArena::new();
@@ -4433,8 +4426,7 @@ fn test_capturing_lambda_via_map_literal_does_not_generalize() {
 }
 
 /// `(x) -> Point { x: outer }` — capture flows through struct-literal
-/// field initializer values. Old code had `Struct` in `_ => false`; new code
-/// must walk every `FieldInit.value`.
+/// field initializer values. Traversal covers every `FieldInit.value`.
 #[test]
 fn test_capturing_lambda_via_struct_literal_does_not_generalize() {
     let mut arena = ExprArena::new();
@@ -4455,8 +4447,8 @@ fn test_capturing_lambda_via_struct_literal_does_not_generalize() {
 }
 
 /// `(x) -> match x { _ -> outer }` — capture flows through
-/// match-arm bodies. Old code had `Match` in `_ => false`; new code must walk
-/// each arm's body (and guard, where present). Scrutinee here is the param
+/// match-arm bodies. Traversal covers each arm's body and guard. The scrutinee is
+/// the parameter
 /// `x`, which is NOT a capture — the capture comes exclusively from the arm
 /// body.
 #[test]
@@ -4567,7 +4559,7 @@ fn test_try_block_propagation_checks_error_type_against_outer_annotation() {
     );
 }
 
-/// Negative pin clamping the test above: when an explicit Result
+/// Negative case: when an explicit Result
 /// propagation's error type is concrete and incompatible with the outer
 /// annotation's Err slot, inference MUST report a mismatch.
 #[test]
@@ -4578,7 +4570,7 @@ fn test_try_block_propagation_error_type_mismatch_reports_error() {
     // try { let $a = pre_bound?; a } checked against Result<int, str>, where
     // `pre_bound` already has type Result<int, bool> — the let's Err slot
     // (bool) conflicts with the outer annotation's Err slot (str). The tail
-    // is the bare payload (see the positive test above for why an explicit
+    // is the bare payload because an explicit
     // `Ok(a)` tail is the wrong construction here).
     let result_int_bool = engine.pool_mut().result(Idx::INT, Idx::BOOL);
     engine.env_mut().bind(name(50), result_int_bool);
@@ -4763,7 +4755,7 @@ fn test_try_block_bare_tail_with_result_propagation_uses_error_type() {
 /// synthesizes to `Option<T>` on its own (`Some(42)`) — `infer_try_seq` must
 /// return the tail's own Option type unchanged rather than wrapping it in a
 /// fresh-error `Result`. Distinct from the `(_, None)` / `(_, Some(et))` arms
-/// pinned above, which apply only when the tail's OWN type is not itself
+/// cases, which apply only when the tail's own type is not itself
 /// Result/Option.
 #[test]
 fn test_try_block_bare_option_tail_returns_option_unchanged() {
@@ -5187,9 +5179,9 @@ fn test_check_some_propagates_option_type_into_inner() {
     assert!(!engine.has_errors());
 }
 
-/// Synth fallback regression guard: `Ok(42)` with no outer annotation
-/// still synthesizes to `Result<int, fresh_var>`. Constructor-side BD-2 must
-/// not disturb the existing synth path when the expectation is absent.
+/// `Ok(42)` without an outer annotation synthesizes to
+/// `Result<int, fresh_var>`. Constructor-side propagation is inactive when
+/// the expectation is absent.
 #[test]
 fn test_check_ok_without_expectation_falls_back_to_synthesis() {
     test_engine!(pool, engine);

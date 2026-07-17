@@ -5,8 +5,8 @@
 //! - [`Cursor::expect_member_name`] — identifiers + all keywords + integers
 //! - [`Cursor::expect_ident_or_keyword`] — identifiers + soft + positional keywords
 //!
-//! The canonical classification of which keywords are usable as identifiers
-//! lives in [`soft_keyword_str`] and [`positional_keyword_str`].
+//! [`soft_keyword_str`] and [`positional_keyword_str`] define the canonical
+//! classification of keywords that are usable as identifiers.
 
 use ori_diagnostic::ErrorCode;
 use ori_ir::{Name, TokenKind};
@@ -170,10 +170,10 @@ impl Cursor<'_> {
 /// Map a soft keyword token to its string form.
 ///
 /// Soft keywords are context-sensitive: they act as keywords in certain syntactic
-/// positions but are valid identifiers elsewhere.
+/// positions but are valid identifiers outside those contexts.
 ///
 /// This is the **canonical source** for soft-keyword classification — both
-/// [`Cursor::soft_keyword_to_name`] and [`is_keyword_usable_as_ident`] delegate here.
+/// [`Cursor::soft_keyword_to_name`] and [`is_keyword_usable_as_ident`] delegate to this function.
 pub(super) fn soft_keyword_str(kind: &TokenKind) -> Option<&'static str> {
     match kind {
         // I/O primitives
@@ -202,7 +202,7 @@ pub(super) fn soft_keyword_str(kind: &TokenKind) -> Option<&'static str> {
 /// identifier position.
 ///
 /// This is the **canonical source** for positional-keyword classification — both
-/// [`Cursor::keyword_as_name`] and [`is_keyword_usable_as_ident`] delegate here.
+/// [`Cursor::keyword_as_name`] and [`is_keyword_usable_as_ident`] delegate to this function.
 pub(super) fn positional_keyword_str(kind: &TokenKind) -> Option<&'static str> {
     match kind {
         TokenKind::Where => Some("where"),
@@ -218,8 +218,8 @@ pub(super) fn positional_keyword_str(kind: &TokenKind) -> Option<&'static str> {
 /// Check if a keyword token can be used as an identifier (named arg, field name, etc.).
 ///
 /// Derived from [`soft_keyword_str`] and [`positional_keyword_str`] — no independent
-/// match list. Adding a new keyword-as-identifier only requires updating the
-/// corresponding canonical function above.
+/// match list. Adding a new keyword-as-identifier only requires updating
+/// [`soft_keyword_str`] or [`positional_keyword_str`].
 ///
 /// Used by [`Cursor::is_named_arg_at`] for lookahead.
 /// A test (`keyword_as_ident_consistency`) enforces this stays in sync.

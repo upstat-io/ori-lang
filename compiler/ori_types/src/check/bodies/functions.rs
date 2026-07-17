@@ -344,8 +344,8 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     engine.normalize_body_generalized_to_bound_var_sig(&mut expr_types, &mut sig);
 
     // Deep-resolve var-links so late-resolved generic-builtin instantiations are
-    // var-free in the exported IR + composed by the burden sweep (see the
-    // main-body path above + `intern_link_resolved_body_types`).
+    // var-free in the exported IR and composed by the burden sweep, matching
+    // the main-body path and `intern_link_resolved_body_types`.
     engine.compose_body_type_burdens(&expr_types);
 
     // Extract results

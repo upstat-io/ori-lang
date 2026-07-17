@@ -26,11 +26,8 @@ use super::registry_bridge;
 
 /// Check if a Range method requires iteration (and is thus invalid on `Range<float>`).
 ///
-/// Note: ALL methods on `Range<float>` are now rejected at dispatch time in
-/// `resolve_builtin_method()`. This function is retained for the diagnostic
-/// path in `method_call.rs` which needs to distinguish "iteration method on
-/// float range" (specific error E2xxx) from "any method on float range"
-/// (generic "no such method" error).
+/// Dispatch rejects every method on `Range<float>`. This classification
+/// distinguishes iteration diagnostics from the generic missing-method error.
 pub(in crate::infer::expr) fn range_method_requires_iteration(method_name: &str) -> bool {
     use ori_registry::{ReturnTag, TypeTag};
     let Some(method) = ori_registry::find_method(TypeTag::Range, method_name) else {
@@ -70,7 +67,7 @@ pub(crate) fn resolve_builtin_method(
     // the registry's own `backend_required` field (never a hand-maintained
     // list), so this route can never silently diverge from real codegen
     // coverage: `message`/`debug`/`to_str` (backend_required: false) fall
-    // through unchanged to resolve_named_type_method below.
+    // through unchanged to named-type method resolution.
     if matches!(tag, Tag::Named | Tag::Applied) {
         if engine.pool().is_error_struct_receiver(receiver_ty) {
             if let Some(method_def) =
@@ -151,8 +148,8 @@ fn resolve_named_type_method(
 
 /// NEVER CALLED. Exists solely so that Rust's exhaustive match checker
 /// forces updates to this crate when a new `TypeTag` variant is added.
-/// If you see a compile error pointing here, a new `TypeTag` was added
-/// to `ori_registry` without updating this crate's method resolution.
+/// Exhaustive matching forces method-resolution updates for every new
+/// `ori_registry::TypeTag` variant.
 fn _enforce_exhaustiveness(tag: ori_registry::TypeTag) {
     use ori_registry::TypeTag;
     #[expect(

@@ -1,374 +1,174 @@
 //! Tests for the unified realization module.
 
-use super::decide::{decide_annotations, decide_cow, decide_drop_hint, AnnotationSiteContext};
-use crate::aims::lattice::{
-    AccessClass, Cardinality, Consumption, ReuseCtorKind, ShapeClass, Uniqueness,
+use super::decide::{
+    decide_annotation, decide_cow, decide_drop_hint, AnnotationDecision, AnnotationSite,
+    CowBorrowFacts, CowSiteContext, DropBorrowFacts, DropSiteContext,
 };
+use crate::aims::lattice::{AccessClass, Cardinality, Consumption, ShapeClass, Uniqueness};
 use crate::ir::ArcVarId;
 use crate::uniqueness::CowMode;
-use rustc_hash::FxHashSet;
 
-fn var(n: u32) -> ArcVarId {
-    ArcVarId::new(n)
-}
-
-/// Helper: create a default `AnnotationSiteContext` for COW tests.
-///
-/// Defaults: non-param, non-excluded, non-collection, no RC inc, no borrowed arg,
-/// Owned access, Linear consumption, Once cardinality, `NonReusable` shape,
-/// not borrow-disjoint.
-fn cow_ctx(var: ArcVarId, uniqueness: Uniqueness) -> AnnotationSiteContext<'static> {
-    // Leaks a boxed empty set to return a static reference.
-    // Acceptable in tests — bounded number of calls.
-    let empty: &'static FxHashSet<ArcVarId> = Box::leak(Box::default());
-    AnnotationSiteContext {
-        var,
+fn cow_ctx(uniqueness: Uniqueness) -> CowSiteContext {
+    CowSiteContext {
         uniqueness,
         rc_incremented: false,
-        is_param: false,
-        is_param_borrowed: false,
-        is_borrowed_call_arg: false,
-        rc_incremented_set: empty,
         is_excluded: false,
-        access: AccessClass::Owned,
-        consumption: Consumption::Linear,
-        cardinality: Cardinality::Once,
-        shape: ShapeClass::NonReusable,
-        is_borrow_disjoint: false,
-        has_active_borrows: false,
-        is_collection: false,
+        borrows: CowBorrowFacts::default(),
     }
 }
 
-/// Helper: create an `AnnotationSiteContext` for drop hint tests.
-///
-/// Same as `cow_ctx` but with `is_collection: true` (required for drop hints).
-fn drop_ctx(var: ArcVarId, uniqueness: Uniqueness) -> AnnotationSiteContext<'static> {
-    let mut ctx = cow_ctx(var, uniqueness);
-    ctx.is_collection = true;
-    ctx
+fn drop_ctx(uniqueness: Uniqueness) -> DropSiteContext {
+    DropSiteContext {
+        uniqueness,
+        rc_incremented: false,
+        is_excluded: false,
+        is_collection: true,
+        borrows: DropBorrowFacts::default(),
+    }
 }
 
 // decide_cow tests
 
 #[test]
 fn cow_unique_no_rc_inc_is_static_unique() {
-    let ctx = cow_ctx(var(0), Uniqueness::Unique);
-    assert_eq!(decide_cow(&ctx), CowMode::StaticUnique);
+    let ctx = cow_ctx(Uniqueness::Unique);
+    assert_eq!(decide_cow(ctx), CowMode::StaticUnique);
 }
 
 #[test]
 fn cow_unique_with_rc_inc_is_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = cow_ctx(Uniqueness::Unique);
     ctx.rc_incremented = true;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+    assert_eq!(decide_cow(ctx), CowMode::Dynamic);
 }
 
 #[test]
 fn cow_maybe_shared_is_dynamic() {
-    let ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+    let ctx = cow_ctx(Uniqueness::MaybeShared);
+    assert_eq!(decide_cow(ctx), CowMode::Dynamic);
 }
 
 #[test]
 fn cow_excluded_is_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = cow_ctx(Uniqueness::Unique);
     ctx.is_excluded = true;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+    assert_eq!(decide_cow(ctx), CowMode::Dynamic);
 }
 
 #[test]
 fn cow_shared_is_static_shared() {
-    let ctx = cow_ctx(var(0), Uniqueness::Shared);
-    assert_eq!(decide_cow(&ctx), CowMode::StaticShared);
+    let ctx = cow_ctx(Uniqueness::Shared);
+    assert_eq!(decide_cow(ctx), CowMode::StaticShared);
 }
 
-/// Regression: the former `is_cow_aware_unique` path promoted
-/// `MaybeShared + Owned + Linear + Once` params to `StaticUnique`. Removed
-/// as unsound per §DP-10 removal — backward
-/// analysis facts cannot prove PAST uniqueness.
-#[test]
-fn decide_cow_maybe_shared_param_owned_linear_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.is_param = true;
-    // Owned + Linear + Once on a param — previously StaticUnique, now Dynamic.
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-#[test]
-fn decide_cow_maybe_shared_param_many_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.is_param = true;
-    ctx.cardinality = Cardinality::Many;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Boundary cell: param + Owned + Affine + Once. `is_cow_aware_unique` was
-/// gated on Linear; Affine already bypassed. Preserve post-fix behavior.
-#[test]
-fn decide_cow_maybe_shared_param_owned_affine_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.is_param = true;
-    ctx.consumption = Consumption::Affine;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Boundary cell: non-param + Owned + Linear + Once. `is_cow_aware_unique`
-/// was gated on `is_param=true`; non-param already bypassed. Preserve.
-#[test]
-fn decide_cow_maybe_shared_nonparam_owned_linear_once_returns_dynamic() {
-    let ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    // Defaults: is_param=false, Owned+Linear+Once, NonReusable.
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Regression: the former cross-dimensional `CollectionBuffer + Once → StaticUnique`
-/// path was removed as unsound per §DP-10 removal.
-#[test]
-fn decide_cow_maybe_shared_collection_buffer_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.shape = ShapeClass::CollectionBuffer;
-    // Previously StaticUnique via `!is_param && Once + CollectionBuffer`; now Dynamic.
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Regression: the former cross-dimensional `ReusableCtor(Struct) + Once → StaticUnique`
-/// path was removed as unsound.
-#[test]
-fn decide_cow_maybe_shared_reusable_ctor_struct_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.shape = ShapeClass::ReusableCtor(ReuseCtorKind::Struct);
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Regression: `ReusableCtor(EnumVariant) + Once` hit the removed path too —
-/// `matches!(shape, ShapeClass::ReusableCtor(_))` matches both `Struct` and
-/// `EnumVariant`.
-#[test]
-fn decide_cow_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.shape = ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant);
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Preservation cell: `ContextHole` is a distinct top-level `ShapeClass`
-/// variant (not nested in `ReusableCtor(_)`); already took Dynamic before
-/// the fix.
-#[test]
-fn decide_cow_maybe_shared_context_hole_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.shape = ShapeClass::ContextHole;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Integration preservation: when the upstream
-/// `is_borrow_disjoint_from_siblings()` helper has set `ctx.is_borrow_disjoint =
-/// true` (RL-31), `decide_cow()` correctly promotes `MaybeShared` receivers to
-/// `StaticUnique`. This is the spec-approved disjoint-borrow path.
 #[test]
 fn decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.is_borrow_disjoint = true;
-    assert_eq!(decide_cow(&ctx), CowMode::StaticUnique);
+    let mut ctx = cow_ctx(Uniqueness::MaybeShared);
+    ctx.borrows.is_disjoint_from_siblings = true;
+    assert_eq!(decide_cow(ctx), CowMode::StaticUnique);
 }
 
 // DP-5/DP-9 borrow overlap tests for Unique path
 
-/// Semantic pin: Unique aggregate with active borrows → `StaticShared` per DP-9.
-/// Spec: `Unique AND NOT (is_owned_and_unique + no_borrows) → StaticShared` because `IsShared`
-/// on a Unique value always returns false — runtime check cannot distinguish
-/// "unique but borrowed" from "unique and safe to mutate."
 #[test]
 fn decide_cow_unique_with_active_borrows_returns_static_shared() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
-    ctx.has_active_borrows = true;
-    assert_eq!(decide_cow(&ctx), CowMode::StaticShared);
+    let mut ctx = cow_ctx(Uniqueness::Unique);
+    ctx.borrows.has_active_borrows = true;
+    assert_eq!(decide_cow(ctx), CowMode::StaticShared);
 }
 
-/// Negative pin: Unique aggregate with NO borrows → `StaticUnique` (preserved).
 #[test]
 fn decide_cow_unique_without_borrows_returns_static_unique() {
-    let ctx = cow_ctx(var(0), Uniqueness::Unique);
-    assert!(!ctx.has_active_borrows);
-    assert_eq!(decide_cow(&ctx), CowMode::StaticUnique);
+    let ctx = cow_ctx(Uniqueness::Unique);
+    assert_eq!(decide_cow(ctx), CowMode::StaticUnique);
 }
 
-/// Edge: RC-incremented Unique with no borrows → `Dynamic` (RC guard fires first).
 #[test]
 fn decide_cow_unique_rc_incremented_with_no_borrows_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = cow_ctx(Uniqueness::Unique);
     ctx.rc_incremented = true;
-    ctx.has_active_borrows = false;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+    assert_eq!(decide_cow(ctx), CowMode::Dynamic);
 }
 
-/// Edge: RC-incremented Unique WITH borrows → `Dynamic` (RC guard supersedes).
 #[test]
 fn decide_cow_unique_rc_incremented_with_borrows_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = cow_ctx(Uniqueness::Unique);
     ctx.rc_incremented = true;
-    ctx.has_active_borrows = true;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+    ctx.borrows.has_active_borrows = true;
+    assert_eq!(decide_cow(ctx), CowMode::Dynamic);
 }
 
 // decide_drop_hint tests
 
 #[test]
 fn drop_hint_unique_collection_is_eligible() {
-    let ctx = drop_ctx(var(0), Uniqueness::Unique);
-    assert!(decide_drop_hint(&ctx));
+    let ctx = drop_ctx(Uniqueness::Unique);
+    assert!(decide_drop_hint(ctx));
 }
 
 #[test]
 fn drop_hint_unique_with_rc_inc_not_eligible() {
-    let mut ctx = drop_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = drop_ctx(Uniqueness::Unique);
     ctx.rc_incremented = true;
-    assert!(!decide_drop_hint(&ctx));
+    assert!(!decide_drop_hint(ctx));
 }
 
 #[test]
 fn drop_hint_unique_borrowed_arg_not_eligible() {
-    let mut ctx = drop_ctx(var(0), Uniqueness::Unique);
-    ctx.is_borrowed_call_arg = true;
-    assert!(!decide_drop_hint(&ctx));
+    let mut ctx = drop_ctx(Uniqueness::Unique);
+    ctx.borrows.is_borrowed_call_arg = true;
+    assert!(!decide_drop_hint(ctx));
 }
 
 #[test]
 fn drop_hint_maybe_shared_not_eligible() {
-    let ctx = drop_ctx(var(0), Uniqueness::MaybeShared);
-    assert!(!decide_drop_hint(&ctx));
+    let ctx = drop_ctx(Uniqueness::MaybeShared);
+    assert!(!decide_drop_hint(ctx));
 }
 
 #[test]
 fn drop_hint_excluded_not_eligible() {
-    let mut ctx = drop_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = drop_ctx(Uniqueness::Unique);
     ctx.is_excluded = true;
-    assert!(!decide_drop_hint(&ctx));
+    assert!(!decide_drop_hint(ctx));
 }
 
 #[test]
 fn drop_hint_non_collection_not_eligible() {
-    // Unique but not a collection → no drop hint.
-    let ctx = cow_ctx(var(0), Uniqueness::Unique);
-    assert!(!ctx.is_collection);
-    assert!(!decide_drop_hint(&ctx));
+    let mut ctx = drop_ctx(Uniqueness::Unique);
+    ctx.is_collection = false;
+    assert!(!decide_drop_hint(ctx));
 }
-
-// decide_annotations (unified Phase 2) tests
 
 #[test]
 fn annotations_cow_site_unique_clean() {
-    let ctx = cow_ctx(var(0), Uniqueness::Unique);
-    let result = decide_annotations(&ctx, true, false);
-    assert_eq!(result.cow, Some(CowMode::StaticUnique));
-    assert!(!result.drop_hint);
+    let site = AnnotationSite::Cow(cow_ctx(Uniqueness::Unique));
+    assert_eq!(
+        decide_annotation(site),
+        AnnotationDecision::Cow(CowMode::StaticUnique)
+    );
 }
 
 #[test]
 fn annotations_drop_site_unique_collection() {
-    let ctx = drop_ctx(var(0), Uniqueness::Unique);
-    let result = decide_annotations(&ctx, false, true);
-    assert_eq!(result.cow, None);
-    assert!(result.drop_hint);
-}
-
-#[test]
-fn annotations_both_cow_and_drop() {
-    let ctx = drop_ctx(var(0), Uniqueness::Unique);
-    let result = decide_annotations(&ctx, true, true);
-    assert_eq!(result.cow, Some(CowMode::StaticUnique));
-    assert!(result.drop_hint);
-}
-
-#[test]
-fn annotations_neither_cow_nor_drop() {
-    let ctx = cow_ctx(var(0), Uniqueness::Unique);
-    let result = decide_annotations(&ctx, false, false);
-    assert_eq!(result.cow, None);
-    assert!(!result.drop_hint);
+    let site = AnnotationSite::Drop(drop_ctx(Uniqueness::Unique));
+    assert_eq!(decide_annotation(site), AnnotationDecision::DropHint(true));
 }
 
 #[test]
 fn annotations_shared_cow_site() {
-    let ctx = cow_ctx(var(0), Uniqueness::Shared);
-    let result = decide_annotations(&ctx, true, false);
-    assert_eq!(result.cow, Some(CowMode::StaticShared));
-    assert!(!result.drop_hint);
+    let site = AnnotationSite::Cow(cow_ctx(Uniqueness::Shared));
+    assert_eq!(
+        decide_annotation(site),
+        AnnotationDecision::Cow(CowMode::StaticShared)
+    );
 }
 
 #[test]
 fn annotations_maybe_shared_drop_site_not_eligible() {
-    let ctx = drop_ctx(var(0), Uniqueness::MaybeShared);
-    let result = decide_annotations(&ctx, false, true);
-    assert_eq!(result.cow, None);
-    assert!(!result.drop_hint);
+    let site = AnnotationSite::Drop(drop_ctx(Uniqueness::MaybeShared));
+    assert_eq!(decide_annotation(site), AnnotationDecision::DropHint(false));
 }
-
-// Non-RC-managed variables
-
-// Use site decisions
-
-// UseSemantics — Project source identity
-
-// DefinedDead site decisions
-
-// LastUse — suppression flags
-
-// LastUse — regular Dec with reuse
-
-// Regression: MaybeShared + Once + ReusableCtor → DynamicReuse
-//
-// The former cross-dimensional `StaticReuse` promotion was removed as
-// unsound per §RL-13 removal rationale.
-
-/// Negative pin: `decide_cow()` must NOT return `StaticUnique` for any
-/// `MaybeShared` input outside the spec-approved `is_borrow_disjoint=true`
-/// path. Explicitly rejects the four removed cross-dimensional promotion
-/// paths.
-#[test]
-fn decide_cow_rejects_cross_dimensional_maybe_shared_static_unique() {
-    let mut configs: Vec<AnnotationSiteContext<'static>> = Vec::new();
-    // Removed path 1: is_param + Owned + Linear + Once
-    let mut c1 = cow_ctx(var(0), Uniqueness::MaybeShared);
-    c1.is_param = true;
-    configs.push(c1);
-    // Removed path 2: !is_param + CollectionBuffer + Once
-    let mut c2 = cow_ctx(var(0), Uniqueness::MaybeShared);
-    c2.shape = ShapeClass::CollectionBuffer;
-    configs.push(c2);
-    // Removed path 3: !is_param + ReusableCtor(Struct) + Once
-    let mut c3 = cow_ctx(var(0), Uniqueness::MaybeShared);
-    c3.shape = ShapeClass::ReusableCtor(ReuseCtorKind::Struct);
-    configs.push(c3);
-    // Removed path 4: !is_param + ReusableCtor(EnumVariant) + Once
-    let mut c4 = cow_ctx(var(0), Uniqueness::MaybeShared);
-    c4.shape = ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant);
-    configs.push(c4);
-
-    for ctx in configs {
-        // is_borrow_disjoint=false (default), so the only StaticUnique source
-        // available is the spec-approved disjoint-borrow path — which this
-        // test does not enable. All four configurations must be Dynamic.
-        assert_ne!(
-            decide_cow(&ctx),
-            CowMode::StaticUnique,
-            "MaybeShared (var={:?}, shape={:?}, is_param={}) must not promote to StaticUnique",
-            ctx.var,
-            ctx.shape,
-            ctx.is_param
-        );
-    }
-}
-
-// Enum variant reuse
-
-// Suppression priority: consuming primop takes precedence over all others
-
-// Cross-Dimension Synergy Tests
-//
-// Each test builds an ArcFunction modeling one of the synergy Ori programs,
-// runs the AIMS backward analysis, and asserts that cross-dimensional
-// reasoning produces the expected state.
 
 use crate::aims::contract::{FipContract, MemoryContract};
 use crate::aims::intraprocedural::analyze_function;
@@ -382,8 +182,6 @@ use crate::ArcClass;
 use ori_ir::Name;
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
-
-// Test helpers (synergy-specific)
 
 struct SynergyClassifier {
     scalars: Vec<bool>,

@@ -12,8 +12,8 @@
 //!
 //! Read-only lookup paths (`get_trait_by_*`, `lookup_method*`,
 //! `all_super_traits`, `collected_methods`, `find_conflicting_defaults`,
-//! `impls_*`, coherence + iteration helpers) live in the `lookup`
-//! submodule. This module owns the data definitions, the `new` constructor,
+//! `impls_*`, coherence and iteration helpers) are provided by [`lookup`].
+//! This module owns the data definitions, the `new` constructor,
 //! and the registration mutators (`register_trait`, `register_impl`,
 //! `extend_object_safety_violations`).
 

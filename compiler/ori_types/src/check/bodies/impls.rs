@@ -42,7 +42,7 @@ fn check_impl_block(
     // calls surface method-not-found) instead of resolving to an unresolved
     // `Tag::Named`. The `RigidVar`s are
     // allocated at `register_impls` (Pass 0c) and stored on the checker keyed by
-    // `module.impls` position; REUSE them here (Pass 4) via `prealloc` so a
+    // `module.impls` position; reuse them in Pass 4 via `prealloc` so a
     // method mono recorded at a Pass-3 call site already sees the impl binder in
     // `var_states` (the constructor composite `Pair<RigidVar(B), RigidVar(A)>`
     // registers because the binder exists by Pass 0c, not Pass 4). `Self` +

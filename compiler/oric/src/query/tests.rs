@@ -7,6 +7,52 @@ use ori_types::Idx;
 use salsa::Setter;
 use std::path::PathBuf;
 
+const ADD_BODY_EXTRA_ZERO: &str = include_str!("fixtures/add-body-extra-zero.ori");
+const ADD_COMPACT: &str = include_str!("fixtures/add-compact.ori");
+const ADD_INT: &str = include_str!("fixtures/add-int.ori");
+const ADD_MUL: &str = include_str!("fixtures/add-mul.ori");
+const ADD_SPACED: &str = include_str!("fixtures/add-spaced.ori");
+const ADD_TABBED: &str = include_str!("fixtures/add-tabbed.ori");
+const CALC_PRECEDENCE: &str = include_str!("fixtures/calc-precedence.ori");
+const FOO_BAR: &str = include_str!("fixtures/foo-bar.ori");
+const FOO_INT_100: &str = include_str!("fixtures/foo-int-100.ori");
+const MAIN_BLOCK_BINDINGS: &str = include_str!("fixtures/main-block-bindings.ori");
+const MAIN_BOOL_AND: &str = include_str!("fixtures/main-bool-and.ori");
+const MAIN_BOOL_TRUE: &str = include_str!("fixtures/main-bool-true.ori");
+const MAIN_COMMENT_V1: &str = include_str!("fixtures/main-comment-v1.ori");
+const MAIN_COMMENT_V2: &str = include_str!("fixtures/main-comment-v2.ori");
+const MAIN_DOC_COMMENT: &str = include_str!("fixtures/main-doc-comment.ori");
+const MAIN_EXTRA_SPACES: &str = include_str!("fixtures/main-extra-spaces.ori");
+const MAIN_FIELD_ARITHMETIC: &str = include_str!("fixtures/main-field-arithmetic.ori");
+const MAIN_IF: &str = include_str!("fixtures/main-if.ori");
+const MAIN_INT_1: &str = include_str!("fixtures/main-int-1.ori");
+const MAIN_INT_2: &str = include_str!("fixtures/main-int-2.ori");
+const MAIN_INT_42: &str = include_str!("fixtures/main-int-42.ori");
+const MAIN_INT_100: &str = include_str!("fixtures/main-int-100.ori");
+const MAIN_INT_ADD: &str = include_str!("fixtures/main-int-add.ori");
+const MAIN_INT_LIST: &str = include_str!("fixtures/main-int-list.ori");
+const MAIN_INVALID_IF_CONDITION: &str = include_str!("fixtures/main-invalid-if-condition.ori");
+const MAIN_LIST_INDEX: &str = include_str!("fixtures/main-list-index.ori");
+const MAIN_MAP_INDEX_COALESCE: &str = include_str!("fixtures/main-map-index-coalesce.ori");
+const MAIN_MISSING_EXPRESSION: &str = include_str!("fixtures/main-missing-expression.ori");
+const MAIN_NESTED_FIELD: &str = include_str!("fixtures/main-nested-field.ori");
+const MAIN_NEW_COMMENT: &str = include_str!("fixtures/main-new-comment.ori");
+const MAIN_OLD_COMMENT: &str = include_str!("fixtures/main-old-comment.ori");
+const MAIN_PRECEDENCE: &str = include_str!("fixtures/main-precedence.ori");
+const MAIN_RECURSE: &str = include_str!("fixtures/main-recurse.ori");
+const MAIN_REGULAR_COMMENT: &str = include_str!("fixtures/main-regular-comment.ori");
+const MAIN_RESULT_COALESCE: &str = include_str!("fixtures/main-result-coalesce.ori");
+const MAIN_STRUCT_FIELD: &str = include_str!("fixtures/main-struct-field.ori");
+const MAIN_TYPE_ERROR: &str = include_str!("fixtures/main-type-error.ori");
+
+fn fixture_source(source: &'static str) -> &'static str {
+    source.strip_suffix('\n').unwrap_or(source)
+}
+
+fn fixture_text(source: &'static str) -> String {
+    fixture_source(source).to_owned()
+}
+
 /// Find a function signature by name in the typed result.
 ///
 /// `typed.functions` may include imported/builtin signatures alongside
@@ -65,11 +111,7 @@ fn test_non_empty_line_count() {
 fn test_first_line() {
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     assert_eq!(first_line(&db, file), "@main () -> int = 42;");
 }
@@ -80,16 +122,12 @@ fn test_incremental_recomputation() {
 
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), "line1\nline2".to_string());
 
-    // Initial computation
     assert_eq!(line_count(&db, file), 2);
 
-    // Cached - same result, no recomputation
     assert_eq!(line_count(&db, file), 2);
 
-    // Mutate the input
     file.set_text(&mut db).to("line1\nline2\nline3".to_string());
 
-    // Now it should recompute
     assert_eq!(line_count(&db, file), 3);
 }
 
@@ -173,11 +211,7 @@ fn test_tokens_function_def() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     let toks = tokens(&db, file);
 
@@ -265,8 +299,7 @@ fn test_tokens_with_patterns() {
 
     let toks = tokens(&db, file);
 
-    // map is now an identifier (library function), not a keyword
-    // map ( over : items , transform : fn )
+    // `map` is a library-function identifier rather than a keyword.
     assert!(matches!(toks[0].kind, TokenKind::Ident(_)));
     assert!(matches!(toks[1].kind, TokenKind::LParen));
     assert!(matches!(toks[2].kind, TokenKind::Ident(_)));
@@ -278,11 +311,7 @@ fn test_parsed_basic() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     let result = parsed(&db, file);
 
@@ -299,11 +328,7 @@ fn test_parsed_caching() {
     let db = CompilerDb::new();
     db.enable_logging();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 1 + 2;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_ADD));
 
     // First call - should execute both tokens and parsed queries
     let _ = parsed(&db, file);
@@ -322,11 +347,7 @@ fn test_parsed_incremental() {
 
     let mut db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 1;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_1));
 
     // Initial parse
     let result1 = parsed(&db, file);
@@ -339,8 +360,7 @@ fn test_parsed_incremental() {
     ));
 
     // Modify source
-    file.set_text(&mut db)
-        .to("@main () -> int = 2;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_2));
 
     // Should re-parse with new value
     let result2 = parsed(&db, file);
@@ -359,11 +379,7 @@ fn test_parsed_early_cutoff() {
     db.enable_logging();
 
     // Create file with some trailing whitespace
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     // First call
     let result1 = parsed(&db, file);
@@ -371,8 +387,7 @@ fn test_parsed_early_cutoff() {
 
     // Add whitespace (tokens should be identical after lexing)
     // Note: This depends on lexer behavior with whitespace
-    file.set_text(&mut db)
-        .to("@main () -> int = 42;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_42));
 
     // Get tokens to verify they're the same semantically
     // Even if tokens differ, parsed result should be equivalent
@@ -394,7 +409,7 @@ fn test_parsed_with_expressions() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@calc () -> int = 1 + 2 * 3;".to_string(),
+        fixture_text(CALC_PRECEDENCE),
     );
 
     let result = parsed(&db, file);
@@ -435,11 +450,7 @@ fn test_parsed_with_expressions() {
 fn test_typed_basic() {
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     let result = typed(&db, file);
 
@@ -452,11 +463,7 @@ fn test_typed_caching() {
     let db = CompilerDb::new();
     db.enable_logging();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 1 + 2;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_ADD));
 
     // First call - should execute tokens, parsed, and typed queries
     let _ = typed(&db, file);
@@ -473,19 +480,14 @@ fn test_typed_caching() {
 fn test_typed_incremental() {
     let mut db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     // Initial type check
     let result1 = typed(&db, file);
     assert_eq!(find_fn(&db, &result1, "main").return_type, Idx::INT);
 
     // Modify source to return bool
-    file.set_text(&mut db)
-        .to("@main () -> bool = true;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_BOOL_TRUE));
 
     // Should re-type-check with new return type
     let result2 = typed(&db, file);
@@ -499,7 +501,7 @@ fn test_typed_with_error() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = if 42 then 1 else 2;".to_string(),
+        fixture_text(MAIN_INVALID_IF_CONDITION),
     );
 
     let result = typed(&db, file);
@@ -514,11 +516,7 @@ fn test_evaluated_basic() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     let result = evaluated(&db, file);
 
@@ -535,7 +533,7 @@ fn test_evaluated_arithmetic() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 1 + 2 * 3;".to_string(),
+        fixture_text(MAIN_PRECEDENCE),
     );
 
     let result = evaluated(&db, file);
@@ -550,11 +548,7 @@ fn test_evaluated_boolean() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> bool = true && false;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_BOOL_AND));
 
     let result = evaluated(&db, file);
 
@@ -568,11 +562,7 @@ fn test_evaluated_if_expression() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = if true then 1 else 2;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_IF));
 
     let result = evaluated(&db, file);
 
@@ -586,11 +576,7 @@ fn test_evaluated_list() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> [int] = [1, 2, 3];".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_LIST));
 
     let result = evaluated(&db, file);
 
@@ -615,11 +601,7 @@ fn test_evaluated_caching() {
     let db = CompilerDb::new();
     db.enable_logging();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     // First call - should execute
     let _ = evaluated(&db, file);
@@ -638,19 +620,14 @@ fn test_evaluated_incremental() {
 
     let mut db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 1;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_1));
 
     // Initial evaluation
     let result1 = evaluated(&db, file);
     assert_eq!(result1.result, Some(EvalOutput::Int(1)));
 
     // Modify source
-    file.set_text(&mut db)
-        .to("@main () -> int = 2;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_2));
 
     // Should re-evaluate with new value
     let result2 = evaluated(&db, file);
@@ -664,7 +641,7 @@ fn test_evaluated_parse_error() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int =;".to_string(), // Missing expression
+        fixture_text(MAIN_MISSING_EXPRESSION), // Missing expression
     );
 
     let result = evaluated(&db, file);
@@ -679,11 +656,7 @@ fn test_evaluated_no_main() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@foo () -> int = 100;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(FOO_INT_100));
 
     let result = evaluated(&db, file);
 
@@ -702,12 +675,7 @@ fn test_evaluated_block_expression() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        r"@main () -> int = {
-            let x: int = 1;
-            let y: int = 2;
-            x + y
-        }"
-        .to_string(),
+        fixture_text(MAIN_BLOCK_BINDINGS),
     );
 
     let result = evaluated(&db, file);
@@ -730,16 +698,7 @@ fn test_evaluated_recurse_pattern() {
     let db = CompilerDb::new();
 
     // Test basic recurse pattern - simplest case: always return base
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        r"@main () -> int = recurse(
-            condition: true,
-            base: 42,
-            step: self()
-        );"
-        .to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_RECURSE));
 
     // Debug: print parse errors
     let parsed = parsed(&db, file);
@@ -766,11 +725,7 @@ fn test_evaluated_recurse_pattern() {
 fn test_typed_function_signatures() {
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@add (a: int, b: int) -> int = a + b;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(ADD_INT));
 
     let result = typed(&db, file);
 
@@ -809,11 +764,7 @@ fn test_typed_empty_module() {
 fn test_typed_multiple_functions() {
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@foo () -> int = 1;\n@bar () -> bool = true;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(FOO_BAR));
 
     let result = typed(&db, file);
 
@@ -829,7 +780,7 @@ fn test_typed_multiple_functions() {
 fn test_typed_determinism() {
     let db = CompilerDb::new();
 
-    let source = "@add (x: int, y: int) -> int = x + y;\n@mul (a: int, b: int) -> int = a * b;";
+    let source = fixture_source(ADD_MUL);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     // Call twice — should produce identical results
@@ -853,7 +804,7 @@ fn test_typed_determinism() {
 fn test_typed_list_indexing() {
     let db = CompilerDb::new();
 
-    let source = "@main () -> int = [10, 20, 30][0];";
+    let source = fixture_source(MAIN_LIST_INDEX);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -873,7 +824,7 @@ fn test_typed_list_indexing() {
 fn test_typed_map_indexing_with_coalesce() {
     let db = CompilerDb::new();
 
-    let source = r#"@main () -> int = {"a": 1}["a"] ?? 0;"#;
+    let source = fixture_source(MAIN_MAP_INDEX_COALESCE);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -893,7 +844,7 @@ fn test_typed_map_indexing_with_coalesce() {
 fn test_typed_struct_field_access() {
     let db = CompilerDb::new();
 
-    let source = "type Point = { x: int, y: int }\n@main () -> int = {\n    let p = Point { x: 10, y: 20 };\n    p.x\n}";
+    let source = fixture_source(MAIN_STRUCT_FIELD);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -913,7 +864,7 @@ fn test_typed_struct_field_access() {
 fn test_typed_nested_field_access() {
     let db = CompilerDb::new();
 
-    let source = "type Inner = { value: int }\ntype Outer = { inner: Inner }\n@main () -> int = {\n    let o = Outer { inner: Inner { value: 42 } };\n    o.inner.value\n}";
+    let source = fixture_source(MAIN_NESTED_FIELD);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -932,7 +883,7 @@ fn test_typed_nested_field_access() {
 fn test_typed_field_in_arithmetic() {
     let db = CompilerDb::new();
 
-    let source = "type Point = { x: int, y: int }\n@main () -> int = {\n    let p = Point { x: 5, y: 10 };\n    p.x + p.y\n}";
+    let source = fixture_source(MAIN_FIELD_ARITHMETIC);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -952,9 +903,9 @@ fn test_typed_field_in_arithmetic() {
 fn test_typed_whitespace_invariance() {
     // Different horizontal whitespace should produce identical TypeCheckResult.
     // The type checker output depends on semantic content (tokens), not formatting.
-    let compact = "@add (x: int, y: int) -> int = x + y;";
-    let spaced = "@add  ( x : int ,  y : int )  ->  int  =  x  +  y;";
-    let tabbed = "@add\t(x:\tint,\ty:\tint)\t->\tint\t=\tx\t+\ty;";
+    let compact = fixture_source(ADD_COMPACT);
+    let spaced = fixture_source(ADD_SPACED);
+    let tabbed = fixture_source(ADD_TABBED);
 
     let db1 = CompilerDb::new();
     let file1 = SourceFile::new(&db1, PathBuf::from("/test.ori"), compact.to_string());
@@ -1013,7 +964,7 @@ fn test_typed_result_coalesce() {
     // inference (PC-2). The test's
     // subject is `??` coalescing on a Result; the choice of Err type is
     // incidental — `str` stands in for any inhabited type.
-    let source = "@main () -> int = { let r: Result<int, str> = Ok(42); r ?? 0 }";
+    let source = fixture_source(MAIN_RESULT_COALESCE);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -1037,7 +988,7 @@ fn test_tokens_with_metadata_returns_comments() {
 
     let db = CompilerDb::new();
 
-    let source = "// a regular comment\n@main () -> int = 42";
+    let source = fixture_source(MAIN_REGULAR_COMMENT);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let output = tokens_with_metadata(&db, file);
@@ -1064,7 +1015,7 @@ fn test_tokens_with_metadata_comment_only_edit() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "// old comment\n@main () -> int = 42".to_string(),
+        fixture_text(MAIN_OLD_COMMENT),
     );
 
     let output1 = tokens_with_metadata(&db, file);
@@ -1072,8 +1023,7 @@ fn test_tokens_with_metadata_comment_only_edit() {
     assert_eq!(output1.comments[0].kind, CommentKind::Regular);
 
     // Version 2: different regular comment text (same comment kind)
-    file.set_text(&mut db)
-        .to("// new comment\n@main () -> int = 42".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_NEW_COMMENT));
 
     let output2 = tokens_with_metadata(&db, file);
     assert_eq!(output2.comments.len(), 1);
@@ -1092,8 +1042,7 @@ fn test_tokens_with_metadata_comment_only_edit() {
     );
 
     // Version 3: doc comment (comment kind changes → IS_DOC flag changes on @main)
-    file.set_text(&mut db)
-        .to("// * x: param doc\n@main () -> int = 42".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_DOC_COMMENT));
 
     let output3 = tokens_with_metadata(&db, file);
     assert_eq!(output3.comments.len(), 1);
@@ -1103,7 +1052,7 @@ fn test_tokens_with_metadata_comment_only_edit() {
         "comment kind should update after edit"
     );
 
-    // Token flags differ: @main now has IS_DOC set
+    // A doc marker changes the `@main` token's flags.
     assert_ne!(
         output2.tokens, output3.tokens,
         "regular→doc comment change should change code tokens (IS_DOC flag)"
@@ -1122,11 +1071,7 @@ fn test_tokens_early_cutoff_on_whitespace_edit() {
     db.enable_logging();
 
     // Start with single spaces between tokens
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     // First call — executes both tokens and parsed queries
     let _ = parsed(&db, file);
@@ -1140,8 +1085,7 @@ fn test_tokens_early_cutoff_on_whitespace_edit() {
     // Add extra spaces between tokens that already have SPACE_BEFORE.
     // This changes Span positions but NOT TokenKind or TokenFlags, so
     // position-independent equality holds and parsed() is not re-executed.
-    file.set_text(&mut db)
-        .to("@main  ()  ->  int  =  42;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_EXTRA_SPACES));
 
     // Call parsed again — tokens query re-executes (text changed),
     // but position-independent Hash/Eq means tokens are "equal",
@@ -1172,7 +1116,7 @@ fn test_comment_only_change_triggers_early_cutoff_for_parsed() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "// old comment\n@main () -> int = 42".to_string(),
+        fixture_text(MAIN_OLD_COMMENT),
     );
 
     // First call — executes lex_result + tokens + parsed
@@ -1180,8 +1124,7 @@ fn test_comment_only_change_triggers_early_cutoff_for_parsed() {
     let _ = db.take_logs(); // Clear initial logs
 
     // Change only the comment text (regular → regular, different text)
-    file.set_text(&mut db)
-        .to("// new comment\n@main () -> int = 42".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_NEW_COMMENT));
 
     let _ = parsed(&db, file);
     let logs = db.take_logs();
@@ -1207,7 +1150,7 @@ fn test_comment_only_change_triggers_early_cutoff_for_typed() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "// comment v1\n@main () -> int = 42".to_string(),
+        fixture_text(MAIN_COMMENT_V1),
     );
 
     // First call — execute the full pipeline
@@ -1215,8 +1158,7 @@ fn test_comment_only_change_triggers_early_cutoff_for_typed() {
     let _ = db.take_logs();
 
     // Change only comment text
-    file.set_text(&mut db)
-        .to("// comment v2\n@main () -> int = 42".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_COMMENT_V2));
 
     let result2 = typed(&db, file);
     let logs = db.take_logs();
@@ -1251,11 +1193,7 @@ fn test_body_change_without_signature_change_produces_different_module_hash() {
     let db = CompilerDb::new();
 
     // Version 1: body returns a + b
-    let file1 = SourceFile::new(
-        &db,
-        PathBuf::from("/test1.ori"),
-        "@add (a: int, b: int) -> int = a + b;".to_string(),
-    );
+    let file1 = SourceFile::new(&db, PathBuf::from("/test1.ori"), fixture_text(ADD_INT));
     let type1 = typed(&db, file1);
     let all_hashes1 = extract_function_hashes(&type1.typed.functions, &type1.typed.expr_types);
     let add_name = db.interner().intern("add");
@@ -1265,7 +1203,7 @@ fn test_body_change_without_signature_change_produces_different_module_hash() {
     let file2 = SourceFile::new(
         &db,
         PathBuf::from("/test2.ori"),
-        "@add (a: int, b: int) -> int = a + b + 0;".to_string(),
+        fixture_text(ADD_BODY_EXTRA_ZERO),
     );
     let type2 = typed(&db, file2);
     let all_hashes2 = extract_function_hashes(&type2.typed.functions, &type2.typed.expr_types);
@@ -1292,22 +1230,17 @@ fn test_typed_early_cutoff_on_body_change() {
     // Changing a function's body (but not its signature) should cause typed()
     // to re-execute, producing a different TypeCheckResult with different
     // expression types. This verifies the Salsa → codegen handoff works:
-    // Salsa detects the change, and downstream function hashing sees it.
+    // Salsa detects the change, and function hashing observes it.
     let mut db = CompilerDb::new();
     db.enable_logging();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     let result1 = typed(&db, file);
     let _ = db.take_logs();
 
     // Change body only (same signature: () -> int)
-    file.set_text(&mut db)
-        .to("@main () -> int = 100;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_100));
 
     let result2 = typed(&db, file);
     let logs = db.take_logs();
@@ -1335,48 +1268,52 @@ fn test_typed_early_cutoff_on_body_change() {
 fn test_watch_loop_simulation() {
     let mut db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/watch.ori"),
-        "@main () -> int = 1;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/watch.ori"), fixture_text(MAIN_INT_1));
 
-    // Cycle 1: initial check
-    let r1 = typed(&db, file);
-    assert!(!r1.has_errors(), "cycle 1 should have no errors");
-    assert_eq!(user_fn_count(&db, &r1, &["main"]), 1);
-
-    // Cycle 2: body change (same signature)
-    file.set_text(&mut db)
-        .to("@main () -> int = 2;".to_string());
-
-    let r2 = typed(&db, file);
-    assert!(!r2.has_errors(), "cycle 2 should have no errors");
-    assert_eq!(find_fn(&db, &r2, "main").return_type, Idx::INT);
-
-    // Cycle 3: signature change (int → bool)
-    file.set_text(&mut db)
-        .to("@main () -> bool = true;".to_string());
-
-    let r3 = typed(&db, file);
-    assert!(!r3.has_errors(), "cycle 3 should have no errors");
-    assert_eq!(find_fn(&db, &r3, "main").return_type, Idx::BOOL);
-
-    // Cycle 4: introduce a type error, verify it's caught
-    file.set_text(&mut db)
-        .to("@main () -> int = true;".to_string());
-
-    let r4 = typed(&db, file);
-    assert!(r4.has_errors(), "cycle 4 should detect type mismatch");
-
-    // Cycle 5: fix the error, verify recovery
-    file.set_text(&mut db)
-        .to("@main () -> int = 42;".to_string());
-
-    let r5 = typed(&db, file);
+    // The initial source type-checks.
+    let initial = typed(&db, file);
     assert!(
-        !r5.has_errors(),
-        "cycle 5 should recover after fixing error"
+        !initial.has_errors(),
+        "initial source should have no errors"
     );
-    assert_eq!(find_fn(&db, &r5, "main").return_type, Idx::INT);
+    assert_eq!(user_fn_count(&db, &initial, &["main"]), 1);
+
+    // A body-only edit preserves the signature.
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_2));
+
+    let body_edit = typed(&db, file);
+    assert!(
+        !body_edit.has_errors(),
+        "body-only edit should have no errors"
+    );
+    assert_eq!(find_fn(&db, &body_edit, "main").return_type, Idx::INT);
+
+    // A signature edit replaces the inferred return type.
+    file.set_text(&mut db).to(fixture_text(MAIN_BOOL_TRUE));
+
+    let signature_edit = typed(&db, file);
+    assert!(
+        !signature_edit.has_errors(),
+        "signature edit should have no errors"
+    );
+    assert_eq!(find_fn(&db, &signature_edit, "main").return_type, Idx::BOOL);
+
+    // An invalid edit reports its type error.
+    file.set_text(&mut db).to(fixture_text(MAIN_TYPE_ERROR));
+
+    let invalid_edit = typed(&db, file);
+    assert!(
+        invalid_edit.has_errors(),
+        "invalid edit should detect type mismatch"
+    );
+
+    // A valid replacement recovers the database.
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_42));
+
+    let recovered = typed(&db, file);
+    assert!(
+        !recovered.has_errors(),
+        "valid replacement should recover after an invalid edit"
+    );
+    assert_eq!(find_fn(&db, &recovered, "main").return_type, Idx::INT);
 }

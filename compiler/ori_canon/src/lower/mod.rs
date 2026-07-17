@@ -110,8 +110,22 @@ pub fn lower_module(
 
     let trait_defaults = trait_default_methods(module);
     let mut method_roots = lower_impl_method_roots(&mut lowerer, module, interner, &trait_defaults);
-    lower_extend_method_roots(&mut lowerer, module, &mut method_roots);
-    lower_def_impl_method_roots(&mut lowerer, module, &mut method_roots);
+    lower_named_method_roots(
+        &mut lowerer,
+        module
+            .extends
+            .iter()
+            .map(|extension| (extension.target_type_name, extension.methods.as_slice())),
+        &mut method_roots,
+    );
+    lower_named_method_roots(
+        &mut lowerer,
+        module
+            .def_impls
+            .iter()
+            .map(|impl_def| (impl_def.trait_name, impl_def.methods.as_slice())),
+        &mut method_roots,
+    );
 
     let root = roots.first().map_or(CanId::INVALID, |entry| entry.body);
     let mut result = lowerer.finish(root);
@@ -225,13 +239,8 @@ fn lower_impl_method_roots(
         let mut overridden = FxHashSet::default();
         for method in &impl_def.methods {
             overridden.insert(method.name);
-            if method.body.is_valid() {
-                roots.push(MethodRoot {
-                    type_name,
-                    method_name: method.name,
-                    source_body: method.body,
-                    body: lowerer.lower_expr(method.body),
-                });
+            if let Some(root) = lower_method_root(lowerer, type_name, method) {
+                roots.push(root);
             }
         }
 
@@ -260,39 +269,28 @@ fn lower_impl_method_roots(
     roots
 }
 
-fn lower_extend_method_roots(
+fn lower_method_root(
     lowerer: &mut Lowerer<'_>,
-    module: &Module,
-    roots: &mut Vec<MethodRoot>,
-) {
-    for extension in &module.extends {
-        for method in &extension.methods {
-            if method.body.is_valid() {
-                roots.push(MethodRoot {
-                    type_name: extension.target_type_name,
-                    method_name: method.name,
-                    source_body: method.body,
-                    body: lowerer.lower_expr(method.body),
-                });
-            }
-        }
-    }
+    type_name: Name,
+    method: &ori_ir::ImplMethod,
+) -> Option<MethodRoot> {
+    method.body.is_valid().then(|| MethodRoot {
+        type_name,
+        method_name: method.name,
+        source_body: method.body,
+        body: lowerer.lower_expr(method.body),
+    })
 }
 
-fn lower_def_impl_method_roots(
+fn lower_named_method_roots<'a>(
     lowerer: &mut Lowerer<'_>,
-    module: &Module,
+    groups: impl IntoIterator<Item = (Name, &'a [ori_ir::ImplMethod])>,
     roots: &mut Vec<MethodRoot>,
 ) {
-    for impl_def in &module.def_impls {
-        for method in &impl_def.methods {
-            if method.body.is_valid() {
-                roots.push(MethodRoot {
-                    type_name: impl_def.trait_name,
-                    method_name: method.name,
-                    source_body: method.body,
-                    body: lowerer.lower_expr(method.body),
-                });
+    for (type_name, methods) in groups {
+        for method in methods {
+            if let Some(root) = lower_method_root(lowerer, type_name, method) {
+                roots.push(root);
             }
         }
     }
@@ -330,8 +328,8 @@ pub(crate) struct Lowerer<'a> {
     /// Each entry corresponds to a generic call site whose AST `ExprId` was
     /// resolved to a specific `MonoInstanceId` by the type checker (carried
     /// in `TypedModule.mono_dispatch_map`). The lowerer translates each
-    /// resolved `ExprId` to its newly-allocated `CanId` and pushes here;
-    /// `finish` sorts by `CanId.raw()` for binary-search lookup downstream.
+    /// resolved `ExprId` to its newly allocated `CanId` and appends the pair;
+    /// `finish` sorts by `CanId.raw()` for binary-search lookup.
     pub(crate) mono_dispatch_map_can: Vec<(CanId, MonoInstanceId)>,
 
     /// Active index-temp overrides for an in-flight index/field-assignment

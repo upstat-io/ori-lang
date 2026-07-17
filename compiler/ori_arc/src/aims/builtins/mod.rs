@@ -4,8 +4,8 @@
 //! [`MemoryContract`] entries for builtin methods that are not analyzed
 //! intraprocedurally (they have no ARC IR body).
 //!
-//! Ported from [`crate::borrow::builtins`] — the ownership sets there
-//! encode the same semantic facts but in a different format.
+//! [`crate::borrow::builtins`] encodes the same semantic facts as ownership
+//! sets in a different format.
 
 mod runtime;
 #[cfg(test)]
@@ -24,29 +24,15 @@ use super::contract::{
 };
 use super::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness};
 
-/// Pre-seed the signature map with contracts for all builtin methods.
+/// Adds contracts for builtin methods that have no ARC IR bodies.
 ///
-/// Builtin methods (e.g., `push`, `len`, `slice`) are not lowered to ARC IR,
-/// so interprocedural analysis cannot analyze them. Instead, we provide
-/// hardcoded contracts derived from the same semantic facts encoded in
-/// [`BuiltinOwnershipSets`].
-///
-/// Contract categories:
-/// - **Borrowing** methods: read-only access, no ownership transfer
-/// - **COW receiver** methods: consume receiver, return unique result
-/// - **COW receiver+arg** methods: consume receiver and second arg
-/// - **COW receiver-only** methods: consume receiver, borrow other args
-/// - **COW indexed update** (`updated`): consume receiver and value (arg 2),
-///   borrow key (arg 1)
-/// - **Sharing** methods: return values sharing receiver's backing storage
+/// Contract ownership derives from [`BuiltinOwnershipSets`].
 pub(crate) fn seed_builtin_contracts(
     sigs: &mut FxHashMap<Name, MemoryContract>,
     builtins: &BuiltinOwnershipSets,
     interner: &StringInterner,
 ) {
-    // COW methods seeded first — they have specific ownership requirements
-    // and take precedence over borrowing when the same method name appears
-    // in both sets (method names are not type-qualified in ARC IR).
+    // Why: COW ownership takes precedence when an unqualified method name is also borrowing.
 
     // IndexSet `updated(key, value)`: receiver consumed-and-returned, key
     // borrowed, value MOVED into the collection. Seeded BEFORE the generic
@@ -88,12 +74,12 @@ pub(crate) fn seed_builtin_contracts(
 
     // Sharing methods: return MaybeShared (shares receiver's backing) and
     // carry the typed sharing-view CREDIT (`returns_sharing_view`).
-    // The bare surface names `take` / `drop` are NEVER seeded here: the
+    // The contract map excludes the bare surface names `take` and `drop`: the
     // name-keyed contract map cannot discriminate the seamless-slice
     // methods from same-named callees with different ownership (a user
     // `Drop::drop`, iterator adapters), so their CREDIT rides the
     // unambiguous runtime names (`ori_list_slice_take` /
-    // `ori_list_slice_drop`) seeded below.
+    // `ori_list_slice_drop`) in the runtime contract table.
     let sharing = crate::borrow::sharing_builtin_names(interner);
     for name in sharing {
         sigs.entry(name).or_insert_with(sharing_return_contract);
@@ -143,9 +129,7 @@ fn borrowing_contract(num_params: usize) -> MemoryContract {
 /// For operations like `map.remove(key)` where the receiver is COW-consumed
 /// but the key is only used for comparison (borrowed).
 fn cow_receiver_only_contract() -> MemoryContract {
-    // Receiver is consumed; other args are borrowed.
-    // Hard-codes 2 params (receiver + one arg). If a future COW builtin
-    // has 3+ params, extend this function or use a parameterized variant.
+    // INVARIANT: Every receiver-only COW method has one non-receiver argument.
     MemoryContract {
         params: vec![PARAM_OWNED_LINEAR, PARAM_BORROWED],
         return_info: RETURN_UNIQUE,
@@ -166,7 +150,7 @@ fn cow_receiver_only_contract() -> MemoryContract {
 /// The receiver is seeded Borrowed (COW base-contract idiom, same as the
 /// `consuming_receiver` loop): `apply_consuming_overrides` marks it Owned
 /// at collection call sites, so the consumed-and-returned receiver shares
-/// the proven realization path of the sibling COW methods (`set`, `push`).
+/// the proven realization path shared by the COW methods (`set`, `push`).
 fn cow_indexed_update_contract() -> MemoryContract {
     MemoryContract {
         params: vec![PARAM_BORROWED, PARAM_BORROWED, PARAM_OWNED_LINEAR],

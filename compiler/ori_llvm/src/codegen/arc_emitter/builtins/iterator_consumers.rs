@@ -54,7 +54,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let result = self.builder.load(list_struct_ty, out_ptr, "collect.list");
 
         // The runtime stores elem_dec_fn and elem_count before transferring the
-        // buffer to this result. Repeating the stores here is harmless and pins
+        // buffer to this result. Repeating the stores is harmless and pins
         // the collection-header contract at the generated-code boundary.
         let (result_data, result_len) =
             self.extract_collection_data_and_len(result, "collect.data", "collect.len")?;

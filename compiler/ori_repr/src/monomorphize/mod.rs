@@ -203,7 +203,7 @@ pub struct MonoFunction {
     /// Generic `Idx` → concrete `Idx` map for ARC lowering.
     pub body_type_map: FxHashMap<Idx, Idx>,
     /// True when this instance was resolved via the `import_sigs` lookup chain
-    /// (i.e., the generic function is defined in another module).
+    /// (i.e., the generic function is imported).
     ///
     /// Test-observable provenance marker: no production consumer branches on
     /// this field, and the body-import path does not branch on it — local and

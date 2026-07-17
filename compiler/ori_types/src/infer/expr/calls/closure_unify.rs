@@ -2,7 +2,7 @@
 //!
 //! `unify_higher_order_constraints` dispatches per-method to the right
 //! closure-unification routine for `map`, `flat_map`, `filter`, `any`,
-//! `all`, `find`, `for_each`, `fold`, `rfold`. The two helpers below it
+//! `all`, `find`, `for_each`, `fold`, `rfold`. Two helpers
 //! (`unify_closure_param_with_iterator_elem`, `unify_flat_map_constraints`)
 //! handle the structural unification of the closure's params/return
 //! against the iterator's element / result types.
@@ -39,7 +39,7 @@ pub(super) fn unify_higher_order_constraints(
         "map" => {
             // Result.map dispatches through the Result-family handler (closure
             // operates on the Ok value); List/Iterator map keep the iterator-shaped
-            // logic below.
+            // logic used by the remaining receiver families.
             let resolved_recv = engine.resolve(receiver_ty);
             if engine.pool().tag(resolved_recv) == Tag::Result {
                 unify_result_closure_constraints(engine, "map", ret_ty, resolved_recv, arg_types);
@@ -50,7 +50,7 @@ pub(super) fn unify_higher_order_constraints(
             };
             let resolved_ret = engine.resolve(ret_ty);
             let ret_tag = engine.pool().tag(resolved_ret);
-            // map's result element lives in either an iterator-shaped return (Iterator/DEI
+            // map's result element comes from either an iterator-shaped return (Iterator/DEI
             // receivers) or a List-shaped return (List receivers, shaped by computed_list_return).
             let elem_var = if ret_tag.is_iterator() {
                 engine.pool().iterator_elem(resolved_ret)

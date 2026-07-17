@@ -160,7 +160,7 @@ fn range_iteration_methods_derived_from_registry() {
 
 /// Registry resolution of `updated` (`IndexSet` trait) succeeds for `[int]` and
 /// `{str: int}` with `Self`-typed returns. `[T, max N]` erases to `Tag::List`
-/// at type resolution, so the List-tag row below IS the fixed-list path —
+/// at type resolution, so the List-tag row is also the fixed-list path —
 /// there is no separate fixed-list registration to resolve.
 #[test]
 fn updated_resolves_on_list_and_map_with_self_return() {
@@ -381,14 +381,8 @@ fn computed_returns_produce_structured_types() {
 /// interned `error_struct_idx`) MUST resolve to `[TraceEntry]` (a `Tag::List`
 /// with a `Tag::Named` element), NOT poison to `Idx::ERROR`.
 ///
-/// This drives the REAL production dispatch path: `resolve_builtin_method`
-/// short-circuits every `Tag::Named` receiver to `resolve_named_type_method`,
-/// which never consults the `Error` behavior table, so `trace_entries()` on a
-/// Named-`Error` receiver returns `None` and codegen later poisons it. The
-/// sibling test `computed_returns_produce_structured_types` exercises the
-/// PRIMITIVE `Tag::Error` slot (`resolve_computed_return(.., Idx::ERROR,
-/// Tag::Error, ..)`) — a path the production error-struct receiver never takes,
-/// so it stays green while the real path poisons. This test pins the real path.
+/// Named receivers dispatch through `resolve_named_type_method`; the primitive
+/// `Tag::Error` poison sentinel is not the user-visible error-struct receiver.
 #[test]
 fn trace_entries_on_named_error_struct_resolves_to_trace_entry_list() {
     use super::resolve_builtin_method;
@@ -583,7 +577,7 @@ fn is_error_struct_receiver_chases_var_link_to_error_struct_idx() {
 /// A newtype over `Error` (`type MyError = Error`) MUST NOT be hijacked into
 /// `ERROR_METHODS` — `trace_entries()` on the newtype's OWN distinct `Named`
 /// idx must fall through to `resolve_named_type_method` unchanged (returns
-/// `None`, exactly as pre-fix), preserving newtype nominal typing: a newtype
+/// `None`), preserving newtype nominal typing: a newtype
 /// inherits zero trait/method behavior from its underlying type.
 ///
 /// Registers the newtype via `Pool::set_resolution` — the SAME mechanism
@@ -626,9 +620,8 @@ fn trace_entries_on_newtype_over_error_is_not_hijacked() {
 
 /// A different `Tag::Named` struct (NOT the registered error struct) calling
 /// `trace_entries` (a method NOT in its own behavior table) MUST resolve via
-/// `resolve_named_type_method` unchanged (`None`), exactly as pre-fix — the
-/// guard specificity clamp proving the new registry route stays Error-only
-/// and does not hijack every `Tag::Named` receiver.
+/// `resolve_named_type_method` unchanged (`None`). Error-only routing must not
+/// hijack other `Tag::Named` receivers.
 #[test]
 fn trace_entries_on_non_error_named_struct_is_not_hijacked() {
     use super::resolve_builtin_method;
@@ -695,7 +688,7 @@ fn message_call_on_named_error_struct_stays_poisoned() {
 
 /// `Error.trace()` on the Named error-struct receiver MUST resolve to `str`
 /// (`Idx::STR`), NOT `Idx::ERROR` — the non-scalar (fat-pointer) Traceable
-/// accessor sibling of `trace_entries`, at genuine risk of the SAME poison
+/// accessor complements `trace_entries` and is at genuine risk of the same poison
 /// class this bug's root cause produces.
 #[test]
 fn trace_on_named_error_struct_resolves_to_str() {
@@ -739,13 +732,7 @@ fn with_trace_on_named_error_struct_resolves_to_self() {
 }
 
 /// `Error.clone()` on the Named error-struct receiver MUST resolve to `Self`
-/// (the error-struct `Idx`) — registry-first routing gives `clone` correct
-/// resolution for the FIRST time (pre-fix it poisons to `Idx::ERROR`
-/// identically to `trace_entries`, since `resolve_named_type_method` handles
-/// only `unwrap`/`inner`/`value`/`to_str`/`debug` and `register_error_type`
-/// registers no derive/impl for `clone`). Positive+negative pairing: this
-/// pin's pre-fix RED state (asserted here as the POST-fix GREEN) documents
-/// the corrected divergence (broken -> correct), not a regression.
+/// (the error-struct `Idx`) through registry-first routing.
 #[test]
 fn clone_on_named_error_struct_resolves_to_self() {
     use super::resolve_builtin_method;

@@ -383,7 +383,7 @@ fn consuming_receiver_methods_exist_in_registry() {
 /// on Map or Set in the registry.
 ///
 /// These are Map/Set COW methods where only the receiver is consumed. If a method
-/// is removed from the registry but left here, the type-qualified authority
+/// remains in the borrow catalog, the type-qualified authority
 /// would publish an ownership transfer for a method the runtime doesn't
 /// recognize.
 #[test]
@@ -409,7 +409,7 @@ fn consuming_receiver_only_methods_exist_in_registry() {
 ///
 /// Sharing methods return values that reference the receiver's heap data
 /// (slices, substrings). If a method is renamed or removed from the registry
-/// but left here, uniqueness analysis would incorrectly mark it as producing
+/// but remains in the borrow catalog, uniqueness analysis would incorrectly mark it as producing
 /// `MaybeShared` results — benign (conservative) but misleading.
 #[test]
 fn sharing_methods_exist_in_registry() {

@@ -5,7 +5,10 @@
 
 use std::ptr;
 
-use super::state::{assert_elem_size, empty_range, ElemDecFn, IterState, PredicateFn, TransformFn};
+use super::state::{
+    assert_elem_size, empty_range, CycleSource, ElemDecFn, IterState, PredicateFn, TransformFn,
+};
+use super::take_iter;
 
 /// Create a mapped iterator adapter.
 ///
@@ -23,10 +26,9 @@ pub extern "C" fn ori_iter_map(
     output_dec_fn: Option<ElemDecFn>,
 ) -> *mut u8 {
     assert_elem_size(in_size, "ori_iter_map");
-    if iter.is_null() {
+    let Some(source) = take_iter(iter) else {
         return ptr::null_mut();
-    }
-    let source = unsafe { Box::from_raw(iter.cast::<IterState>()) };
+    };
     let state = IterState::Mapped {
         source,
         transform_fn,
@@ -49,10 +51,9 @@ pub extern "C" fn ori_iter_filter(
     elem_size: i64,
 ) -> *mut u8 {
     assert_elem_size(elem_size, "ori_iter_filter");
-    if iter.is_null() {
+    let Some(source) = take_iter(iter) else {
         return ptr::null_mut();
-    }
-    let source = unsafe { Box::from_raw(iter.cast::<IterState>()) };
+    };
     let state = IterState::Filtered {
         source,
         predicate_fn,
@@ -65,10 +66,9 @@ pub extern "C" fn ori_iter_filter(
 /// Create a take(n) adapter — yields at most `n` elements from source.
 #[no_mangle]
 pub extern "C" fn ori_iter_take(iter: *mut u8, n: i64) -> *mut u8 {
-    if iter.is_null() {
+    let Some(source) = take_iter(iter) else {
         return ptr::null_mut();
-    }
-    let source = unsafe { Box::from_raw(iter.cast::<IterState>()) };
+    };
     let state = IterState::TakeN {
         source,
         remaining: n.max(0),
@@ -79,10 +79,9 @@ pub extern "C" fn ori_iter_take(iter: *mut u8, n: i64) -> *mut u8 {
 /// Create a skip(n) adapter — skips `n` elements then yields the rest.
 #[no_mangle]
 pub extern "C" fn ori_iter_skip(iter: *mut u8, n: i64) -> *mut u8 {
-    if iter.is_null() {
+    let Some(source) = take_iter(iter) else {
         return ptr::null_mut();
-    }
-    let source = unsafe { Box::from_raw(iter.cast::<IterState>()) };
+    };
     let state = IterState::SkipN {
         source,
         remaining: n.max(0),
@@ -95,10 +94,9 @@ pub extern "C" fn ori_iter_skip(iter: *mut u8, n: i64) -> *mut u8 {
 /// Output element layout: `{ i64 index, T element }`.
 #[no_mangle]
 pub extern "C" fn ori_iter_enumerate(iter: *mut u8) -> *mut u8 {
-    if iter.is_null() {
+    let Some(source) = take_iter(iter) else {
         return ptr::null_mut();
-    }
-    let source = unsafe { Box::from_raw(iter.cast::<IterState>()) };
+    };
     let state = IterState::Enumerated { source, index: 0 };
     Box::into_raw(Box::new(state)).cast()
 }
@@ -110,17 +108,14 @@ pub extern "C" fn ori_iter_enumerate(iter: *mut u8) -> *mut u8 {
 #[no_mangle]
 pub extern "C" fn ori_iter_zip(left: *mut u8, right: *mut u8, left_elem_size: i64) -> *mut u8 {
     assert_elem_size(left_elem_size, "ori_iter_zip");
-    if left.is_null() || right.is_null() {
-        if !left.is_null() {
-            super::ori_iter_drop(left);
-        }
-        if !right.is_null() {
-            super::ori_iter_drop(right);
-        }
+    let Some(left_state) = take_iter(left) else {
+        drop(take_iter(right));
         return ptr::null_mut();
-    }
-    let left_state = unsafe { Box::from_raw(left.cast::<IterState>()) };
-    let right_state = unsafe { Box::from_raw(right.cast::<IterState>()) };
+    };
+    let Some(right_state) = take_iter(right) else {
+        drop(left_state);
+        return ptr::null_mut();
+    };
     let state = IterState::Zipped {
         left: left_state,
         right: right_state,
@@ -136,15 +131,13 @@ pub extern "C" fn ori_iter_chain(first: *mut u8, second: *mut u8) -> *mut u8 {
         return ptr::null_mut();
     }
     // If one is null, still chain — the null side yields nothing
-    let first_state = if first.is_null() {
-        Box::new(empty_range())
-    } else {
-        unsafe { Box::from_raw(first.cast::<IterState>()) }
+    let first_state = match take_iter(first) {
+        Some(state) => state,
+        None => Box::new(empty_range()),
     };
-    let second_state = if second.is_null() {
-        Box::new(empty_range())
-    } else {
-        unsafe { Box::from_raw(second.cast::<IterState>()) }
+    let second_state = match take_iter(second) {
+        Some(state) => state,
+        None => Box::new(empty_range()),
     };
     let state = IterState::Chained {
         first: first_state,
@@ -160,11 +153,10 @@ pub extern "C" fn ori_iter_chain(first: *mut u8, second: *mut u8) -> *mut u8 {
 /// `inner_elem_size` is the byte size of elements in the inner iterators.
 #[no_mangle]
 pub extern "C" fn ori_iter_flatten(iter: *mut u8, inner_elem_size: i64) -> *mut u8 {
-    if iter.is_null() {
+    let Some(source) = take_iter(iter) else {
         return ptr::null_mut();
-    }
+    };
     assert_elem_size(inner_elem_size, "ori_iter_flatten");
-    let source = unsafe { Box::from_raw(iter.cast::<IterState>()) };
     let state = IterState::Flattened {
         source,
         inner: None,
@@ -184,17 +176,15 @@ pub extern "C" fn ori_iter_cycle(
     elem_inc_fn: Option<extern "C" fn(*mut u8)>,
     elem_dec_fn: Option<extern "C" fn(*mut u8)>,
 ) -> *mut u8 {
-    if iter.is_null() {
+    let Some(source) = take_iter(iter) else {
         return ptr::null_mut();
-    }
+    };
     assert_elem_size(elem_size, "ori_iter_cycle");
-    let source = unsafe { Box::from_raw(iter.cast::<IterState>()) };
     let state = IterState::Cycled {
-        source: Some(source),
+        source: CycleSource::Reading(source),
         buffer: Vec::new(),
         buf_pos: 0,
         elem_size,
-        source_exhausted: false,
         elem_inc_fn,
         elem_dec_fn,
     };
@@ -213,24 +203,22 @@ pub extern "C-unwind" fn ori_iter_rev(
 ) -> *mut u8 {
     use super::state::ElemBuf;
 
-    if iter.is_null() {
+    let Some(mut state) = take_iter(iter) else {
         return ptr::null_mut();
-    }
+    };
     assert_elem_size(elem_size, "ori_iter_rev");
-    // Own the source immediately so a callback panic while eagerly collecting
-    // cannot strand the opaque iterator allocation.
-    let mut state = unsafe { Box::from_raw(iter.cast::<IterState>()) };
     let es = elem_size.max(1) as usize;
 
     // Collect all elements. The `elements` buffer OWNS its copies: inc each
-    // stored master via `elem_inc_fn` so the collected fat-pointers stay live
-    // after the source is freed below. Dec'd once per master in Drop.
+    // stored master via `elem_inc_fn` so the collected fat pointers outlive
+    // source teardown. Drop decrements each master exactly once.
     let mut elements = Vec::new();
     let mut elem_buf = ElemBuf::new();
+    // SAFETY: `elem_buf` is writable for every validated `elem_size`, and the owned iterator state keeps every variant source allocation alive.
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         elements.extend_from_slice(&elem_buf[..es]);
         if let Some(inc) = elem_inc_fn {
-            // SAFETY: the freshly-appended es-byte master is at len - es.
+            // SAFETY: The appended element occupies the final `es` initialized bytes, so `len - es` is in-bounds and owned by `elements`.
             let stored = unsafe { elements.as_mut_ptr().add(elements.len() - es) };
             inc(stored);
         }

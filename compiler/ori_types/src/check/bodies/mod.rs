@@ -22,16 +22,14 @@
 //!     - param: n -> int
 //! ```
 //!
-//! # File layout
+//! # Pass ownership
 //!
-//! `bodies/mod.rs` is a thin dispatch hub. Body-checking logic lives in the
-//! submodule that owns each pass — `functions.rs` (Passes 2–3), `impls.rs`
-//! (Pass 4), and `def_impls.rs` (Pass 5); `method_sig.rs` carries the
-//! method-binder + signature-construction helpers Passes 4–5 share. Each
-//! public pass-dispatch function has exactly one canonical home; `mod.rs`
-//! re-exports via `pub use` so `check::bodies::check_function_bodies`
-//! and siblings continue to resolve without changing import paths.
+//! [`functions`] owns Passes 2–3, [`impls`] owns Pass 4, and [`def_impls`] owns
+//! Pass 5. [`method_sig`] provides the method-binder and signature-construction
+//! helpers shared by Passes 4–5. The dispatch hub re-exports each pass through
+//! the `check::bodies` API.
 
+mod accumulate;
 mod contracts;
 mod def_impls;
 mod functions;
@@ -68,16 +66,13 @@ pub(super) struct BodyOutputs {
     pub mono_instances: Vec<MonoInstance>,
     /// Pre-dedup `(call_expr_id, MonoInstanceId)` entries from this body's
     /// `InferEngine`. Indices are body-local positions into `mono_instances`;
-    /// `accumulate_mono_session` re-anchors them into module-wide positions
-    /// when the spine absorbs both vectors together.
+    /// the finalization spine re-anchors both vectors together.
     pub mono_dispatch_pre_dedup: Vec<(ExprId, MonoInstanceId)>,
     pub deferred_mono_calls: Vec<DeferredMonoCall>,
     /// Composed `UserBurdenSpec` entries produced by this body's
     /// monomorphization sites (one per first-instantiation of a
-    /// fully-resolved generic-builtin `Idx`). Flushed into
-    /// `TypeRegistry` via
-    /// [`crate::check::ModuleChecker::flush_composed_burdens`] in
-    /// [`finalize_body_and_export`]; downstream codegen reads the
+    /// fully-resolved generic-builtin `Idx`). Registered with the
+    /// `TypeRegistry` in [`finalize_body_and_export`]; codegen reads the
     /// registered spec via `TypeRegistry::burden(idx)` without
     /// re-deriving.
     pub composed_burdens: Vec<(Idx, UserBurdenSpec)>,
@@ -88,13 +83,12 @@ pub(super) struct BodyOutputs {
     /// not surface a spurious E2005. Empty for bodies without `uses` capabilities.
     pub capability_exempt_var_ids: Vec<u32>,
     /// Type-directed desugar plans for `ExprKind::AssignTarget` chains in this
-    /// body. Keys are module-wide AST `ExprId`s; `accumulate_assign_desugars`
-    /// extends the checker's accumulator without re-anchoring. Consumed by
-    /// `ori_canon` via [`crate::TypedModule::assign_desugar_map`].
+    /// body. Keys are module-wide AST `ExprId`s, so the checker can extend its
+    /// accumulator without re-anchoring. Consumed by `ori_canon` via
+    /// [`crate::TypedModule::assign_desugar_map`].
     pub assign_desugars: Vec<(ExprId, crate::AssignDesugar)>,
     /// Module-alias qualified-call rewrite entries resolved in this body. Keys
-    /// are module-wide AST `ExprId`s; `accumulate_module_alias_calls` extends
-    /// the checker's accumulator. Consumed by `ori_canon` via
+    /// are module-wide AST `ExprId`s. Consumed by `ori_canon` via
     /// [`crate::TypedModule::module_alias_call_map`].
     pub module_alias_calls: Vec<(ExprId, ori_ir::Name)>,
     /// Iterable->Iterator routed method calls resolved in this body.
@@ -175,25 +169,25 @@ pub(super) fn finalize_body_and_export(
         checker.push_warning(warning);
     }
 
-    // Accumulate pattern resolutions, mono outputs, and deferred calls.
-    // `accumulate_mono_session` extends both `mono_instances` and
-    // `mono_dispatch_pre_dedup` together so dispatch entries are
-    // re-anchored from body-local to module-wide positions in lockstep.
+    // Mono instances and their body-local dispatch IDs must be re-anchored
+    // together. The remaining outputs already use module-wide coordinates.
     checker.pattern_resolutions.extend(pat_resolutions);
     checker.accumulate_mono_session(mono_instances, mono_dispatch_pre_dedup);
-    checker.accumulate_deferred_mono_calls(deferred_mono_calls);
-    checker.accumulate_assign_desugars(assign_desugars);
-    checker.accumulate_module_alias_calls(module_alias_calls);
-    checker.accumulate_iter_routes(iter_route_desugars);
+    checker.deferred_mono_calls.extend(deferred_mono_calls);
+    checker.assign_desugars.extend(assign_desugars);
+    checker.module_alias_calls.extend(module_alias_calls);
+    checker.iter_route_desugars.extend(iter_route_desugars);
 
     // Flush composed burdens into the TypeRegistry. Each entry was
     // accumulated by the body's `InferEngine::record_composed_burden`
-    // calls; flushing here makes the registered specs visible to
-    // downstream codegen via `TypeRegistry::burden(idx)`. Late-stage
+    // calls; flushing registers the specs for codegen through
+    // `TypeRegistry::burden(idx)`. Late-stage
     // monomorphization sites in subsequent bodies see prior entries
     // through the same registry surface and dedup against them at the
     // signature-reverse-index gate.
-    checker.flush_composed_burdens(composed_burdens);
+    for (idx, spec) in composed_burdens {
+        checker.type_registry_mut().register_user_burden(idx, spec);
+    }
 }
 
 /// Shared PC-2 contract enforcement for every body-checking pass.
@@ -203,15 +197,9 @@ pub(super) fn finalize_body_and_export(
 /// unbound [`Tag::Var`] and emits `E2005` per position. Errors are
 /// accumulated via `checker.push_error` alongside normal inference errors.
 ///
-/// `ExprIndex` → `u32` conversion is lossless by construction (see
-/// `infer/mod.rs` `store_type` call sites, which cap `ExprIndex` at
-/// `u32::MAX`). Falls back to `Span::DUMMY` on the impossible overflow path
-/// rather than indexing the arena with `ExprId::INVALID`.
-///
-/// Consumers: `check_function` / `check_test` in `functions.rs` and
-/// `check_impl_method` / `check_def_impl_method` in `impls.rs`. Lives in
-/// `mod.rs` so both submodules can call it — the four body passes share the
-/// identical validation skeleton.
+/// `check_function`, `check_test`, `check_impl_method`, and
+/// `check_def_impl_method` call this function so all four body passes share
+/// the identical validation skeleton.
 pub(super) fn run_validator(
     checker: &mut ModuleChecker<'_>,
     expr_types: &FxHashMap<ExprIndex, Idx>,
@@ -229,16 +217,8 @@ pub(super) fn run_validator(
         // All three closures need the same `arena` borrow;
         // `ValidatorContext` bundles them into a single argument of
         // `validate_body_types`.
-        let span_of = |expr_index| {
-            u32::try_from(expr_index)
-                .map(|raw| arena.get_expr(ExprId::new(raw)).span)
-                .unwrap_or(ori_ir::Span::DUMMY)
-        };
-        let expr_kind_of = |expr_index| {
-            u32::try_from(expr_index)
-                .ok()
-                .map(|raw| arena.get_expr(ExprId::new(raw)).kind)
-        };
+        let span_of = |expr_index| arena.get_expr(validator_expr_id(expr_index)).span;
+        let expr_kind_of = |expr_index| Some(arena.get_expr(validator_expr_id(expr_index)).kind);
         // Resolve the param-token span for a Lambda ExprIndex + 0-based
         // param index. Returns `None` when the
         // ExprIndex does not point at a `Lambda` (validator falls back
@@ -247,14 +227,12 @@ pub(super) fn run_validator(
         // parse time; the arena (`ori_ir::ExprArena::get_params`) owns
         // the range.
         let param_span_of = |expr_index, param_index: usize| {
-            u32::try_from(expr_index).ok().and_then(|raw| {
-                let expr = arena.get_expr(ExprId::new(raw));
-                if let ExprKind::Lambda { params, .. } = expr.kind {
-                    arena.get_params(params).get(param_index).map(|p| p.span)
-                } else {
-                    None
-                }
-            })
+            let expr = arena.get_expr(validator_expr_id(expr_index));
+            if let ExprKind::Lambda { params, .. } = expr.kind {
+                arena.get_params(params).get(param_index).map(|p| p.span)
+            } else {
+                None
+            }
         };
         let ctx = ValidatorContext {
             span: &span_of,
@@ -280,6 +258,16 @@ pub(super) fn run_validator(
     for err in validation_errors {
         checker.push_error(err);
     }
+}
+
+fn validator_expr_id(expr_index: ExprIndex) -> ExprId {
+    let Ok(raw) = u32::try_from(expr_index) else {
+        panic!(
+            "type inference stored expression index {expr_index} outside ExprId range; keep \
+             inference expression keys sourced from ExprId"
+        );
+    };
+    ExprId::new(raw)
 }
 
 /// Shared conditional-partial-move enforcement for every body-checking
@@ -327,9 +315,8 @@ pub(super) fn run_partial_move_validator(
 /// non-Drop case): the E2048 axis covers EVERY partial move on a Drop
 /// type, regardless of CFG path.
 ///
-/// Resolves the `Drop` trait by interning its source name; when the
-/// trait is not yet wired into the prelude / registry, the validator
-/// silently no-ops (pre-deployment shape).
+/// Resolves the `Drop` trait by interning its source name. If the registry has
+/// no such trait, no type can satisfy the predicate and the walk emits no error.
 pub(super) fn run_drop_partial_move_validator(
     checker: &mut ModuleChecker<'_>,
     expr_types: &FxHashMap<ExprIndex, Idx>,

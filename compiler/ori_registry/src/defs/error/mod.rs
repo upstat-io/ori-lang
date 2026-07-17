@@ -9,8 +9,8 @@
 //! for `TraceEntry` (stdlib struct, no `TypeTag`).
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeTag,
+    BackendRequirement, MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef,
+    TypeParamArity, TypeTag,
 };
 
 // Shared parameter arrays
@@ -29,24 +29,45 @@ const SELF: ReturnTag = ReturnTag::SelfType;
 
 // All methods alphabetically sorted.
 static ERROR_METHODS: &[MethodDef] = &[
-    MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, true),
-    MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "clone",
+        &[],
+        SELF,
+        Some("Clone"),
+        Ownership::Borrow,
+        BackendRequirement::Required,
+    ),
+    MethodDef::compound(
+        "debug",
+        &[],
+        STR,
+        Some("Debug"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    ),
     MethodDef::compound(
         "has_trace",
         &[],
         BOOL,
         Some("Traceable"),
         Ownership::Borrow,
-        true,
+        BackendRequirement::Required,
     ),
-    MethodDef::compound("message", &[], STR, None, Ownership::Borrow, false),
+    MethodDef::compound(
+        "message",
+        &[],
+        STR,
+        None,
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    ),
     MethodDef::compound(
         "to_str",
         &[],
         STR,
         Some("Printable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "trace",
@@ -54,7 +75,7 @@ static ERROR_METHODS: &[MethodDef] = &[
         STR,
         Some("Traceable"),
         Ownership::Borrow,
-        true,
+        BackendRequirement::Required,
     ),
     MethodDef::compound(
         "trace_entries",
@@ -62,7 +83,7 @@ static ERROR_METHODS: &[MethodDef] = &[
         ReturnTag::Fresh,
         Some("Traceable"),
         Ownership::Borrow,
-        true,
+        BackendRequirement::Required,
     ),
     MethodDef::compound(
         "with_trace",
@@ -70,7 +91,7 @@ static ERROR_METHODS: &[MethodDef] = &[
         SELF,
         Some("Traceable"),
         Ownership::Borrow,
-        true,
+        BackendRequirement::Required,
     ),
 ];
 

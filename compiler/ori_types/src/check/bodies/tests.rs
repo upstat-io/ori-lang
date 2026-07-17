@@ -1,4 +1,11 @@
 use super::*;
+
+#[cfg(target_pointer_width = "64")]
+#[test]
+#[should_panic(expected = "keep inference expression keys sourced from ExprId")]
+fn validator_rejects_expression_indices_outside_expr_id_range() {
+    validator_expr_id(u32::MAX as usize + 1);
+}
 use crate::{
     check::test_utils::parse_and_check, check::ModuleChecker, Tag, TypeEnv, TypeErrorKind, VarState,
 };
@@ -92,10 +99,6 @@ fn check_module_with_no_function_bodies_produces_no_errors() {
 /// targets empty-literal-reachable vars; unannotated params survive it and
 /// must be caught by `validate_body_types` at the sig-position check.
 ///
-/// Note: originally tested with `let ages = []` (unannotated empty list). That
-/// case now defaults to `[Never]` via the end-of-body defaulting
-/// pass and no longer fires E2005 — an unannotated param is the simplest
-/// remaining case that survives defaulting.
 #[test]
 fn check_function_with_unannotated_param_emits_ambiguous_type() {
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
@@ -115,7 +118,7 @@ fn check_function_with_unannotated_param_emits_ambiguous_type() {
 /// Regression: an unresolved `Tag::Var` in a test body must produce `E2005`
 /// (`AmbiguousType`) at typeck via `check_test` (Pass 3 per CK-1). Without
 /// `validate_body_types` wired into `check_test`, surviving vars leak through
-/// typed IR to downstream phases (PC-2).
+/// typed IR to consuming phases (PC-2).
 ///
 /// A block-wrapped lambda `{ x -> x }` is not a direct lambda binding and is
 /// NOT generalizable per the Value Restriction. The parameter
@@ -144,7 +147,7 @@ fn check_test_with_ungeneralizable_lambda_body_emits_ambiguous_type() {
 /// Regression: an impl method with an unannotated parameter must produce
 /// `E2005` (`AmbiguousType`) at typeck via `check_impl_method` (Pass 4 per
 /// CK-1). Exercises the sig-position validator walk: the unannotated
-/// parameter `x` lives in `FunctionSig.param_types` as a fresh `Tag::Var`,
+/// `FunctionSig.param_types` contains parameter `x` as a fresh `Tag::Var`,
 /// and the body `()` never uses `x` so the var is never constrained.
 ///
 /// The end-of-body defaulting pass (`default_unbound_vars_in_scope`)
@@ -175,7 +178,7 @@ fn check_impl_method_with_unannotated_param_emits_ambiguous_type() {
 /// Regression: an impl method body carrying an unresolved `Tag::Var`
 /// through `expr_types` must produce `E2005` via `check_impl_method`.
 /// Exercises the body-position validator walk complement to the
-/// sig-position test above.
+/// signature-position case.
 ///
 /// A block-wrapped lambda `{ x -> x }` is ungeneralizable under the Value
 /// Restriction; its parameter stays `Tag::Var`.
@@ -325,12 +328,10 @@ fn imported_drop_trait_assigns_exact_role_amid_inherent_name_collision() {
 /// CK-1). Exercises the sig-position validator walk after `run_validator`
 /// wires into `check_def_impl_method`.
 ///
-/// The unannotated parameter `x` lives in the temporary `FunctionSig.param_types`
-/// as a fresh `Tag::Var` (allocated at `impls.rs` `None => fresh_var()` for
-/// parameters without an AST annotation), and the body `{ () }` never uses `x`
-/// so the var is never constrained. `def_impl` methods construct the sig
-/// validator-locally (no `register_impl_sig` call), so this test distinguishes
-/// "validator wired" from "temporary sig correctly covers param/return positions."
+/// The unannotated parameter `x` is a fresh `Tag::Var` in
+/// `FunctionSig.param_types`, and the body never constrains it. Def-impl methods
+/// construct this signature locally, so the validator must inspect its
+/// parameter and return positions directly.
 #[test]
 fn check_def_impl_method_with_unannotated_param_emits_ambiguous_type() {
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
@@ -350,7 +351,7 @@ fn check_def_impl_method_with_unannotated_param_emits_ambiguous_type() {
 /// Regression: a def-impl method body carrying an unresolved `Tag::Var`
 /// through `expr_types` must produce `E2005` via `check_def_impl_method`.
 /// Exercises the body-position validator walk — the complement of the
-/// sig-position test above.
+/// signature-position case.
 ///
 /// A block-wrapped lambda `{ x -> x }` is ungeneralizable under the Value
 /// Restriction; its parameter stays `Tag::Var`.
@@ -490,7 +491,7 @@ fn test_lambda_param_inferred_from_list_filter_receiver() {
 /// fold dispatch arm in `unify_higher_order_constraints` (`closure_unify.rs`
 /// §`unify_fold_constraints`) propagates BOTH the `initial` value's type
 /// AND the receiver's element type to the lambda's two params. Pins the
-/// 2-param case alongside the 1-param `.map`/`.filter` cases above.
+/// two-parameter case alongside one-parameter `.map` and `.filter` cases.
 #[test]
 fn test_lambda_params_inferred_from_list_fold_receiver() {
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
@@ -503,31 +504,12 @@ fn test_lambda_params_inferred_from_list_fold_receiver() {
     );
 }
 
-/// End-to-end regression pin for the repro program (`let ages = [];
+/// End-to-end type-check test for `let ages = [];
 /// ages = ages.push(value: 10); ages.len() == 1`).
 ///
-/// Originally this program reached codegen with an unresolved `Tag::Var`
-/// element type and surfaced as "unresolved type variable at codegen" in
-/// `ori_llvm/type_info/store.rs`. The combined effect of the Value
-/// Restriction, `validate_body_types` + end-of-body defaulting, wiring the
-/// validator into all four body passes, and the defaulting pre-pass means
-/// the empty-list element `Tag::Var` is resolved via unification with
-/// `push(value: 10)` (`T := int`) BEFORE defaulting even runs — the program
-/// now type-checks cleanly and is safe to hand to codegen (PC-2).
-///
-/// The test pins end-to-end typeck behavior: the full input flows
-/// through every pass without diagnostics. Its companion AOT test
-/// (`annotated_empty_list_with_push_and_len_compiles_and_exits_zero` in
-/// `compiler/ori_llvm/tests/aot/empty_container.rs`) pins the runtime half —
-/// exit 0 via both the interpreter and AOT paths.
-///
-/// Deliberately does NOT assert on E2005: after the defaulting
-/// pass landed, inference resolves the element type via `push`'s `value: T`
-/// constraint, so the validator's `PC-2` rejection path is not exercised
-/// here. Canonical validator coverage for the four body passes lives in
-/// the `unannotated_param` / `ungeneralizable_body_lambda` tests above.
-/// This test is complementary: it confirms the original bug's surface repro
-/// is fixed end-to-end.
+/// The `push` value constrains the empty list's element variable to `int`
+/// before end-of-body defaulting. The complete input must pass every body
+/// check without an unresolved `Tag::Var` or E2005 diagnostic.
 #[test]
 fn empty_list_with_push_and_len_typechecks_without_errors_end_to_end() {
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
@@ -540,13 +522,11 @@ fn empty_list_with_push_and_len_typechecks_without_errors_end_to_end() {
     );
 }
 
-// TDD cells (H, I, K). Pin the post-generalization-migration contract:
-// after generalization, every `Tag::Var(VarState::Generalized)` leaf in
+// Generalization normalization contract: every
+// `Tag::Var(VarState::Generalized)` leaf in
 // `InferOutput.expr_types` and every top-level polymorphic function's
-// `FunctionSig.param_types` / `return_type` MUST have been rewritten to
-// `Tag::BoundVar(var_id)`. These cells are RED until the
-// end-of-body-group normalization pass that re-points those storage
-// locations at the already-rewritten scheme-body Idxs exists.
+// `FunctionSig.param_types` and `return_type` is rewritten to
+// `Tag::BoundVar(var_id)` before body export.
 
 /// Cell H — `expr_types` port (positive pin for the SC-1 target shape).
 ///
@@ -559,10 +539,8 @@ fn empty_list_with_push_and_len_typechecks_without_errors_end_to_end() {
 /// `expr_types` and substitute the pre-generalize `Tag::Var` leaves
 /// with `Tag::BoundVar` matching the scheme's declared var ids.
 ///
-/// This test scans every `expr_types` entry for a surviving
-/// `Tag::Var(VarState::Generalized)` and asserts zero are present
-/// post-typeck. Today the scan finds at least one such entry — the
-/// lambda body `x` — and the assertion fails (RED).
+/// This test scans every `expr_types` entry and rejects any surviving
+/// `Tag::Var(VarState::Generalized)` after type checking.
 #[test]
 fn expr_types_port_lambda_body_is_bound_var() {
     let (result, pool, _interner) = parse_and_check_with_pool(fixture_without_trailing_newline(
@@ -606,8 +584,7 @@ fn expr_types_port_lambda_body_is_bound_var() {
 /// re-point both positions at `Tag::BoundVar` Idxs.
 ///
 /// This test resolves `param_types[0]` and `return_type` via
-/// `pool.resolve_fully` and asserts each has `Tag::BoundVar`. Today both
-/// resolve to `Tag::Var(Generalized)` and the assertion fails (RED).
+/// `pool.resolve_fully` and requires each position to contain `Tag::BoundVar`.
 #[test]
 fn function_sig_port_top_level_polymorphic_function() {
     let (result, pool, interner) = parse_and_check_with_pool(fixture_without_trailing_newline(
@@ -674,31 +651,10 @@ fn function_sig_port_top_level_polymorphic_function() {
     );
 }
 
-/// Cell K — validator strip (positive pin / regression guard).
+/// Cell K verifies generalized-lambda normalization before validation.
 ///
-/// Program `@f () -> int = { let $id = x -> x; id(42) }` typechecks with
-/// ZERO `E2005` diagnostics both before AND after the normalization
-/// port lands — but
-/// the mechanism differs:
-///
-/// - **Today (pre-port)**: `validate_body_types` exempts
-///   `Tag::Var(VarState::Generalized)` via the partial-migration
-///   exemption arm in `validators/mod.rs::collect_first_unbound_var`.
-///   The generalized vars reach the validator unchanged and are silently
-///   skipped.
-/// - **After the port + strip**: the `expr_types` normalization pass
-///   re-points every `Tag::Var(Generalized)` leaf at a `Tag::BoundVar`,
-///   then the validator's `Generalized` exemption arm is stripped. The
-///   validator walks the same positions and short-circuits at the
-///   `Tag::BoundVar` arm (TF-1).
-///
-/// This cell pins the invariant that BOTH mechanisms keep this
-/// well-formed polymorphic let-binding program diagnostic-free. If the
-/// strip+port ever regresses the rewrite coverage (e.g., the
-/// port pass misses an `expr_types` leaf), this test flips RED because
-/// the surviving `Generalized` var reaches the stripped validator and
-/// fires `E2005`. Today the test is GREEN because the current exemption
-/// arm silences the leak.
+/// The well-formed polymorphic binding in this fixture must contain only
+/// `Tag::BoundVar` leaves at validation and produce no E2005 diagnostic.
 #[test]
 fn validator_strip_polylambda_typechecks_no_e2005() {
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
@@ -747,17 +703,11 @@ fn scan_for_generalized_var_leaves(pool: &Pool, ty: Idx, report: &mut dyn FnMut(
     }
 }
 
-// Method-call return BD-2 — 5-cell TDD matrix
+// Method-call return annotation propagation.
 //
-// Pins the BD-2 gate that propagates an outer `Check(T)` annotation into a
-// method-call's generic-return slot at typeck time. Without the gate the LHS
-// annotation does NOT flow through `infer_method_call`'s synth-then-check
-// shape, leaving the call's return as an unresolved `Tag::Var` that surfaces
-// downstream as `E2005` on subsequent field/method access.
-//
-// Tests written BEFORE the fix (TDD) — they MUST fail on the current tree
-// (cell 1/3/4 surface E2005 / E2036; cells 2/5 may pass already as
-// regression baselines). The implementation collapses all failures.
+// An outer `Check(T)` annotation constrains a method call's generic return
+// slot during type checking. The annotation prevents unresolved `Tag::Var`
+// leaves from reaching later field or method access.
 
 /// Cell 1 (positive): `let e: Error = msg.into()` compiles clean and
 /// `e.message` resolves to `str`. The LHS annotation `Error` must propagate
@@ -815,13 +765,8 @@ fn test_method_call_return_bd2_no_impl_reports_diagnostic() {
     );
 }
 
-/// Cell 4 (regression — no annotation): without LHS annotation the
-/// method-call BD-2 gate MUST NOT fire — the synth path stays unchanged.
-/// `let _e = msg.into()` (no target type, unused binding) currently
-/// resolves `into`'s generic return as a fresh var via the existing synth
-/// path; the gate's `expected.has_expectation()` short-circuit (parallels
-/// the `check_ok` early-return) MUST preserve this — no new errors
-/// introduced. Pins the gate's no-spurious-fire invariant.
+/// Without an LHS annotation, `msg.into()` synthesizes a fresh return variable.
+/// The BD-2 gate requires an expectation and must not emit a diagnostic here.
 #[test]
 fn test_method_call_return_bd2_no_annotation_falls_through_to_synth() {
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
@@ -837,11 +782,7 @@ fn test_method_call_return_bd2_no_annotation_falls_through_to_synth() {
 /// Cell 6 (positive — user-defined Convert<T>): the gate must
 /// propagate LHS annotation into a USER-DEFINED generic-return trait
 /// method's slot. Independent of builtin/prelude types (Into/Error/collect)
-/// — pins the gate's correctness on user-defined registered types alone.
-/// If this cell passes post-fix while cells 1/5 (Error-typed) still fail,
-/// the gate is correct and Error-typed cells are blocked by a separate
-/// defect (Error not registered in `TypeRegistry`; falls through to
-/// `fresh_named_var` in `resolve_parsed_type`).
+/// — this isolates propagation through user-defined registered types.
 #[test]
 fn test_method_call_return_bd2_user_convert_propagates_to_payload_field() {
     let source = include_str!(
@@ -860,8 +801,7 @@ fn test_method_call_return_bd2_user_convert_propagates_to_payload_field() {
 /// to the closure's return position; the closure body's `msg.into()` then
 /// receives `Check(Error)` and instantiates `into<T = Error>` correctly.
 /// Pins recursive-propagation: BD-2 composes across generic-return
-/// method-calls AND closure-return propagation (closure-param-from-receiver
-/// was wired earlier; this pins the closure-return direction).
+/// method calls and closure-return propagation.
 #[test]
 fn test_method_call_return_bd2_nested_into_in_map_err_closure() {
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
@@ -986,13 +926,8 @@ fn test_method_on_bounded_rigid_receiver_resolves_clean() {
 
 #[test]
 fn test_unbounded_impl_level_generic_receiver_reports_error() {
-    // Negative: an IMPL-level generic param (`impl<T>`, no bound) used as
-    // a method receiver inside a method body must surface a method-not-found —
-    // same invariant as the function-level `@f<T>` case. Before impl-level
-    // generics were allocated as RigidVars (in `check_impl_block`), `x: T`
-    // resolved to an unresolved `Tag::Named` that the rigid-emit skipped, so the
-    // unbounded call was silently accepted. This pin fails if impl-level generics
-    // regress to `Tag::Named` resolution.
+    // An unbounded impl-level generic receiver produces method-not-found, just
+    // like an unbounded function-level generic receiver.
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
         "fixtures/unbounded_impl_level_generic_receiver_reports_error.ori"
     )));
@@ -1023,8 +958,7 @@ fn test_bounded_impl_level_generic_receiver_resolves_clean() {
 /// subexpression (`1 + unknown_var` with `unknown_var` unbound) must surface
 /// EXACTLY ONE error (the unbound identifier) and suppress the cascade —
 /// poison on `Idx::ERROR` keeps absorbing per UN-4. Separating the user-`Error`
-/// type from the poison sentinel MUST NOT regress this; this pin stays GREEN
-/// across the fix.
+/// type from the poison sentinel does not change this behavior.
 #[test]
 fn test_poison_unbound_ident_suppresses_cascade() {
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
@@ -1040,8 +974,7 @@ fn test_poison_unbound_ident_suppresses_cascade() {
 
 /// Poison negative pin (matrix cell #8): a poisoned element inside a
 /// compound (list) literal must NOT add a secondary diagnostic on the compound
-/// — `HAS_ERROR` propagates and UN-4 absorbs at the compound level. Stays GREEN
-/// across the user-`Error`/poison `Idx` separation.
+/// — `HAS_ERROR` propagates and UN-4 absorbs at the compound level.
 #[test]
 fn test_poison_in_compound_literal_no_secondary_diagnostic() {
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(

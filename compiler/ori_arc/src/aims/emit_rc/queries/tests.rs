@@ -64,7 +64,7 @@ fn rc_incremented_propagates_forward_through_alias_chain() {
 
 #[test]
 fn rc_incremented_propagates_backward_from_alias_to_root_and_siblings() {
-    // The kept duplication-alias inc shape: %1 = %0 (inc'd), %2 = %0 (sibling).
+    // The kept duplication-alias inc shape: %1 = %0 (inc'd), %2 = %0 (peer alias).
     // The inc on %1 bumps the SHARED object's refcount — %0 and %2 are
     // physically incremented too; classifying them un-incremented would
     // promote a later COW site to StaticUnique and mutate the shared buffer

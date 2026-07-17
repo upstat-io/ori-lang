@@ -87,9 +87,8 @@ pub fn wasm32_target() -> TargetConfig {
 
 /// Create a WASM32 WASI Preview 1 target for testing.
 ///
-/// Uses the modern Rust 1.78+ canonical spelling `wasm32-unknown-wasip1`
-/// (the historical `wasm32-unknown-wasi` was deprecated upstream in May
-/// 2024 to disambiguate Preview1 from Preview2).
+/// Uses the canonical Rust spelling `wasm32-unknown-wasip1`; the deprecated
+/// `wasm32-unknown-wasi` spelling does not distinguish Preview 1 from Preview 2.
 #[must_use]
 pub fn wasm32_wasi_target() -> TargetConfig {
     let components = TargetTripleComponents::parse("wasm32-unknown-wasip1").unwrap();

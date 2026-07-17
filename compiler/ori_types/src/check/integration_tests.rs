@@ -18,7 +18,7 @@
 //! - **Control flow**: If/then/else expressions
 //! - **Collections**: List literals
 //! - **Operators**: Arithmetic, comparison, boolean
-//! - **Empty module**: Regression guard
+//! - **Empty module**: No declarations
 
 #![expect(
     clippy::unwrap_used,
@@ -107,10 +107,9 @@ impl CheckResult {
 
     /// All mono instances recorded for the module (name-agnostic).
     ///
-    /// Lets a pin assert on the recorded-instance SET when the recorded
-    /// `fn_name` of a builtin-resolved method/ctor is not known in advance;
-    /// the presence/absence of ANY instance for a
-    /// builtin-only program is the producer-spine observable.
+    /// Returns every recorded mono instance without filtering by function name.
+    /// Builtin-only tests use the complete set when name resolution does not
+    /// expose a stable function name.
     fn mono_instances_all(&self) -> &[crate::MonoInstance] {
         &self.result.typed.mono_instances
     }
@@ -707,7 +706,7 @@ fn import_simple_function() {
 
 #[test]
 fn import_without_registration_fails() {
-    // Module B calls `missing_fn()` which was never imported → UnknownIdent
+    // Module B lacks an import for `missing_fn`, so the call is unknown.
     let result = check_source(fixture_without_trailing_newline(include_str!(
         "fixtures/integration/import_without_registration_fails.ori"
     )));
@@ -884,11 +883,7 @@ fn import_module_alias_stores_signatures() {
 
 #[test]
 fn module_alias_qualified_call_types_to_function_return() {
-    // Positive semantic pin (Spec: Clause 12 Module Alias): a qualified call
-    // `math.add(a: 10, b: 20)` against a module alias resolves to the aliased
-    // function's return type. Pre-fix this poisoned to `Idx::ERROR` (qualified
-    // access was deferred), cascading cross-module `assert_eq` to AOT
-    // missing-mono. Fails if the module_alias_call resolver is reverted.
+    // Spec: Clause 12. A module-qualified call has the aliased function's return type.
     let interner = StringInterner::new();
     let provider = parse_source(fixture_without_trailing_newline(include_str!("fixtures/integration/module_alias_qualified_call_types_to_function_return_provider.ori")), &interner);
     let consumer = parse_source(fixture_without_trailing_newline(include_str!("fixtures/integration/module_alias_qualified_call_types_to_function_return_consumer.ori")), &interner);
@@ -1142,7 +1137,7 @@ fn bogus_return_type_via_imports_api() {
 
 #[test]
 fn valid_return_type_still_works() {
-    // Regression guard: valid type annotations must still work
+    // A valid return annotation produces no type errors.
     let source = include_str!("fixtures/integration/valid_return_type_still_works.ori");
     let result = check_source(source);
     assert!(
@@ -1156,8 +1151,7 @@ fn valid_return_type_still_works() {
 
 #[test]
 fn impl_self_field_access_type_checks() {
-    // Regression guard: self in impl block resolves to the impl type,
-    // allowing field access and correct return type checking.
+    // An impl method's `self` resolves to the impl type and exposes its fields.
     let source = include_str!("fixtures/integration/impl_self_field_access_type_checks.ori");
     let result = check_source(source);
     assert!(
@@ -1334,32 +1328,37 @@ fn never_in_sum_variant_allowed() {
 
 // Collect trait — bidirectional type inference
 
-#[test]
-fn collect_to_set_via_return_type() {
-    // Return type `Set<int>` should guide `collect()` to produce Set
-    let source = include_str!("fixtures/integration/collect_to_set_via_return_type.ori");
+fn assert_collect_body_tag(source: &str, function: &str, expected: Tag) {
     let result = check_source(source);
     assert!(
         !result.has_errors(),
-        "collect() with Set<int> return type should not error: {:?}",
+        "collect() should not error: {:?}",
         result.error_kinds()
     );
-    let ty = result.function_body_type("to_set").unwrap();
-    assert_eq!(result.tag(ty), Tag::Set, "body type should be Set");
+    let ty = result
+        .function_body_type(function)
+        .unwrap_or_else(|| panic!("missing body type for {function}"));
+    assert_eq!(result.tag(ty), expected, "unexpected collect body type");
+}
+
+#[test]
+fn collect_to_set_via_return_type() {
+    // Return type `Set<int>` should guide `collect()` to produce Set
+    assert_collect_body_tag(
+        include_str!("fixtures/integration/collect_to_set_via_return_type.ori"),
+        "to_set",
+        Tag::Set,
+    );
 }
 
 #[test]
 fn collect_to_list_by_default() {
     // No Set annotation — collect() should default to list
-    let source = include_str!("fixtures/integration/collect_to_list_by_default.ori");
-    let result = check_source(source);
-    assert!(
-        !result.has_errors(),
-        "collect() with [int] return type should not error: {:?}",
-        result.error_kinds()
+    assert_collect_body_tag(
+        include_str!("fixtures/integration/collect_to_list_by_default.ori"),
+        "to_list",
+        Tag::List,
     );
-    let ty = result.function_body_type("to_list").unwrap();
-    assert_eq!(result.tag(ty), Tag::List, "body type should be List");
 }
 
 #[test]
@@ -1377,15 +1376,11 @@ fn collect_to_set_via_let_binding() {
 #[test]
 fn collect_chained_adapters_to_set() {
     // Chained adapters (filter) before collect should preserve Set inference
-    let source = include_str!("fixtures/integration/collect_chained_adapters_to_set.ori");
-    let result = check_source(source);
-    assert!(
-        !result.has_errors(),
-        "filter + collect to Set should not error: {:?}",
-        result.error_kinds()
+    assert_collect_body_tag(
+        include_str!("fixtures/integration/collect_chained_adapters_to_set.ori"),
+        "filtered",
+        Tag::Set,
     );
-    let ty = result.function_body_type("filtered").unwrap();
-    assert_eq!(result.tag(ty), Tag::Set, "filtered collect should be Set");
 }
 
 // Monomorphization Instance Recording
@@ -1666,10 +1661,8 @@ fn inherent_method_on_non_generic_receiver_records_nothing() {
 // for every intermediate callee — signalling the root-extension fired on
 // the deferred path.
 
-/// Return `true` iff any `concrete_param_types` or `concrete_return_type`
-/// carries `HAS_VAR`. Pre-fix, the deferred-resolve path would leave
-/// unresolved `Tag::Var` root leaves in these positions when the
-/// callee's scheme var was not the union-find representative.
+/// Return `true` when every concrete parameter and return type is free of
+/// unresolved variables after deferred resolution.
 fn instance_signatures_fully_concrete(result: &CheckResult, fn_name: &str) -> bool {
     let instances = result.mono_instances_for(fn_name);
     if instances.is_empty() {
@@ -2112,18 +2105,26 @@ impl CheckResult {
     }
 }
 
+fn assert_drop_partial_move_count(source: &'static str, expected: usize, context: &str) {
+    let result = check_source(fixture_without_trailing_newline(source));
+    assert_eq!(
+        result.drop_partial_move_count(),
+        expected,
+        "{context}; kinds: {:?}",
+        result.error_kinds()
+    );
+}
+
 #[test]
 fn drop_match_partial_struct_destructure_rejected_e2048() {
     // Negative pin: `Pair { a, .. }` binds 1 of 2 owned fields by value —
     // proper subset → E2048.
-    let result = check_source(fixture_without_trailing_newline(include_str!(
-        "fixtures/integration/drop_match_partial_struct_destructure_rejected_e2048.ori"
-    )));
-    assert_eq!(
-        result.drop_partial_move_count(),
+    assert_drop_partial_move_count(
+        include_str!(
+            "fixtures/integration/drop_match_partial_struct_destructure_rejected_e2048.ori"
+        ),
         1,
-        "partial struct destructure of a Drop type MUST fire exactly one E2048; kinds: {:?}",
-        result.error_kinds()
+        "partial struct destructure of a Drop type MUST fire exactly one E2048",
     );
 }
 
@@ -2131,14 +2132,12 @@ fn drop_match_partial_struct_destructure_rejected_e2048() {
 fn drop_match_whole_value_struct_destructure_accepted() {
     // Positive pin: `Pair { a, b }` binds EVERY owned field — whole-value
     // consumption → no E2048.
-    let result = check_source(fixture_without_trailing_newline(include_str!(
-        "fixtures/integration/drop_match_whole_value_struct_destructure_accepted.ori"
-    )));
-    assert_eq!(
-        result.drop_partial_move_count(),
+    assert_drop_partial_move_count(
+        include_str!(
+            "fixtures/integration/drop_match_whole_value_struct_destructure_accepted.ori"
+        ),
         0,
-        "whole-value struct destructure of a Drop type MUST NOT fire E2048; kinds: {:?}",
-        result.error_kinds()
+        "whole-value struct destructure of a Drop type MUST NOT fire E2048",
     );
 }
 
@@ -2159,14 +2158,12 @@ fn drop_match_partial_enum_variant_destructure_rejected_e2048() {
 fn drop_match_whole_payload_enum_variant_destructure_accepted() {
     // Positive pin: `Pair(x, y)` binds every payload field of the matched
     // variant → whole-value consumption → no E2048.
-    let result = check_source(fixture_without_trailing_newline(include_str!(
-        "fixtures/integration/drop_match_whole_payload_enum_variant_destructure_accepted.ori"
-    )));
-    assert_eq!(
-        result.drop_partial_move_count(),
+    assert_drop_partial_move_count(
+        include_str!(
+            "fixtures/integration/drop_match_whole_payload_enum_variant_destructure_accepted.ori"
+        ),
         0,
-        "whole-payload enum-variant destructure MUST NOT fire E2048; kinds: {:?}",
-        result.error_kinds()
+        "whole-payload enum-variant destructure MUST NOT fire E2048",
     );
 }
 
@@ -2175,31 +2172,23 @@ fn drop_match_partial_destructure_on_non_drop_type_accepted() {
     // Negative-space pin: the E2048 axis is Drop-only. A partial destructure of
     // a NON-Drop type must NOT fire E2048 (it is governed by E2043's
     // conditional-move axis, not E2048's unconditional-Drop axis).
-    let result = check_source(fixture_without_trailing_newline(include_str!(
-        "fixtures/integration/drop_match_partial_destructure_on_non_drop_type_accepted.ori"
-    )));
-    assert_eq!(
-        result.drop_partial_move_count(),
+    assert_drop_partial_move_count(
+        include_str!(
+            "fixtures/integration/drop_match_partial_destructure_on_non_drop_type_accepted.ori"
+        ),
         0,
-        "partial destructure of a non-Drop type MUST NOT fire E2048; kinds: {:?}",
-        result.error_kinds()
+        "partial destructure of a non-Drop type MUST NOT fire E2048",
     );
 }
 
 #[test]
 fn drop_let_projection_rejected_e2048() {
-    // Negative pin for the shipped let-projection path (regression guard for
-    // the find_impl resolve-state fix: the impl is keyed by the Named Idx
-    // while the receiver resolves to the Struct Idx — both keys must be
-    // tried). `let $f = p.a` on a Drop type → E2048.
-    let result = check_source(fixture_without_trailing_newline(include_str!(
-        "fixtures/integration/drop_let_projection_rejected_e2048.ori"
-    )));
-    assert_eq!(
-        result.drop_partial_move_count(),
+    // Impl lookup checks both the nominal and resolved receiver keys.
+    // `let $f = p.a` on a Drop type produces E2048.
+    assert_drop_partial_move_count(
+        include_str!("fixtures/integration/drop_let_projection_rejected_e2048.ori"),
         1,
-        "let-projection of a Drop-type field MUST fire exactly one E2048; kinds: {:?}",
-        result.error_kinds()
+        "let-projection of a Drop-type field MUST fire exactly one E2048",
     );
 }
 
@@ -2207,14 +2196,12 @@ fn drop_let_projection_rejected_e2048() {
 fn drop_match_nested_let_projection_in_arm_rejected_e2048() {
     // Negative pin: a `let $f = v.field` projection nested inside a match arm
     // body must be reached by the validator's FunctionSeq recursion.
-    let result = check_source(fixture_without_trailing_newline(include_str!(
-        "fixtures/integration/drop_match_nested_let_projection_in_arm_rejected_e2048.ori"
-    )));
-    assert_eq!(
-        result.drop_partial_move_count(),
+    assert_drop_partial_move_count(
+        include_str!(
+            "fixtures/integration/drop_match_nested_let_projection_in_arm_rejected_e2048.ori"
+        ),
         1,
-        "nested let-projection inside a match arm MUST fire E2048; kinds: {:?}",
-        result.error_kinds()
+        "nested let-projection inside a match arm MUST fire E2048",
     );
 }
 
@@ -2245,14 +2232,12 @@ fn drop_match_nested_partial_struct_destructure_rejected_e2048() {
 fn drop_match_nested_whole_value_struct_destructure_accepted() {
     // Positive pin: nested `Inner { x, y }` binds EVERY owned field of the
     // Drop-typed `inner` — whole-value consumption at every level → no E2048.
-    let result = check_source(fixture_without_trailing_newline(include_str!(
-        "fixtures/integration/drop_match_nested_whole_value_struct_destructure_accepted.ori"
-    )));
-    assert_eq!(
-        result.drop_partial_move_count(),
+    assert_drop_partial_move_count(
+        include_str!(
+            "fixtures/integration/drop_match_nested_whole_value_struct_destructure_accepted.ori"
+        ),
         0,
-        "nested whole-value struct destructure MUST NOT fire E2048; kinds: {:?}",
-        result.error_kinds()
+        "nested whole-value struct destructure MUST NOT fire E2048",
     );
 }
 
@@ -2277,14 +2262,12 @@ fn drop_match_nested_partial_on_non_drop_inner_accepted() {
     // NOT a Drop type, a nested partial destructure must NOT fire E2048 — even
     // though the outer type IS Drop. Recursion gates on the nested field's own
     // Drop status, not the outer's.
-    let result = check_source(fixture_without_trailing_newline(include_str!(
-        "fixtures/integration/drop_match_nested_partial_on_non_drop_inner_accepted.ori"
-    )));
-    assert_eq!(
-        result.drop_partial_move_count(),
+    assert_drop_partial_move_count(
+        include_str!(
+            "fixtures/integration/drop_match_nested_partial_on_non_drop_inner_accepted.ori"
+        ),
         0,
-        "nested partial destructure of a NON-Drop inner type MUST NOT fire E2048; kinds: {:?}",
-        result.error_kinds()
+        "nested partial destructure of a NON-Drop inner type MUST NOT fire E2048",
     );
 }
 
@@ -2308,20 +2291,34 @@ impl CheckResult {
     }
 }
 
+fn assert_value_drop_conflict_count(
+    check: fn(&str) -> CheckResult,
+    source: &'static str,
+    expected: usize,
+    context: &str,
+) {
+    let result = check(fixture_without_trailing_newline(source));
+    assert_eq!(
+        result.value_drop_conflict_count(),
+        expected,
+        "{context}; kinds: {:?}",
+        result.error_kinds()
+    );
+}
+
 #[test]
 fn value_marker_with_drop_impl_fires_e2049_value_first() {
     // Value marker registered FIRST (type decl), Drop impl SECOND → E2049 at
     // the Drop-impl registration surface (Surface 2). Parse-error-tolerant:
     // the `#derive(Value)` form co-emits an E1016 parse diagnostic; E2049
     // still fires.
-    let result = check_source_allow_parse_errors(fixture_without_trailing_newline(include_str!(
-        "fixtures/integration/value_marker_with_drop_impl_fires_e2049_value_first.ori"
-    )));
-    assert_eq!(
-        result.value_drop_conflict_count(),
+    assert_value_drop_conflict_count(
+        check_source_allow_parse_errors,
+        include_str!(
+            "fixtures/integration/value_marker_with_drop_impl_fires_e2049_value_first.ori"
+        ),
         1,
-        "Value + Drop on the same type MUST fire exactly one E2049; kinds: {:?}",
-        result.error_kinds()
+        "Value + Drop on the same type MUST fire exactly one E2049",
     );
 }
 
@@ -2330,14 +2327,11 @@ fn value_marker_without_drop_impl_no_e2049() {
     // Negative-space pin: the E2049 axis requires BOTH markers. A Value type
     // with NO Drop impl must NOT fire E2049 (it may still fire E2033 for the
     // non-derivable `#derive(Value)` form — that is a different axis).
-    let result = check_source_allow_parse_errors(fixture_without_trailing_newline(include_str!(
-        "fixtures/integration/value_marker_without_drop_impl_no_e2049.ori"
-    )));
-    assert_eq!(
-        result.value_drop_conflict_count(),
+    assert_value_drop_conflict_count(
+        check_source_allow_parse_errors,
+        include_str!("fixtures/integration/value_marker_without_drop_impl_no_e2049.ori"),
         0,
-        "Value type without a Drop impl MUST NOT fire E2049; kinds: {:?}",
-        result.error_kinds()
+        "Value type without a Drop impl MUST NOT fire E2049",
     );
 }
 
@@ -2345,22 +2339,18 @@ fn value_marker_without_drop_impl_no_e2049() {
 fn drop_impl_without_value_marker_no_e2049() {
     // Negative-space pin: a Drop type with NO Value marker must NOT fire
     // E2049 (the conflict requires the Value marker too).
-    let result = check_source(fixture_without_trailing_newline(include_str!(
-        "fixtures/integration/drop_impl_without_value_marker_no_e2049.ori"
-    )));
-    assert_eq!(
-        result.value_drop_conflict_count(),
+    assert_value_drop_conflict_count(
+        check_source,
+        include_str!("fixtures/integration/drop_impl_without_value_marker_no_e2049.ori"),
         0,
-        "Drop type without the Value marker MUST NOT fire E2049; kinds: {:?}",
-        result.error_kinds()
+        "Drop type without the Value marker MUST NOT fire E2049",
     );
 }
 
 // Map-iterator lambda-parameter inference pins. `kvs.iter()` yields
 // Iterator<(K, V)>, so `.map(...)` routes the `is_iterator()` branch of
-// `unify_closure_param_with_iterator_elem`; the Tag::Map arm itself is
-// unit-tested at infer/expr/calls/tests.rs (no registry higher-order
-// method dispatches with a bare Map receiver today).
+// `unify_closure_param_with_iterator_elem`. Registry higher-order methods
+// dispatch through the iterator receiver rather than a bare Map receiver.
 
 #[test]
 fn test_lambda_param_from_map_iter_iterator_elem_unchanged() {
@@ -2390,31 +2380,6 @@ fn test_lambda_param_from_iterator_receiver_unchanged_by_map_arm() {
     );
 }
 
-// Mono-instance producer-spine TDD matrix
-//
-// The producer spine is `maybe_record_mono_instance` (free-function path) +
-// `maybe_record_method_mono_instance` (method path) feeding
-// `TypedModule.mono_instances` + `mono_dispatch_map`. The regression matrix
-// pins the dominant AOT "missing mono instance" failures on a recorder that
-// was not attempted:
-//   - from_* factory assoc-fns + iterator methods (rev/next/collect) take the
-//     `ReceiverDispatch::Return` builtin arm in `infer_method_call` /
-//     `infer_method_call_named` and early-return `ret_ty` WITHOUT calling
-//     `maybe_record_method_mono_instance`.
-//   - derived methods (debug/equals/compare) are skipped at the entry gate
-//     `if mono.is_none() && sig.scheme_var_ids.is_empty() { return; }`.
-//
-// Pins assert on the RECORDED MonoInstance set (`mono_instances`) and the
-// dispatch map (`mono_dispatch_map`) — the typeck output `ori_canon` → ARC →
-// `ori_llvm`/`ori_eval` consume — NOT downstream codegen. Each program
-// type-checks cleanly so a RED is "no instance recorded", never a type error.
-// Matrix shape: eager direct-param / eager
-// indirect-param / derived-method / builtin-ctor / iterator-method / deferred-
-// route / deferred-resolve / reverted-fix guard.
-
-// Pin 1 — eager direct-param generic (`@id<T>(x: T)`). Boundary pin: the eager
-// `maybe_record_mono_instance` direct-param path already works; the fix must
-// not break it. GREEN today.
 #[test]
 fn s09_2_eager_direct_param_records_complete_instance() {
     let source =
@@ -2435,8 +2400,8 @@ fn s09_2_eager_direct_param_records_complete_instance() {
     assert_eq!(instances[0].concrete_return_type, Idx::INT);
 }
 
-// Pin 2 — eager INDIRECT generic-param (`T` only inside `Pair<T, int>`, never a
-// direct param). Boundary pin for `extract_indirect_scheme_var`. GREEN today.
+// Pin 2 — eager indirect generic parameter (`T` occurs only inside
+// `Pair<T, int>`) exercises `extract_indirect_scheme_var`.
 #[test]
 fn s09_2_eager_indirect_param_records_complete_instance() {
     let source = include_str!(
@@ -2610,8 +2575,7 @@ fn concrete_generic_bound_seeds_exact_derived_method_body() {
 // `collect_mono_functions` — the family is delivered codegen-direct via
 // `try_emit_builtin_associated`, not by the mono recorder. This pin holds the
 // typeck-layer contract: the call type-checks and its return resolves to
-// `Duration`. The runtime gate (real AOT compile + run + value) is the sibling
-// `ori_llvm` AOT pin `unit_factories::test_duration_from_factories_aot`.
+// `Duration`. AOT execution also validates the runtime value.
 #[test]
 fn s09_2_builtin_duration_ctor_typechecks_to_duration() {
     let source =
@@ -2637,9 +2601,8 @@ fn s09_2_builtin_duration_ctor_typechecks_to_duration() {
 // `emit_iter_*` emitters), NOT by the mono recorder — so an instance-recorded
 // assertion is the wrong contract (the factory family proved this). This pin
 // holds the durable typeck-layer contract: the chain type-checks and its
-// `.collect()` result resolves to `[int]`. The runtime gate (real AOT compile
-// + run + value) is the sibling `ori_llvm` AOT pin
-// `iterator_mono::test_dei_methods_aot`.
+// `.collect()` result resolves to `[int]`. AOT execution also validates the
+// runtime value.
 #[test]
 fn s09_2_iterator_method_typechecks_to_list() {
     let source = include_str!("fixtures/integration/s09_2_iterator_method_typechecks_to_list.ori");
@@ -2665,7 +2628,7 @@ fn s09_2_iterator_method_typechecks_to_list() {
 // Pin 6 — deferred-route NEGATIVE clamp. A generic-calling-generic
 // (`wrap6<U>` body calls `id6(x: y)` while `y: U` is still a variable) MUST
 // route to `record_deferred_mono_call`, never record a bogus EAGER instance
-// whose concrete types still carry a `Tag::Var`. GREEN today.
+// whose concrete types still carry a `Tag::Var`.
 #[test]
 fn s09_2_deferred_route_records_no_var_typed_instance() {
     let source =
@@ -2794,10 +2757,6 @@ fn generic_enum_r_payload_resolves_to_concrete() {
     );
 }
 
-// Pin 7 — deferred-resolve POSITIVE. When the outer generic `p7_wrap` is
-// instantiated at `p7_caller` (`U = int`), the deferred `p7_id` call resolves
-// to a concrete `p7_id<int>` instance via `resolve_deferred_mono_calls` —
-// `p7_id` is NEVER called directly with a concrete arg. GREEN today.
 #[test]
 fn s09_2_deferred_resolve_produces_concrete_instance() {
     let source =
@@ -2819,16 +2778,6 @@ fn s09_2_deferred_resolve_produces_concrete_instance() {
     );
 }
 
-// Pin 8 — DEI consumer result type (`.last()` -> `Option<int>`). Companion to
-// Pin 5: that pin holds the `.collect()` -> `[int]` contract; this one holds
-// the DEI-consumer contract that a `dei_only` method on a list iterator
-// type-checks and resolves to its declared return type. Like the factory
-// family, the DEI methods are delivered codegen-direct (the `"DoubleEndedIterator"`
-// re-keyed dispatch in `ori_llvm` `codegen/arc_emitter/builtins/mod.rs`), NOT
-// by the mono recorder — the `mono_dispatch_map` is the wrong artifact to
-// assert. The real reverted-fix guard (the dispatch re-key) is the runtime
-// `ori_llvm` AOT pin `iterator_mono::test_dei_methods_aot`, which fails if the
-// re-key is reverted (`emit_apply` E5001 on `last`).
 #[test]
 fn s09_2_dei_consumer_typechecks_to_option() {
     let source = include_str!("fixtures/integration/s09_2_dei_consumer_typechecks_to_option.ori");

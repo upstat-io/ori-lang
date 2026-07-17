@@ -57,15 +57,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// The closure struct `{fn_ptr, env_ptr}` is stored to an alloca and
     /// passed as the `env` argument to the runtime. The trampoline unpacks it.
+    /// Builds a trampoline from types validated on the parent [`ArcFunction`].
     ///
-    /// PC-2 upstream guarantor: `elem_ty` and `result_ty` originate from
-    /// `TypeInfo::Iterator { element }` extracted at iterator-emission sites
-    /// (e.g. `arc_emitter/builtins/iterator.rs::emit_iter_map`) based on the
-    /// receiver's parent `ArcFunction` type indices — they are NOT
-    /// independent `ArcInstr` operands. Coverage is provided by the
-    /// `assert_no_unresolved_type_vars` walker on the parent function's
-    /// `var_types` / `params` / `return_type` / block-params. No additional
-    /// `assert_no_unresolved_idx` guard is needed here.
+    /// PC-2: `elem_ty` and `result_ty` are not independent instruction operands.
     pub(crate) fn build_trampoline(
         &mut self,
         closure_val: ValueId,
@@ -73,14 +67,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         kind: TrampolineKind,
         result_ty: Option<Idx>,
     ) -> (ValueId, ValueId) {
-        // Store the closure to an alloca so we can pass its pointer as env
         let closure_ty = self.builder.closure_type();
         let closure_alloca =
             self.builder
                 .create_entry_alloca(self.current_function, "tramp.closure", closure_ty);
         self.builder.store(closure_val, closure_alloca);
 
-        // Generate the trampoline function
         let tramp_fn_id = self.generate_trampoline_fn(elem_ty, kind, result_ty);
         let tramp_fn_ptr = self.builder.get_function_ptr(tramp_fn_id);
 

@@ -8,41 +8,24 @@
 //! (`arc_emitter/apply.rs::resolve_callee` -> `lookup_mono_dispatch`,
 //! `mono_instance_id = None` fallback) starves and emission aborts with
 //! `error[E5001]`: `unresolved function 'X' in apply -- missing mono
-//! instance?`. The interpreter computes the value (dynamic dispatch); the
-//! dual-execution divergence IS the regression guard.
+//! instance?`. The interpreter computes the value through dynamic dispatch,
+//! so dual execution exposes the missing AOT instance.
 //!
 //! These cells drive the REAL `ori build` production entry point
 //! (`compile_and_run_capture` shells out to the workspace `ori` binary and runs
 //! the native binary under `ORI_CHECK_LEAKS=1`): L8 AOT, L12 production entry
-//! point, L10 leak-freedom. The interpreter (`ori run`) passes for every
-//! FAIL-FIRST fixture — the parity break is the gap.
+//! point, L10 leak-freedom. Interpreter and AOT execution must agree for every
+//! fixture.
 //!
-//! FAIL-FIRST cells (missing mono instance pre-fix; green once nested calls are
-//! recorded per concrete instantiation): `assert_eq`, `empty_queue`, `dequeue`,
-//! `buffer_pop`. They are live red pins, not `#[ignore]`d — the red state is the
-//! TDD gate. The CURED guard cell (`repeat`) passes pre-fix and pins an
-//! already-resolved face of the same shape against regression.
-//!
-//! Out of scope here:
-//! - `repeat_value` (const-only generic method `@m<$N: int>`): its AOT miss is
-//!   the const-only-method monomorphization gate (the `tests/spec` corpus
-//!   marks it `#skip` for that gate), and it ALSO fails at interp with E6020 —
-//!   not a clean interp-pass / AOT-miss parity break. Distinct root, own bug.
-//! - The closure (`cb`) and trait-method-chain (`transform`) faces of this
-//!   shape are AOT-resolved today and already pinned at the spec-corpus level
-//!   by `tests/spec/generics/transitive_generic_body_mono.ori`.
-//! - The generic-constructor face (`Box.create` / `[T]` builder): AOT codegen
-//!   RESOLVES the nested mono instance (no missing-mono), but the emitted binary
-//!   trips a runtime RC double-free (SIGABRT) on the burden-coexistence floor —
-//!   an `ori_arc`-owned concern, not this monomorphization gap. Not pinned here.
+//! The `assert_eq`, `empty_queue`, `dequeue`, and `buffer_pop` cases require a
+//! nested call record for each concrete instantiation. The `repeat` case covers
+//! a directly resolvable form of the same shape.
 
 use crate::util::assert_aot_success;
 
 // Producer-closure guard — `assert_eq<Box<int>>` is discovered through the
 // generic-calling-generic fixed point, then its `T: Debug` bound must seed the
 // exact derived `Box<int>.debug` body before shared executable realization.
-// Pre-fix: AOT closed-program failure, unresolved `debug` from the concrete
-// `assert_eq` specialization. Interp passes through dynamic dispatch.
 #[test]
 fn assert_eq_on_generic_struct_in_generic_body_monos() {
     assert_aot_success(
@@ -51,9 +34,7 @@ fn assert_eq_on_generic_struct_in_generic_body_monos() {
     );
 }
 
-// FAIL-FIRST — `empty_queue` cluster (generic constructor on rigid `U`).
-// `make_empty<U>` calls `empty_queue<U>`; nested `empty_queue<int>` unrecorded.
-// Pre-fix: AOT E5001 `unresolved function 'empty_queue'`. Interp passes.
+// `make_empty<U>` requires the concrete nested `empty_queue<int>` instance.
 #[test]
 fn empty_queue_generic_ctor_in_generic_body_monos() {
     assert_aot_success(
@@ -62,9 +43,7 @@ fn empty_queue_generic_ctor_in_generic_body_monos() {
     );
 }
 
-// FAIL-FIRST — `dequeue` cluster (generic fn on rigid `U`). `drain<U>` calls
-// `dequeue<U>`; nested `dequeue<int>` unrecorded. Pre-fix: AOT E5001
-// `unresolved function 'dequeue'`. Interp passes (Some(42) -> exit 0).
+// `drain<U>` requires the concrete nested `dequeue<int>` instance.
 #[test]
 fn dequeue_generic_fn_in_generic_body_monos() {
     assert_aot_success(
@@ -73,9 +52,7 @@ fn dequeue_generic_fn_in_generic_body_monos() {
     );
 }
 
-// FAIL-FIRST — `buffer_pop` cluster (generic fn on rigid `U`). `pop_one<U>`
-// calls `buffer_pop<U>`; nested `buffer_pop<int>` unrecorded. Pre-fix: AOT
-// E5001 `unresolved function 'buffer_pop'`. Interp passes (None -> exit 0).
+// `pop_one<U>` requires the concrete nested `buffer_pop<int>` instance.
 #[test]
 fn buffer_pop_generic_fn_in_generic_body_monos() {
     assert_aot_success(
@@ -84,11 +61,8 @@ fn buffer_pop_generic_fn_in_generic_body_monos() {
     );
 }
 
-// DISTINCT ROOT from the transitive-generic-body mono gap: `thread_id` is a
-// prelude builtin whose AOT path is its runtime-symbol + codegen lowering
-// (`ori_thread_id` + the `emit_thread_id` prelude arm), NOT monomorphization.
-// `get_id<int>` monomorphizes correctly; this pins that the `thread_id()` call
-// inside a generic body also lowers at AOT once the builtin lowering lands.
+// `thread_id` uses runtime-symbol codegen inside a generic body, independently
+// of the enclosing `get_id<int>` monomorphization.
 #[test]
 fn thread_id_nested_in_generic_body_monos() {
     assert_aot_success(
@@ -97,8 +71,7 @@ fn thread_id_nested_in_generic_body_monos() {
     );
 }
 
-// CURED guard — prelude generic `repeat` (T: Clone) on rigid `U`. Passes
-// pre-fix; pins the already-resolved face against regression.
+// Prelude generic `repeat<T: Clone>` resolves through a rigid `U` caller.
 #[test]
 fn repeat_prelude_generic_in_generic_body_stays_resolved() {
     assert_aot_success(

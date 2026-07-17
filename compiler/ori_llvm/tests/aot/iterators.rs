@@ -298,9 +298,8 @@ fn test_iter_join_char() {
 }
 
 /// Long float join exercises heap-backed `OriStr` path (>23 bytes SSO).
-/// Regression guard: the heap-backed `OriStr` temporary the `to_str` join
-/// trampoline allocates is `Copy`/no-`Drop`, so it leaks without an explicit
-/// `ori_str_rc_dec` — under `ORI_CHECK_LEAKS=1` a missing dec exits 2.
+/// The heap-backed `OriStr` temporary allocated by the `to_str` join trampoline
+/// is `Copy` with no `Drop`, so the trampoline must call `ori_str_rc_dec`.
 #[test]
 fn test_iter_join_long_float() {
     assert_aot_success(
@@ -311,8 +310,7 @@ fn test_iter_join_long_float() {
 
 /// Positive pin: join over Printable `Duration` elements compiles, runs, and
 /// emits the `to_str`-converted elements ("1s, 2s"). Duration is Printable, so
-/// `emit_iter_join`'s `ln_to_str_trampoline` path converts each element; this
-/// pins the now-correct behavior (formerly mis-classified as unsupported).
+/// `emit_iter_join`'s `ln_to_str_trampoline` path converts each element.
 #[test]
 fn test_iter_join_duration_supported() {
     assert_cell_output(

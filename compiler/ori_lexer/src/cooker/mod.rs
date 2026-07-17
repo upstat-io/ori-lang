@@ -35,7 +35,7 @@ use ori_lexer_core::RawTag;
 
 #[cfg(test)]
 pub(crate) use duration_size::{
-    detect_duration_suffix, detect_size_suffix, parse_decimal_unit_value,
+    detect_duration_suffix, detect_size_suffix, parse_decimal_unit_value, DetectedUnit,
 };
 
 use crate::keywords;
@@ -56,10 +56,15 @@ pub(crate) struct CookResult {
     pub kind: TokenKind,
     /// Pre-computed discriminant tag for `TokenList::push_with_tag()`.
     pub tag: u8,
-    /// Whether this `cook()` call added errors to the error vec.
-    pub had_error: bool,
-    /// Whether this token was resolved as a contextual keyword.
-    pub contextual_kw: bool,
+    status: CookStatus,
+}
+
+/// Outcome metadata for one cooked token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CookStatus {
+    Plain,
+    Error,
+    ContextualKeyword,
 }
 
 const _: () = assert!(std::mem::size_of::<CookResult>() <= 24);
@@ -72,8 +77,17 @@ impl CookResult {
         Self {
             kind,
             tag,
-            had_error: false,
-            contextual_kw: false,
+            status: CookStatus::Plain,
+        }
+    }
+
+    /// Trivial token whose discriminant tag was computed by the raw fast path.
+    #[inline]
+    pub(crate) fn trivial(kind: TokenKind, tag: u8) -> Self {
+        Self {
+            kind,
+            tag,
+            status: CookStatus::Plain,
         }
     }
 
@@ -84,8 +98,7 @@ impl CookResult {
         Self {
             kind,
             tag,
-            had_error: true,
-            contextual_kw: false,
+            status: CookStatus::Error,
         }
     }
 
@@ -96,9 +109,20 @@ impl CookResult {
         Self {
             kind,
             tag,
-            had_error: false,
-            contextual_kw: true,
+            status: CookStatus::ContextualKeyword,
         }
+    }
+
+    /// Whether cooking emitted a lexer error.
+    #[inline]
+    pub(crate) fn had_error(&self) -> bool {
+        matches!(self.status, CookStatus::Error)
+    }
+
+    /// Whether the token was resolved as a contextual keyword.
+    #[inline]
+    pub(crate) fn is_contextual_keyword(&self) -> bool {
+        matches!(self.status, CookStatus::ContextualKeyword)
     }
 }
 
@@ -159,12 +183,12 @@ impl<'src> TokenCooker<'src> {
     ///
     /// Trivial tokens (operators, delimiters) are normally intercepted by
     /// `try_trivial()` in the driver loop before reaching this method.
-    /// `Semicolon` is the exception — always reaches here.
+    /// `Semicolon` is the exception and always reaches `cook`.
     #[inline]
     pub(crate) fn cook(&mut self, tag: RawTag, offset: u32, len: u32) -> CookResult {
-        // Why: unit tests call cook() directly with any tag, so the match below
+        // Why: unit tests call cook() directly with any tag, so this match
         // handles every RawTag variant — not only the non-trivial ones the
-        // driver routes here.
+        // driver routes to `cook`.
         match tag {
             // Semicolon: not in try_trivial() but still a direct mapping
             RawTag::Semicolon => CookResult::new(TokenKind::Semicolon),
@@ -200,16 +224,7 @@ impl<'src> TokenCooker<'src> {
                     .push(LexError::unterminated_string(span(offset, len)));
                 CookResult::with_error(TokenKind::Error)
             }
-            RawTag::UnterminatedChar => {
-                let err_span = span(offset, len);
-                let text = slice_source(self.source, offset, len);
-                if looks_like_single_quote_string(text) {
-                    self.errors.push(LexError::single_quote_string(err_span));
-                } else {
-                    self.errors.push(LexError::unterminated_char(err_span));
-                }
-                CookResult::with_error(TokenKind::Error)
-            }
+            RawTag::UnterminatedChar => self.cook_unterminated_char(offset, len),
             RawTag::UnterminatedTemplate => {
                 self.errors
                     .push(LexError::unterminated_template(span(offset, len)));
@@ -218,17 +233,6 @@ impl<'src> TokenCooker<'src> {
             RawTag::Backslash => {
                 self.errors
                     .push(LexError::standalone_backslash(span(offset, len)));
-                CookResult::with_error(TokenKind::Error)
-            }
-            // Defensive: the raw scanner does not currently emit InvalidEscape
-            // (escape validation is deferred to the cooking layer's
-            // unescape_string/unescape_template functions), but this arm handles
-            // the reserved variant for forward compatibility.
-            RawTag::InvalidEscape => {
-                let text = slice_source(self.source, offset, len);
-                let esc_char = text.chars().nth(1).unwrap_or('?');
-                self.errors
-                    .push(LexError::invalid_string_escape(span(offset, len), esc_char));
                 CookResult::with_error(TokenKind::Error)
             }
             // Trivia and interior nulls (should not reach cook — handled by driver)
@@ -252,23 +256,36 @@ impl<'src> TokenCooker<'src> {
             // Trivial tokens (operators, delimiters, HashBang): normally intercepted
             // by try_trivial() in the driver loop, but unit tests may call cook()
             // directly. Fall through to try_trivial() as a safe catch-all.
-            _ => {
-                if let Some((kind, tag_byte)) = crate::trivial::try_trivial(tag) {
-                    CookResult {
-                        kind,
-                        tag: tag_byte,
-                        had_error: false,
-                        contextual_kw: false,
-                    }
-                } else {
-                    debug_assert!(false, "unhandled RawTag variant in cook(): {tag:?}");
-                    CookResult::new(TokenKind::Error)
-                }
-            }
+            _ => Self::cook_trivial_fallback(tag),
         }
     }
 
     // Error cooking helpers
+
+    fn cook_unterminated_char(&mut self, offset: u32, len: u32) -> CookResult {
+        let err_span = span(offset, len);
+        let text = slice_source(self.source, offset, len);
+        if looks_like_single_quote_string(text) {
+            self.errors.push(LexError::single_quote_string(err_span));
+        } else {
+            self.errors.push(LexError::unterminated_char(err_span));
+        }
+        CookResult::with_error(TokenKind::Error)
+    }
+
+    fn cook_trivial_fallback(tag: RawTag) -> CookResult {
+        let Some((kind, tag_byte)) = crate::trivial::try_trivial(tag) else {
+            panic!(
+                "raw token {tag:?} has no cooker route; add it to TokenCooker::cook or \
+                 trivial::try_trivial"
+            );
+        };
+        CookResult {
+            kind,
+            tag: tag_byte,
+            status: CookStatus::Plain,
+        }
+    }
 
     /// Cook an invalid byte into a context-aware diagnostic, detecting Unicode
     /// confusables and cross-language patterns.
@@ -302,13 +319,9 @@ impl<'src> TokenCooker<'src> {
         let ctx = what_is_next::what_is_next(self.source, offset);
         let mut err = LexError::invalid_byte(err_span, byte);
         match ctx {
-            NextContext::Operator(op @ ("===" | "!==")) => {
+            NextContext::UnsupportedOperator(operator) => {
                 self.errors
-                    .push(LexError::strict_equality_operator(err_span, op));
-                return CookResult::with_error(TokenKind::Error);
-            }
-            NextContext::Operator(op @ "++") => {
-                self.errors.push(LexError::increment_operator(err_span, op));
+                    .push(LexError::unsupported_operator(err_span, operator));
                 return CookResult::with_error(TokenKind::Error);
             }
             NextContext::Unicode(ch) => {
@@ -383,8 +396,11 @@ impl<'src> TokenCooker<'src> {
         CookResult {
             kind,
             tag,
-            had_error,
-            contextual_kw: false,
+            status: if had_error {
+                CookStatus::Error
+            } else {
+                CookStatus::Plain
+            },
         }
     }
 
