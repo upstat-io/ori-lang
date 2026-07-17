@@ -69,7 +69,7 @@ pub(crate) struct ProjectAliasTable {
 /// predecessors jump to the same block with projections from different
 /// aggregates, the param maps to the union of all sources.
 ///
-/// BUG-04-090: also folds in [`ApplyAliasSource`] entries as Step 1b roots so
+/// Also folds in [`ApplyAliasSource`] entries as Step 1b roots so
 /// shipped transitivity Rules 2/3/4/6 (§1.9 `project_alias_sources` preamble —
 /// Rules 5/7 are unshipped, folding through them is dead code) carry the
 /// Apply-result allocation-identity through Let/Jump/CFG-merge/nested-Project
@@ -156,7 +156,7 @@ fn compute_project_alias_table_filtered(
     }
     let borrow_alias_sources = alias_sources.clone();
 
-    // Step 1b (BUG-04-090): seed alias graph with Apply-result allocation-identity
+    // Step 1b: seed alias graph with Apply-result allocation-identity
     // entries. Each `apply_result_aliases[apply_dst]` records that `apply_dst`
     // shares an allocation with one or more consumed args; representing those
     // arg(s) as the alias source lets Step 2's Let/Jump/CFG-merge transitivity

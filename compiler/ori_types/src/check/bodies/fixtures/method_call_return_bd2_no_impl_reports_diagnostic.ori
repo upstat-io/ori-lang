@@ -1,0 +1,1 @@
+@f () -> void = { let msg: str = "x"; let _n: int = msg.into(); () }

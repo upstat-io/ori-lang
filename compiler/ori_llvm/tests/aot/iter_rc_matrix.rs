@@ -15,11 +15,6 @@
 //! they do NOT exercise `__collect_set`. `Set<str>` iteration works (see `sets.rs`).
 //! E2×P5 for-yield excluded — nested yield of [int] collapses to flat int; covered by P1.
 
-#![allow(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::assert_aot_success;
 
 // E1: [str] — for-do patterns

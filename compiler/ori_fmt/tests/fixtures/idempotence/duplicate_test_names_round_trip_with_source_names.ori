@@ -1,0 +1,7 @@
+@left () -> void = ();
+
+@right () -> void = ();
+
+@test tests @left () -> void = ();
+
+@test tests @right () -> void = ();

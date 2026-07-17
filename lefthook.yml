@@ -82,6 +82,17 @@ pre-commit:
       # once dogfood shows true-positive rate is reliable.
       glob: "**/*.rs"
       run: python3 scripts/operation-name-lint.py --warn-only
+    banned-suppression-lint:
+      # SPEC-74 total-ban gate — no #[allow]/#[expect] of clippy::too_many_lines
+      # or clippy::cognitive_complexity is ever valid; the cure is splitting the
+      # function per SPEC-15, never a reason=. GATING from day one (zero false
+      # positives: the banned token in an added .rs suppression has no legitimate
+      # form, and the gate reads no reason text so none can argue past it).
+      # Staged-additions only; the pre-existing backlog burns down via a tracked
+      # campaign — `--full` inventories it and replaces this mode as the
+      # whole-tree gate once the count reaches zero.
+      glob: "**/*.rs"
+      run: python3 scripts/banned-suppression-lint.py
     crate-dag-lint:
       # Crate-dependency-DAG fitness + canon-consumer registration
       # (scripts/crate-dag-lint.py --help). Checks: no forbidden crate-DAG edge;

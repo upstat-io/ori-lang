@@ -6,6 +6,17 @@ use crate::codegen::value_id::ValueId;
 
 use super::super::super::ArcIrEmitter;
 
+#[derive(Clone, Copy, Debug)]
+struct MapInsertArgs {
+    receiver: ValueId,
+    key: ValueId,
+    value: ValueId,
+    key_ty: Idx,
+    val_ty: Idx,
+    map_ty: Idx,
+    cow_mode: ValueId,
+}
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `a.merge(b)` — COW map merge desugared from `{...a, ...b}`.
     ///
@@ -87,13 +98,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         self.emit_map_insert_like(
             "ori_map_insert_cow",
-            receiver,
-            key,
-            value,
-            key_ty,
-            val_ty,
-            cow_mode,
-            map_ty,
+            MapInsertArgs {
+                receiver,
+                key,
+                value,
+                key_ty,
+                val_ty,
+                map_ty,
+                cow_mode,
+            },
         )
     }
 
@@ -115,46 +128,42 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         self.emit_map_insert_like(
             "ori_map_updated_cow",
-            receiver,
-            key,
-            value,
-            key_ty,
-            val_ty,
-            cow_mode,
-            map_ty,
+            MapInsertArgs {
+                receiver,
+                key,
+                value,
+                key_ty,
+                val_ty,
+                map_ty,
+                cow_mode,
+            },
         )
     }
 
     /// Shared emission for `insert` / `updated` — both call a runtime function
     /// with the `ori_map_insert_cow` parameter shape.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "map COW call site threads independent ABI scalars"
-    )]
     fn emit_map_insert_like(
         &mut self,
         runtime_fn: &'static str,
-        receiver: ValueId,
-        key: ValueId,
-        value: ValueId,
-        key_ty: Idx,
-        val_ty: Idx,
-        cow_mode: ValueId,
-        map_ty: Idx,
+        args: MapInsertArgs,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn(runtime_fn);
 
-        let (data, cap, len, key_size_val, val_size_val) =
-            self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty))?;
+        let (data, cap, len, key_size_val, val_size_val) = self.extract_map_components(
+            args.receiver,
+            args.key_ty,
+            args.val_ty,
+            Some(args.map_ty),
+        )?;
 
-        let key_ptr = self.elem_to_ptr(key, key_ty, "insert.key");
-        let val_ptr = self.elem_to_ptr(value, val_ty, "insert.val");
-        let key_eq = self.get_or_create_eq_thunk(key_ty)?;
-        let key_hash = self.get_or_create_hash_thunk(key_ty)?;
-        let key_inc = self.get_or_generate_elem_inc_fn(key_ty);
-        let val_inc = self.get_or_generate_elem_inc_fn(val_ty);
-        let key_dec = self.get_or_generate_elem_dec_fn(key_ty);
-        let val_dec = self.get_or_generate_elem_dec_fn(val_ty);
+        let key_ptr = self.elem_to_ptr(args.key, args.key_ty, "insert.key");
+        let val_ptr = self.elem_to_ptr(args.value, args.val_ty, "insert.val");
+        let key_eq = self.get_or_create_eq_thunk(args.key_ty)?;
+        let key_hash = self.get_or_create_hash_thunk(args.key_ty)?;
+        let key_inc = self.get_or_generate_elem_inc_fn(args.key_ty);
+        let val_inc = self.get_or_generate_elem_inc_fn(args.val_ty);
+        let key_dec = self.get_or_generate_elem_dec_fn(args.key_ty);
+        let val_dec = self.get_or_generate_elem_dec_fn(args.val_ty);
 
         let map_ty = self.map_struct_type();
         let out = self
@@ -177,7 +186,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 val_inc,
                 key_dec,
                 val_dec,
-                cow_mode,
+                args.cow_mode,
                 out,
             ],
             "insert",

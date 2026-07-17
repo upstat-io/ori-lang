@@ -128,6 +128,63 @@ pub(crate) struct ClassHazardFacts {
     pub(crate) consume_sites: Vec<(usize, EventSite)>,
 }
 
+/// Immutable facts shared by every rung of the field-view cure ladder.
+pub(crate) struct HazardCureInputs<'a> {
+    func: &'a ArcFunction,
+    classification: &'a LedgerClassification,
+    preds: &'a [Vec<usize>],
+    regions: &'a emit::CycleRegions,
+    type_registry: &'a ori_types::TypeRegistry,
+    interner: &'a ori_ir::StringInterner,
+    full_move_arms: &'a [events::FullMoveArm],
+}
+
+impl<'a> HazardCureInputs<'a> {
+    pub(crate) fn new(
+        func: &'a ArcFunction,
+        classification: &'a LedgerClassification,
+        preds: &'a [Vec<usize>],
+        regions: &'a emit::CycleRegions,
+        type_registry: &'a ori_types::TypeRegistry,
+        interner: &'a ori_ir::StringInterner,
+        full_move_arms: &'a [events::FullMoveArm],
+    ) -> Self {
+        Self {
+            func,
+            classification,
+            preds,
+            regions,
+            type_registry,
+            interner,
+            full_move_arms,
+        }
+    }
+}
+
+/// Mutable whole-function accumulators shared by every cure attempt.
+pub(crate) struct HazardCureState<'a> {
+    partition: &'a mut BirthSitePartition,
+    classes: &'a mut [ClassPlan],
+    verdicts: &'a mut [(NodeIdx, ClassVerdict)],
+    declined: &'a mut Vec<(NodeIdx, emit::DeclineReason)>,
+}
+
+impl<'a> HazardCureState<'a> {
+    pub(crate) fn new(
+        partition: &'a mut BirthSitePartition,
+        classes: &'a mut [ClassPlan],
+        verdicts: &'a mut [(NodeIdx, ClassVerdict)],
+        declined: &'a mut Vec<(NodeIdx, emit::DeclineReason)>,
+    ) -> Self {
+        Self {
+            partition,
+            classes,
+            verdicts,
+            declined,
+        }
+    }
+}
+
 impl FieldViewHazard {
     const CONTAINER_TRANSFERRED_OUT: u8 = 0b0000_0001;
     const NESTED_PATH: u8 = 0b0000_0010;
@@ -211,23 +268,10 @@ impl ClassHazardFacts {
 /// container's release skips the moved field); seed-funding is the general
 /// fallback and the sole cure for demand-only views (never skipped per
 /// IA-T6 over-skip rejection).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "internal cure ladder over analyze_class_ledger's own accumulators"
-)]
 pub(crate) fn cure_endangered_views(
-    func: &ArcFunction,
-    classification: &LedgerClassification,
-    partition: &mut BirthSitePartition,
-    preds: &[Vec<usize>],
-    regions: &emit::CycleRegions,
-    type_registry: &ori_types::TypeRegistry,
-    interner: &ori_ir::StringInterner,
-    full_move_arms: &[events::FullMoveArm],
+    inputs: &HazardCureInputs<'_>,
+    state: &mut HazardCureState<'_>,
     hazards: &[FieldViewHazard],
-    classes: &mut [ClassPlan],
-    verdicts: &mut [(NodeIdx, ClassVerdict)],
-    declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
 ) -> Vec<NodeIdx> {
     let mut uncured = Vec::new();
     let mut seen_views = FxHashSet::default();
@@ -249,43 +293,19 @@ pub(crate) fn cure_endangered_views(
         if hazard.is_all_payloadless() {
             tracing::trace!(
                 target: "ori_arc::aims::class_ledger",
-                view = ?partition.node_key(hazard.view),
+                view = ?state.partition.node_key(hazard.view),
                 "endangered view vacuous: every container construct is payload-less"
             );
             cured_views.insert(hazard.view);
             continue;
         }
         if !multi_container_views.contains(&hazard.view)
-            && decompose::cure_view_with_field_decomposition(
-                func,
-                classification,
-                partition,
-                preds,
-                regions,
-                type_registry,
-                interner,
-                hazard,
-                classes,
-                verdicts,
-                declined,
-            )
+            && decompose::cure_view_with_field_decomposition(inputs, state, hazard)
         {
             cured_views.insert(hazard.view);
             continue;
         }
-        if funding::cure_view_with_extraction_funding(
-            func,
-            classification,
-            partition,
-            preds,
-            regions,
-            type_registry,
-            full_move_arms,
-            hazard.view,
-            classes,
-            verdicts,
-            declined,
-        ) {
+        if funding::cure_view_with_extraction_funding(inputs, state, hazard.view) {
             cured_views.insert(hazard.view);
             continue;
         }
@@ -299,28 +319,22 @@ pub(crate) fn cure_endangered_views(
 /// `None` for the caller to decline, or the clean [`ClassOutcome`] to commit.
 /// Shared plan-and-verify skeleton for every cure ladder rung
 /// ([`cure_view_with_extraction_funding`], [`cure_view_with_field_decomposition`]).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "internal cure pass over analyze_class_ledger's own accumulators"
-)]
 pub(super) fn plan_and_verify_cure(
-    func: &ArcFunction,
-    preds: &[Vec<usize>],
-    regions: &emit::CycleRegions,
-    partition: &mut BirthSitePartition,
+    inputs: &HazardCureInputs<'_>,
+    state: &mut HazardCureState<'_>,
     view: NodeIdx,
     cure_label: &'static str,
     events: &events::ClassEvents,
     seeds: &[PlannedOp],
 ) -> Option<ClassOutcome> {
-    let outcome = emit::plan_class(func, preds, regions, events, seeds);
+    let outcome = emit::plan_class(inputs.func, inputs.preds, inputs.regions, events, seeds);
     let planned: &[PlannedOp] = match &outcome {
         ClassOutcome::Planned(ops) => ops,
         ClassOutcome::Declined(reason) => {
             tracing::trace!(
                 target: "ori_arc::aims::class_ledger",
                 cure = cure_label,
-                view = ?partition.node_key(view),
+                view = ?state.partition.node_key(view),
                 declined = ?reason,
                 seeds = seeds.len(),
                 events = ?events.per_block,
@@ -329,12 +343,12 @@ pub(super) fn plan_and_verify_cure(
             return None;
         }
     };
-    let verdict = verify::verify_class(func, preds, events, planned);
+    let verdict = verify::verify_class(inputs.func, inputs.preds, events, planned);
     if verdict != ClassVerdict::Clean {
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
             cure = cure_label,
-            view = ?partition.node_key(view),
+            view = ?state.partition.node_key(view),
             verdict = ?verdict,
             planned = ?planned,
             events = ?events.per_block,
@@ -350,19 +364,17 @@ pub(super) fn plan_and_verify_cure(
 /// declined list. Leaves the accumulators untouched and returns `false` when
 /// `view`'s plan entry is not found.
 pub(super) fn commit_cured_view(
-    classes: &mut [ClassPlan],
-    verdicts: &mut [(NodeIdx, ClassVerdict)],
-    declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
+    state: &mut HazardCureState<'_>,
     view: NodeIdx,
     outcome: ClassOutcome,
 ) -> bool {
-    let Some(entry) = classes.iter_mut().find(|plan| plan.class == view) else {
+    let Some(entry) = state.classes.iter_mut().find(|plan| plan.class == view) else {
         return false;
     };
     entry.outcome = outcome;
-    if let Some(slot) = verdicts.iter_mut().find(|(class, _)| *class == view) {
+    if let Some(slot) = state.verdicts.iter_mut().find(|(class, _)| *class == view) {
         slot.1 = ClassVerdict::Clean;
     }
-    declined.retain(|&(class, _)| class != view);
+    state.declined.retain(|&(class, _)| class != view);
     true
 }

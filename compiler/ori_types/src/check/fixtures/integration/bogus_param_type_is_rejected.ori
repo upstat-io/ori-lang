@@ -1,0 +1,3 @@
+@foo (x: garbage) -> int = 42;
+
+@main () -> void = println(foo(1).to_str());

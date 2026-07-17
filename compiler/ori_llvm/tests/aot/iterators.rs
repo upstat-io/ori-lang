@@ -5,11 +5,6 @@
 //! `enumerate`, `zip`, `chain`), consumers (`collect`, `count`, `any`, `all`,
 //! `find`, `for_each`, `fold`), and for-loop over Iterator.
 
-#![allow(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::{assert_aot_success, assert_cell_output, compile_and_run_capture};
 
 // List.iter() — construct from list

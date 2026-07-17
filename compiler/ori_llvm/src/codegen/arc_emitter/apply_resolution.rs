@@ -81,16 +81,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         match mode {
             super::context::InvokeMode::Call { normal } => {
-                let result = if let Some((pad, _kind)) = self.current_funclet_pad {
+                let result = if let Some(pad) = self.current_cleanup_pad {
                     self.builder.call_with_funclet(func_id, args, pad, name)
                 } else {
                     self.builder.call(func_id, args, name)
                 };
-                self.br_exiting_catchpad(normal);
+                self.br_outside_cleanup_pad(normal);
                 result
             }
             super::context::InvokeMode::Invoke { normal, unwind } => {
-                if let Some((pad, _kind)) = self.current_funclet_pad {
+                if let Some(pad) = self.current_cleanup_pad {
                     self.builder
                         .invoke_with_funclet(func_id, args, pad, normal, unwind, name)
                 } else {

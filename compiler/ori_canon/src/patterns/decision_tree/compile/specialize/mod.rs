@@ -1,10 +1,7 @@
-//! Matrix specialization for pattern matching decision trees.
+//! Pattern-matrix specialization.
 //!
-//! Implements the core Maranget specialization step: given a test value
-//! at a column, filter and decompose matrix rows into those compatible
-//! with that value. Also handles default matrix construction.
-//!
-//! Test value collection and kind inference live in [`test_values`].
+//! Each test value filters compatible rows and expands constructor payloads;
+//! wildcard rows form the default matrix.
 
 mod test_values;
 
@@ -16,13 +13,9 @@ use ori_ir::canon::tree::{
 };
 use rustc_hash::FxHashSet;
 
-/// Specialize the matrix for a specific test value at a given column.
+/// Retains rows compatible with `tv` and expands payload columns at `col`.
 ///
-/// For each row:
-/// - If the pattern at `col` matches `tv`: decompose it, replace with sub-patterns
-/// - If the pattern at `col` is a wildcard: keep (compatible with any value),
-///   adding wildcard sub-patterns
-/// - If the pattern at `col` is a different constructor: exclude
+/// Wildcards synthesize payload wildcards; incompatible constructors are omitted.
 pub(super) fn specialize_matrix(
     matrix: &PatternMatrix,
     col: usize,
@@ -30,12 +23,8 @@ pub(super) fn specialize_matrix(
     paths: &[ScrutineePath],
     base_path: &ScrutineePath,
 ) -> Specialized {
-    // Determine how many sub-patterns this test value produces.
-    // For Tag variants, this varies per constructor — we scan the matrix
-    // to find the first Variant pattern with this tag and use its field count.
     let sub_count = infer_sub_pattern_count(matrix, col, tv);
 
-    // Build new paths: remove col, insert sub-pattern paths at its position.
     let mut new_paths = Vec::with_capacity(paths.len() - 1 + sub_count);
     new_paths.extend_from_slice(&paths[..col]);
     for i in 0..sub_count {
@@ -45,7 +34,6 @@ pub(super) fn specialize_matrix(
     }
     new_paths.extend_from_slice(&paths[col + 1..]);
 
-    // Build new rows.
     let col_path = &paths[col];
     let mut new_matrix = Vec::new();
     for row in matrix {
@@ -60,27 +48,19 @@ pub(super) fn specialize_matrix(
     }
 }
 
-/// Determine how many sub-patterns specializing on a test value produces.
+/// Returns the payload arity produced by `tv`.
 ///
-/// For literal test values (Int, Bool, Str, Float, `IntRange`), the answer
-/// is always 0 — they have no sub-structure.
-///
-/// For Tag variants, the field count depends on the specific variant (e.g.
-/// `Some` has 1 field, `None` has 0). We scan the matrix at the given column
-/// to find the first `Variant` pattern matching this tag and use its field count.
-///
-/// For `ListLen`, the count equals the number of list elements in the pattern.
+/// Literals produce no payloads, variants use the matching pattern's field
+/// count, and list-length tests use their element count.
 fn infer_sub_pattern_count(matrix: &PatternMatrix, col: usize, tv: &TestValue) -> usize {
     match tv {
         TestValue::Tag { variant_index, .. } => {
-            // Scan matrix for the first Variant pattern at this column
-            // with the matching variant_index.
             for row in matrix {
                 if let Some(count) = variant_field_count(&row.patterns[col], *variant_index) {
                     return count;
                 }
             }
-            0 // No variant pattern found (all wildcards) — 0 sub-patterns.
+            0
         }
         TestValue::Int(_)
         | TestValue::Str(_)
@@ -115,7 +95,6 @@ fn variant_field_count(pat: &FlatPattern, target_index: u32) -> Option<usize> {
     }
 }
 
-/// Get the path instruction for the i-th sub-pattern of a test value.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "field/element indices are always < u32::MAX"
@@ -143,7 +122,6 @@ fn specialize_row(
     let pat = &row.patterns[col];
     match specialize_pattern(pat, tv, expected_sub_count) {
         SpecResult::Match(sub_patterns) => {
-            // Accumulate bindings from the consumed pattern.
             let mut bindings = row.bindings.clone();
             bindings.extend(collect_consumed_bindings(pat, col_path));
 
@@ -213,9 +191,7 @@ fn pattern_always_discards(pattern: &FlatPattern) -> bool {
 }
 
 enum SpecResult {
-    /// Pattern matches the test value; yields sub-patterns.
     Match(Vec<FlatPattern>),
-    /// Pattern does not match the test value.
     NoMatch,
 }
 
@@ -224,93 +200,29 @@ enum SpecResult {
 /// `expected_sub_count` is the number of sub-patterns that this specialization
 /// should produce for wildcard expansion (determined by scanning the matrix
 /// for the first concrete constructor pattern).
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive (FlatPattern, TestValue) specialization dispatch"
-)]
 fn specialize_pattern(pat: &FlatPattern, tv: &TestValue, expected_sub_count: usize) -> SpecResult {
+    if let Some(result) = specialize_literal(pat, tv) {
+        return result;
+    }
+
     match (pat, tv) {
-        // Wildcards and bindings match any test value.
-        // Produce `expected_sub_count` wildcard sub-patterns to fill the slots.
         (FlatPattern::Wildcard | FlatPattern::Binding(_), _) => {
             SpecResult::Match(vec![FlatPattern::Wildcard; expected_sub_count])
         }
-
-        // Variant matches Tag test value.
         (
             FlatPattern::Variant {
-                variant_index: pat_idx,
+                variant_index: pattern_index,
                 fields,
                 ..
             },
             TestValue::Tag {
-                variant_index: tv_idx,
+                variant_index: tested_index,
                 ..
             },
-        ) => {
-            if pat_idx == tv_idx {
-                SpecResult::Match(fields.clone())
-            } else {
-                SpecResult::NoMatch
-            }
-        }
-
-        // Literal matches.
-        (FlatPattern::LitInt(v), TestValue::Int(tv)) => {
-            if v == tv {
-                SpecResult::Match(vec![])
-            } else {
-                SpecResult::NoMatch
-            }
-        }
-        (FlatPattern::LitBool(v), TestValue::Bool(tv)) => {
-            if v == tv {
-                SpecResult::Match(vec![])
-            } else {
-                SpecResult::NoMatch
-            }
-        }
-        (FlatPattern::LitStr(v), TestValue::Str(tv)) => {
-            if v == tv {
-                SpecResult::Match(vec![])
-            } else {
-                SpecResult::NoMatch
-            }
-        }
-        (FlatPattern::LitFloat(v), TestValue::Float(tv)) => {
-            if v == tv {
-                SpecResult::Match(vec![])
-            } else {
-                SpecResult::NoMatch
-            }
-        }
-        (FlatPattern::LitChar(v), TestValue::Char(tv)) => {
-            if v == tv {
-                SpecResult::Match(vec![])
-            } else {
-                SpecResult::NoMatch
-            }
-        }
-
-        // List patterns match ListLen test values.
-        //
-        // Exact list patterns (rest=None, like `[x]`) only match exact-length
-        // test values (is_exact=true). Rest patterns (rest=Some, like `[h, ..t]`)
-        // match both exact and at-least test values. This prevents exact patterns
-        // from appearing in at-least subtrees where they would incorrectly win
-        // arm priority over rest patterns.
+        ) => match_result(pattern_index == tested_index, fields.clone()),
         (FlatPattern::List { elements, rest }, TestValue::ListLen { len, is_exact }) => {
-            if elements.len() != *len as usize {
-                return SpecResult::NoMatch;
-            }
-            // Exact pattern in at-least subtree → exclude
-            if rest.is_none() && !is_exact {
-                return SpecResult::NoMatch;
-            }
-            SpecResult::Match(elements.clone())
+            specialize_list_pattern(elements, rest.is_some(), *len as usize, *is_exact)
         }
-
-        // Range patterns match IntRange test values.
         (
             FlatPattern::Range {
                 start,
@@ -320,58 +232,88 @@ fn specialize_pattern(pat: &FlatPattern, tv: &TestValue, expected_sub_count: usi
             TestValue::IntRange {
                 lo,
                 hi,
-                inclusive: tv_incl,
+                inclusive: tested_inclusive,
             },
         ) => {
-            if start.as_ref() == Some(lo) && end.as_ref() == Some(hi) && *inclusive == *tv_incl {
-                SpecResult::Match(vec![])
-            } else {
-                SpecResult::NoMatch
-            }
+            let matches = start.as_ref() == Some(lo)
+                && end.as_ref() == Some(hi)
+                && inclusive == tested_inclusive;
+            match_result(matches, Vec::new())
         }
+        (FlatPattern::Or(alternatives), tested) => {
+            specialize_or_pattern(alternatives, tested, expected_sub_count)
+        }
+        (FlatPattern::At { inner, .. }, tested) => {
+            specialize_pattern(inner, tested, expected_sub_count)
+        }
+        _ => SpecResult::NoMatch,
+    }
+}
 
-        // Or-pattern: combine sub-patterns from ALL matching alternatives.
-        (FlatPattern::Or(alts), tv) => {
-            let matching: Vec<Vec<FlatPattern>> = alts
-                .iter()
-                .filter_map(|alt| {
-                    if let SpecResult::Match(subs) = specialize_pattern(alt, tv, expected_sub_count)
-                    {
-                        Some(subs)
-                    } else {
-                        None
-                    }
+fn specialize_literal(pat: &FlatPattern, tv: &TestValue) -> Option<SpecResult> {
+    let matches = match (pat, tv) {
+        (FlatPattern::LitInt(value), TestValue::Int(tested)) => value == tested,
+        (FlatPattern::LitBool(value), TestValue::Bool(tested)) => value == tested,
+        (FlatPattern::LitStr(value), TestValue::Str(tested)) => value == tested,
+        (FlatPattern::LitFloat(value), TestValue::Float(tested)) => value == tested,
+        (FlatPattern::LitChar(value), TestValue::Char(tested)) => value == tested,
+        _ => return None,
+    };
+    Some(match_result(matches, Vec::new()))
+}
+
+fn specialize_list_pattern(
+    elements: &[FlatPattern],
+    has_rest: bool,
+    tested_len: usize,
+    is_exact: bool,
+) -> SpecResult {
+    if elements.len() != tested_len || (!has_rest && !is_exact) {
+        SpecResult::NoMatch
+    } else {
+        SpecResult::Match(elements.to_vec())
+    }
+}
+
+fn specialize_or_pattern(
+    alternatives: &[FlatPattern],
+    tested: &TestValue,
+    expected_sub_count: usize,
+) -> SpecResult {
+    let matching = alternatives
+        .iter()
+        .filter_map(|alternative| {
+            match specialize_pattern(alternative, tested, expected_sub_count) {
+                SpecResult::Match(sub_patterns) => Some(sub_patterns),
+                SpecResult::NoMatch => None,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    match matching.as_slice() {
+        [] => SpecResult::NoMatch,
+        [single] => SpecResult::Match(single.clone()),
+        _ => {
+            let combined = (0..expected_sub_count)
+                .map(|column| {
+                    FlatPattern::Or(
+                        matching
+                            .iter()
+                            .map(|sub_patterns| sub_patterns[column].clone())
+                            .collect(),
+                    )
                 })
                 .collect();
-
-            match matching.len() {
-                0 => SpecResult::NoMatch,
-                1 => {
-                    // SAFETY: matching.len() == 1, so into_iter().next() is always Some.
-                    #[expect(clippy::unwrap_used, reason = "Length checked to be 1")]
-                    let single = matching.into_iter().next().unwrap();
-                    SpecResult::Match(single)
-                }
-                _ => {
-                    // Multiple alternatives matched: combine sub-patterns
-                    // element-wise into Or patterns.
-                    let combined: Vec<FlatPattern> = (0..expected_sub_count)
-                        .map(|col| {
-                            let col_pats: Vec<FlatPattern> =
-                                matching.iter().map(|subs| subs[col].clone()).collect();
-                            FlatPattern::Or(col_pats)
-                        })
-                        .collect();
-                    SpecResult::Match(combined)
-                }
-            }
+            SpecResult::Match(combined)
         }
+    }
+}
 
-        // At-pattern: match on the inner pattern, keep the binding.
-        (FlatPattern::At { inner, .. }, tv) => specialize_pattern(inner, tv, expected_sub_count),
-
-        // Mismatched types (e.g., int pattern vs tag test) → no match.
-        _ => SpecResult::NoMatch,
+fn match_result(matches: bool, sub_patterns: Vec<FlatPattern>) -> SpecResult {
+    if matches {
+        SpecResult::Match(sub_patterns)
+    } else {
+        SpecResult::NoMatch
     }
 }
 
@@ -392,7 +334,6 @@ pub(super) fn default_matrix(
     let mut new_matrix = Vec::new();
     for row in matrix {
         if row.patterns[col].is_wildcard_like() {
-            // Accumulate bindings from the consumed pattern.
             let mut bindings = row.bindings.clone();
             bindings.extend(collect_consumed_bindings(&row.patterns[col], col_path));
 

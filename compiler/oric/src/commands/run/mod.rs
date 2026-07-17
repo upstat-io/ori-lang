@@ -289,19 +289,21 @@ fn compile_and_cache(
     // Generate LLVM IR (shared with build_file)
     let context = Context::create();
     let llvm_module = compile_to_llvm_with_imported_monos(
-        &context,
-        &db,
-        &parse_result,
-        &type_result,
-        &imported_state.merged_pool,
-        imported_state.surfaces(),
-        &canon_result,
-        path,
-        Some(target.triple()),
-        if ori_repr::NarrowingPolicy::env_disabled() {
-            ori_repr::NarrowingPolicy::Disabled
-        } else {
-            ori_repr::NarrowingPolicy::Aggressive
+        crate::commands::compile_common::ImportedMonoCompilation {
+            context: &context,
+            db: &db,
+            parse: &parse_result,
+            typed: &type_result,
+            pool: &imported_state.merged_pool,
+            imported: imported_state.surfaces(),
+            canon: &canon_result,
+            source_path: path,
+            target_triple: Some(target.triple()),
+            narrowing_policy: if ori_repr::NarrowingPolicy::env_disabled() {
+                ori_repr::NarrowingPolicy::Disabled
+            } else {
+                ori_repr::NarrowingPolicy::Aggressive
+            },
         },
     )
     .unwrap_or_else(|e| {

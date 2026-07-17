@@ -1,0 +1,1 @@
+pub @complex<T, U> (a: T, b: U) -> T uses Http where T: Clone, U: Default = a.clone();

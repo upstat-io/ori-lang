@@ -3,14 +3,11 @@
 //! bookkeeping credits), then re-plan + re-verify under OWNED semantics.
 
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, NodeIdx};
-use crate::aims::intraprocedural::ledger_events::LedgerClassification;
 use crate::ir::ArcFunction;
 
 use super::super::emit::{self, PlannedOp};
 use super::super::events;
-use super::super::verify::ClassVerdict;
-use super::super::ClassPlan;
-use super::{commit_cured_view, plan_and_verify_cure};
+use super::{commit_cured_view, plan_and_verify_cure, HazardCureInputs, HazardCureState};
 
 /// Cure one endangered view class by funding it at its extraction sites: an
 /// RL-1 dup `BurdenInc` right after each `Project` that defines a member
@@ -19,26 +16,18 @@ use super::{commit_cured_view, plan_and_verify_cure};
 /// each balance). Returns `true` when the cured plan verifies `Clean`;
 /// `false` leaves the original outcome in place (the replacement gate then
 /// declines the function).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "internal cure pass over analyze_class_ledger's own accumulators"
-)]
 pub(super) fn cure_view_with_extraction_funding(
-    func: &ArcFunction,
-    classification: &LedgerClassification,
-    partition: &mut BirthSitePartition,
-    preds: &[Vec<usize>],
-    regions: &emit::CycleRegions,
-    type_registry: &ori_types::TypeRegistry,
-    full_move_arms: &[events::FullMoveArm],
+    inputs: &HazardCureInputs<'_>,
+    state: &mut HazardCureState<'_>,
     view: NodeIdx,
-    classes: &mut [ClassPlan],
-    verdicts: &mut [(NodeIdx, ClassVerdict)],
-    declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
 ) -> bool {
-    let Some((seeds, credit_sites)) =
-        collect_extraction_seeds(func, partition, type_registry, full_move_arms, view)
-    else {
+    let Some((seeds, credit_sites)) = collect_extraction_seeds(
+        inputs.func,
+        state.partition,
+        inputs.type_registry,
+        inputs.full_move_arms,
+        view,
+    ) else {
         return false;
     };
     // Contract-boundary arrival: a call result whose callee contract proves
@@ -49,42 +38,51 @@ pub(super) fn cure_view_with_extraction_funding(
     // ops — try the un-seeded plan FIRST (a read-only local Project rides
     // the credited count; seeding it inflates the residue past what the
     // release placer can pair at a terminator-read block).
-    let credited_arrival = classification.blocks.iter().flatten().any(|ci| {
+    let credited_arrival = inputs.classification.blocks.iter().flatten().any(|ci| {
         matches!(ci,
             crate::aims::intraprocedural::ledger_events::ClassInstr::Credit { class }
-                if partition.rep_of(*class) == view)
+                if state.partition.rep_of(*class) == view)
     });
     if credited_arrival {
-        let credited_events =
-            events::extract_class_events_with(func, classification, partition, view, true);
+        let credited_events = events::extract_class_events_with(
+            inputs.func,
+            inputs.classification,
+            state.partition,
+            view,
+            true,
+        );
         if let Some(outcome) = plan_and_verify_cure(
-            func,
-            preds,
-            regions,
-            partition,
+            inputs,
+            state,
             view,
             "credited-arrival",
             &credited_events,
             &[],
         ) {
-            return commit_cured_view(classes, verdicts, declined, view, outcome);
+            return commit_cured_view(state, view, outcome);
         }
     }
     if seeds.is_empty() && credit_sites.is_empty() {
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
-            view = ?partition.node_key(view),
+            view = ?state.partition.node_key(view),
             "view cure declined: no member-defining Project seeds"
         );
         return false;
     }
     let mut funded_events = if credit_sites.is_empty() {
-        events::extract_class_events_with(func, classification, partition, view, true)
+        events::extract_class_events_with(
+            inputs.func,
+            inputs.classification,
+            state.partition,
+            view,
+            true,
+        )
     } else {
         events::extract_class_events_with_extraction_credits(
-            func,
-            classification,
-            partition,
+            inputs.func,
+            inputs.classification,
+            state.partition,
             view,
             &credit_sites,
             true,
@@ -101,7 +99,7 @@ pub(super) fn cure_view_with_extraction_funding(
         .flatten()
         .filter_map(|ev| ev.var)
         .collect();
-    let seeds = live_seeds(func, seeds, &event_vars, partition, view);
+    let seeds = live_seeds(inputs.func, seeds, &event_vars, state.partition, view);
     // Pure-seed funding: every positive book entry is backed by a REAL
     // seed `Inc` this cure emits, so the books are runtime-grounded by
     // construction — a multi-owed dead-edge releases one front dec per
@@ -111,10 +109,8 @@ pub(super) fn cure_view_with_extraction_funding(
         funded_events.books_runtime_grounded = true;
     }
     let Some(outcome) = plan_and_verify_cure(
-        func,
-        preds,
-        regions,
-        partition,
+        inputs,
+        state,
         view,
         "extraction-funding",
         &funded_events,
@@ -122,7 +118,7 @@ pub(super) fn cure_view_with_extraction_funding(
     ) else {
         return false;
     };
-    commit_cured_view(classes, verdicts, declined, view, outcome)
+    commit_cured_view(state, view, outcome)
 }
 
 /// Collect the funding seeds (one `Inc` per member-defining `Project`) and

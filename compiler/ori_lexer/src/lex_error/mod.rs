@@ -257,5 +257,8 @@ impl LexSuggestion {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "test assertions")]
+#[expect(
+    clippy::unwrap_used,
+    reason = "diagnostic tests abort when a required rendered field is absent"
+)]
 mod tests;

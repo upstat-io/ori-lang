@@ -1,0 +1,6 @@
+@double (x: int) -> int = x + x;
+
+@test_double tests @double () -> void = {
+    let _ = double(x: 5);
+    ()
+}

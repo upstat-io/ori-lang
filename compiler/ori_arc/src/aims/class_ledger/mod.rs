@@ -36,12 +36,12 @@ mod placement;
 mod replace;
 mod verify;
 
-pub(crate) use emit::{ClassOutcome, PlannedOp};
+pub(crate) use emit::ClassOutcome;
 pub(crate) use replace::{attempt_replacement, EmissionMode, FallbackReason, ReplacementOutcome};
 pub(crate) use verify::{ClassVerdict, ReadinessSummary};
 
 #[cfg(test)]
-pub(crate) use emit::{DeclineReason, PlanSlot, PlannedOpKind};
+pub(crate) use emit::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
 
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -220,56 +220,69 @@ fn hazard_facts_for(
 /// event stream (its verdict stays honest) and reported in the readiness
 /// summary. The plan is trusted only when NO class declined and every class
 /// verifies `Clean`.
-pub(crate) fn analyze_class_ledger(
-    func: &ArcFunction,
-    classification: &LedgerClassification,
-    partition: &mut BirthSitePartition,
-    type_registry: &ori_types::TypeRegistry,
-    interner: &ori_ir::StringInterner,
-) -> ClassLedgerAnalysis {
-    let preds = compute_predecessors(func);
-    let regions = emit::CycleRegions::compute(func);
+struct InitialClassPlans {
+    classes: Vec<ClassPlan>,
+    verdicts: Vec<(NodeIdx, ClassVerdict)>,
+    declined: Vec<(NodeIdx, emit::DeclineReason)>,
+    facts: Vec<hazard::ClassHazardFacts>,
+}
+
+struct ClassPlanningInput<'a> {
+    func: &'a ArcFunction,
+    classification: &'a LedgerClassification,
+    partition: &'a mut BirthSitePartition,
+    preds: &'a [Vec<usize>],
+    regions: &'a emit::CycleRegions,
+    full_move_arms: &'a [events::FullMoveArm],
+}
+
+fn plan_initial_classes(input: &mut ClassPlanningInput<'_>) -> InitialClassPlans {
     let mut classes = Vec::new();
     let mut verdicts = Vec::new();
     let mut declined = Vec::new();
-    let mut class_facts: Vec<hazard::ClassHazardFacts> = Vec::new();
-    let full_move_arms = events::detect_full_move_arms(func, partition, type_registry);
-    for class in events::collect_classes(classification) {
-        let credit_sites = events::full_move_credit_sites(partition, &full_move_arms, class);
+    let mut facts = Vec::new();
+    for class in events::collect_classes(input.classification) {
+        let credit_sites =
+            events::full_move_credit_sites(input.partition, input.full_move_arms, class);
         let mut class_events = if credit_sites.is_empty() {
-            events::extract_class_events(func, classification, partition, class)
+            events::extract_class_events(input.func, input.classification, input.partition, class)
         } else {
             events::extract_class_events_with_extraction_credits(
-                func,
-                classification,
-                partition,
+                input.func,
+                input.classification,
+                input.partition,
                 class,
                 &credit_sites,
                 false,
             )
         };
-        events::apply_full_move_rebook(partition, &full_move_arms, class, &mut class_events);
-        let outcome = emit::plan_class(func, &preds, &regions, &class_events, &[]);
+        events::apply_full_move_rebook(
+            input.partition,
+            input.full_move_arms,
+            class,
+            &mut class_events,
+        );
+        let outcome = emit::plan_class(input.func, input.preds, input.regions, &class_events, &[]);
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
-            class = ?partition.node_key(class),
+            class = ?input.partition.node_key(class),
             events = ?class_events.per_block,
             outcome = ?outcome,
             "class plan probe"
         );
-        let planned_ops: &[PlannedOp] = match &outcome {
-            ClassOutcome::Planned(ops) => ops,
+        let planned_ops = match &outcome {
+            ClassOutcome::Planned(ops) => ops.as_slice(),
             ClassOutcome::Declined(reason) => {
                 declined.push((class, *reason));
                 &[]
             }
         };
-        let verdict = verify::verify_class(func, &preds, &class_events, planned_ops);
+        let verdict = verify::verify_class(input.func, input.preds, &class_events, planned_ops);
         let decline = declined.iter().find(|&&(c, _)| c == class).map(|&(_, r)| r);
         if verdict != ClassVerdict::Clean || decline.is_some() {
             tracing::debug!(
                 target: "ori_arc::aims::class_ledger",
-                class = ?partition.node_key(class),
+                class = ?input.partition.node_key(class),
                 verdict = ?verdict,
                 declined = ?decline,
                 origin = ?class_events.origin,
@@ -281,9 +294,40 @@ pub(crate) fn analyze_class_ledger(
             );
         }
         verdicts.push((class, verdict));
-        class_facts.push(hazard_facts_for(class, &class_events, &outcome, verdict));
+        facts.push(hazard_facts_for(class, &class_events, &outcome, verdict));
         classes.push(ClassPlan { class, outcome });
     }
+    InitialClassPlans {
+        classes,
+        verdicts,
+        declined,
+        facts,
+    }
+}
+
+pub(crate) fn analyze_class_ledger(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    type_registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+) -> ClassLedgerAnalysis {
+    let preds = compute_predecessors(func);
+    let regions = emit::CycleRegions::compute(func);
+    let full_move_arms = events::detect_full_move_arms(func, partition, type_registry);
+    let InitialClassPlans {
+        mut classes,
+        mut verdicts,
+        mut declined,
+        facts: class_facts,
+    } = plan_initial_classes(&mut ClassPlanningInput {
+        func,
+        classification,
+        partition,
+        preds: &preds,
+        regions: &regions,
+        full_move_arms: &full_move_arms,
+    });
     let full_move_construct_sites: Vec<(usize, EventSite)> = full_move_arms
         .iter()
         .map(|arm| (arm.block, EventSite::Body(arm.construct_index)))
@@ -295,20 +339,18 @@ pub(crate) fn analyze_class_ledger(
         &full_move_construct_sites,
         &classification.user_drop_admitted,
     );
-    let uncured = hazard::cure_endangered_views(
+    let cure_inputs = hazard::HazardCureInputs::new(
         func,
         classification,
-        partition,
         &preds,
         &regions,
         type_registry,
         interner,
         &full_move_arms,
-        &hazards,
-        &mut classes,
-        &mut verdicts,
-        &mut declined,
     );
+    let mut cure_state =
+        hazard::HazardCureState::new(partition, &mut classes, &mut verdicts, &mut declined);
+    let uncured = hazard::cure_endangered_views(&cure_inputs, &mut cure_state, &hazards);
     let field_view_hazard = !uncured.is_empty();
     let all_classes_clean = declined.is_empty()
         && verdicts

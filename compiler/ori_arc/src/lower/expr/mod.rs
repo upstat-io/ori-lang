@@ -192,7 +192,6 @@ impl ArcLowerer<'_> {
                         .intersects(TypeFlags::HAS_RIGID_VAR | TypeFlags::HAS_VAR)
                     {
                         tracing::debug!(
-                            target: "ori_arc::mono",
                             ty = ?ty,
                             tag = ?self.pool.tag(ty),
                             map_len = map.len(),

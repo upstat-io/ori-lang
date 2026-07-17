@@ -15,6 +15,14 @@ use ori_types::{
     FunctionSig, GenericArg, Idx, MethodProducer, MonoInstance, Pool, TypeCheckResult,
 };
 
+#[cfg(feature = "llvm")]
+mod impl_templates;
+
+#[cfg(feature = "llvm")]
+pub(crate) use impl_templates::{
+    collect_imported_impl_templates, ImportedImplTemplate, ImportedImplTemplateSource,
+};
+
 /// Exact source body namespace for one imported specialization.
 #[cfg(feature = "llvm")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,29 +42,22 @@ pub(crate) struct ImportedMonoFn {
     pub(crate) body: ImportedMonoBody,
 }
 
-/// Re-interned provider template for one imported impl method.
-#[cfg(feature = "llvm")]
-#[derive(Clone, Debug)]
-pub(crate) struct ImportedImplTemplate {
-    producer: MethodProducer,
-    signature: FunctionSig,
-    receiver: Idx,
-    receiver_body: Option<Idx>,
-    module_index: usize,
-    source_body: ori_ir::ExprId,
-    impl_type_params: Vec<ori_ir::Name>,
-    method_type_params: Vec<ori_ir::Name>,
-}
-
-/// Source-module inputs for imported impl template reconstruction.
+/// Prelude module surfaces used to register implicit generic functions.
 #[cfg(feature = "llvm")]
 #[derive(Clone, Copy)]
-pub(crate) struct ImportedImplTemplateSource<'a> {
+pub(crate) struct ImportedPreludeSource<'a> {
     pub(crate) parse: &'a crate::parser::ParseOutput,
     pub(crate) typed: &'a ori_types::TypedModule,
     pub(crate) source_pool: &'a Pool,
     pub(crate) module_index: usize,
-    pub(crate) module_identity: &'a str,
+}
+
+/// Mutable merged-pool state shared by one module's re-interning operations.
+#[cfg(feature = "llvm")]
+pub(crate) struct PoolReinternState<'a> {
+    pub(crate) merged_pool: &'a mut Pool,
+    pub(crate) cache: &'a mut FxHashMap<Idx, Idx>,
+    pub(crate) var_remap: &'a mut FxHashMap<u32, u32>,
 }
 
 /// Borrowed view over the imported-generic codegen surfaces produced by the
@@ -302,100 +303,6 @@ fn build_method_body_type_map(
     )
 }
 
-/// Reconstruct exact imported impl templates in merged-pool coordinates.
-#[cfg(feature = "llvm")]
-pub(crate) fn collect_imported_impl_templates(
-    source: ImportedImplTemplateSource<'_>,
-    merged_pool: &mut Pool,
-    cache: &mut FxHashMap<Idx, Idx>,
-    var_remap: &mut FxHashMap<u32, u32>,
-    interner: &crate::ir::StringInterner,
-) -> Vec<ImportedImplTemplate> {
-    let mut templates = Vec::new();
-    for (impl_index, implementation) in source.parse.module.impls.iter().enumerate() {
-        let impl_type_params: Vec<_> = source
-            .parse
-            .arena
-            .get_generic_params(implementation.generics)
-            .iter()
-            .filter(|generic| !generic.is_const)
-            .map(|generic| generic.name)
-            .collect();
-        for (method_index, method) in implementation.methods.iter().enumerate() {
-            let id = ori_types::ImplMethodId::new(impl_index, method.body);
-            let Some(signature) = source.typed.impl_sigs.iter().find(|sig| sig.id == id) else {
-                continue;
-            };
-            let method_type_params = source
-                .parse
-                .arena
-                .get_generic_params(method.generics)
-                .iter()
-                .filter(|generic| !generic.is_const)
-                .map(|generic| generic.name)
-                .collect();
-            let producer = ori_types::imported_method_producer(
-                source.module_identity,
-                impl_index,
-                method_index,
-                method,
-                &source.parse.arena,
-                interner,
-            );
-            let re_interned_sig = ori_types::re_intern_sig_with_var_remap(
-                &signature.sig,
-                source.source_pool,
-                merged_pool,
-                cache,
-                var_remap,
-            );
-            let receiver = ori_types::re_intern_type_with_var_remap(
-                source.source_pool,
-                signature.receiver,
-                merged_pool,
-                cache,
-                var_remap,
-            );
-            let receiver_body =
-                re_intern_receiver_body(source, signature.receiver, merged_pool, cache, var_remap);
-            templates.push(ImportedImplTemplate {
-                producer,
-                signature: re_interned_sig,
-                receiver,
-                receiver_body,
-                module_index: source.module_index,
-                source_body: method.body,
-                impl_type_params: impl_type_params.clone(),
-                method_type_params,
-            });
-        }
-    }
-    templates
-}
-
-fn re_intern_receiver_body(
-    source: ImportedImplTemplateSource<'_>,
-    receiver: Idx,
-    merged_pool: &mut Pool,
-    cache: &mut FxHashMap<Idx, Idx>,
-    var_remap: &mut FxHashMap<u32, u32>,
-) -> Option<Idx> {
-    let receiver_name = nominal_type_name(source.source_pool, receiver)?;
-    let entry = source
-        .typed
-        .types
-        .iter()
-        .find(|entry| entry.name == receiver_name)?;
-    let source_body = source.source_pool.resolve(entry.idx)?;
-    Some(ori_types::re_intern_type_with_var_remap(
-        source.source_pool,
-        source_body,
-        merged_pool,
-        cache,
-        var_remap,
-    ))
-}
-
 /// Register every `pub` generic free function of the prelude module into
 /// `imported_generic_sigs`, keyed by its source name.
 ///
@@ -411,22 +318,18 @@ fn re_intern_receiver_body(
 /// per-module var-remap so scheme-var ids stay coherent with the prelude's
 /// re-interned canon.
 #[cfg(feature = "llvm")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "prelude sig registration threads the same re-interning state the explicit-import loop uses"
-)]
 pub(crate) fn register_prelude_generic_sigs(
     imported_generic_sigs: &mut FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)>,
-    prelude_parse: &crate::parser::ParseOutput,
-    prelude_typed: &ori_types::TypedModule,
-    prelude_source_pool: &Pool,
-    prelude_module_index: usize,
-    merged_pool: &mut Pool,
-    per_module_cache: &mut FxHashMap<Idx, Idx>,
-    per_module_var_remap: &mut FxHashMap<u32, u32>,
+    source: ImportedPreludeSource<'_>,
+    state: PoolReinternState<'_>,
 ) {
-    for func in &prelude_parse.module.functions {
-        let Some(sig) = prelude_typed.functions.iter().find(|s| s.name == func.name) else {
+    let PoolReinternState {
+        merged_pool,
+        cache,
+        var_remap,
+    } = state;
+    for func in &source.parse.module.functions {
+        let Some(sig) = source.typed.functions.iter().find(|s| s.name == func.name) else {
             continue;
         };
         if !sig.is_generic() {
@@ -439,12 +342,12 @@ pub(crate) fn register_prelude_generic_sigs(
         }
         let re_interned = ori_types::re_intern_sig_with_var_remap(
             sig,
-            prelude_source_pool,
-            merged_pool,
-            per_module_cache,
-            per_module_var_remap,
+            source.source_pool,
+            &mut *merged_pool,
+            &mut *cache,
+            &mut *var_remap,
         );
-        imported_generic_sigs.insert(func.name, (re_interned, prelude_module_index, func.name));
+        imported_generic_sigs.insert(func.name, (re_interned, source.module_index, func.name));
     }
 }
 

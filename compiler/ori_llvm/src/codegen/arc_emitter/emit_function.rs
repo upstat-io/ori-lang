@@ -13,10 +13,9 @@ use super::dead_unwind::debug_assert_dead_unwind_unreachable;
 use super::emit_function_support::{scan_for_yield_elem_size_types, BlockLabel};
 use super::field_scan::{compute_pointer_only_params, scan_used_fields};
 use super::ArcIrEmitter;
-use super::FuncletPadKind;
 use crate::codegen::abi::FunctionAbi;
 use crate::codegen::eh_model::EhModel;
-use crate::codegen::value_id::ValueId;
+use crate::codegen::value_id::{FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Check if an Invoke callee will be intercepted by a builtin handler.
@@ -49,96 +48,73 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit an entire `ArcFunction` as LLVM IR.
-    ///
-    /// Pre-creates all LLVM blocks, binds function parameters, emits each
-    /// block's instructions and terminator, then patches phi nodes.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "function emission orchestrates blocks, params, phis, and terminators"
-    )]
     pub fn emit_function(&mut self, func: &ArcFunction, abi: &FunctionAbi) {
-        // Pre-scan: find dead unwind blocks. With nounwind analysis,
-        // Invoke terminators calling known-nounwind functions are downgraded
-        // to `call` + `br`, so their unwind blocks become dead code.
-        let unwind_result = self.detect_dead_unwind_blocks(func);
-        let mut dead_unwind = unwind_result.dead;
-        let mut unwind_blocks = unwind_result.live;
+        let (dead_unwind, unwind_blocks) = self.classify_unwind_blocks(func);
+        self.create_function_blocks(func, &dead_unwind);
+        self.prepare_function_inputs(func, abi);
+        let (eh_model, personality) = self.install_function_personality(func, &unwind_blocks);
 
-        // Same-frame landing blocks for inline checked-ops are NOT
-        // found by `detect_dead_unwind_blocks` — it only walks Invoke/
-        // InvokeIndirect terminators, and an inline checked-op references its
-        // landing block via metadata. Force each distinct landing block into the
-        // live unwind set so it (a) gets an LLVM block, (b) gets the catch-all
-        // landing pad prelude in the RPO loop, (c) drives the personality
-        // function (Itanium needs_personality checks `!unwind_blocks.is_empty()`).
+        let entry = self.block(func.entry);
+        self.builder.position_at_end(entry);
+        self.compute_narrowed_vars(func);
+        let phi_nodes = self.create_function_phi_nodes(func, &dead_unwind);
+        self.emit_function_blocks(
+            func,
+            abi,
+            &dead_unwind,
+            &unwind_blocks,
+            eh_model,
+            personality,
+            &phi_nodes,
+        );
+        self.patch_function_phi_nodes(&phi_nodes);
+    }
+
+    fn classify_unwind_blocks(&self, func: &ArcFunction) -> (FxHashSet<usize>, FxHashSet<usize>) {
+        let result = self.detect_dead_unwind_blocks(func);
+        let mut dead = result.dead;
+        let mut live = result.live;
         for &(_, handler) in &func.catch_scoped_checked_ops {
-            let hi = handler.index();
-            if hi < func.blocks.len() {
-                unwind_blocks.insert(hi);
-                dead_unwind.remove(&hi);
+            let index = handler.index();
+            if index < func.blocks.len() {
+                live.insert(index);
+                dead.remove(&index);
             }
         }
+        debug_assert_dead_unwind_unreachable(func, &dead);
+        (dead, live)
+    }
 
-        debug_assert_dead_unwind_unreachable(func, &dead_unwind);
-
-        // Pre-create LLVM blocks, skipping only dead unwind blocks.
-        //
-        // NOTE: Block merging (aliasing single-predecessor normal
-        // continuations to their predecessor's LLVM block) was attempted
-        // here but is fundamentally incompatible with instructions that
-        // create internal LLVM basic blocks (RcInc/RcDec on fat pointers
-        // emit inline SSO/null checks that move the builder to internal
-        // blocks like `rc_inc.sso_skip`). The self-loop detection in
-        // `br_exiting_catchpad` fails when the builder is at an internal
-        // block, causing entry blocks to gain predecessors and terminators
-        // to appear mid-block. Block merging should instead be done as a
-        // pre-emission ARC IR pass.
-        // LLVM requires the first appended block to be the function entry.
-        // Create the entry block first, then the rest in order.
-        let entry_idx = func.entry.index();
-        let mut block_map: Vec<Option<_>> = vec![None; func.blocks.len()];
-        let entry_label = BlockLabel::new(entry_idx);
-        block_map[entry_idx] = Some(
+    fn create_function_blocks(&mut self, func: &ArcFunction, dead_unwind: &FxHashSet<usize>) {
+        let entry_index = func.entry.index();
+        let mut block_map = vec![None; func.blocks.len()];
+        let entry_label = BlockLabel::new(entry_index);
+        block_map[entry_index] = Some(
             self.builder
                 .append_block(self.current_function, entry_label.as_str()),
         );
-        for (i, _) in func.blocks.iter().enumerate() {
-            if i == entry_idx || dead_unwind.contains(&i) {
+
+        for (index, _) in func.blocks.iter().enumerate() {
+            if index == entry_index || dead_unwind.contains(&index) {
                 continue;
             }
-            let label = BlockLabel::new(i);
-            block_map[i] = Some(
+            let label = BlockLabel::new(index);
+            block_map[index] = Some(
                 self.builder
                     .append_block(self.current_function, label.as_str()),
             );
         }
         self.block_map = block_map;
+    }
 
-        // Map each catch-scoped checked-op result var → its LLVM cleanup-only
-        // landing block (now guaranteed live above). `emit_instr` reads this to
-        // thread `IrBuilder::catch_unwind_target` per-dispatch around the
-        // checked op so its panic invokes to that landing pad.
-        // The catch-all landing-pad prelude is emitted for the
-        // landing block in the RPO loop below (it is in `unwind_blocks` with a
-        // non-Resume terminator → the existing `is_catch` path).
+    fn prepare_function_inputs(&mut self, func: &ArcFunction, abi: &FunctionAbi) {
         self.same_frame_catch_landing_pads.clear();
         for &(checked_var, handler) in &func.catch_scoped_checked_ops {
             self.same_frame_catch_landing_pads
                 .insert(checked_var, self.block(handler));
         }
-
-        // Resize var_map to hold all variables
         self.var_map.resize(func.var_types.len(), None);
-
-        // Pre-scan ALL for-yield elem_size vars to override ARC-emitted
-        // pool_type_store_size values with the LLVM struct store size.
-        // This is critical for reordered structs/tuples where the ARC side
-        // computes the original layout size (e.g. 48) but LLVM uses the
-        // reordered layout (e.g. 40).
         self.for_yield_elem_size_types = scan_for_yield_elem_size_types(func, self.interner);
-
-        // Derive the int-element accumulator subset — only those elem_size
-        // vars are safe to override with narrowed sizes.
         if self.narrowed_int_collection_element_width().is_some() {
             self.for_yield_int_elem_sizes = self
                 .for_yield_elem_size_types
@@ -150,21 +126,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .collect();
         }
 
-        // Pre-scan: determine which struct fields are actually used per variable.
-        // This enables surgical struct loading — only accessed fields are loaded.
         let used_fields = scan_used_fields(func);
+        let pointer_only = self.find_pointer_only_params(func);
+        #[cfg(debug_assertions)]
+        Self::assert_pointer_only_params_have_no_rc(func, &pointer_only);
+        self.bind_function_params(func, abi, &pointer_only, &used_fields);
+        self.pointer_only_params = pointer_only;
+        self.compute_borrowed_rooted_vars(func);
+    }
 
-        // Identify parameters whose loaded aggregate value is never needed.
-        // These params are only used as Apply/Invoke args where pointer
-        // forwarding (via borrowed_param_ptrs) handles everything. Skipping
-        // the load eliminates dead `%param.load` instructions in the IR.
-        // Method identifiers are Ori `Name`s — compare interned Names, not
-        // looked-up strings (per the interning discipline).
+    fn find_pointer_only_params(&mut self, func: &ArcFunction) -> FxHashSet<ArcVarId> {
         let length_name = self.interner.intern("length");
         let len_name = self.interner.intern("len");
-        let pointer_only = compute_pointer_only_params(func, |callee, args| {
+        compute_pointer_only_params(func, |callee, args| {
             let callee_name = self.interner.lookup(callee);
-            // Not intercepted → ABI path → pointer forwarding handles args
             if !super::context::is_callee_intercepted(
                 callee_name,
                 callee,
@@ -175,288 +150,228 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ) {
                 return true;
             }
-            // Intercepted, but str.length/str.len use str_to_ptr_forwarded
-            // which checks borrowed_param_ptrs — loaded value not needed.
             if (callee == length_name || callee == len_name) && !args.is_empty() {
                 let receiver_ty = func.var_type(args[0]);
-                if self.pool.tag(receiver_ty) == ori_types::Tag::Str {
-                    return true;
-                }
+                return self.pool.tag(receiver_ty) == ori_types::Tag::Str;
             }
             false
-        });
+        })
+    }
 
-        // Invariant: pointer-only params must not have RcInc/RcDec in the ARC IR.
-        // A borrowed parameter has no logical transfer/release pair, so the
-        // current compiled-counter carrier must contain no RC ops for it. If
-        // this fires, the param was incorrectly classified as pointer-only.
-        #[cfg(debug_assertions)]
+    #[cfg(debug_assertions)]
+    fn assert_pointer_only_params_have_no_rc(
+        func: &ArcFunction,
+        pointer_only: &FxHashSet<ArcVarId>,
+    ) {
         for block in &func.blocks {
             for instr in &block.body {
-                match instr {
-                    ArcInstr::RcInc { var, .. } | ArcInstr::RcDec { var, .. } => {
-                        debug_assert!(
-                            !pointer_only.contains(var),
-                            "pointer-only param v{} has RC operation — cannot skip load",
-                            var.raw(),
-                        );
-                    }
-                    _ => {}
+                if let ArcInstr::RcInc { var, .. } | ArcInstr::RcDec { var, .. } = instr {
+                    debug_assert!(
+                        !pointer_only.contains(var),
+                        "pointer-only param v{} has RC operation — cannot skip load",
+                        var.raw(),
+                    );
                 }
             }
         }
+    }
 
-        // Bind function parameters and compute borrowed-rooted variables.
-        self.bind_function_params(func, abi, &pointer_only, &used_fields);
-        // Record the pointer-only params whose entry load was elided so a
-        // Direct (by-value) call argument can reload the aggregate from the
-        // source pointer instead of passing the zero placeholder.
-        self.pointer_only_params = pointer_only;
-        self.compute_borrowed_rooted_vars(func);
-
-        // Set personality function on the LLVM function if any real invokes exist.
-        // Required for any function containing `invoke`/`landingpad` (Itanium) or
-        // `catchswitch`/`catchpad`/`cleanuppad` (SEH).
-        //
-        // On SEH, catch-type unwind blocks use the `ori_try_call` trampoline
-        // (catch_unwind at the runtime level) instead of LLVM `catchpad`.
-        // This avoids the "Rust panics must be rethrown" abort on Windows MSVC
-        // where Rust detects foreign (non-catch_unwind) exception handlers.
-        // Only cleanup-type blocks (Resume terminator) require the personality
-        // function on SEH — catch blocks become regular blocks.
+    fn install_function_personality(
+        &mut self,
+        func: &ArcFunction,
+        unwind_blocks: &FxHashSet<usize>,
+    ) -> (EhModel, Option<FunctionId>) {
         let eh_model = self.builder.eh_model();
         let needs_personality = if eh_model == EhModel::Seh {
-            // On SEH, only cleanup blocks (Resume terminator) need personality
             unwind_blocks
                 .iter()
-                .any(|&idx| matches!(func.blocks[idx].terminator, ArcTerminator::Resume))
+                .any(|&index| matches!(func.blocks[index].terminator, ArcTerminator::Resume))
         } else {
             !unwind_blocks.is_empty()
         };
-        let personality_id = if needs_personality {
-            let personality_name = eh_model.personality_name();
-            let pid = self.builder.runtime_fn(personality_name);
-            self.builder.set_personality(self.current_function, pid);
-            Some(pid)
-        } else {
-            None
-        };
+        let personality = needs_personality.then(|| {
+            let id = self.builder.runtime_fn(eh_model.personality_name());
+            self.builder.set_personality(self.current_function, id);
+            id
+        });
+        (eh_model, personality)
+    }
 
-        // Position at entry block
-        let entry = self.block(func.entry);
-        self.builder.position_at_end(entry);
-
-        // Compute which local int variables can be narrowed.
-        self.compute_narrowed_vars(func);
-
-        // Create phi nodes for blocks with parameters (skip dead unwind blocks).
-        // Two-pass approach: (1) create all phis first to satisfy LLVM's invariant
-        // that ALL phi nodes must be grouped at the top of a block, then (2) emit
-        // sext instructions for narrowed phis.
-        let mut phi_nodes: Vec<Vec<(ArcVarId, ValueId)>> = Vec::new();
-        // Track narrowed phis for deferred sext emission: (var, phi_val, block_id)
-        let mut narrowed_phis: Vec<(ArcVarId, ValueId, ori_arc::ir::ArcBlockId)> = Vec::new();
+    fn create_function_phi_nodes(
+        &mut self,
+        func: &ArcFunction,
+        dead_unwind: &FxHashSet<usize>,
+    ) -> Vec<Vec<(ArcVarId, ValueId)>> {
+        let mut phi_nodes = Vec::with_capacity(func.blocks.len());
+        let mut narrowed = Vec::new();
         for block in &func.blocks {
             let mut block_phis = Vec::new();
             if !block.params.is_empty() && !dead_unwind.contains(&block.id.index()) {
                 self.builder.position_at_end(self.block(block.id));
                 for &(var, ty) in &block.params {
-                    // Use narrow type for narrowed int phis
                     if let Some(&width) = self.narrowed_vars.get(&var) {
                         let narrow_ty = self.llvm_type_for_int_width(width);
-                        let phi_val = self.builder.phi(narrow_ty, "phi.narrow");
-                        // Defer sext to after ALL phis are created (LLVM phi grouping)
-                        narrowed_phis.push((var, phi_val, block.id));
-                        block_phis.push((var, phi_val));
+                        let phi = self.builder.phi(narrow_ty, "phi.narrow");
+                        narrowed.push((var, phi, block.id));
+                        block_phis.push((var, phi));
                     } else {
                         let llvm_ty = self.resolve_type(ty);
-                        let phi_val = self.builder.phi(llvm_ty, "phi");
-                        self.def_var_repr(var, phi_val, func);
-                        block_phis.push((var, phi_val));
+                        let phi = self.builder.phi(llvm_ty, "phi");
+                        self.def_var_repr(var, phi, func);
+                        block_phis.push((var, phi));
                     }
                 }
             }
             phi_nodes.push(block_phis);
         }
 
-        // Emit sext instructions AFTER all phis are created.
-        // Position after the last phi in each block, then emit sext.
-        for (var, phi_val, block_id) in narrowed_phis {
+        for (var, phi, block_id) in narrowed {
             self.builder.position_at_end(self.block(block_id));
             let i64_ty = self.builder.i64_type();
-            let sext_val = self.builder.sext(phi_val, i64_ty, "phi.wide");
-            self.def_var(var, EmittedValue::Immediate(sext_val));
+            let widened = self.builder.sext(phi, i64_ty, "phi.wide");
+            self.def_var(var, EmittedValue::Immediate(widened));
         }
+        phi_nodes
+    }
 
-        // Emit each block's body and terminator in Reverse Post-Order (RPO).
-        //
-        // RPO ensures that a block's dominator (and thus the variable definitions
-        // from preceding blocks) is visited first. This is critical after
-        // `expand_reuse`, which appends fast/slow/merge blocks at the end of the
-        // block array — their Invoke terminators may target existing blocks with
-        // lower array indices, creating forward references if emitted in array order.
-        //
-        // Dead unwind blocks are skipped entirely — no LLVM block was created.
-        // Live unwind blocks start with a landing pad (Itanium) or SEH pad (MSVC).
-        //
-        // **Itanium**:
-        // - Cleanup (Resume): `landingpad cleanup` → RC decs → `resume`
-        // - Catch (Jump): `landingpad catch null` → `ori_catch_cleanup` → RC decs → br
-        //
-        // **SEH**:
-        // - Cleanup (Resume): `cleanuppad` → RC decs → `cleanupret`
-        // - Catch (Jump): NO EH prelude — catch blocks are regular blocks
-        //   reached via `ori_try_call` trampoline (see `catch_thunk.rs`)
-        // Seed RPO from each same-frame checked-op landing block — it has no CFG
-        // predecessor (an inline checked-op references it via no terminator), so
-        // entry-only RPO would skip it and never emit its landing-pad prelude.
-        let catch_handler_roots: Vec<usize> = func
+    fn emit_function_blocks(
+        &mut self,
+        func: &ArcFunction,
+        abi: &FunctionAbi,
+        dead_unwind: &FxHashSet<usize>,
+        unwind_blocks: &FxHashSet<usize>,
+        eh_model: EhModel,
+        personality: Option<FunctionId>,
+        phi_nodes: &[Vec<(ArcVarId, ValueId)>],
+    ) {
+        let catch_roots = func
             .catch_scoped_checked_ops
             .iter()
             .map(|&(_, handler)| handler.index())
-            .collect();
-        let rpo = super::rpo::compute_block_rpo(func, &dead_unwind, &catch_handler_roots);
-        let mut landingpad_values: FxHashMap<usize, ValueId> = FxHashMap::default();
-        let errors_before_emission = self.builder.codegen_error_count();
-        for &block_idx in &rpo {
-            let block = &func.blocks[block_idx];
+            .collect::<Vec<_>>();
+        let rpo = super::rpo::compute_block_rpo(func, dead_unwind, &catch_roots);
+        let mut landingpad_values = FxHashMap::default();
+        let errors_at_start = self.builder.codegen_error_count();
 
+        for &block_index in &rpo {
+            let block = &func.blocks[block_index];
             self.builder.position_at_end(self.block(block.id));
-
-            // If codegen errors accumulated in a previous block, emit
-            // `unreachable` stubs for all remaining blocks. Continuing
-            // to emit instructions with undefined variables cascades
-            // into LLVM C++ crashes (SIGSEGV).
-            // Note: type_error_count is NOT checked here — unresolved
-            // type variables produce TypeInfo::Error which is handled
-            // gracefully by emission. Only actual codegen errors (wrong
-            // LLVM value types) warrant bail-out.
-            if self.builder.codegen_error_count() > errors_before_emission {
+            if self.builder.codegen_error_count() > errors_at_start {
                 self.builder.unreachable();
                 continue;
             }
-
-            // Clear CSE cache at ARC block boundary. Each ARC block gets
-            // an independent cache — the LLVM phi node for loop variables
-            // produces new SSA values each iteration, naturally preventing
-            // cross-iteration staleness.
             self.builder.clear_cse_cache();
-
-            // Live unwind blocks: emit EH prelude (landingpad or SEH pad).
-            // On SEH, catch-type blocks are skipped (handled by ori_try_call).
-            if unwind_blocks.contains(&block.id.index()) {
-                let is_catch = !matches!(block.terminator, ArcTerminator::Resume);
-                let is_seh_catch = eh_model == EhModel::Seh && is_catch;
-
-                if is_seh_catch {
-                    // SEH catch blocks use the ori_try_call trampoline.
-                    // No catchpad prelude — this is a regular block reached
-                    // via conditional branch from the ori_try_call call site.
-                    // Call ori_catch_cleanup for consistency (it's a no-op).
-                    let func_id = self.builder.runtime_fn("ori_catch_cleanup");
-                    let null_exc = self.builder.const_null_ptr();
-                    self.builder.call(func_id, &[null_exc], "");
-                } else if let Some(pid) = personality_id {
-                    match eh_model {
-                        EhModel::Itanium => {
-                            if is_catch {
-                                let lp = self.builder.landingpad_catch_all(pid, "lp.catch");
-                                landingpad_values.insert(block.id.index(), lp);
-                                let exc_ptr = self.builder.extract_value(lp, 0, "exc.ptr");
-                                if let Some(exc_ptr) = exc_ptr {
-                                    self.emit_catch_cleanup(exc_ptr);
-                                }
-                            } else {
-                                let lp = self.builder.landingpad(pid, true, "lp");
-                                landingpad_values.insert(block.id.index(), lp);
-                            }
-                        }
-                        EhModel::Seh => {
-                            // Only cleanup blocks reach here on SEH
-                            debug_assert!(!is_catch, "SEH catch blocks handled above");
-                            let pad = self.builder.cleanuppad(None, &[]);
-                            self.current_funclet_pad = Some((pad, FuncletPadKind::Cleanup));
-                        }
-                    }
-                }
-            }
-
-            let mut block_terminated_by_noreturn = false;
-            let errors_before_instr_loop = self.builder.codegen_error_count();
-            for (instr_idx, instr) in block.body.iter().enumerate() {
-                self.current_block_idx = block_idx;
-                self.current_instr_idx = instr_idx;
-                self.emit_instr(instr, func);
-
-                // After a codegen error, skip remaining instructions in
-                // this block. Continuing with poison fallback values
-                // cascades into LLVM C++ builder calls with mismatched
-                // types (SIGSEGV). Emit `unreachable` so the block has
-                // a valid terminator.
-                if self.builder.codegen_error_count() > errors_before_instr_loop {
-                    self.builder.unreachable();
-                    block_terminated_by_noreturn = true;
-                    break;
-                }
-
-                // After emitting a call to a known-noreturn function,
-                // emit `unreachable` and skip remaining instructions +
-                // terminator. The callee never returns, so all subsequent
-                // code in this block is dead.
-                if let ArcInstr::Apply { func: callee, .. } = instr {
-                    let callee_str = self.interner.lookup(*callee);
-                    if crate::codegen::runtime_decl::runtime_functions::is_rt_fn_noreturn(
-                        callee_str,
-                    ) == Some(true)
-                    {
-                        self.builder.unreachable();
-                        block_terminated_by_noreturn = true;
-                        break;
-                    }
-                }
-            }
-
-            if block_terminated_by_noreturn {
-                self.current_funclet_pad = None;
+            self.emit_unwind_prelude(
+                func,
+                block_index,
+                unwind_blocks,
+                eh_model,
+                personality,
+                &mut landingpad_values,
+            );
+            if self.emit_block_instructions(func, block_index) {
+                self.current_cleanup_pad = None;
                 continue;
             }
 
-            // Set instruction index for terminator: one past the last body
-            // instruction, matching the convention in compute_cow_annotations.
             self.current_instr_idx = block.body.len();
             self.emit_terminator(
                 &block.terminator,
                 block.id,
-                &phi_nodes,
+                phi_nodes,
                 abi,
                 &landingpad_values,
                 func,
             );
+            self.current_cleanup_pad = None;
+        }
+        self.terminate_unvisited_blocks(&rpo);
+    }
 
-            // Clear funclet pad after terminator emission — next block starts fresh
-            self.current_funclet_pad = None;
+    fn emit_unwind_prelude(
+        &mut self,
+        func: &ArcFunction,
+        block_index: usize,
+        unwind_blocks: &FxHashSet<usize>,
+        eh_model: EhModel,
+        personality: Option<FunctionId>,
+        landingpad_values: &mut FxHashMap<usize, ValueId>,
+    ) {
+        let block = &func.blocks[block_index];
+        if !unwind_blocks.contains(&block.id.index()) {
+            return;
         }
 
-        // Terminate blocks that RPO didn't visit (unreachable from entry).
-        // These blocks were pre-created as LLVM blocks but never filled with
-        // instructions. LLVM requires every block to have a terminator.
-        {
-            let visited: FxHashSet<usize> = rpo.iter().copied().collect();
-            for (i, llvm_block) in self.block_map.iter().enumerate() {
-                if let Some(block_id) = llvm_block {
-                    if !visited.contains(&i) {
-                        self.builder.position_at_end(*block_id);
-                        self.builder.unreachable();
-                    }
+        let is_catch = !matches!(block.terminator, ArcTerminator::Resume);
+        if eh_model == EhModel::Seh && is_catch {
+            let cleanup = self.builder.runtime_fn("ori_catch_cleanup");
+            let null_exception = self.builder.const_null_ptr();
+            self.builder.call(cleanup, &[null_exception], "");
+            return;
+        }
+        let Some(personality) = personality else {
+            return;
+        };
+        match eh_model {
+            EhModel::Itanium if is_catch => {
+                let pad = self.builder.landingpad_catch_all(personality, "lp.catch");
+                landingpad_values.insert(block.id.index(), pad);
+                if let Some(exception) = self.builder.extract_value(pad, 0, "exc.ptr") {
+                    self.emit_catch_cleanup(exception);
+                }
+            }
+            EhModel::Itanium => {
+                let pad = self.builder.landingpad(personality, true, "lp");
+                landingpad_values.insert(block.id.index(), pad);
+            }
+            EhModel::Seh => {
+                let pad = self.builder.cleanuppad(None, &[]);
+                self.current_cleanup_pad = Some(pad);
+            }
+        }
+    }
+
+    fn emit_block_instructions(&mut self, func: &ArcFunction, block_index: usize) -> bool {
+        let block = &func.blocks[block_index];
+        let errors_at_start = self.builder.codegen_error_count();
+        for (instr_index, instr) in block.body.iter().enumerate() {
+            self.current_block_idx = block_index;
+            self.current_instr_idx = instr_index;
+            self.emit_instr(instr, func);
+
+            if self.builder.codegen_error_count() > errors_at_start {
+                self.builder.unreachable();
+                return true;
+            }
+            if let ArcInstr::Apply { func: callee, .. } = instr {
+                let callee_name = self.interner.lookup(*callee);
+                if crate::codegen::runtime_decl::runtime_functions::is_rt_fn_noreturn(callee_name)
+                    == Some(true)
+                {
+                    self.builder.unreachable();
+                    return true;
                 }
             }
         }
+        false
+    }
 
-        // Patch phi incoming values
-        for &(block_idx, param_idx, value, source_block) in &self.phi_incoming {
-            let (_, phi_val) = phi_nodes[block_idx][param_idx];
-            self.builder
-                .add_phi_incoming(phi_val, &[(value, source_block)]);
+    fn terminate_unvisited_blocks(&mut self, rpo: &[usize]) {
+        let visited = rpo.iter().copied().collect::<FxHashSet<_>>();
+        for (index, llvm_block) in self.block_map.iter().enumerate() {
+            if let Some(block_id) = llvm_block {
+                if !visited.contains(&index) {
+                    self.builder.position_at_end(*block_id);
+                    self.builder.unreachable();
+                }
+            }
+        }
+    }
+
+    fn patch_function_phi_nodes(&mut self, phi_nodes: &[Vec<(ArcVarId, ValueId)>]) {
+        for &(block_index, param_index, value, source_block) in &self.phi_incoming {
+            let (_, phi) = phi_nodes[block_index][param_index];
+            self.builder.add_phi_incoming(phi, &[(value, source_block)]);
         }
     }
 }

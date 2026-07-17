@@ -57,15 +57,16 @@ use super::state_map::ApplyAliasSource;
 /// demand to `src` (transparent alias). The
 /// alias HAS NO INDEPENDENT RC slot at the IR level — `src`'s RC ops cover
 /// the shared allocation. Recording an `apply_result_aliases` entry keyed off
-/// a Let Var alias would mislead downstream consumers (BUG-04-090 session
-/// D regression on `arc::test_rc_alias_owned_call_then_root_use`).
+/// a Let Var alias would mislead downstream consumers (as pinned by
+/// `arc::test_rc_alias_owned_call_then_root_use`).
 ///
 /// Indirect Let aliases (`%c = Var(%b)` where `%b = Var(%a)`) need full chain
 /// tracing — see [`is_let_var_alias`].
 ///
-/// Crate-visible: shared with `realize::emit_unified::build_return_project_inc_targets`
-/// (BUG-04-090 F-prj fix) — both consumers answer the same "let-alias chain
-/// root" question, so the resolution has one canonical home here.
+/// Crate-visible: shared with
+/// `realize::emit_unified::build_return_project_inc_targets` — both consumers
+/// answer the same "let-alias chain root" question, so the resolution has one
+/// canonical home here.
 pub(crate) fn build_let_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
     let mut result = FxHashMap::default();
     for block in &func.blocks {
@@ -191,8 +192,8 @@ pub(crate) fn populate_apply_result_aliases(
 /// downstream `should_suppress_apply_aliased_dec` consumer fires dec
 /// suppression based on the CALLER'S local Access of the arg (Owned →
 /// suppress; Borrowed → no-op), and class membership prevents double-suppression
-/// across alias siblings. The earlier BUG-04-090 SKIP-rule
-/// was superseded by the class-aware emission path; the regression
+/// across alias siblings. The earlier skip rule was superseded by the
+/// class-aware emission path; the regression
 /// `arc::test_rc_alias_owned_call_then_root_use` is now guarded by the
 /// class-membership check at the realize walk rather than by skipping at install
 /// time.
@@ -215,7 +216,7 @@ fn install_alias_entry(
     // - Identity (return_alias = Some): callee returns the param itself
     //   (Direct) or a single-field projection (Project). `uf.union` fires
     //   in ssa_alias_classes for Direct (caller-arg and result are the
-    //   SAME RC slot). BUG-04-090 shape.
+    //   SAME RC slot).
     // - Containment (return_alias = None ∧ return_payload_contains_param =
     //   true): callee constructs a transitive-drop variant containing an
     //   alias of the param (`wrap_ok(m) = Ok(m)`). PIN-2 analogous: NO

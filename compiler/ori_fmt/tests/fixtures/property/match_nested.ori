@@ -1,0 +1,1 @@
+@f (x: Option<Option<int>>) -> int = match x { Some(inner) -> match inner { Some(v) -> v, None -> 0 }, None -> -1 }

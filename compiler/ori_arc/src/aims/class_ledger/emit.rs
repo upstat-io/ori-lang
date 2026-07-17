@@ -189,16 +189,16 @@ pub(crate) fn plan_class(
     let seed_roots: Vec<ArcVarId> = seed_ops.iter().map(|op| op.var).collect();
     let mut ops = seed_ops.to_vec();
     releases::pair_arm_local_seed_releases(func, preds, events, &mut ops);
-    match incs::plan_incs(
+    match incs::plan_incs(&incs::IncPlanningInput {
         func,
         events,
-        &demand_live,
-        &credit_kills,
-        &seed_vars,
-        &seed_roots,
+        demand_live: &demand_live,
+        credit_kills: &credit_kills,
+        seed_vars: &seed_vars,
+        seed_roots: &seed_roots,
         full_closure,
         dom,
-    ) {
+    }) {
         Ok(planned) => ops.extend(planned),
         Err(reason) => return ClassOutcome::Declined(reason),
     }
@@ -224,16 +224,16 @@ pub(crate) fn plan_class(
         return ClassOutcome::Declined(DeclineReason::NonConverged);
     }
     let plan_error = releases::plan_releases(
-        func,
-        &release_ctx,
-        preds,
-        regions,
-        events,
-        &activity_live,
-        full_closure,
-        &nets.entry_net,
-        &delta,
-        dom,
+        &releases::ReleasePlanningInput {
+            ctx: &release_ctx,
+            preds,
+            regions,
+            events,
+            activity_live: &activity_live,
+            full_closure,
+            entry_net: &nets.entry_net,
+            delta: &delta,
+        },
         &mut ops,
     )
     .err();

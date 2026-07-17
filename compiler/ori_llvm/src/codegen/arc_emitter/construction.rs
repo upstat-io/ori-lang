@@ -8,410 +8,351 @@ use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
 use super::ArcIrEmitter;
-use crate::codegen::value_id::ValueId;
+use crate::codegen::value_id::{LLVMTypeId, ValueId};
+
+struct EffectiveVariantArgs {
+    values: Vec<ValueId>,
+    arc_vars: Vec<ArcVarId>,
+    field_types: Vec<Idx>,
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a `Construct` instruction.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "construct dispatch over struct/enum/closure/tuple types"
-    )]
     pub(super) fn emit_construct(
         &mut self,
         ty: Idx,
         ctor: &CtorKind,
         args: &[ArcVarId],
     ) -> ValueId {
-        let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
+        let arg_vals = args.iter().map(|arg| self.var(*arg)).collect::<Vec<_>>();
         let llvm_ty = self.resolve_type(ty);
 
         match ctor {
             CtorKind::Struct(_) | CtorKind::Tuple => {
-                // Unit/void tuples resolve to i64 in LLVM (not a struct),
-                // because LLVM void can't be stored. Return a zero constant directly
-                // instead of calling build_struct on a non-struct type.
-                let resolved_ty = self.pool.resolve_fully(ty);
-                if matches!(self.pool.tag(resolved_ty), Tag::Unit | Tag::Never) {
-                    return self.builder.const_zero_ty(llvm_ty);
-                }
-                // Recursive back-edge fields are boxed: the slot holds an RC
-                // pointer to the heap-boxed child, not the inline aggregate.
-                // Box each boxed field (in declaration order) before reorder.
-                let decl_field_types = self.struct_field_types(resolved_ty);
-                let has_boxed_fields = decl_field_types
-                    .iter()
-                    .any(|&ft| is_boxed_enum_field(self.pool, ty, ft));
-                let boxed_args: Vec<ValueId> = if has_boxed_fields {
-                    arg_vals
-                        .iter()
-                        .enumerate()
-                        .map(|(i, &val)| match decl_field_types.get(i).copied() {
-                            Some(ft) if is_boxed_enum_field(self.pool, ty, ft) => {
-                                self.box_recursive_field(val, ft, args.get(i).copied())
-                            }
-                            _ => val,
-                        })
-                        .collect()
-                } else {
-                    arg_vals.clone()
-                };
-                // Reorder args from declaration order to memory order
-                // before truncation and LLVM struct construction.
-                let mem_args = self.reorder_args_to_memory_order(&boxed_args, ty);
-                // Truncate canonical-width (i64) values to narrowed
-                // field width (i8/i16/i32) when the struct has narrowed fields.
-                let narrowed_args = self.trunc_for_narrowed_struct(llvm_ty, &mem_args, ty);
-                self.builder.build_struct(llvm_ty, &narrowed_args, "ctor")
+                self.emit_struct_or_tuple_construct(ty, llvm_ty, &arg_vals, args)
             }
-
             CtorKind::EnumVariant { variant, .. } => {
-                // Tagged-pointer enum — encode `(payload | tag)`
-                // into a single i64 slot. Unit variants use `0 | tag = tag`;
-                // pointer variants use `(arg_ptr | tag)`. The eligibility
-                // check (`can_use_tagged_pointer`) guarantees each variant
-                // has at most one field, so `arg_vals` is `[ptr]` or `[]`.
-                //
-                // Ordering note: this MUST precede the scalar-int guard below.
-                // A tagged-pointer enum resolves to LLVM `i64`, so
-                // `is_scalar_int_type` is TRUE for it; emitting a bare
-                // `const_int(i64, variant)` there would drop the payload bits.
-                // Mirrors the Project side (`instr_dispatch.rs::emit_project`):
-                // tagged-ptr → tagless → scalar-int → niche.
-                if self.get_tagged_ptr_encoding(ty).is_some() {
-                    let payload = match arg_vals.as_slice() {
-                        // Unit variant: zero pointer slot, tag bits identify variant.
-                        [] => self.builder.const_i64(0),
-                        [payload] => *payload,
-                        _ => unreachable!("tagged-pointer variant must have at most one field"),
-                    };
-                    return self.tagged_ptr_encode(payload, *variant, "tagged.ctor");
-                }
-
-                // Tagless single-variant enum — struct-like, no tag,
-                // no niche; box recursive back-edge fields directly.
-                if self.is_tagless_enum(ty) {
-                    return self.emit_tagless_variant_construct(llvm_ty, ty, &arg_vals, args);
-                }
-
-                // Scalar-integer sum (e.g. `Ordering` = i8, or a future scalar
-                // niche): the resolved LLVM type is a bare non-aggregate integer
-                // and the variant value IS the discriminant. Emit `const_int`
-                // directly; the explicit-tag-struct dispatch below would
-                // otherwise build_struct/insert_value on a scalar (the
-                // `insert_value on non-struct value` malformed IR). Fires AFTER
-                // the tagged-ptr/tagless checks (a tagged-ptr enum also lowers
-                // to a scalar `i64` but is NOT a bare discriminant) and before
-                // the niche/explicit-tag paths — same order as the Project side.
-                if self.builder.is_scalar_int_type(llvm_ty) {
-                    return self.builder.const_int_of_type(llvm_ty, u64::from(*variant));
-                }
-
-                // Niche-encoded enum — no tag field, payload at index 0.
-                if let Some(encoding) = self.get_niche_encoding(ty) {
-                    return self
-                        .emit_niche_variant_construct(llvm_ty, &arg_vals, &encoding, *variant);
-                }
-
-                // Explicit tag layout: { tag, [M x i64] payload } where the tag
-                // type is narrowed via min_tag_width.
-                let tag_val =
-                    self.builder
-                        .const_int_for_struct_field(llvm_ty, 0, u64::from(*variant));
-
-                // Check for recursive payload fields that need RC allocation.
-                // These require the alloca roundtrip because we need to store
-                // the RC pointer into memory, then load back as i64. Covers
-                // user-defined enums AND Option/Result (whose recursive Some/Ok/
-                // Err payload is boxed identically per the boxing SSOT — the
-                // layout resolver boxes the same position, so Construct must
-                // match or the box pointer and inline value disagree).
-                let resolved_enum = self.pool.resolve_fully(ty);
-                let variant_field_types = match self.pool.tag(resolved_enum) {
-                    Tag::Enum => {
-                        let all_variants = self.pool.enum_variants(resolved_enum);
-                        // OOB variant = upstream typeck/canon bug; an empty
-                        // fallback would silently skip payload RC allocation.
-                        let Some((_, fields)) = all_variants.get(*variant as usize) else {
-                            unreachable!("Construct variant {variant} out of bounds for enum type")
-                        };
-                        fields.clone()
-                    }
-                    // Option: Some (variant 0) carries the inner type; None (1) empty.
-                    Tag::Option if *variant == 0 => vec![self.pool.option_inner(resolved_enum)],
-                    Tag::Option if *variant == 1 => Vec::new(),
-                    // Result: Ok (variant 0) carries ok type; Err (variant 1) carries err type.
-                    Tag::Result if *variant == 0 => vec![self.pool.result_ok(resolved_enum)],
-                    Tag::Result if *variant == 1 => vec![self.pool.result_err(resolved_enum)],
-                    Tag::Option | Tag::Result => {
-                        unreachable!(
-                            "Construct variant {variant} out of bounds for {resolved_enum:?}"
-                        )
-                    }
-                    unexpected => unreachable!(
-                        "explicit-tag Construct requires enum/Option/Result, got {unexpected:?}"
-                    ),
-                };
-
-                // For user-defined enums (Tag::Enum), filter out
-                // Unit/Never args — they are zero-sized and don't occupy payload
-                // space. For Option/Result (where variant_field_types is empty
-                // because they're not Tag::Enum), use args unchanged.
-                let (eff_args, eff_arc_args, eff_field_types);
-                if !variant_field_types.is_empty()
-                    && variant_field_types.iter().any(|ft| {
-                        let r = self.pool.resolve_fully(*ft);
-                        matches!(self.pool.tag(r), Tag::Unit | Tag::Never)
-                    })
-                {
-                    let non_void: Vec<usize> = variant_field_types
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, ft)| {
-                            let r = self.pool.resolve_fully(**ft);
-                            !matches!(self.pool.tag(r), Tag::Unit | Tag::Never)
-                        })
-                        .map(|(i, _)| i)
-                        .collect();
-                    eff_args = non_void.iter().map(|&i| arg_vals[i]).collect();
-                    eff_arc_args = non_void.iter().map(|&i| args[i]).collect();
-                    eff_field_types = non_void.iter().map(|&i| variant_field_types[i]).collect();
-                } else {
-                    eff_args = arg_vals.clone();
-                    eff_arc_args = args.to_vec();
-                    eff_field_types = variant_field_types;
-                }
-
-                let has_boxed_fields = eff_field_types
-                    .iter()
-                    .any(|&ft| is_boxed_enum_field(self.pool, ty, ft));
-
-                if has_boxed_fields {
-                    // Recursive variant: fall back to alloca+GEP+store+load
-                    // because RC-allocated pointers must be stored through memory.
-                    self.emit_variant_via_alloca(
-                        llvm_ty,
-                        ty,
-                        tag_val,
-                        &eff_args,
-                        &eff_arc_args,
-                        &eff_field_types,
-                    )
-                } else {
-                    // Optimized case: pure insertvalue chain (no memory roundtrip).
-                    // Start from zeroinitializer (unused payload slots are zero,
-                    // safe for hashing/comparison).
-                    self.emit_variant_via_insertvalue(
-                        llvm_ty,
-                        ty,
-                        tag_val,
-                        &eff_args,
-                        &eff_arc_args,
-                        &eff_field_types,
-                    )
-                }
+                self.emit_enum_variant_construct(ty, llvm_ty, *variant, &arg_vals, args)
             }
-
-            CtorKind::ListLiteral => {
-                // List construction: allocate data, store elements, build struct
-                let count = arg_vals.len();
-                let type_info = self.type_info.get(ty);
-                let super::super::type_info::TypeInfo::List { element } = &type_info else {
-                    unreachable!("ListLiteral TypeInfo mismatch: {type_info:?}")
-                };
-                let elem_idx = *element;
-
-                // Use narrowed element type/size if the ReprPlan
-                // has narrowed this collection's int elements (e.g., i8 for [int]
-                // with elements in [-128, 127]).
-                let collection_idx = self.pool.resolve_fully(ty);
-                let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_idx);
-                let elem_size = self.collection_elem_size(collection_idx, elem_idx);
-
-                let cap_val = self.builder.const_i64(count as i64);
-                let esize_val = self.builder.const_i64(elem_size as i64);
-
-                let alloc_fn = self.builder.runtime_fn("ori_list_alloc_data");
-                let Some(data_ptr) =
-                    self.builder
-                        .call(alloc_fn, &[cap_val, esize_val], "list.data")
-                else {
-                    panic!("ori_list_alloc_data must return a data pointer");
-                };
-
-                // Store each element into the data buffer.
-                // For narrowed collections, trunc each i64 value to the narrow
-                // width (e.g., i8) before storing.
-                for (i, &val) in arg_vals.iter().enumerate() {
-                    let idx = self.builder.const_i64(i as i64);
-                    let elem_ptr =
-                        self.builder
-                            .gep(elem_llvm_ty, data_ptr, &[idx], "list.elem_ptr");
-                    let store_val = self.trunc_for_narrowed_collection_element(
-                        val,
-                        collection_idx,
-                        "list.elem.trunc",
-                    );
-                    self.builder.store(store_val, elem_ptr);
-                }
-
-                // Store elem_dec_fn and elem_count in the RC header so that
-                // any RcDec reaching zero can perform element cleanup.
-                // For scalar elements, elem_dec_fn is null (no RC children) —
-                // the call writes null over zero-initialized null (idempotent).
-                let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_idx);
-                let store_dec_fn = self.builder.runtime_fn("ori_buffer_store_elem_dec");
-                self.builder
-                    .call(store_dec_fn, &[data_ptr, elem_dec_fn], "");
-                let store_count_fn = self.builder.runtime_fn("ori_buffer_store_elem_count");
-                self.builder.call(store_count_fn, &[data_ptr, cap_val], "");
-
-                // Build list struct: {i64 len, i64 cap, ptr data}
-                self.builder
-                    .build_struct(llvm_ty, &[cap_val, cap_val, data_ptr], "list")
-            }
-
-            CtorKind::MapLiteral => {
-                // Map literal: args are [key0, val0, key1, val1,...]
-                // Hash table layout: [metadata | keys | values]
-                assert!(
-                    arg_vals.len().is_multiple_of(2),
-                    "MapLiteral requires alternating key/value arguments"
-                );
-                let count = arg_vals.len() / 2;
-                let type_info = self.type_info.get(ty);
-                let super::super::type_info::TypeInfo::Map { key, value } = &type_info else {
-                    unreachable!("MapLiteral TypeInfo mismatch: {type_info:?}")
-                };
-                let (key_idx, val_idx) = (*key, *value);
-                let key_llvm_ty = self.resolve_type(key_idx);
-                let val_llvm_ty = self.resolve_type(val_idx);
-                // Use narrowed element sizes for map buffers.
-                let collection_idx = self.pool.resolve_fully(ty);
-                let key_size = self.collection_elem_size(collection_idx, key_idx);
-                let val_size = self.collection_elem_size(collection_idx, val_idx);
-
-                let count_val = self.builder.const_i64(count as i64);
-                let ks_val = self.builder.const_i64(key_size as i64);
-                let vs_val = self.builder.const_i64(val_size as i64);
-
-                // Allocate hash table buffer via runtime
-                let i64_ty = self.builder.i64_type();
-                let out_cap = self.builder.alloca(i64_ty, "map.out_cap");
-                let alloc_fn = self.builder.runtime_fn("ori_map_literal_alloc");
-                let Some(data_ptr) =
-                    self.builder
-                        .call(alloc_fn, &[count_val, ks_val, vs_val, out_cap], "map.data")
-                else {
-                    panic!("ori_map_literal_alloc must return a data pointer");
-                };
-                let cap_val = self.builder.load(i64_ty, out_cap, "map.cap");
-
-                // Get equality/hash thunks and owned-element cleanup functions.
-                let Some(eq_thunk) = self.get_or_create_eq_thunk(key_idx) else {
-                    panic!("type-checked map key must have an equality implementation");
-                };
-                let Some(hash_thunk) = self.get_or_create_hash_thunk(key_idx) else {
-                    panic!("type-checked map key must have a hash implementation");
-                };
-                let key_dec_fn = self.get_or_generate_elem_dec_fn(key_idx);
-                let val_dec_fn = self.get_or_generate_elem_dec_fn(val_idx);
-
-                // Insert each key-value pair in source order. The runtime
-                // reports whether it added a distinct key so duplicate literal
-                // entries do not inflate the map's logical length.
-                let key_tmp = self.builder.alloca(key_llvm_ty, "map.key_tmp");
-                let val_tmp = self.builder.alloca(val_llvm_ty, "map.val_tmp");
-                let put_fn = self.builder.runtime_fn("ori_map_literal_put");
-                let mut actual_count_val = self.builder.const_i64(0);
-                for pair in arg_vals.chunks_exact(2) {
-                    self.builder.store(pair[0], key_tmp);
-                    self.builder.store(pair[1], val_tmp);
-                    let Some(inserted) = self.emit_rt_call(
-                        put_fn,
-                        &[
-                            data_ptr, cap_val, key_tmp, val_tmp, ks_val, vs_val, eq_thunk,
-                            hash_thunk, key_dec_fn, val_dec_fn,
-                        ],
-                        "map.put",
-                    ) else {
-                        panic!("ori_map_literal_put must return an insertion flag");
-                    };
-                    actual_count_val = self.builder.add(actual_count_val, inserted, "map.len");
-                }
-
-                // Build map struct: {i64 unique_count, i64 cap, ptr data}
-                self.builder
-                    .build_struct(llvm_ty, &[actual_count_val, cap_val, data_ptr], "map")
-            }
-
-            CtorKind::SetLiteral => {
-                // Set literal: hash table layout [metadata | elements]
-                let count = arg_vals.len();
-                let type_info = self.type_info.get(ty);
-                let super::super::type_info::TypeInfo::Set { element } = &type_info else {
-                    unreachable!("SetLiteral TypeInfo mismatch: {type_info:?}")
-                };
-                let elem_idx = *element;
-                // Sets always use canonical element sizes — eq/hash thunks load
-                // full-width values, so narrowing set elements would cause
-                // out-of-bounds reads. Phase C collection narrowing is gated
-                // to list types only in ori_repr.
-                let elem_llvm_ty = self.resolve_type(elem_idx);
-                let elem_size = self.element_store_size(elem_idx);
-
-                let count_val = self.builder.const_i64(count as i64);
-                let esize_val = self.builder.const_i64(elem_size as i64);
-
-                // Allocate hash table buffer via runtime
-                let i64_ty = self.builder.i64_type();
-                let out_cap = self.builder.alloca(i64_ty, "set.out_cap");
-                let alloc_fn = self.builder.runtime_fn("ori_set_literal_alloc");
-                let Some(data_ptr) =
-                    self.builder
-                        .call(alloc_fn, &[count_val, esize_val, out_cap], "set.data")
-                else {
-                    panic!("ori_set_literal_alloc must return a data pointer");
-                };
-                let cap_val = self.builder.load(i64_ty, out_cap, "set.cap");
-
-                // Get hash thunk for the element type
-                let Some(hash_thunk) = self.get_or_create_hash_thunk(elem_idx) else {
-                    panic!("type-checked set element must have a hash implementation");
-                };
-
-                // Insert each element via runtime (canonical width).
-                let elem_tmp = self.builder.alloca(elem_llvm_ty, "set.elem_tmp");
-                let put_fn = self.builder.runtime_fn("ori_set_literal_put");
-                for &val in &arg_vals {
-                    self.builder.store(val, elem_tmp);
-                    self.emit_rt_call(
-                        put_fn,
-                        &[data_ptr, cap_val, elem_tmp, esize_val, hash_thunk],
-                        "set.put",
-                    );
-                }
-
-                // Store elem_dec_fn and elem_count in the RC header.
-                let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_idx);
-                let store_dec_fn = self.builder.runtime_fn("ori_buffer_store_elem_dec");
-                self.builder
-                    .call(store_dec_fn, &[data_ptr, elem_dec_fn], "");
-                let store_count_fn = self.builder.runtime_fn("ori_buffer_store_elem_count");
-                self.builder
-                    .call(store_count_fn, &[data_ptr, count_val], "");
-
-                // Build set struct: {i64 len, i64 cap, ptr data}
-                self.builder
-                    .build_struct(llvm_ty, &[count_val, cap_val, data_ptr], "set")
-            }
-
+            CtorKind::ListLiteral => self.emit_list_literal_construct(ty, llvm_ty, &arg_vals),
+            CtorKind::MapLiteral => self.emit_map_literal_construct(ty, llvm_ty, &arg_vals),
+            CtorKind::SetLiteral => self.emit_set_literal_construct(ty, llvm_ty, &arg_vals),
             CtorKind::Closure { .. } => {
-                // Closures are always emitted via `PartialApply` in ARC IR,
-                // which calls `emit_partial_apply` → `build_closure_env`.
-                // `Construct { ctor: Closure }` is never produced by the lowerer.
                 unreachable!("closures use PartialApply, not Construct")
             }
         }
+    }
+
+    fn emit_struct_or_tuple_construct(
+        &mut self,
+        ty: Idx,
+        llvm_ty: LLVMTypeId,
+        arg_vals: &[ValueId],
+        arc_args: &[ArcVarId],
+    ) -> ValueId {
+        let resolved_ty = self.pool.resolve_fully(ty);
+        if matches!(self.pool.tag(resolved_ty), Tag::Unit | Tag::Never) {
+            return self.builder.const_zero_ty(llvm_ty);
+        }
+
+        let field_types = self.struct_field_types(resolved_ty);
+        let has_boxed_fields = field_types
+            .iter()
+            .any(|&field_ty| is_boxed_enum_field(self.pool, ty, field_ty));
+        let boxed_args = if has_boxed_fields {
+            arg_vals
+                .iter()
+                .enumerate()
+                .map(|(index, &value)| match field_types.get(index).copied() {
+                    Some(field_ty) if is_boxed_enum_field(self.pool, ty, field_ty) => {
+                        self.box_recursive_field(value, field_ty, arc_args.get(index).copied())
+                    }
+                    _ => value,
+                })
+                .collect::<Vec<_>>()
+        } else {
+            arg_vals.to_vec()
+        };
+
+        let memory_args = self.reorder_args_to_memory_order(&boxed_args, ty);
+        let narrowed_args = self.trunc_for_narrowed_struct(llvm_ty, &memory_args, ty);
+        self.builder.build_struct(llvm_ty, &narrowed_args, "ctor")
+    }
+
+    fn emit_enum_variant_construct(
+        &mut self,
+        ty: Idx,
+        llvm_ty: LLVMTypeId,
+        variant: u32,
+        arg_vals: &[ValueId],
+        arc_args: &[ArcVarId],
+    ) -> ValueId {
+        if self.get_tagged_ptr_encoding(ty).is_some() {
+            let payload = match arg_vals {
+                [] => self.builder.const_i64(0),
+                [payload] => *payload,
+                _ => unreachable!("tagged-pointer variant must have at most one field"),
+            };
+            return self.tagged_ptr_encode(payload, variant, "tagged.ctor");
+        }
+        if self.is_tagless_enum(ty) {
+            return self.emit_tagless_variant_construct(llvm_ty, ty, arg_vals, arc_args);
+        }
+        if self.builder.is_scalar_int_type(llvm_ty) {
+            return self.builder.const_int_of_type(llvm_ty, u64::from(variant));
+        }
+        if let Some(encoding) = self.get_niche_encoding(ty) {
+            return self.emit_niche_variant_construct(llvm_ty, arg_vals, &encoding, variant);
+        }
+
+        let tag = self
+            .builder
+            .const_int_for_struct_field(llvm_ty, 0, u64::from(variant));
+        let field_types = self.variant_field_types(ty, variant);
+        let effective = self.effective_variant_args(arg_vals, arc_args, field_types);
+        let has_boxed_fields = effective
+            .field_types
+            .iter()
+            .any(|&field_ty| is_boxed_enum_field(self.pool, ty, field_ty));
+
+        if has_boxed_fields {
+            self.emit_variant_via_alloca(
+                llvm_ty,
+                ty,
+                tag,
+                &effective.values,
+                &effective.arc_vars,
+                &effective.field_types,
+            )
+        } else {
+            self.emit_variant_via_insertvalue(
+                llvm_ty,
+                ty,
+                tag,
+                &effective.values,
+                &effective.arc_vars,
+                &effective.field_types,
+            )
+        }
+    }
+
+    fn variant_field_types(&self, ty: Idx, variant: u32) -> Vec<Idx> {
+        let resolved = self.pool.resolve_fully(ty);
+        match self.pool.tag(resolved) {
+            Tag::Enum => {
+                let variants = self.pool.enum_variants(resolved);
+                let Some((_, fields)) = variants.get(variant as usize) else {
+                    unreachable!("Construct variant {variant} out of bounds for enum type")
+                };
+                fields.clone()
+            }
+            Tag::Option if variant == 0 => vec![self.pool.option_inner(resolved)],
+            Tag::Option if variant == 1 => Vec::new(),
+            Tag::Result if variant == 0 => vec![self.pool.result_ok(resolved)],
+            Tag::Result if variant == 1 => vec![self.pool.result_err(resolved)],
+            Tag::Option | Tag::Result => {
+                unreachable!("Construct variant {variant} out of bounds for {resolved:?}")
+            }
+            unexpected => {
+                unreachable!(
+                    "explicit-tag Construct requires enum/Option/Result, got {unexpected:?}"
+                )
+            }
+        }
+    }
+
+    fn effective_variant_args(
+        &self,
+        arg_vals: &[ValueId],
+        arc_args: &[ArcVarId],
+        field_types: Vec<Idx>,
+    ) -> EffectiveVariantArgs {
+        let is_void = |field_ty| {
+            let resolved = self.pool.resolve_fully(field_ty);
+            matches!(self.pool.tag(resolved), Tag::Unit | Tag::Never)
+        };
+        if !field_types.iter().copied().any(is_void) {
+            return EffectiveVariantArgs {
+                values: arg_vals.to_vec(),
+                arc_vars: arc_args.to_vec(),
+                field_types,
+            };
+        }
+
+        let non_void = field_types
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, field_ty)| !is_void(*field_ty))
+            .collect::<Vec<_>>();
+        EffectiveVariantArgs {
+            values: non_void.iter().map(|(index, _)| arg_vals[*index]).collect(),
+            arc_vars: non_void.iter().map(|(index, _)| arc_args[*index]).collect(),
+            field_types: non_void.into_iter().map(|(_, field_ty)| field_ty).collect(),
+        }
+    }
+
+    fn emit_list_literal_construct(
+        &mut self,
+        ty: Idx,
+        llvm_ty: LLVMTypeId,
+        arg_vals: &[ValueId],
+    ) -> ValueId {
+        let count = arg_vals.len();
+        let type_info = self.type_info.get(ty);
+        let super::super::type_info::TypeInfo::List { element } = &type_info else {
+            unreachable!("ListLiteral TypeInfo mismatch: {type_info:?}")
+        };
+        let elem_idx = *element;
+        let collection_idx = self.pool.resolve_fully(ty);
+        let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_idx);
+        let elem_size = self.collection_elem_size(collection_idx, elem_idx);
+        let cap = self.builder.const_i64(count as i64);
+        let elem_size_value = self.builder.const_i64(elem_size as i64);
+        let alloc = self.builder.runtime_fn("ori_list_alloc_data");
+        let Some(data_ptr) = self
+            .builder
+            .call(alloc, &[cap, elem_size_value], "list.data")
+        else {
+            panic!("ori_list_alloc_data must return a data pointer");
+        };
+
+        for (index, &value) in arg_vals.iter().enumerate() {
+            let index = self.builder.const_i64(index as i64);
+            let elem_ptr = self
+                .builder
+                .gep(elem_llvm_ty, data_ptr, &[index], "list.elem_ptr");
+            let stored = self.trunc_for_narrowed_collection_element(
+                value,
+                collection_idx,
+                "list.elem.trunc",
+            );
+            self.builder.store(stored, elem_ptr);
+        }
+
+        let elem_dec = self.get_or_generate_elem_dec_fn(elem_idx);
+        let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+        self.builder.call(store_dec, &[data_ptr, elem_dec], "");
+        let store_count = self.builder.runtime_fn("ori_buffer_store_elem_count");
+        self.builder.call(store_count, &[data_ptr, cap], "");
+        self.builder
+            .build_struct(llvm_ty, &[cap, cap, data_ptr], "list")
+    }
+
+    fn emit_map_literal_construct(
+        &mut self,
+        ty: Idx,
+        llvm_ty: LLVMTypeId,
+        arg_vals: &[ValueId],
+    ) -> ValueId {
+        assert!(
+            arg_vals.len().is_multiple_of(2),
+            "MapLiteral requires alternating key/value arguments"
+        );
+        let count = arg_vals.len() / 2;
+        let type_info = self.type_info.get(ty);
+        let super::super::type_info::TypeInfo::Map { key, value } = &type_info else {
+            unreachable!("MapLiteral TypeInfo mismatch: {type_info:?}")
+        };
+        let (key_idx, value_idx) = (*key, *value);
+        let key_llvm_ty = self.resolve_type(key_idx);
+        let value_llvm_ty = self.resolve_type(value_idx);
+        let collection_idx = self.pool.resolve_fully(ty);
+        let key_size = self
+            .builder
+            .const_i64(self.collection_elem_size(collection_idx, key_idx) as i64);
+        let value_size = self
+            .builder
+            .const_i64(self.collection_elem_size(collection_idx, value_idx) as i64);
+        let count_value = self.builder.const_i64(count as i64);
+
+        let i64_ty = self.builder.i64_type();
+        let out_cap = self.builder.alloca(i64_ty, "map.out_cap");
+        let alloc = self.builder.runtime_fn("ori_map_literal_alloc");
+        let Some(data_ptr) = self.builder.call(
+            alloc,
+            &[count_value, key_size, value_size, out_cap],
+            "map.data",
+        ) else {
+            panic!("ori_map_literal_alloc must return a data pointer");
+        };
+        let cap = self.builder.load(i64_ty, out_cap, "map.cap");
+        let Some(eq) = self.get_or_create_eq_thunk(key_idx) else {
+            panic!("type-checked map key must have an equality implementation");
+        };
+        let Some(hash) = self.get_or_create_hash_thunk(key_idx) else {
+            panic!("type-checked map key must have a hash implementation");
+        };
+        let key_dec = self.get_or_generate_elem_dec_fn(key_idx);
+        let value_dec = self.get_or_generate_elem_dec_fn(value_idx);
+        let key_tmp = self.builder.alloca(key_llvm_ty, "map.key_tmp");
+        let value_tmp = self.builder.alloca(value_llvm_ty, "map.val_tmp");
+        let put = self.builder.runtime_fn("ori_map_literal_put");
+        let mut actual_count = self.builder.const_i64(0);
+
+        for pair in arg_vals.chunks_exact(2) {
+            self.builder.store(pair[0], key_tmp);
+            self.builder.store(pair[1], value_tmp);
+            let Some(inserted) = self.emit_rt_call(
+                put,
+                &[
+                    data_ptr, cap, key_tmp, value_tmp, key_size, value_size, eq, hash, key_dec,
+                    value_dec,
+                ],
+                "map.put",
+            ) else {
+                panic!("ori_map_literal_put must return an insertion flag");
+            };
+            actual_count = self.builder.add(actual_count, inserted, "map.len");
+        }
+        self.builder
+            .build_struct(llvm_ty, &[actual_count, cap, data_ptr], "map")
+    }
+
+    fn emit_set_literal_construct(
+        &mut self,
+        ty: Idx,
+        llvm_ty: LLVMTypeId,
+        arg_vals: &[ValueId],
+    ) -> ValueId {
+        let count = arg_vals.len();
+        let type_info = self.type_info.get(ty);
+        let super::super::type_info::TypeInfo::Set { element } = &type_info else {
+            unreachable!("SetLiteral TypeInfo mismatch: {type_info:?}")
+        };
+        let elem_idx = *element;
+        let elem_llvm_ty = self.resolve_type(elem_idx);
+        let elem_size = self
+            .builder
+            .const_i64(self.element_store_size(elem_idx) as i64);
+        let count_value = self.builder.const_i64(count as i64);
+        let i64_ty = self.builder.i64_type();
+        let out_cap = self.builder.alloca(i64_ty, "set.out_cap");
+        let alloc = self.builder.runtime_fn("ori_set_literal_alloc");
+        let Some(data_ptr) =
+            self.builder
+                .call(alloc, &[count_value, elem_size, out_cap], "set.data")
+        else {
+            panic!("ori_set_literal_alloc must return a data pointer");
+        };
+        let cap = self.builder.load(i64_ty, out_cap, "set.cap");
+        let Some(hash) = self.get_or_create_hash_thunk(elem_idx) else {
+            panic!("type-checked set element must have a hash implementation");
+        };
+        let elem_tmp = self.builder.alloca(elem_llvm_ty, "set.elem_tmp");
+        let put = self.builder.runtime_fn("ori_set_literal_put");
+        for &value in arg_vals {
+            self.builder.store(value, elem_tmp);
+            self.emit_rt_call(put, &[data_ptr, cap, elem_tmp, elem_size, hash], "set.put");
+        }
+
+        let elem_dec = self.get_or_generate_elem_dec_fn(elem_idx);
+        let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+        self.builder.call(store_dec, &[data_ptr, elem_dec], "");
+        let store_count = self.builder.runtime_fn("ori_buffer_store_elem_count");
+        self.builder.call(store_count, &[data_ptr, count_value], "");
+        self.builder
+            .build_struct(llvm_ty, &[count_value, cap, data_ptr], "set")
     }
 
     /// Construct a niche-encoded enum variant.

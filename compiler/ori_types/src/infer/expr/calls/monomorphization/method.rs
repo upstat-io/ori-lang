@@ -1,4 +1,7 @@
 //! Monomorphization instance recording for generic method calls.
+//!
+//! Diagnostics share the `ori_types::mono` target with free-function
+//! monomorphization so one filter observes the complete realization request.
 
 use ori_ir::{ExprId, Name};
 use rustc_hash::FxHashMap;
@@ -118,17 +121,8 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
     }
 
     // Receiver carrier: the FULL concrete receiver Idx (e.g. `Box<int>`, NOT
-    // the generic `Box<T>` shell). A receiver that still has type vars is not a
-    // concrete instantiation — skip per the deferred-receiver carve-out.
-    // Deep link-following resolution that PRESERVES the `Applied` shape: the
-    // receiver is `Applied(Box, [Var])` whose element Var is linked to the
-    // concrete type at the call site, but the cached `HAS_VAR` flag on the
-    // Applied survives shallow `engine.resolve`. `substitute_in_pool` with an
-    // empty map follows each child Var's `VarState::Link` to `int`, re-interning
-    // `Applied(Box, [int])`. `resolve_fully` is WRONG here — its matching-args
-    // fallback collapses `Box<int>` to the concrete struct, whose `generic_shell`
-    // no longer matches the impl method's `Applied(Box, [RigidVar])` self-param
-    // shell at LLVM mono lookup (`collect_mono_functions`).
+    // `substitute_in_pool` follows linked children while retaining the `Applied`
+    // shell required to match an impl method's rigid self parameter.
     let receiver = substitute_in_pool(engine.pool_mut(), receiver_ty, &FxHashMap::default());
     let ret_resolved = engine.resolve(sig.ret);
     tracing::debug!(

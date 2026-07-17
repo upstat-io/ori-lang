@@ -161,12 +161,15 @@ pub(crate) fn infer_try(
 
 /// Infer the type of an await expression.
 pub(crate) fn infer_await(
-    _engine: &mut InferEngine<'_>,
+    engine: &mut InferEngine<'_>,
     _arena: &ExprArena,
     _inner: ExprId,
-    _span: Span,
+    span: Span,
 ) -> Idx {
-    // TODO(typeck): Implement await inference.
+    engine.push_error(TypeCheckError::unsupported_feature(
+        span,
+        "await expressions",
+    ));
     Idx::ERROR
 }
 

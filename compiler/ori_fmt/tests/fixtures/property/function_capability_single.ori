@@ -1,0 +1,1 @@
+@fetch (url: str) -> str uses Http = "response";

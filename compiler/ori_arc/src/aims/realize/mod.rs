@@ -1,25 +1,8 @@
-//! Unified realization — one decision surface for all AIMS outputs.
+//! AIMS decisions for logical ownership events, reuse, COW, and drop hints.
 //!
-//! Two-phase realization reading the converged [`AimsStateMap`] through
-//! unified decision functions.
-//!
-//! # Architecture
-//!
-//! - **Phase 1** ([`realize_rc_reuse`]): pre-merge. The class ledger freezes
-//!   logical ownership events at Step 4b; Phase 7 maps them into the current
-//!   transitional `Rc*` carrier. Reuse consumes the same events, followed by
-//!   edge cleanup.
-//! - **Phase 2** ([`realize_annotations`]): post-merge. Walks post-merge IR
-//!   using ArcVarId-keyed state lookups for COW and drop hint decisions.
-//!
-//! Both phases share the same [`AimsStateMap`] and decision surface.
-//! No output owns an independent decision procedure.
-//!
-//! # References
-//!
-//! - AIMS unified logical ownership-event + reuse realization
-//! - Perceus (Reinking et al., PLDI 2021): historical RC + reuse influence
-//! - FP² (Marshall et al., ESOP 2022): FIP-guided reuse decisions
+//! [`realize_rc_reuse`] consumes converged state before block merging;
+//! [`realize_annotations`] consumes the same state after merging. Both use the
+//! shared [`AimsStateMap`] and decision functions.
 
 pub mod decide;
 #[cfg(test)]
@@ -47,42 +30,26 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use crate::uniqueness::drop_hints::DropHints;
 use crate::uniqueness::CowAnnotations;
 
-/// Result of the unified realization — all outputs in one struct.
-///
-/// Phase 1 (`realize_rc_reuse`) populates `rc_ops_inserted`,
-/// `reuse_ops_inserted`, and `fip_evidence`. Phase 2
-/// (`realize_annotations`) populates `cow_annotations` and `drop_hints`.
-/// Both phases accumulate into `synergy_metrics`.
+/// Outputs accumulated across ownership/reuse realization and annotations.
 #[derive(Debug)]
 pub struct RealizationResult {
-    /// Logical ownership events materialized in the current transitional
-    /// carrier (`RcInc` + `RcDec` count).
+    /// Logical ownership events materialized as `RcInc` and `RcDec`.
     pub rc_ops_inserted: usize,
-    /// Reuse operations inserted (`Reset` + `Reuse` + the transitional
-    /// `IsShared` sharing-query carrier count).
+    /// Reuse operations materialized as `Reset`, `Reuse`, and `IsShared`.
     pub reuse_ops_inserted: usize,
-    /// COW annotations computed in Phase 2, keyed by `(block_idx, instr_idx)`.
+    /// COW annotations keyed by `(block_idx, instr_idx)`.
     pub cow_annotations: CowAnnotations,
-    /// Drop hints computed in Phase 2, keyed by `(block_idx, instr_idx)`.
+    /// Drop hints keyed by `(block_idx, instr_idx)`.
     pub drop_hints: DropHints,
-    /// FIP diagnostic evidence (missed reuses, gate records).
-    /// NOT the authoritative FIP classification — that is
-    /// `MemoryContract.fip`, owned by interprocedural analysis.
+    /// Missed-reuse and gate evidence for FIP verification.
     pub fip_evidence: FipEvidence,
-    /// Cross-dimensional synergy metrics.
-    ///
-    /// Phase 1 populates ownership-event/reuse metrics (reported through the
-    /// current RC-named compatibility fields); Phase 2 populates COW metrics.
-    /// `canonicalize_cross_fires` is set externally from backward analysis.
+    /// Cross-dimensional metrics accumulated by both realization passes.
     pub synergy_metrics: metrics::SynergyMetrics,
 }
 
-/// FIP diagnostic evidence accumulated during realization.
+/// FIP evidence accumulated for contract verification.
 ///
-/// This is NOT the authoritative FIP classification. `MemoryContract.fip`
-/// is authoritative (computed by `extract_contract()` in interprocedural
-/// analysis). Realization consumes the contract and emits evidence that
-/// verification can cross-check against it.
+/// [`MemoryContract::fip`] remains the authoritative classification.
 #[derive(Debug, Default)]
 pub struct FipEvidence {
     /// FIP gate records from reuse emission.
@@ -91,22 +58,12 @@ pub struct FipEvidence {
     pub missed_reuses: usize,
 }
 
-/// Transitional Phase 1: ownership-event carrier and reuse emission (pre-merge).
+/// Materializes logical ownership events and reuse before CFG merging.
 ///
-/// Reads the converged [`AimsStateMap`] and materializes the current shared
-/// carrier's `RcInc`/`RcDec`, `Reset`/`Reuse`, argument-ownership, and edge
-/// cleanup records. The concrete RC spelling is migration debt: production AIMS
-/// freezes logical events and admissibility facts, and each validated physical
-/// plan chooses a mechanism that satisfies them.
-///
-/// Returns a partial [`RealizationResult`] — `cow_annotations` and
-/// `drop_hints` are empty (populated by Phase 2 after `merge_blocks`).
-///
-/// # Pipeline position
-///
-/// Runs AFTER `analyze_function()` (step 4) and BEFORE `verify()` (step 6).
-#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
-pub fn realize_rc_reuse(
+/// The converged state supplies the class-ledger events; the current IR encodes
+/// them with `RcInc`/`RcDec`, `Reset`/`Reuse`, argument ownership, and edge
+/// cleanup. COW and drop outputs remain empty until [`realize_annotations`].
+pub(crate) fn realize_rc_reuse(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
     contracts: &FxHashMap<Name, MemoryContract>,
@@ -115,25 +72,12 @@ pub fn realize_rc_reuse(
     pool: &Pool,
     type_registry: &TypeRegistry,
 ) -> RealizationResult {
-    // emit_arg_ownership runs as a Step 4b-prelude in
-    // `pipeline/aims_pipeline/mod.rs::run_aims_pipeline` BETWEEN Step 4
-    // (`analyze_function`) and class-ledger Step-4b emission so the planner
-    // observes converged arg_ownership (AIMS Invariant 3 — no stale summaries).
-    // This function therefore does NOT invoke
-    // emit_arg_ownership — the prelude has already populated arg_ownership
-    // before it runs. `_builtins` is unused here (kept for signature
-    // stability); contracts / interner / pool are consumed by the current
-    // ownership-event carrier (Sub-step B) and reuse (Sub-step C) sub-steps.
-
-    // Sub-step B: mechanically lower the verified class-ledger plan. Its RL-1
-    // owner-credit events become transitional RcInc instructions in Phase 7;
-    // the class-ledger path is the sole materializer of that current carrier.
+    // INVARIANT: Argument ownership is converged before this realization pass.
     let (rc_ops_inserted, death_events, alloc_events, phase1_metrics) = {
         let _span = tracing::debug_span!("realize_rc_unified").entered();
         emit_unified::emit_rc_unified(func, state_map, pool, interner, contracts, type_registry)
     };
 
-    // Sub-step C: emit reuse from the collected death/alloc events.
     let (reuse_ops_inserted, fip_evidence) = {
         let _span = tracing::debug_span!("realize_reuse").entered();
         let reuse_result = crate::aims::emit_reuse::emit_reuse_from_events(
@@ -163,9 +107,7 @@ pub fn realize_rc_reuse(
         (ops, evidence)
     };
 
-    // Phase 1 synergy metrics from the unified walk.
-    // Report deferred to Phase 2 (realize_annotations) so both phases
-    // contribute before the single report call.
+    // INVARIANT: Metrics report only after both realization passes contribute.
     let synergy_metrics = phase1_metrics;
 
     RealizationResult {
@@ -178,8 +120,7 @@ pub fn realize_rc_reuse(
     }
 }
 
-/// Converged-analysis inputs for [`realize_annotations`], read together by the
-/// Phase 2 walk.
+/// Inputs read together by post-merge annotation decisions.
 pub struct AnnotationEnv<'a> {
     pub state_map: &'a AimsStateMap,
     pub interner: &'a ori_ir::StringInterner,
@@ -189,22 +130,11 @@ pub struct AnnotationEnv<'a> {
     pub func_names: &'a rustc_hash::FxHashSet<ori_ir::Name>,
 }
 
-/// Phase 2: COW and drop hint annotations (post-merge).
+/// Derives COW and drop annotations from post-merge IR in one walk.
 ///
-/// Walks the post-merge IR once, building an [`AnnotationSiteContext`] for
-/// each COW or drop site and calling [`decide_annotations()`] to get the
-/// unified Phase 2 decision. This replaces the separate calls to
-/// `compute_aims_cow_annotations()` and `compute_aims_drop_hints()`.
-///
-/// # Pipeline position
-///
-/// Runs AFTER `merge_blocks()` (step 9).
-///
-/// # Panics
-///
-/// Does NOT panic on failure — logs `tracing::error!` and leaves
-/// annotations empty (functionally correct but suboptimal).
-pub fn realize_annotations(
+/// Each candidate site receives one [`AnnotationSiteContext`], so COW and drop
+/// decisions read the same converged facts.
+pub(crate) fn realize_annotations(
     func: &ArcFunction,
     env: &AnnotationEnv<'_>,
     result: &mut RealizationResult,
@@ -262,11 +192,10 @@ pub fn realize_annotations(
     result.cow_annotations = cow_annotations;
     result.drop_hints = drop_hints;
 
-    // Report combined Phase 1+2 metrics.
     result.synergy_metrics.report(func.name.raw());
 }
 
-/// Pre-computed context for the Phase 2 annotation walk.
+/// Precomputed inputs shared across annotation sites.
 struct AnnotationWalkCtx<'a> {
     func: &'a ArcFunction,
     state_map: &'a AimsStateMap,
@@ -278,7 +207,7 @@ struct AnnotationWalkCtx<'a> {
     borrowed_call_args: &'a rustc_hash::FxHashSet<ArcVarId>,
 }
 
-/// Annotate a single block's body and terminator for Phase 2 decisions.
+/// Applies COW and drop decisions to one block and its terminator.
 fn annotate_block(
     ctx: &AnnotationWalkCtx<'_>,
     blk: crate::ir::ArcBlockId,
@@ -312,10 +241,7 @@ fn annotate_block(
         };
 
         let state = ctx.state_map.var_state_at_block_entry(blk, var);
-        // Read uniqueness via the contract-aware effective helper so a
-        // callee's ReturnContract reaches the COW Apply annotation site.
-        // Other dimensions (access, consumption, cardinality) are not
-        // contract-narrowed by TF-6 and continue reading the raw lattice value.
+        // INVARIANT: Only uniqueness is contract-narrowed at COW sites.
         let site_ctx = AnnotationSiteContext {
             var,
             uniqueness: ctx.state_map.effective_uniqueness_at_block_entry(blk, var),
@@ -352,7 +278,6 @@ fn annotate_block(
         }
     }
 
-    // Terminator: check for COW Invoke.
     if let ArcTerminator::Invoke {
         func: callee, args, ..
     } = &block.terminator
@@ -360,10 +285,7 @@ fn annotate_block(
         if ctx.cow_names.contains(callee) && !args.is_empty() {
             let receiver = args[0];
             let state = ctx.state_map.var_state_at_block_entry(blk, receiver);
-            // Uses the same effective-uniqueness helper as the body-Apply
-            // COW site, applied symmetrically to Invoke terminators whose
-            // dst contract narrowing is populated by
-            // populate_call_result_states.
+            // INVARIANT: Invoke and Apply sites use the same effective uniqueness.
             let site_ctx = AnnotationSiteContext {
                 var: receiver,
                 uniqueness: ctx

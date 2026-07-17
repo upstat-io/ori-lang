@@ -117,8 +117,13 @@ def scan_text(content: str) -> list[tuple[int, str]]:
     return out
 
 
+# A finding requires a `cloned` binding, so a file without the substring can
+# never produce one — skipped without decode or line-walking.
 def scan_file(path: Path) -> list[Finding]:
-    content = path.read_text(encoding="utf-8", errors="replace")
+    raw = path.read_bytes()
+    if b"cloned" not in raw:
+        return []
+    content = raw.decode("utf-8", errors="replace")
     return [Finding(str(path), ln, name, "operation-name-without-operation")
             for ln, name in scan_text(content)]
 

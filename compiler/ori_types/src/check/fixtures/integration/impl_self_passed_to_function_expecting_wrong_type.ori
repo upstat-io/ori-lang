@@ -1,0 +1,7 @@
+type Point = { x: int, y: int }
+
+@consume (s: str) -> int = 0;
+
+impl Point {
+    @bad (self) -> int = consume(s: self);
+}

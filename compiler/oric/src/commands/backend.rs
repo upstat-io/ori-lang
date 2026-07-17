@@ -18,7 +18,7 @@ use oric::parser::ParseOutput;
 use oric::CompilerDb;
 
 #[cfg(feature = "llvm")]
-use super::codegen_pipeline::{run_codegen_pipeline, LlvmCodegenOutput};
+use super::codegen_pipeline::{run_codegen_pipeline, CodegenPipelineInput, LlvmCodegenOutput};
 #[cfg(feature = "llvm")]
 use super::ImportedSurfaces;
 
@@ -42,23 +42,23 @@ impl<'ctx> CodegenBackend<'ctx> for LlvmBackend<'ctx, '_> {
         &self,
         program: &RealizedProgram<'ctx, 'p>,
     ) -> Result<Self::Artifact, BackendError> {
-        run_codegen_pipeline(
-            self.context,
-            self.db,
-            self.parse_result,
-            program.type_result,
-            program.pool,
-            program.canon,
-            program.source_path,
-            program.module_name,
-            program.symbol_prefix,
-            self.import_sigs,
-            self.imported,
-            program.target_triple,
-            program.narrowing_policy,
-            program.imported_type_metadata,
-            program.imported_collection_surfaces,
-        )
+        run_codegen_pipeline(CodegenPipelineInput {
+            context: self.context,
+            db: self.db,
+            parse: self.parse_result,
+            typed: program.type_result,
+            pool: program.pool,
+            canon: program.canon,
+            source_path: program.source_path,
+            module_name: program.module_name,
+            symbol_prefix: program.symbol_prefix,
+            import_sigs: self.import_sigs,
+            imported: self.imported,
+            target_triple: program.target_triple,
+            narrowing_policy: program.narrowing_policy,
+            imported_type_metadata: program.imported_type_metadata,
+            imported_collection_surfaces: program.imported_collection_surfaces,
+        })
         .map_err(BackendError::from)
     }
 }

@@ -1,0 +1,7 @@
+
+type Counter = { count: int };
+@read (c: Counter) -> int = c.get();
+impl Counter {
+    @get (self) -> int = self.count;
+}
+@test_read tests @read () -> void = ();

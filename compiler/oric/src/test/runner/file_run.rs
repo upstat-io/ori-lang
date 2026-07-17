@@ -251,16 +251,20 @@ impl TestRunner {
                 // compile_fail tests are backend-independent and already handled.
                 Self::run_file_llvm(
                     &mut summary,
-                    &db,
-                    path,
-                    &parse_result,
-                    &backend_run_tests,
-                    &type_result,
-                    &pool,
-                    &shared_canon,
-                    &skippable,
-                    interner,
-                    config,
+                    super::llvm_backend::LlvmTestFile {
+                        db: &db,
+                        path,
+                        parse: &parse_result,
+                        typed: &type_result,
+                        pool: &pool,
+                        canon: &shared_canon,
+                        interner,
+                    },
+                    super::llvm_backend::LlvmTestSelection {
+                        tests: &backend_run_tests,
+                        skippable: &skippable,
+                        config,
+                    },
                 );
             }
             #[cfg(not(feature = "llvm"))]

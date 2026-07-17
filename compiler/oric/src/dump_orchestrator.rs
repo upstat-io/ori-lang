@@ -1,18 +1,13 @@
-//! Dump orchestrator -- the single observation surface for phase IR dumps.
+//! Central gate for compiler IR dumps.
 //!
-//! The four phase-dump drivers (`ast_dump`, `ir_dump`, `arc_dump`, `llvm_dump`)
-//! are facet renderers behind this orchestrator. The orchestrator owns the gate
-//! (which phase is requested, via the `ORI_DUMP_AFTER_*` env flags) and the
-//! per-phase view (the typeck idx-filter, folded in from `ORI_DUMP_TYPE_IDX`),
-//! then dispatches to the facet renderer. One observation surface keyed on
-//! `(phase, idx-filter)`; facet renderers behind it -- the `--print-ir-after
-//! <phase>` / `-Z dump-mir` shape, never a parallel system.
+//! [`DumpPhase`] and [`DumpView`] form the observation key. Each enabled phase
+//! delegates rendering to one facet; `ORI_DUMP_TYPE_IDX` only decorates typeck.
 
 use ori_ir::StringInterner;
 use ori_parse::ParseOutput;
 use ori_types::{Pool, TypedModule};
 
-/// A compiler phase whose IR the orchestrator can dump.
+/// Identifies one observable compiler IR boundary.
 ///
 /// `Parse` / `Typeck` fire on `ori check`; `Arc` / `Llvm` on `ori build`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,17 +18,14 @@ enum DumpPhase {
     Llvm,
 }
 
-/// The per-phase view component of the `(phase, idx-filter)` key.
+/// Type-filter settings attached to a requested dump.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct DumpView {
-    /// Typeck `--with-idx`: annotate every type with its resolved pool `Idx`
-    /// (the `ORI_DUMP_TYPE_IDX` capability). Always `false` for non-typeck phases.
+    /// Enables resolved `Idx` annotations for type-check dumps.
     with_idx: bool,
 }
 
-/// The `(phase, idx-filter)` gate: `Some(view)` when the phase dump is requested
-/// via its env flag(s), `None` otherwise. SSOT mapping each phase to its
-/// `ORI_DUMP_AFTER_*` flag and (for typeck) the `ORI_DUMP_TYPE_IDX` idx-filter.
+/// Resolves the environment-controlled view for `phase`.
 fn requested(phase: DumpPhase) -> Option<DumpView> {
     let gated = match phase {
         DumpPhase::Parse => crate::dbg_set!(crate::debug_flags::ORI_DUMP_AFTER_PARSE),
@@ -52,7 +44,7 @@ fn requested(phase: DumpPhase) -> Option<DumpView> {
     Some(DumpView { with_idx })
 }
 
-/// Dump the parsed AST (PARSE phase) to stderr when requested.
+/// Emits the parsed AST when the parse dump gate is enabled.
 pub(crate) fn dump_parse(parse_result: &ParseOutput, interner: &StringInterner, path: &str) {
     if requested(DumpPhase::Parse).is_none() {
         return;
@@ -60,8 +52,7 @@ pub(crate) fn dump_parse(parse_result: &ParseOutput, interner: &StringInterner, 
     crate::ast_dump::dump_ast(parse_result, interner, path);
 }
 
-/// Dump the typed IR (TYPECK phase) to stderr when requested, applying the
-/// idx-filter view (annotate every type with its resolved pool `Idx`).
+/// Emits typed IR with optional resolved-`Idx` annotations when enabled.
 pub(crate) fn dump_typeck(
     parse_result: &ParseOutput,
     typed: &TypedModule,
@@ -75,7 +66,7 @@ pub(crate) fn dump_typeck(
     crate::ir_dump::dump_typed_ir(parse_result, typed, pool, interner, path, view.with_idx);
 }
 
-/// Dump the already-realized ARC artifact when requested.
+/// Emits the realized ARC artifact when enabled.
 #[cfg(feature = "llvm")]
 pub(crate) fn dump_arc(
     executable: &ori_repr::executable::ExecutableProgram,
@@ -88,8 +79,7 @@ pub(crate) fn dump_arc(
     crate::arc_dump::dump_arc_ir(executable.functions(), executable.pool(), interner, path);
 }
 
-/// Dump the annotated LLVM IR (LLVM phase) to stderr when requested. `ir_text`
-/// is a thunk so the expensive module-to-string print only runs when gated on.
+/// Emits LLVM IR when enabled and delays `ir_text` until after the gate.
 #[cfg(feature = "llvm")]
 pub(crate) fn dump_llvm(
     pool: &Pool,

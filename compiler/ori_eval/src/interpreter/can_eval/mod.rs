@@ -1,27 +1,16 @@
-//! Canonical expression evaluation — `CanExpr` dispatch.
-//!
-//! This module provides `eval_can(CanId)` as the sole evaluation path.
-//! All function and method calls dispatch through `eval_can`.
-//!
-//! # Architecture
-//!
-//! `eval_can` reads from `self.canon` (`SharedCanonResult`) instead of `self.arena`
-//! (`ExprArena`). Since `CanExpr` is sugar-free, there are no spread/template/named-call
-//! variants to handle — those are desugared during canonicalization.
-//!
-//! # Borrow Pattern
-//!
-//! `CanExpr` is `Copy` (24 bytes), so we copy the kind out of the arena before
-//! dispatching. This releases the immutable borrow on `self.canon`, allowing
-//! recursive `self.eval_can()` calls in each arm.
+//! Stack-safe evaluation over sugar-free [`CanExpr`] nodes, copying node kinds
+//! so arena borrows do not span recursive dispatch.
 
 mod control_flow;
 mod function_exp;
 mod operators;
 mod trace;
 
-use ori_ir::canon::{CanExpr, CanId, CanRange, CanonResult, MonoInstanceId};
-use ori_ir::{Name, Span};
+use ori_ir::canon::{
+    CanBindingPatternId, CanExpr, CanId, CanNamedExprRange, CanParamRange, CanRange, CanonResult,
+    ConstantId, DecisionTreeId, MonoConstBinding, MonoInstanceId,
+};
+use ori_ir::{FunctionExpKind, Name, Span};
 use ori_patterns::{ControlAction, EvalError, EvalResult, Value};
 use ori_stack::ensure_sufficient_stack;
 use smallvec::SmallVec;
@@ -35,51 +24,26 @@ use crate::exec::expr;
 use crate::Mutability;
 
 impl Interpreter<'_> {
-    /// Entry point for canonical expression evaluation with stack safety.
-    ///
-    /// Analogous to `eval(ExprId)` but dispatches on `CanExpr` variants from
-    /// the canonical IR. Requires `self.canon` to be `Some`.
+    /// Evaluates one canonical expression with stack safety.
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn eval_can(&mut self, can_id: CanId) -> EvalResult {
         ensure_sufficient_stack(|| self.eval_can_inner(can_id))
     }
 
-    /// Get the canonical result reference.
-    ///
-    /// # Panics
-    /// Panics if `self.canon` is `None`. Callers must ensure canonical IR is set
-    /// before calling `eval_can`.
     #[inline]
     fn canon_ref(&self) -> &CanonResult {
-        // Invariant: eval_can is only called when canon is known to be Some.
-        // This is enforced by the call sites (function_call sets canon before calling).
-        #[expect(clippy::expect_used, reason = "Invariant: eval_can requires canon")]
-        self.canon
-            .as_ref()
-            .expect("eval_can called without canonical IR")
+        match &self.canon {
+            Some(canon) => canon,
+            None => unreachable!("canonical evaluation requires installed canonical IR"),
+        }
     }
 
-    /// Get the span for a canonical expression.
     #[inline]
     pub(super) fn can_span(&self, can_id: CanId) -> Span {
         self.canon_ref().arena.span(can_id)
     }
 
-    /// Look up the `MonoInstanceId` for a generic call site at `can_id`, if any.
-    ///
-    /// Reads `CanonResult.mono_dispatch_map_can` via binary search on
-    /// `CanId.raw()` (sorted by canon lowering per `ori_ir/src/canon/arena.rs`
-    /// doc comment on `mono_dispatch_map_can`). Returns `None` for non-generic
-    /// call sites and for deferred-resolution calls until
-    /// §C.2 sub-step 1b-deferred lands.
-    ///
-    /// Eval consumes the id for dual-execution parity observability with
-    /// `ori_llvm`'s id-keyed dispatch ( Evaluator-parallel row).
-    /// Eval's dispatch itself remains polymorphic-by-runtime-value: the body
-    /// type-checks once and runs against whatever runtime values arrive, so no
-    /// per-instance dispatch table is needed for correctness — the id is
-    /// surfaced via tracing so cross-backend tests can verify both backends
-    /// observed the same abstract identity at the same `CanId`.
+    /// Returns the monomorphization identity recorded for a generic call site.
     #[inline]
     pub(super) fn mono_instance_id_for(&self, can_id: CanId) -> Option<MonoInstanceId> {
         let map = &self.canon_ref().mono_dispatch_map_can;
@@ -88,31 +52,21 @@ impl Interpreter<'_> {
             .map(|idx| map[idx].1)
     }
 
-    /// Evaluate a list of canonical expressions from a `CanRange`.
     fn eval_can_expr_list(&mut self, range: CanRange) -> Result<Vec<Value>, ControlAction> {
         let ids: SmallVec<[CanId; 8]> =
             SmallVec::from_slice(self.canon_ref().arena.get_expr_list(range));
         ids.into_iter().map(|id| self.eval_can(id)).collect()
     }
 
-    /// Inner canonical evaluation dispatch.
-    ///
-    /// Handles all 44 `CanExpr` variants exhaustively. No `_ =>` catch-all.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive CanExpr variant dispatch — no catch-all"
-    )]
+    /// Evaluates one canonical node through an exhaustive dispatch.
     fn eval_can_inner(&mut self, can_id: CanId) -> EvalResult {
         self.mode_state.count_expression();
 
-        // Copy the kind out to release the borrow on self.canon.
-        // CanExpr is Copy (24 bytes) — this is cheap.
         let canon = self.canon_ref();
         let kind = *canon.arena.kind(can_id);
         tracing::trace!(?can_id, ?kind, "eval_can_inner");
 
         match kind {
-            // Literals
             CanExpr::Int(n) => Ok(Value::int(n)),
             CanExpr::Float(bits) => Ok(Value::Float(f64::from_bits(bits))),
             CanExpr::Bool(b) => Ok(Value::Bool(b)),
@@ -127,180 +81,38 @@ impl Interpreter<'_> {
                     .ok_or_else(|| integer_overflow("size literal"))?,
             )),
             CanExpr::Unit => Ok(Value::Void),
-
-            // Compile-Time Constant
-            CanExpr::Constant(id) => {
-                let cv = self.canon_ref().constants.get(id);
-                Ok(const_to_value(cv, self.interner))
-            }
-
-            // References
-            CanExpr::Ident(name) => {
-                let span = self.can_span(can_id);
-                expr::eval_ident(name, &self.env, self.interner)
-                    .or_else(|e| {
-                        // TODO(canon): Type reference resolution should
-                        // happen in ori_canon, not here. This fallback exists because
-                        // cross-module type refs aren't yet resolved during
-                        // canonicalization. Remove once ori_canon handles imported
-                        // type resolution.
-                        if self
-                            .user_method_registry
-                            .read()
-                            .has_any_methods_for_type(name)
-                        {
-                            Ok(Value::TypeRef { type_name: name })
-                        } else {
-                            Err(e)
-                        }
-                    })
-                    .map_err(|e| Self::attach_span(e, span))
-            }
-            CanExpr::TypeRef(name) => {
-                // Type reference resolved at canonicalization time.
-                // Check environment first for variable shadowing.
-                if let Some(val) = self.env.lookup(name) {
-                    Ok(val)
-                } else {
-                    Ok(Value::TypeRef { type_name: name })
-                }
-            }
-            CanExpr::Const(name) => {
-                let span = self.can_span(can_id);
-                self.env.lookup(name).ok_or_else(|| {
-                    Self::attach_span(undefined_const(self.interner.lookup(name)).into(), span)
-                })
-            }
-            CanExpr::SelfRef => {
-                let span = self.can_span(can_id);
-                self.env
-                    .lookup(self.self_name)
-                    .ok_or_else(|| Self::attach_span(self_outside_method().into(), span))
-            }
-            CanExpr::FunctionRef(name) => {
-                let span = self.can_span(can_id);
-                self.env.lookup(name).ok_or_else(|| {
-                    Self::attach_span(undefined_function(self.interner.lookup(name)).into(), span)
-                })
-            }
-            CanExpr::HashLength => {
-                let span = self.can_span(can_id);
-                Err(Self::attach_span(hash_outside_index().into(), span))
-            }
-
-            // Operators
+            CanExpr::Constant(id) => Ok(self.eval_can_constant(id)),
+            CanExpr::Ident(name) => self.eval_can_ident(can_id, name),
+            CanExpr::TypeRef(name) => Ok(self.eval_can_type_ref(name)),
+            CanExpr::Const(name) => self.eval_can_const(can_id, name),
+            CanExpr::SelfRef => self.eval_can_self_ref(can_id),
+            CanExpr::FunctionRef(name) => self.eval_can_function_ref(can_id, name),
+            CanExpr::HashLength => self.eval_can_hash_length(can_id),
             CanExpr::Binary { op, left, right } => self.eval_can_binary(can_id, left, op, right),
             CanExpr::Unary { op, operand } => self.eval_can_unary(can_id, op, operand),
             CanExpr::Cast {
                 expr,
                 target,
                 fallible,
-            } => {
-                let value = self.eval_can(expr)?;
-                let span = self.can_span(can_id);
-                self.eval_can_cast(value, target, fallible)
-                    .map_err(|e| Self::attach_span(e, span))
-            }
-
-            // Calls
-            CanExpr::Call { func, args } => {
-                let const_bindings = if let Some(id) = self.mono_instance_id_for(can_id) {
-                    tracing::trace!(
-                        ?can_id,
-                        mono_instance_id = id.raw(),
-                        "eval Call mono dispatch"
-                    );
-                    self.canon_ref()
-                        .mono_const_bindings(id)
-                        .unwrap_or_default()
-                        .to_vec()
-                } else {
-                    Vec::new()
-                };
-                let func_val = self.eval_can(func)?;
-                let arg_vals = self.eval_can_expr_list(args)?;
-                let span = self.can_span(can_id);
-                self.eval_call_with_const_bindings(&func_val, &arg_vals, &const_bindings)
-                    .map_err(|e| Self::attach_span(e, span))
-            }
+            } => self.eval_can_cast_expr(can_id, expr, target, fallible),
+            CanExpr::Call { func, args } => self.eval_can_call(can_id, func, args),
             CanExpr::MethodCall {
                 receiver,
                 method,
                 args,
-            } => {
-                let const_bindings = if let Some(id) = self.mono_instance_id_for(can_id) {
-                    tracing::trace!(
-                        ?can_id,
-                        mono_instance_id = id.raw(),
-                        "eval MethodCall mono dispatch"
-                    );
-                    self.canon_ref()
-                        .mono_const_bindings(id)
-                        .unwrap_or_default()
-                        .to_vec()
-                } else {
-                    Vec::new()
-                };
-                let recv = self.eval_can(receiver)?;
-                let arg_vals = self.eval_can_expr_list(args)?;
-                let span = self.can_span(can_id);
-                self.dispatch_method_call_with_const_bindings(
-                    recv,
-                    method,
-                    arg_vals,
-                    &const_bindings,
-                )
-                .map_err(|e| Self::attach_span(e, span))
-            }
-
-            // Access
-            CanExpr::Field { receiver, field } => {
-                let span = self.can_span(can_id);
-                let value = self.eval_can(receiver)?;
-                expr::eval_field_access(value, field, self.interner)
-                    .map_err(|e| Self::attach_span(e, span))
-            }
-            CanExpr::Index { receiver, index } => {
-                let span = self.can_span(can_id);
-                let value = self.eval_can(receiver)?;
-
-                // Built-in types: fast path with # (hash length) support
-                if super::operator_dispatch::is_builtin_indexable(&value) {
-                    let length = expr::get_collection_length(&value)
-                        .map_err(|e| Self::attach_span(e.into(), span))?;
-                    let idx = self.eval_can_with_hash_length(index, length)?;
-                    expr::eval_index(value, idx).map_err(|e| Self::attach_span(e, span))
-                } else {
-                    // User-defined types: dispatch via Index trait method
-                    let idx_val = self.eval_can(index)?;
-                    self.eval_index_user_type(value, idx_val)
-                }
-            }
-
-            // Control Flow
+            } => self.eval_can_method_call(can_id, receiver, method, args),
+            CanExpr::Field { receiver, field } => self.eval_can_field(can_id, receiver, field),
+            CanExpr::Index { receiver, index } => self.eval_can_index(can_id, receiver, index),
             CanExpr::If {
                 cond,
                 then_branch,
                 else_branch,
-            } => {
-                if self.eval_can(cond)?.is_truthy() {
-                    self.eval_can(then_branch)
-                } else if else_branch.is_valid() {
-                    self.eval_can(else_branch)
-                } else {
-                    Ok(Value::Void)
-                }
-            }
+            } => self.eval_can_if_expr(cond, then_branch, else_branch),
             CanExpr::Match {
                 scrutinee,
                 decision_tree,
                 arms,
-            } => {
-                let value = self.eval_can(scrutinee)?;
-                let span = self.can_span(can_id);
-                self.eval_can_match(&value, decision_tree, arms)
-                    .map_err(|e| Self::attach_span(e, span))
-            }
+            } => self.eval_can_match_expr(can_id, scrutinee, decision_tree, arms),
             CanExpr::For {
                 pattern,
                 iter,
@@ -309,55 +121,17 @@ impl Interpreter<'_> {
                 is_yield,
                 label,
                 ..
-            } => {
-                let iter_val = self.eval_can(iter)?;
-                let span = self.can_span(can_id);
-                self.eval_can_for(pattern, &iter_val, guard, body, is_yield, label)
-                    .map_err(|e| Self::attach_span(e, span))
-            }
+            } => self.eval_can_for_expr(can_id, pattern, iter, guard, body, (is_yield, label)),
             CanExpr::Loop { body, label, .. } => self.eval_can_loop(body, label),
-            CanExpr::Break {
-                value: v, label, ..
-            } => {
-                let val = if v.is_valid() {
-                    self.eval_can(v)?
-                } else {
-                    Value::Void
-                };
-                Err(ControlAction::Break(val, label))
-            }
-            CanExpr::Continue {
-                value: v, label, ..
-            } => {
-                let val = if v.is_valid() {
-                    self.eval_can(v)?
-                } else {
-                    Value::Void
-                };
-                Err(ControlAction::Continue(val, label))
-            }
-
-            // Bindings
+            CanExpr::Break { value, label, .. } => self.eval_can_break(value, label),
+            CanExpr::Continue { value, label, .. } => self.eval_can_continue(value, label),
             CanExpr::Block { stmts, result } => self.eval_can_block(stmts, result),
-            CanExpr::Let { pattern, init, .. } => {
-                let value = self.eval_can(init)?;
-                // Copy the pattern out to avoid borrow conflict
-                let pat = *self.canon_ref().arena.get_binding_pattern(pattern);
-                self.bind_can_pattern(&pat, value)
-            }
+            CanExpr::Let { pattern, init, .. } => self.eval_can_let(pattern, init),
             CanExpr::Assign { target, value } => {
                 let val = self.eval_can(value)?;
                 self.eval_can_assign(target, val)
             }
-
-            // Functions
-            CanExpr::Lambda { params, body } => {
-                let span = self.can_span(can_id);
-                self.eval_can_lambda(params, body)
-                    .map_err(|e| Self::attach_span(e, span))
-            }
-
-            // Collections
+            CanExpr::Lambda { params, body } => self.eval_can_lambda_expr(can_id, params, body),
             CanExpr::List(range) => Ok(Value::list(self.eval_can_expr_list(range)?)),
             CanExpr::Tuple(range) => Ok(Value::tuple(self.eval_can_expr_list(range)?)),
             CanExpr::Map(entries) => self.eval_can_map(can_id, entries),
@@ -368,71 +142,300 @@ impl Interpreter<'_> {
                 step,
                 inclusive,
             } => self.eval_can_range(start, end, step, inclusive),
-
-            // Algebraic
-            CanExpr::Ok(inner) => Ok(Value::ok(if inner.is_valid() {
-                self.eval_can(inner)?
-            } else {
-                Value::Void
-            })),
-            CanExpr::Err(inner) => Ok(Value::err(if inner.is_valid() {
-                self.eval_can(inner)?
-            } else {
-                Value::Void
-            })),
+            CanExpr::Ok(inner) => Ok(Value::ok(self.eval_can_or_void(inner)?)),
+            CanExpr::Err(inner) => Ok(Value::err(self.eval_can_or_void(inner)?)),
             CanExpr::Some(inner) => Ok(Value::some(self.eval_can(inner)?)),
             CanExpr::None => Ok(Value::None),
-
-            // Error Handling
-            CanExpr::Try(inner) => match self.eval_can(inner)? {
-                Value::Ok(v) | Value::Some(v) => Ok((*v).clone()),
-                err @ Value::Err(_) => {
-                    let traced = self.inject_trace_entry(err, can_id);
-                    Err(ControlAction::Propagate(traced))
-                }
-                Value::None => Err(ControlAction::Propagate(Value::None)),
-                other => Ok(other),
-            },
+            CanExpr::Try(inner) => self.eval_can_try(can_id, inner),
             CanExpr::Unsafe(inner) => self.eval_can(inner),
-            CanExpr::Await(_) => {
-                let span = self.can_span(can_id);
-                Err(Self::attach_span(await_not_supported().into(), span))
-            }
-
-            // Capabilities
+            CanExpr::Await(_) => self.eval_can_await(can_id),
             CanExpr::WithCapability {
                 capability,
                 provider,
                 body,
-            } => {
-                let provider_val = self.eval_can(provider)?;
-                self.with_binding(capability, provider_val, Mutability::Immutable, |scoped| {
-                    scoped.eval_can(body)
-                })
-            }
-
-            // Special Forms
+            } => self.eval_can_with_capability(capability, provider, body),
             CanExpr::FunctionExp { kind, props } => {
-                let span = self.can_span(can_id);
-                self.eval_can_function_exp(kind, props)
-                    .map_err(|e| Self::attach_span(e, span))
+                self.eval_can_function_expr(can_id, kind, props)
             }
-
-            // Formatting
             CanExpr::FormatWith { expr, spec } => self.eval_format_with(can_id, expr, spec),
-
-            // Error Recovery
-            CanExpr::Error => {
-                let span = self.can_span(can_id);
-                Err(Self::attach_span(parse_error().into(), span))
-            }
+            CanExpr::Error => self.eval_can_error(can_id),
         }
+    }
+
+    fn eval_can_constant(&self, id: ConstantId) -> Value {
+        const_to_value(self.canon_ref().constants.get(id), self.interner)
+    }
+
+    fn eval_can_ident(&self, can_id: CanId, name: Name) -> EvalResult {
+        let span = self.can_span(can_id);
+        expr::eval_ident(name, &self.env, self.interner)
+            .or_else(|error| {
+                if self
+                    .user_method_registry
+                    .read()
+                    .has_any_methods_for_type(name)
+                {
+                    Ok(Value::TypeRef { type_name: name })
+                } else {
+                    Err(error)
+                }
+            })
+            .map_err(|error| Self::attach_span(error, span))
+    }
+
+    fn eval_can_type_ref(&self, name: Name) -> Value {
+        self.env
+            .lookup(name)
+            .unwrap_or(Value::TypeRef { type_name: name })
+    }
+
+    fn eval_can_const(&self, can_id: CanId, name: Name) -> EvalResult {
+        let span = self.can_span(can_id);
+        self.env.lookup(name).ok_or_else(|| {
+            Self::attach_span(undefined_const(self.interner.lookup(name)).into(), span)
+        })
+    }
+
+    fn eval_can_self_ref(&self, can_id: CanId) -> EvalResult {
+        let span = self.can_span(can_id);
+        self.env
+            .lookup(self.self_name)
+            .ok_or_else(|| Self::attach_span(self_outside_method().into(), span))
+    }
+
+    fn eval_can_function_ref(&self, can_id: CanId, name: Name) -> EvalResult {
+        let span = self.can_span(can_id);
+        self.env.lookup(name).ok_or_else(|| {
+            Self::attach_span(undefined_function(self.interner.lookup(name)).into(), span)
+        })
+    }
+
+    fn eval_can_hash_length(&self, can_id: CanId) -> EvalResult {
+        Err(Self::attach_span(
+            hash_outside_index().into(),
+            self.can_span(can_id),
+        ))
+    }
+
+    fn eval_can_cast_expr(
+        &mut self,
+        can_id: CanId,
+        expr: CanId,
+        target: Name,
+        fallible: bool,
+    ) -> EvalResult {
+        let value = self.eval_can(expr)?;
+        let span = self.can_span(can_id);
+        self.eval_can_cast(value, target, fallible)
+            .map_err(|error| Self::attach_span(error, span))
+    }
+
+    fn eval_can_call(&mut self, can_id: CanId, func: CanId, args: CanRange) -> EvalResult {
+        let (mono_instance_id, const_bindings) = self.mono_const_bindings(can_id);
+        if let Some(id) = mono_instance_id {
+            tracing::trace!(
+                ?can_id,
+                mono_instance_id = id.raw(),
+                "eval Call mono dispatch"
+            );
+        }
+        let func_value = self.eval_can(func)?;
+        let arg_values = self.eval_can_expr_list(args)?;
+        let span = self.can_span(can_id);
+        self.eval_call_with_const_bindings(&func_value, &arg_values, &const_bindings)
+            .map_err(|error| Self::attach_span(error, span))
+    }
+
+    fn eval_can_method_call(
+        &mut self,
+        can_id: CanId,
+        receiver: CanId,
+        method: Name,
+        args: CanRange,
+    ) -> EvalResult {
+        let (mono_instance_id, const_bindings) = self.mono_const_bindings(can_id);
+        if let Some(id) = mono_instance_id {
+            tracing::trace!(
+                ?can_id,
+                mono_instance_id = id.raw(),
+                "eval MethodCall mono dispatch"
+            );
+        }
+        let receiver_value = self.eval_can(receiver)?;
+        let arg_values = self.eval_can_expr_list(args)?;
+        let span = self.can_span(can_id);
+        self.dispatch_method_call_with_const_bindings(
+            receiver_value,
+            method,
+            arg_values,
+            &const_bindings,
+        )
+        .map_err(|error| Self::attach_span(error, span))
+    }
+
+    fn eval_can_field(&mut self, can_id: CanId, receiver: CanId, field: Name) -> EvalResult {
+        let span = self.can_span(can_id);
+        let value = self.eval_can(receiver)?;
+        expr::eval_field_access(value, field, self.interner)
+            .map_err(|error| Self::attach_span(error, span))
+    }
+
+    fn mono_const_bindings(
+        &self,
+        can_id: CanId,
+    ) -> (Option<MonoInstanceId>, Vec<MonoConstBinding>) {
+        let id = self.mono_instance_id_for(can_id);
+        let bindings = id
+            .and_then(|id| self.canon_ref().mono_const_bindings(id))
+            .unwrap_or_default()
+            .to_vec();
+        (id, bindings)
+    }
+
+    fn eval_can_index(&mut self, can_id: CanId, receiver: CanId, index: CanId) -> EvalResult {
+        let span = self.can_span(can_id);
+        let value = self.eval_can(receiver)?;
+        if super::operator_dispatch::is_builtin_indexable(&value) {
+            let length = expr::get_collection_length(&value)
+                .map_err(|error| Self::attach_span(error.into(), span))?;
+            let index = self.eval_can_with_hash_length(index, length)?;
+            expr::eval_index(value, index).map_err(|error| Self::attach_span(error, span))
+        } else {
+            let index = self.eval_can(index)?;
+            self.eval_index_user_type(value, index)
+        }
+    }
+
+    fn eval_can_if_expr(
+        &mut self,
+        cond: CanId,
+        then_branch: CanId,
+        else_branch: CanId,
+    ) -> EvalResult {
+        if self.eval_can(cond)?.is_truthy() {
+            self.eval_can(then_branch)
+        } else if else_branch.is_valid() {
+            self.eval_can(else_branch)
+        } else {
+            Ok(Value::Void)
+        }
+    }
+
+    fn eval_can_match_expr(
+        &mut self,
+        can_id: CanId,
+        scrutinee: CanId,
+        decision_tree: DecisionTreeId,
+        arms: CanRange,
+    ) -> EvalResult {
+        let value = self.eval_can(scrutinee)?;
+        let span = self.can_span(can_id);
+        self.eval_can_match(&value, decision_tree, arms)
+            .map_err(|error| Self::attach_span(error, span))
+    }
+
+    fn eval_can_for_expr(
+        &mut self,
+        can_id: CanId,
+        pattern: CanBindingPatternId,
+        iter: CanId,
+        guard: CanId,
+        body: CanId,
+        mode: (bool, Name),
+    ) -> EvalResult {
+        let (is_yield, label) = mode;
+        let iter_value = self.eval_can(iter)?;
+        let span = self.can_span(can_id);
+        self.eval_can_for(pattern, &iter_value, guard, body, is_yield, label)
+            .map_err(|error| Self::attach_span(error, span))
+    }
+
+    fn eval_can_break(&mut self, value: CanId, label: Name) -> EvalResult {
+        Err(ControlAction::Break(self.eval_can_or_void(value)?, label))
+    }
+
+    fn eval_can_continue(&mut self, value: CanId, label: Name) -> EvalResult {
+        Err(ControlAction::Continue(
+            self.eval_can_or_void(value)?,
+            label,
+        ))
+    }
+
+    fn eval_can_let(&mut self, pattern: CanBindingPatternId, init: CanId) -> EvalResult {
+        let value = self.eval_can(init)?;
+        let pattern = *self.canon_ref().arena.get_binding_pattern(pattern);
+        self.bind_can_pattern(&pattern, value)
+    }
+
+    fn eval_can_lambda_expr(
+        &mut self,
+        can_id: CanId,
+        params: CanParamRange,
+        body: CanId,
+    ) -> EvalResult {
+        let span = self.can_span(can_id);
+        self.eval_can_lambda(params, body)
+            .map_err(|error| Self::attach_span(error, span))
+    }
+
+    fn eval_can_or_void(&mut self, can_id: CanId) -> EvalResult {
+        if can_id.is_valid() {
+            self.eval_can(can_id)
+        } else {
+            Ok(Value::Void)
+        }
+    }
+
+    fn eval_can_try(&mut self, can_id: CanId, inner: CanId) -> EvalResult {
+        match self.eval_can(inner)? {
+            Value::Ok(value) | Value::Some(value) => Ok((*value).clone()),
+            error @ Value::Err(_) => Err(ControlAction::Propagate(
+                self.inject_trace_entry(error, can_id),
+            )),
+            Value::None => Err(ControlAction::Propagate(Value::None)),
+            other => Ok(other),
+        }
+    }
+
+    fn eval_can_await(&self, can_id: CanId) -> EvalResult {
+        Err(Self::attach_span(
+            await_not_supported().into(),
+            self.can_span(can_id),
+        ))
+    }
+
+    fn eval_can_with_capability(
+        &mut self,
+        capability: Name,
+        provider: CanId,
+        body: CanId,
+    ) -> EvalResult {
+        let provider = self.eval_can(provider)?;
+        self.with_binding(capability, provider, Mutability::Immutable, |scoped| {
+            scoped.eval_can(body)
+        })
+    }
+
+    fn eval_can_function_expr(
+        &mut self,
+        can_id: CanId,
+        kind: FunctionExpKind,
+        props: CanNamedExprRange,
+    ) -> EvalResult {
+        let span = self.can_span(can_id);
+        self.eval_can_function_exp(kind, props)
+            .map_err(|error| Self::attach_span(error, span))
+    }
+
+    fn eval_can_error(&self, can_id: CanId) -> EvalResult {
+        Err(Self::attach_span(
+            parse_error().into(),
+            self.can_span(can_id),
+        ))
     }
 }
 
-// Helpers
-
-/// Convert a `ConstValue` from the constant pool to a runtime `Value`.
+/// Converts a constant-pool value to its runtime representation.
 #[expect(
     clippy::expect_used,
     reason = "Constants come from cooker-validated literals (overflow-checked) or \
@@ -458,10 +461,7 @@ fn const_to_value(cv: &ori_ir::canon::ConstValue, interner: &ori_ir::StringInter
     }
 }
 
-/// Look up a pre-evaluated prop by interned `Name`.
-///
-/// Uses direct `Name` comparison (single `u32 == u32`) instead of
-/// string lookup per prop. Callers pass pre-interned names from `PropNames`.
+/// Returns a pre-evaluated property selected by interned `Name`.
 fn find_prop_value(
     values: &[(Name, Value)],
     name: Name,
@@ -480,7 +480,7 @@ fn find_prop_value(
         })
 }
 
-/// Look up an unevaluated prop's `CanId` by interned `Name` (for lazy evaluation).
+/// Returns an unevaluated property's `CanId` for lazy evaluation.
 fn find_prop_can_id(
     named: &[ori_ir::canon::CanNamedExpr],
     name: Name,

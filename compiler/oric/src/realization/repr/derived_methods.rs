@@ -105,29 +105,35 @@ pub(crate) fn lower_mono_function_for_analysis(
 ) -> Option<super::super::ArcFunctionGroup> {
     match mono.origin {
         MonoFunctionOrigin::Source => {
+            let mut context = crate::arc_lowering::ArcLoweringContext {
+                canon,
+                interner,
+                pool,
+                problems,
+            };
             let lowered = crate::arc_lowering::lower_mono_to_arc(
                 mono.mangled_name,
                 &mono.sig,
                 mono.identity.original_name(),
                 mono.receiver_type_name,
-                canon,
-                interner,
-                pool,
-                problems,
+                &mut context,
                 &mono.body_type_map,
                 mono.identity.const_bindings(),
             );
             Some(lowered.into())
         }
         MonoFunctionOrigin::Impl(id) => {
-            let lowered = crate::arc_lowering::lower_mono_impl_method_to_arc_by_source(
-                mono.mangled_name,
-                &mono.sig,
-                id.body(),
+            let mut context = crate::arc_lowering::ArcLoweringContext {
                 canon,
                 interner,
                 pool,
                 problems,
+            };
+            let lowered = crate::arc_lowering::lower_mono_impl_method_to_arc_by_source(
+                mono.mangled_name,
+                &mono.sig,
+                id.body(),
+                &mut context,
                 &mono.body_type_map,
                 mono.identity.const_bindings(),
             );

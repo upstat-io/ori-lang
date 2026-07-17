@@ -1,10 +1,8 @@
 //! Tests for `OwnedLLVMEvaluator` and evaluator types.
 
-#![allow(
-    clippy::manual_assert,
-    clippy::uninlined_format_args,
+#![expect(
     clippy::default_trait_access,
-    reason = "test ergonomics — relaxed style for clarity"
+    reason = "evaluator fixtures spell concrete default types to identify each LLVM value shape"
 )]
 
 use ori_arc::uniqueness::{CowAnnotations, DropHints};

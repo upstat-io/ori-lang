@@ -218,7 +218,7 @@ impl Pool {
     }
 
     /// Pre-intern all primitive types at their fixed indices.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "primitive count is a small constant, always fits u32"
     )]
@@ -248,7 +248,7 @@ impl Pool {
     }
 
     /// Intern a primitive type at a specific index.
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "items.len() always fits u32 — pool indices are u32"
     )]

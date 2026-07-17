@@ -2,7 +2,7 @@
 
 use std.testing { assert_eq }
 
-// --- Cell 1: computed key `{[k]: v}` — key is the VALUE of k, not the list `[k]`.
+// Cell 1: computed key `{[k]: v}` — key is the VALUE of k, not the list `[k]`.
 @test_computed_key_str tests _ () -> void = {
     let $k = "timeout";
     let $m = {[k]: 30};
@@ -10,13 +10,13 @@ use std.testing { assert_eq }
     assert_eq(actual: m["timeout"], expected: Some(30))
 }
 
-// --- Cell 2: bare-identifier key `{name: v}` — key is the literal string "name".
+// Cell 2: bare-identifier key `{name: v}` — key is the literal string "name".
 @test_bare_ident_key tests _ () -> void = {
     let $m = {name: "Alice"};
     assert_eq(actual: m["name"], expected: Some("Alice"))
 }
 
-// --- Cell 2b: bare-ident key is the literal text even when a same-named binding exists.
+// Cell 2b: bare-ident key is the literal text even when a same-named binding exists.
 @test_bare_ident_key_not_variable tests _ () -> void = {
     let $name = "shadow";
     let $m = {name: 7};
@@ -24,7 +24,7 @@ use std.testing { assert_eq }
     assert_eq(actual: m["shadow"], expected: None)
 }
 
-// --- Cell 3: reserved-keyword key `{if: 1, type: 2}` — keys are "if" / "type"
+// Cell 3: reserved-keyword key `{if: 1, type: 2}` — keys are "if" / "type"
 // (homogeneous int values; maps are `{K: V}`, the keyword is the literal key).
 @test_keyword_key tests _ () -> void = {
     let $m = {if: 1, type: 2};
@@ -32,13 +32,13 @@ use std.testing { assert_eq }
     assert_eq(actual: m["type"], expected: Some(2))
 }
 
-// --- Cell 4: string-literal key control (regression pin — must stay green).
+// Cell 4: string-literal key control (regression pin — must stay green).
 @test_string_key_control tests _ () -> void = {
     let $m = {"timeout": 30};
     assert_eq(actual: m["timeout"], expected: Some(30))
 }
 
-// --- Cell 5: computed key with a non-trivial expression (string concat).
+// Cell 5: computed key with a non-trivial expression (string concat).
 @test_computed_key_expr tests _ () -> void = {
     let $a = "ti";
     let $b = "meout";
@@ -46,7 +46,7 @@ use std.testing { assert_eq }
     assert_eq(actual: m["timeout"], expected: Some(30))
 }
 
-// --- Cell 6: spread + computed key `{...base, [k]: v}` keys correctly.
+// Cell 6: spread + computed key `{...base, [k]: v}` keys correctly.
 @test_spread_plus_computed_key tests _ () -> void = {
     let $base = {"a": 1};
     let $k = "b";
@@ -55,7 +55,7 @@ use std.testing { assert_eq }
     assert_eq(actual: m["b"], expected: Some(2))
 }
 
-// --- Cell 7: list-vs-map disambiguation — `{...base, [k]: v}` is a MAP, not a list.
+// Cell 7: list-vs-map disambiguation — `{...base, [k]: v}` is a MAP, not a list.
 @test_spread_computed_is_map tests _ () -> void = {
     let $base = {"a": 1};
     let $k = "b";
@@ -63,7 +63,7 @@ use std.testing { assert_eq }
     assert_eq(actual: m.length(), expected: 2)
 }
 
-// --- Cell 8: duplicate computed keys — later wins and length counts unique keys.
+// Cell 8: duplicate computed keys — later wins and length counts unique keys.
 @test_duplicate_computed_key_later_wins tests _ () -> void = {
     let $k = "duplicate computed map key with heap storage";
     let $m = {[k]: 1, [k]: 2};
@@ -71,13 +71,13 @@ use std.testing { assert_eq }
     assert_eq(actual: m.length(), expected: 1)
 }
 
-// --- Cell 9: non-string (int) computed key.
+// Cell 9: non-string (int) computed key.
 @test_int_computed_key tests _ () -> void = {
     let $m = {[42]: "answer"};
     assert_eq(actual: m[42], expected: Some("answer"))
 }
 
-// --- Cell 10: computed key whose inner is an always-stacked construct (`match`).
+// Cell 10: computed key whose inner is an always-stacked construct (`match`).
 // Regression pin: the formatter width calc adds the `[ ]` bracket width to the
 // key node's width; an always-stacked inner expr widths to the `ALWAYS_STACKED`
 // (usize::MAX) sentinel, so the bracket add must be gated behind the sentinel

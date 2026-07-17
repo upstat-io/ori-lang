@@ -1,6 +1,9 @@
 //! Closed-program realization over explicit immutable frontend facts.
 
-use ori_arc::{ArcFunction, ArcInstr, ArcTerminator};
+mod error_mapping;
+mod impl_targets;
+
+use ori_arc::ArcFunction;
 use ori_ir::canon::CanonResult;
 use ori_ir::{Name, SharedInterner, StringInterner};
 use ori_parse::ParseOutput;
@@ -13,10 +16,11 @@ use rustc_hash::FxHashMap;
 
 use super::{
     compute_module_repr_plan, extend_mono_method_targets, lower_impl_methods_for_analysis,
-    lower_non_generic_derived_methods_for_analysis, method_receiver_key, ArcBatchPreparationError,
-    ArcFunctionGroup, CallableCensusBuilder, CallableCensusError, ImplMethodAnalysis,
-    LoweredArcBatch,
+    lower_non_generic_derived_methods_for_analysis, ArcFunctionGroup, CallableCensusBuilder,
+    CallableCensusError, ImplMethodAnalysis, LoweredArcBatch, ModuleReprInput,
 };
+use error_mapping::{arc_lowering_error, map_arc_batch_error};
+pub(crate) use impl_targets::rewrite_impl_targets;
 
 /// Explicit inputs to backend-neutral local-module realization.
 pub struct ProgramRealizationInput<'a> {
@@ -228,16 +232,16 @@ pub fn realize_local_program(
         input.types.typed.collection_burdens.clone(),
     );
     ori_types::register_resolved_collection_burdens(&input.pool, &mut type_registry);
-    let repr_plan = compute_module_repr_plan(
-        &input.pool,
-        prepared.functions(),
-        input.narrowing_policy,
-        input.types,
-        Some(interner),
-        &[],
-        &[],
-        false,
-    );
+    let repr_plan = compute_module_repr_plan(ModuleReprInput {
+        pool: &input.pool,
+        arc_functions: prepared.functions(),
+        narrowing_policy: input.narrowing_policy,
+        type_result: input.types,
+        interner: Some(interner),
+        imported_type_metadata: &[],
+        imported_collection_surfaces: &[],
+        has_analysis_only_functions: false,
+    });
     let user_drop_bindings =
         collect_user_drop_bindings(&type_registry, &typed_user_drop_bindings, &input.pool)?;
     let main = interner.try_intern("main")?;
@@ -253,29 +257,6 @@ pub fn realize_local_program(
         type_registry,
         verify_arc: input.verify_arc,
     })
-}
-
-fn map_arc_batch_error(error: ArcBatchPreparationError) -> ProgramRealizationError {
-    match error {
-        ArcBatchPreparationError::DuplicateParent { parent } => {
-            ProgramRealizationError::DuplicateArcParent { parent }
-        }
-        ArcBatchPreparationError::DuplicateBody {
-            body,
-            first_parent,
-            second_parent,
-        } => ProgramRealizationError::DuplicateArcBody {
-            body,
-            first_parent,
-            second_parent,
-        },
-        ArcBatchPreparationError::LambdaSpecialization { count, errors } => {
-            ProgramRealizationError::LambdaSpecialization { count, errors }
-        }
-        ArcBatchPreparationError::OperatorCallResolution { count, errors } => {
-            ProgramRealizationError::OperatorCallResolution { count, errors }
-        }
-    }
 }
 
 /// Run the backend-neutral calculus exactly once and close its artifact.
@@ -420,14 +401,17 @@ fn lower_top_level_functions(
         if signature.is_generic() {
             continue;
         }
+        let mut context = crate::arc_lowering::ArcLoweringContext {
+            canon,
+            interner,
+            pool,
+            problems: &mut problems,
+        };
         let lowered = crate::arc_lowering::lower_to_arc(
             function.name,
             signature,
             function.name,
-            canon,
-            interner,
-            pool,
-            &mut problems,
+            &mut context,
             None,
         );
         groups.push(lowered.into());
@@ -445,45 +429,6 @@ fn lower_top_level_functions(
         Ok(groups)
     } else {
         Err(arc_lowering_error(problems))
-    }
-}
-
-pub(crate) fn rewrite_impl_targets(
-    functions: &mut [ArcFunction],
-    targets: &FxHashMap<(Idx, Name), Name>,
-    pool: &Pool,
-) {
-    for function in functions {
-        let method_call_facts = &function.method_call_facts;
-        for block in &mut function.blocks {
-            for instruction in &mut block.body {
-                if let ArcInstr::Apply { dst, func, .. } = instruction {
-                    rewrite_impl_target(func, *dst, method_call_facts, targets, pool);
-                }
-            }
-            if let ArcTerminator::Invoke { dst, func, .. } = &mut block.terminator {
-                rewrite_impl_target(func, *dst, method_call_facts, targets, pool);
-            }
-        }
-    }
-}
-
-fn rewrite_impl_target(
-    target: &mut Name,
-    destination: ori_arc::ArcVarId,
-    method_call_facts: &[ori_arc::MethodCallFact],
-    impl_targets: &FxHashMap<(Idx, Name), Name>,
-    pool: &Pool,
-) {
-    let Some(fact) = method_call_facts
-        .iter()
-        .find(|fact| fact.destination == destination)
-    else {
-        return;
-    };
-    let key = (method_receiver_key(pool, fact.receiver_type), *target);
-    if let Some(&qualified) = impl_targets.get(&key) {
-        *target = qualified;
     }
 }
 
@@ -525,86 +470,5 @@ fn run_aims(
     }
 }
 
-fn arc_lowering_error(problems: Vec<ori_arc::ArcProblem>) -> ProgramRealizationError {
-    ProgramRealizationError::ArcLowering {
-        count: problems.len(),
-        problems,
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use ori_arc::{
-        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership,
-        MethodCallFact, MethodCallForm,
-    };
-    use ori_ir::{Name, StringInterner};
-    use ori_types::{Idx, Pool};
-    use rustc_hash::FxHashMap;
-
-    use super::rewrite_impl_targets;
-
-    fn hash_call(function_name: Name, hash: Name, receiver_type: Idx) -> ArcFunction {
-        ArcFunction {
-            name: function_name,
-            var_types: vec![receiver_type, Idx::INT],
-            blocks: vec![ArcBlock {
-                id: ArcBlockId::new(0),
-                params: Vec::new(),
-                body: vec![ArcInstr::Apply {
-                    dst: ArcVarId::new(1),
-                    ty: Idx::INT,
-                    func: hash,
-                    args: vec![ArcVarId::new(0)],
-                    arg_ownership: vec![ArgOwnership::Owned],
-                    mono_instance_id: None,
-                }],
-                terminator: ArcTerminator::Return {
-                    value: ArcVarId::new(1),
-                },
-            }],
-            method_call_facts: vec![MethodCallFact {
-                destination: ArcVarId::new(1),
-                receiver_type,
-                form: MethodCallForm::Instance,
-                producer: None,
-                derived_position: None,
-            }],
-            ..ArcFunction::default()
-        }
-    }
-
-    #[test]
-    fn newtype_hash_calls_rewrite_by_nominal_receiver() {
-        let interner = StringInterner::new();
-        let left_name = interner.intern("LeftKey");
-        let right_name = interner.intern("RightKey");
-        let hash = interner.intern("hash");
-        let left_target = interner.intern("hash$derived$LeftKey");
-        let right_target = interner.intern("hash$derived$RightKey");
-        let mut pool = Pool::new();
-        let left = pool.named(left_name);
-        let right = pool.named(right_name);
-        pool.register_newtype_ctor(left_name, Idx::INT);
-        pool.register_newtype_ctor(right_name, Idx::INT);
-        pool.set_resolution(left, Idx::INT);
-        pool.set_resolution(right, Idx::INT);
-        let targets =
-            FxHashMap::from_iter([((left, hash), left_target), ((right, hash), right_target)]);
-        let mut functions = vec![
-            hash_call(interner.intern("hash_left"), hash, left),
-            hash_call(interner.intern("hash_right"), hash, right),
-        ];
-
-        rewrite_impl_targets(&mut functions, &targets, &pool);
-
-        let rewritten_targets: Vec<Name> = functions
-            .iter()
-            .map(|function| match function.blocks[0].body[0] {
-                ArcInstr::Apply { func, .. } => func,
-                ref instruction => panic!("expected rewritten hash call, found {instruction:?}"),
-            })
-            .collect();
-        assert_eq!(rewritten_targets, vec![left_target, right_target]);
-    }
-}
+mod tests;

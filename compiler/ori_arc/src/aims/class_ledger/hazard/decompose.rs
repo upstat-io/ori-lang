@@ -2,44 +2,42 @@
 //! whole-var releases per named owned field — uniformly, or per release
 //! site when a bypass edge keeps the recursive whole-var drop.
 
-use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, NodeIdx};
-use crate::aims::intraprocedural::ledger_events::LedgerClassification;
-use crate::ir::ArcFunction;
+use crate::aims::intraprocedural::birth_site_partition::NodeIdx;
 
 use super::super::emit::{self, ClassOutcome};
 use super::super::events;
-use super::super::verify::ClassVerdict;
-use super::super::ClassPlan;
 use super::skip_derive::{derive_sum_skip, SkipAuthority};
 use super::sum_arm::{sum_release_sites_safe, SiteVerdict, SumArmContext};
-use super::{commit_cured_view, plan_and_verify_cure, FieldViewHazard};
+use super::{
+    commit_cured_view, plan_and_verify_cure, FieldViewHazard, HazardCureInputs, HazardCureState,
+};
 
 /// Whether any view-member Project or container planned-release block sits
 /// in a CFG cycle — the acyclicity gate for POSITIONAL skip authority.
 fn func_has_cycle_touching_view_or_container(
-    func: &ArcFunction,
-    partition: &mut BirthSitePartition,
-    regions: &emit::CycleRegions,
+    inputs: &HazardCureInputs<'_>,
+    state: &mut HazardCureState<'_>,
     hazard: &FieldViewHazard,
-    classes: &[ClassPlan],
 ) -> bool {
     use crate::aims::intraprocedural::birth_site_partition::FieldPath;
     use crate::ir::ArcInstr;
 
-    for (block_idx, arc_block) in func.blocks.iter().enumerate() {
+    for (block_idx, arc_block) in inputs.func.blocks.iter().enumerate() {
         for instr in &arc_block.body {
             let ArcInstr::Project { dst, .. } = instr else {
                 continue;
             };
-            let node = partition.register_node(*dst, FieldPath::whole_var());
-            if partition.rep_of(node) == hazard.view && regions.is_in_cycle(block_idx) {
+            let node = state.partition.register_node(*dst, FieldPath::whole_var());
+            if state.partition.rep_of(node) == hazard.view && inputs.regions.is_in_cycle(block_idx)
+            {
                 return true;
             }
         }
     }
-    let Some(container_entry) = classes
+    let Some(container_entry) = state
+        .classes
         .iter()
-        .find(|plan| partition.rep_of(plan.class) == hazard.container)
+        .find(|plan| state.partition.rep_of(plan.class) == hazard.container)
     else {
         return true;
     };
@@ -48,7 +46,7 @@ fn func_has_cycle_touching_view_or_container(
     };
     container_ops
         .iter()
-        .any(|op| regions.is_in_cycle(op.slot.block()))
+        .any(|op| inputs.regions.is_in_cycle(op.slot.block()))
 }
 
 /// The per-SITE decomposition attempt (`FD_site_uniform_projection`):
@@ -57,39 +55,36 @@ fn func_has_cycle_touching_view_or_container(
 /// decline), book the view with the kept store consume plus a CREDIT at
 /// each extraction, and re-plan + verify. Returns the per-op verdicts on
 /// success (the caller applies the skip conversion per verdict).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "internal cure pass over analyze_class_ledger's own accumulators"
-)]
 fn try_per_site_decomposition(
-    func: &ArcFunction,
-    classification: &LedgerClassification,
-    partition: &mut BirthSitePartition,
-    preds: &[Vec<usize>],
-    regions: &emit::CycleRegions,
+    inputs: &HazardCureInputs<'_>,
+    state: &mut HazardCureState<'_>,
     hazard: &FieldViewHazard,
-    classes: &mut [ClassPlan],
-    verdicts: &mut [(NodeIdx, ClassVerdict)],
-    declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
     authority: Option<&SkipAuthority>,
 ) -> Option<Vec<SiteVerdict>> {
     let container = hazard.container;
     let variant = authority?.variant_ordinal();
-    let ctx = SumArmContext::build(func, partition, hazard.view, container, variant);
-    let container_entry = classes
+    let ctx = SumArmContext::build(
+        inputs.func,
+        state.partition,
+        hazard.view,
+        container,
+        variant,
+    );
+    let container_entry = state
+        .classes
         .iter()
-        .find(|plan| partition.rep_of(plan.class) == container)?;
+        .find(|plan| state.partition.rep_of(plan.class) == container)?;
     let ClassOutcome::Planned(container_ops) = &container_entry.outcome else {
         return None;
     };
     let mut verdicts_per_op = Vec::with_capacity(container_ops.len());
     for op in container_ops {
-        let Some(verdict) = ctx.classify(func, op) else {
+        let Some(verdict) = ctx.classify(inputs.func, op) else {
             tracing::trace!(
                 target: "ori_arc::aims::class_ledger",
-                view = ?partition.node_key(hazard.view),
+                view = ?state.partition.node_key(hazard.view),
                 op = ?op,
-                "field-decomposition cure declined: mixed release site                      (reachable both with and without extraction)"
+                "field-decomposition cure declined: mixed release site (reachable both with and without extraction)"
             );
             return None;
         };
@@ -98,25 +93,23 @@ fn try_per_site_decomposition(
     let extractions = ctx.extractions.clone();
     drop(ctx);
     let credited = events::extract_class_events_with_extraction_credits(
-        func,
-        classification,
-        partition,
+        inputs.func,
+        inputs.classification,
+        state.partition,
         hazard.view,
         &extractions,
         false,
     );
     let outcome_opt = plan_and_verify_cure(
-        func,
-        preds,
-        regions,
-        partition,
+        inputs,
+        state,
         hazard.view,
         "field-decomposition-per-site",
         &credited,
         &[],
     );
     let outcome = outcome_opt?;
-    if !commit_cured_view(classes, verdicts, declined, hazard.view, outcome) {
+    if !commit_cured_view(state, hazard.view, outcome) {
         return None;
     }
     Some(verdicts_per_op)
@@ -127,15 +120,15 @@ fn try_per_site_decomposition(
 /// Struct/tuple skips name top-level field indices; the admitted sum
 /// shape's skip names the moved-out VARIANT ordinal instead.
 fn apply_container_skip_conversion(
-    partition: &mut BirthSitePartition,
-    classes: &mut [ClassPlan],
+    state: &mut HazardCureState<'_>,
     container: NodeIdx,
     dec_skip: &[u32],
     per_site_verdicts: Option<&[SiteVerdict]>,
 ) -> bool {
-    let Some(container_entry) = classes
+    let Some(container_entry) = state
+        .classes
         .iter_mut()
-        .find(|plan| partition.rep_of(plan.class) == container)
+        .find(|plan| state.partition.rep_of(plan.class) == container)
     else {
         return false;
     };
@@ -175,24 +168,18 @@ fn apply_container_skip_conversion(
 /// clause-preserving skip set per `FD_skipset_sound`
 /// (`AimsProof.FieldDecomposition`; Spec: Annex E §AIMS §12). A merely-read
 /// view is never consume-marked, never skipped (over-skip = leak).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "internal cure pass over analyze_class_ledger's own accumulators"
-)]
 pub(super) fn cure_view_with_field_decomposition(
-    func: &ArcFunction,
-    classification: &LedgerClassification,
-    partition: &mut BirthSitePartition,
-    preds: &[Vec<usize>],
-    regions: &emit::CycleRegions,
-    type_registry: &ori_types::TypeRegistry,
-    interner: &ori_ir::StringInterner,
+    inputs: &HazardCureInputs<'_>,
+    state: &mut HazardCureState<'_>,
     hazard: &FieldViewHazard,
-    classes: &mut [ClassPlan],
-    verdicts: &mut [(NodeIdx, ClassVerdict)],
-    declined: &mut Vec<(NodeIdx, emit::DeclineReason)>,
 ) -> bool {
-    let Ok(authority) = derive_sum_skip(func, partition, type_registry, interner, hazard) else {
+    let Ok(authority) = derive_sum_skip(
+        inputs.func,
+        state.partition,
+        inputs.type_registry,
+        inputs.interner,
+        hazard,
+    ) else {
         return false;
     };
 
@@ -212,7 +199,7 @@ pub(super) fn cure_view_with_field_decomposition(
     {
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
-            view = ?partition.node_key(hazard.view),
+            view = ?state.partition.node_key(hazard.view),
             consume_marked = hazard.is_consume_marked(),
             nested_path = hazard.is_nested_path(),
             container_transferred_out = hazard.is_container_transferred_out(),
@@ -231,17 +218,22 @@ pub(super) fn cure_view_with_field_decomposition(
     // struct-rebuild double-free). A VARIANT authority is unaffected (the
     // admitted sum shapes are post-switch acyclic arms).
     if matches!(authority, Some(SkipAuthority::Positional(_)))
-        && func_has_cycle_touching_view_or_container(func, partition, regions, hazard, classes)
+        && func_has_cycle_touching_view_or_container(inputs, state, hazard)
     {
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
-            view = ?partition.node_key(hazard.view),
+            view = ?state.partition.node_key(hazard.view),
             "field-decomposition cure declined: positional skip inside a CFG cycle"
         );
         return false;
     }
-    let all_sites_safe =
-        sum_release_sites_safe(func, partition, hazard, classes, authority.as_ref());
+    let all_sites_safe = sum_release_sites_safe(
+        inputs.func,
+        state.partition,
+        hazard,
+        state.classes,
+        authority.as_ref(),
+    );
     // Per-SITE fallback (sum shapes with a variant skip only): a bypass-edge
     // release keeps the whole-var Dec (the recursive drop of the unmoved
     // payload) while extraction-dominated sites take the variant skip; the
@@ -250,18 +242,7 @@ pub(super) fn cure_view_with_field_decomposition(
     let per_site_verdicts: Option<Vec<SiteVerdict>> = if all_sites_safe {
         None
     } else {
-        match try_per_site_decomposition(
-            func,
-            classification,
-            partition,
-            preds,
-            regions,
-            hazard,
-            classes,
-            verdicts,
-            declined,
-            authority.as_ref(),
-        ) {
+        match try_per_site_decomposition(inputs, state, hazard, authority.as_ref()) {
             Some(verdicts_per_op) => Some(verdicts_per_op),
             None => return false,
         }
@@ -269,17 +250,15 @@ pub(super) fn cure_view_with_field_decomposition(
 
     if per_site_verdicts.is_none() {
         let rebooked = events::extract_class_events_rebooked(
-            func,
-            classification,
-            partition,
+            inputs.func,
+            inputs.classification,
+            state.partition,
             hazard.view,
             &hazard.construct_sites,
         );
         let Some(outcome) = plan_and_verify_cure(
-            func,
-            preds,
-            regions,
-            partition,
+            inputs,
+            state,
             hazard.view,
             "field-decomposition",
             &rebooked,
@@ -287,13 +266,12 @@ pub(super) fn cure_view_with_field_decomposition(
         ) else {
             return false;
         };
-        if !commit_cured_view(classes, verdicts, declined, hazard.view, outcome) {
+        if !commit_cured_view(state, hazard.view, outcome) {
             return false;
         }
     }
     if !apply_container_skip_conversion(
-        partition,
-        classes,
+        state,
         container,
         authority
             .as_ref()
@@ -304,8 +282,8 @@ pub(super) fn cure_view_with_field_decomposition(
     }
     tracing::debug!(
         target: "ori_arc::aims::class_ledger",
-        view = ?partition.node_key(hazard.view),
-        container = ?partition.node_key(container),
+        view = ?state.partition.node_key(hazard.view),
+        container = ?state.partition.node_key(container),
         skip_fields = ?hazard.skip_fields,
         "field-decomposition cure applied: container releases skip consume-marked fields"
     );

@@ -18,7 +18,7 @@ use ori_ir::{Name, Span};
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx};
 
 pub(crate) use call_inference::{infer_call, infer_call_named};
-pub(crate) use method_call::{infer_method_call, infer_method_call_named};
+pub(super) use method_call::{infer_method_call, infer_method_call_named, MethodCallSite};
 pub(crate) use monomorphization::register_concrete_applied_resolutions;
 pub(crate) use monomorphization::{compose_builtin_burdens_for_resolved_types, compose_for_idx};
 pub use monomorphization::{compose_burden_for_idx, register_resolved_collection_burdens};

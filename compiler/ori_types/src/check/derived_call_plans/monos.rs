@@ -6,6 +6,14 @@ use super::{
     MethodProducer, MonoInstance, Name, Pool, Tag, TraitRegistry,
 };
 
+#[derive(Clone, Copy)]
+pub(super) struct MethodMonoDemand<'a> {
+    pub(super) producer: &'a MethodProducer,
+    pub(super) traits: &'a TraitRegistry,
+    pub(super) trait_type: Idx,
+    pub(super) method_name: Name,
+}
+
 pub(super) fn push_derived_mono(
     accepted: &AcceptedDerivedImpl,
     receiver: Idx,
@@ -72,32 +80,30 @@ fn concrete_derived_return(shape: DerivedMethodShape, receiver: Idx) -> Idx {
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "impl mono materialization carries exact selected trait and existing inventories"
-)]
 pub(super) fn push_impl_mono(
     signature: &ImplSig,
     receiver: Idx,
-    producer: &MethodProducer,
-    traits: &TraitRegistry,
-    trait_type: Idx,
-    method_name: Name,
+    demand: MethodMonoDemand<'_>,
     mono_instances: &mut Vec<MonoInstance>,
     pool: &mut Pool,
 ) {
     if !signature.sig.is_generic()
         || mono_instances.iter().any(|instance| {
-            instance.method_producer.as_ref() == Some(producer)
+            instance.method_producer.as_ref() == Some(demand.producer)
                 && instance.receiver_type == Some(receiver)
         })
     {
         return;
     }
 
-    let Some(selection) =
-        selected_local_impl(receiver, trait_type, method_name, producer, traits, pool)
-    else {
+    let Some(selection) = selected_local_impl(
+        receiver,
+        demand.trait_type,
+        demand.method_name,
+        demand.producer,
+        demand.traits,
+        pool,
+    ) else {
         return;
     };
     let Some(var_subst) = match_rigid_receiver(pool, signature.receiver, receiver) else {
@@ -123,7 +129,7 @@ pub(super) fn push_impl_mono(
     let body_type_map = build_finalized_body_type_map(pool, &var_subst, &[]);
     mono_instances.push(MonoInstance::new_method(
         signature.name,
-        producer.clone(),
+        demand.producer.clone(),
         selection
             .impl_args
             .into_iter()
@@ -139,31 +145,29 @@ pub(super) fn push_impl_mono(
     ));
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "imported mono materialization carries exact selected trait and producer inventories"
-)]
 pub(super) fn push_imported_impl_mono(
     signature: &ImportedImplSig,
     receiver: Idx,
-    producer: &MethodProducer,
-    traits: &TraitRegistry,
-    trait_type: Idx,
-    method_name: Name,
+    demand: MethodMonoDemand<'_>,
     mono_instances: &mut Vec<MonoInstance>,
     pool: &mut Pool,
 ) {
     if !signature.sig.is_generic()
         || mono_instances.iter().any(|instance| {
-            instance.method_producer.as_ref() == Some(producer)
+            instance.method_producer.as_ref() == Some(demand.producer)
                 && instance.receiver_type == Some(receiver)
         })
     {
         return;
     }
-    let Some(selection) =
-        selected_local_impl(receiver, trait_type, method_name, producer, traits, pool)
-    else {
+    let Some(selection) = selected_local_impl(
+        receiver,
+        demand.trait_type,
+        demand.method_name,
+        demand.producer,
+        demand.traits,
+        pool,
+    ) else {
         return;
     };
     let Some(named_subst) = crate::infer::match_self_type(
@@ -211,7 +215,7 @@ pub(super) fn push_imported_impl_mono(
     body_type_map.dedup_by_key(|(generic, _)| generic.raw());
     mono_instances.push(MonoInstance::new_method(
         signature.name,
-        producer.clone(),
+        demand.producer.clone(),
         selection
             .impl_args
             .into_iter()

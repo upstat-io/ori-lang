@@ -118,6 +118,7 @@ fn lower_single_format_with(
     arena: &mut ExprArena,
     interner: &SharedInterner,
     type_result: &TypeCheckResult,
+    pool: &ori_types::Pool,
 ) -> ori_ir::canon::CanonResult {
     let x_name = interner.intern("x");
     let spec = interner.intern(">10");
@@ -134,8 +135,7 @@ fn lower_single_format_with(
         },
         Span::new(0, 8),
     ));
-    let pool = ori_types::Pool::new();
-    lower(arena, type_result, &pool, root, interner)
+    lower(arena, type_result, pool, root, interner)
 }
 
 /// The format-result node is the single arg of the root `concat` `MethodCall`
@@ -162,7 +162,8 @@ fn desugar_primitive_format_with_stays_bare_formatwith() {
     let interner = test_interner();
     // expr_types: [0]=Ident(x):int, [1]=TemplateLiteral:str
     let type_result = test_type_result(vec![Idx::INT, Idx::STR]);
-    let result = lower_single_format_with(&mut arena, &interner, &type_result);
+    let pool = ori_types::Pool::new();
+    let result = lower_single_format_with(&mut arena, &interner, &type_result, &pool);
 
     let fmt_node = format_result_node(&result, &interner);
     match result.arena.kind(fmt_node) {
@@ -183,11 +184,11 @@ fn desugar_printable_only_format_with_routes_through_to_str() {
     // → `FormatWith { <x.to_str()>, spec }`.
     let mut arena = ExprArena::new();
     let interner = test_interner();
-    // Use a non-primitive idx (>= FIRST_DYNAMIC) so it is not treated as primitive.
-    let non_primitive = Idx::from_raw(64);
+    let mut pool = ori_types::Pool::new();
+    let non_primitive = pool.named(interner.intern("PrintableOnly"));
     // expr_types: [0]=Ident(x):<non-primitive>, [1]=TemplateLiteral:str
     let type_result = test_type_result(vec![non_primitive, Idx::STR]);
-    let result = lower_single_format_with(&mut arena, &interner, &type_result);
+    let result = lower_single_format_with(&mut arena, &interner, &type_result, &pool);
 
     let fmt_node = format_result_node(&result, &interner);
     match result.arena.kind(fmt_node) {
@@ -210,13 +211,14 @@ fn desugar_explicit_formattable_format_with_emits_format_call() {
     // `x.format(<FormatSpec struct>)` MethodCall.
     let mut arena = ExprArena::new();
     let interner = test_interner();
-    let non_primitive = Idx::from_raw(64);
+    let mut pool = ori_types::Pool::new();
+    let non_primitive = pool.named(interner.intern("ExplicitFormattable"));
     let mut typed = TypedModule::new();
     typed.expr_types.push(non_primitive); // [0]=Ident(x)
     typed.expr_types.push(Idx::STR); // [1]=TemplateLiteral
     typed.formattable_impl_types.push(non_primitive);
     let type_result = TypeCheckResult::ok(typed);
-    let result = lower_single_format_with(&mut arena, &interner, &type_result);
+    let result = lower_single_format_with(&mut arena, &interner, &type_result, &pool);
 
     let fmt_node = format_result_node(&result, &interner);
     match result.arena.kind(fmt_node) {

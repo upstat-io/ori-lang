@@ -121,16 +121,19 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Step 1: Lower canonical IR -> ARC IR
         let mut problems = Vec::new();
         let (arc_func, lambdas) = lower_function_can(
-            name,
-            &params,
-            return_type,
-            body,
-            canon,
-            self.interner,
-            self.pool,
+            ori_arc::ArcLoweringInput {
+                name,
+                params: &params,
+                return_type,
+                body,
+                canon,
+                interner: self.interner,
+                pool: self.pool,
+                type_subst,
+                const_bindings: None,
+                is_fbip,
+            },
             &mut problems,
-            is_fbip,
-            type_subst,
         );
 
         for problem in &problems {

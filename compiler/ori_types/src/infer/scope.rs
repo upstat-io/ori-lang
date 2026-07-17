@@ -169,7 +169,7 @@ impl InferEngine<'_> {
         self.provided_capabilities.insert(cap);
     }
 
-    /// Remove a provided capability.
+    /// Discard a capability when its `with` scope ends.
     pub fn remove_provided_capability(&mut self, cap: Name) {
         self.provided_capabilities.remove(&cap);
     }

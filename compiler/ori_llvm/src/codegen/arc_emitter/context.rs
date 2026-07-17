@@ -5,7 +5,7 @@
 //! - [`InvokeMode`] — call vs invoke dispatch control
 //! - [`CodegenContext`] — shared function-resolution lookup tables
 //! - [`is_boxed_enum_field`] — recursive enum field detection
-//! - [`is_callee_intercepted`] — callee interception check shared by nounwind analysis and emission
+//! - [`is_callee_intercepted`] — callee interception shared by analysis and emission
 
 use ori_arc::ir::ValueRepr;
 use ori_arc::ownership::Ownership;
@@ -22,44 +22,20 @@ use crate::codegen::type_info::TypeInfoStore;
 
 // Recursive field / payload detection
 
-/// Whether the field/payload position holding `field_type` inside `owner_type`
-/// is heap-boxed as an 8-byte RC pointer. Thin wrapper over the boxing SSOT
-/// `repr_box_oracle::position_is_rc_boxed`, which the layout resolver also
-/// consumes so box-vs-inline LLVM layout and Construct/Project/drop never
-/// disagree. The name is retained for the enum call sites; the predicate
-/// applies equally to struct fields and tuple elements.
+/// Returns whether an aggregate position is heap-boxed as an RC pointer.
+///
+/// Delegates to the representation boxing oracle used by layout resolution.
 pub(super) fn is_boxed_enum_field(pool: &Pool, owner_type: Idx, field_type: Idx) -> bool {
     crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed(pool, owner_type, field_type)
 }
 
 // Callee interception detection
 
-/// Builtin method names whose intercepted emission may unwind. This includes
-/// inline panic paths (`Option.expect`, `Result.unwrap`) and iterator
-/// consumers/steps that may invoke a user closure stored anywhere in their
-/// adapter chain. They are NOT nounwind even though they are intercepted.
+/// Builtin method names whose intercepted emission may unwind.
 ///
-/// The emission sites live in
-/// `codegen/arc_emitter/builtins/option_result_helpers.rs`
-/// (`emit_expect_branch`, `emit_unwrap_branch`). Keep this list in sync
-/// with the dispatch table in `option_result.rs`.
-///
-/// `updated` (`IndexSet`) is included because the list lowering calls
-/// `ori_list_updated_cow`, which panics on out-of-bounds keys (matching
-/// `list[key]`). `__index` is included because the list lowering calls
-/// `ori_list_get`, which panics on out-of-bounds access. Matching is by
-/// unqualified method name, so map `updated` / map `__index` (never
-/// panic) are conservatively included too.
-///
-/// The `Duration.from_*` / `Size.from_*` unit-factory associated functions
-/// are included because `try_emit_builtin_associated`
-/// (`codegen/arc_emitter/builtins/associated.rs`) emits an inline
-/// `checked_mul_msg` for every scale factor other than 1 (Spec: Clause
-/// 14.3), and a `Size cannot be negative` check via `emit_unwrap_branch` for
-/// every `Size.from_*` regardless of factor — both may panic. `from_bytes`
-/// (Size, factor 1) is included for the negative check alone;
-/// `from_nanoseconds`/`from_nanos` (Duration, factor 1, no negative check)
-/// are the only unit factories that never panic and are correctly excluded.
+/// The set includes inline panic paths, scaled unit factories, and iterator
+/// operations that may execute a stored user closure. Names are unqualified,
+/// so receiver-specific nounwind cases are classified conservatively.
 pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] = &[
     "unwrap",
     "unwrap_err",
@@ -112,14 +88,9 @@ pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] = &[
 /// [`FunctionCompiler::is_arc_function_nounwind`] (nounwind analysis) and
 /// [`ArcIrEmitter::callee_will_be_intercepted`] (emission).
 ///
-/// The six checks, in order:
-/// 1. Format call interceptor (`ori_format_*` prefix)
-/// 2. Prelude function interceptor (exact name match)
-/// 3. Protocol builtins (`__iter_next`, `__collect_set`, `__index`)
-/// 4. Declared user functions — NOT intercepted (normal dispatch)
-/// 5. Runtime functions (`ori_*`, `__*`) — NOT intercepted
-/// 6. Builtin method heuristic: receiver is a builtin type and callee is not
-///    in the method dispatch chain
+/// Declared user functions, monomorphized functions, and runtime functions
+/// remain on normal dispatch. Other builtin receivers use interception when
+/// no type-qualified method target exists.
 pub(crate) fn is_callee_intercepted(
     callee_name: &str,
     callee: Name,
@@ -130,11 +101,9 @@ pub(crate) fn is_callee_intercepted(
 ) -> bool {
     use super::builtins::prelude::HANDLED_PRELUDE_NAMES;
 
-    // Format call interceptor
     if callee_name.starts_with("ori_format_") {
         return true;
     }
-    // Prelude function interceptor
     if HANDLED_PRELUDE_NAMES.contains(&callee_name) {
         return true;
     }
@@ -146,11 +115,9 @@ pub(crate) fn is_callee_intercepted(
     if ori_ir::builtin_constants::protocol::ProtocolBuiltin::from_name(callee_name).is_some() {
         return true;
     }
-    // Declared user functions use normal dispatch — NOT intercepted
     if ctx.functions.contains_key(&callee) {
         return false;
     }
-    // Runtime functions have their own emission paths — NOT intercepted
     if callee_name.starts_with("ori_") || callee_name.starts_with("__") {
         return false;
     }
@@ -162,7 +129,6 @@ pub(crate) fn is_callee_intercepted(
     if ctx.mono_dispatch.contains_key(&callee) {
         return false;
     }
-    // Builtin method: receiver is a builtin type and not in method_functions
     if let Some(&first_arg) = args.first() {
         let receiver_ty = func.var_type(first_arg);
         let info = type_info.get(receiver_ty);
@@ -187,23 +153,9 @@ pub(crate) fn is_callee_intercepted(
 /// enclosing `catch(expr:)` handler (Spec: Clause 17.4 — implicit panics
 /// are catchable).
 ///
-/// Keep in sync with the emission sites; the predicate MUST be true only
-/// when the emission is guaranteed to emit at least one call to a
-/// non-nounwind runtime function — listing a never-panicking emission
-/// would create an orphan landingpad (no `invoke` ever targets it):
-/// - list `updated` (`emit_list_updated_cow`) calls `ori_list_updated_cow`,
-///   which panics on out-of-bounds keys. Map `updated` never panics
-///   (`ori_map_updated_cow` carries `Nounwind`).
-/// - Option/Result `unwrap` / `expect` (+ Result `unwrap_err` /
-///   `expect_err`) always emit a panic branch calling `ori_panic` /
-///   `ori_panic_cstr` (`emit_unwrap_branch` / `emit_expect_branch`).
-/// - list `__index` (`emit_list_index`) calls `ori_list_get`, which panics
-///   on out-of-bounds access. Map `__index` returns Option (never panics).
-///
-/// Consumed by `detect_dead_unwind_blocks` (keep the unwind block live) and
-/// `emit_invoke` (arm `intercepted_unwind` around the protocol + builtin
-/// dispatch) — both sites MUST agree or the landingpad is orphaned / the
-/// invoke targets a dead block.
+/// The result is true only when the selected receiver-specific emission
+/// necessarily calls an unwind-capable runtime function. This prevents both
+/// orphan landing pads and invokes targeting omitted cleanup blocks.
 pub(crate) fn intercepted_emission_invokes_unwind(
     method_name: &str,
     receiver_tag: ori_types::Tag,
@@ -254,64 +206,20 @@ pub(super) enum EmittedValue {
     RcPointer(ValueId),
     /// Stack aggregate: struct, tuple, enum by value, fat value (str, closure).
     Aggregate(ValueId),
-    /// Two-word split: {first, second} — str={len,ptr}, closure={fn,env}.
-    /// The `second` component is typically the RC-managed pointer.
-    /// Used when RC operations need direct component access.
-    #[expect(dead_code, reason = "reserved for the RcStrategy split")]
-    Pair { first: ValueId, second: ValueId },
-    /// No runtime representation (unit, never).
-    /// Used when ZST values are tracked through the pipeline.
-    #[cfg_attr(not(test), expect(dead_code, reason = "reserved for ZST propagation"))]
-    ZeroSized,
 }
 
 impl EmittedValue {
     /// Extract the single underlying [`ValueId`].
     ///
-    /// # Panics
-    /// Panics on `Pair` (two values) and `ZeroSized` (no value).
-    /// For those variants, destructure the enum directly.
     pub(super) fn into_raw(self) -> ValueId {
         match self {
             Self::Immediate(v) | Self::RcPointer(v) | Self::Aggregate(v) => v,
-            Self::Pair { .. } => {
-                panic!("EmittedValue::Pair has no single ValueId — destructure instead")
-            }
-            Self::ZeroSized => panic!("EmittedValue::ZeroSized has no ValueId"),
         }
-    }
-
-    /// Get the RC-trackable data pointer, if this value is reference-counted.
-    ///
-    /// - `RcPointer` → the pointer itself
-    /// - `Pair` → the second component (typically the RC-managed pointer)
-    /// - Others → `None`
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "reserved for RC strategy dispatch")
-    )]
-    pub(super) fn rc_data_ptr(self) -> Option<ValueId> {
-        match self {
-            Self::RcPointer(v) => Some(v),
-            Self::Pair { second, .. } => Some(second),
-            _ => None,
-        }
-    }
-
-    /// True if this value contains a reference-counted component.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "reserved for RC strategy dispatch")
-    )]
-    pub(super) fn is_rc_managed(self) -> bool {
-        matches!(self, Self::RcPointer(_) | Self::Pair { .. })
     }
 
     /// Bridge from an ARC IR [`ValueRepr`] to an emitted value.
     ///
-    /// Maps single-valued representations directly. `FatValue` is stored
-    /// as `Aggregate` (the two components remain packed in a single LLVM
-    /// struct value); use `Pair` only when the components are split.
+    /// Maps scalar and aggregate representations to their emitted form.
     pub(super) fn from_repr(repr: ValueRepr, value: ValueId) -> Self {
         match repr {
             ValueRepr::Scalar => Self::Immediate(value),

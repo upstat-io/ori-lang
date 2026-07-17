@@ -6,7 +6,7 @@ use crate::{Expected, Idx, Tag};
 
 use super::{
     check_collect_method_call, check_err, check_ok, check_some, infer_expr, infer_method_call,
-    infer_method_call_named, sequences, InferEngine,
+    infer_method_call_named, sequences, InferEngine, MethodCallSite,
 };
 
 /// Coerces integer literals in range 0-255 to byte when expected type is byte.
@@ -76,12 +76,8 @@ fn check_method_calls(
             let ty = infer_method_call(
                 engine,
                 arena,
-                expr_id,
-                *receiver,
-                *method,
+                MethodCallSite::new(expr_id, *receiver, *method, span, Some(expected)),
                 *args,
-                span,
-                Some(expected),
             );
             engine.store_type(expr_id.raw() as usize, ty);
             let _ = engine.check_type(ty, expected, span);
@@ -96,12 +92,8 @@ fn check_method_calls(
             let ty = infer_method_call_named(
                 engine,
                 arena,
-                expr_id,
-                *receiver,
-                *method,
+                MethodCallSite::new(expr_id, *receiver, *method, span, Some(expected)),
                 *args,
-                span,
-                Some(expected),
             );
             engine.store_type(expr_id.raw() as usize, ty);
             let _ = engine.check_type(ty, expected, span);

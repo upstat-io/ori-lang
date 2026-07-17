@@ -51,7 +51,6 @@ pub(super) use bindings::bind_pattern;
 pub(super) use blocks::{infer_block, infer_let, infer_stmt};
 pub(super) use calls::{
     compose_builtin_burdens_for_resolved_types, compose_for_idx, infer_call, infer_call_named,
-    infer_method_call, infer_method_call_named,
 };
 pub(super) use collections::{
     check_collect_method_call, infer_list, infer_list_spread, infer_map_literal, infer_map_spread,
@@ -85,6 +84,8 @@ pub(super) use type_resolution::resolve_and_check_parsed_type;
 pub(super) use lambdas::should_generalize;
 
 pub(in crate::infer::expr) use methods::range_method_requires_iteration;
+
+use calls::{infer_method_call, infer_method_call_named, MethodCallSite};
 
 /// Infer the type of an expression.
 ///
@@ -141,14 +142,20 @@ fn infer_lit_ident_op_call(
             method,
             args,
         } => infer_method_call(
-            engine, arena, expr_id, *receiver, *method, *args, span, None,
+            engine,
+            arena,
+            MethodCallSite::new(expr_id, *receiver, *method, span, None),
+            *args,
         ),
         ExprKind::MethodCallNamed {
             receiver,
             method,
             args,
         } => infer_method_call_named(
-            engine, arena, expr_id, *receiver, *method, *args, span, None,
+            engine,
+            arena,
+            MethodCallSite::new(expr_id, *receiver, *method, span, None),
+            *args,
         ),
         _ => Idx::ERROR,
     }

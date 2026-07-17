@@ -33,9 +33,7 @@ impl Lowerer<'_> {
             .expr_type(scrutinee.index())
             .unwrap_or(ori_types::Idx::UNIT);
 
-        // Extract arm data to avoid borrow conflict (patterns + guards + bodies).
-        // We separate bodies from patterns+guards so patterns can be consumed
-        // (moved) into pattern_data without a second clone.
+        // Separating bodies permits moving patterns into `pattern_data` without cloning.
         let src_arms = self.src.get_arms(arms);
         let mut patterns_and_guards: Vec<_> = src_arms
             .iter()

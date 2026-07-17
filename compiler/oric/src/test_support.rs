@@ -138,16 +138,14 @@ pub fn compile_to_arc(source_path: &str, source_text: &str) -> Result<ArcCompile
         if sig.is_generic() {
             continue;
         }
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            func.name,
-            sig,
-            func.name,
+        let mut context = crate::arc_lowering::ArcLoweringContext {
             canon,
             interner,
-            &pool,
-            &mut arc_problems,
-            None,
-        );
+            pool: &pool,
+            problems: &mut arc_problems,
+        };
+        let (arc_fn, lambdas) =
+            crate::arc_lowering::lower_to_arc(func.name, sig, func.name, &mut context, None);
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
 

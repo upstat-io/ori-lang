@@ -13,7 +13,7 @@ mod facts;
 #[cfg(test)]
 #[expect(
     clippy::expect_used,
-    reason = "tests use expect for clearer failure messages"
+    reason = "state-map tests abort when a required program point has no state"
 )]
 mod tests;
 mod types;
@@ -301,7 +301,7 @@ impl AimsStateMap {
     ///
     /// All variables start at `BOTTOM` (most optimistic). Scalar variables
     /// must be marked separately via [`set_permanent_scalar`](Self::set_permanent_scalar).
-    pub fn new(func: &ArcFunction) -> Self {
+    pub(crate) fn new(func: &ArcFunction) -> Self {
         let num_blocks = func.blocks.len();
         let num_vars = func.var_types.len();
         Self {

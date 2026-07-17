@@ -3,7 +3,9 @@
 //! the iteration's residue, and dead-class per-birth releases.
 //! Spec: Annex E §AIMS RL-2 + RL-4 + RL-5.
 
-use rustc_hash::FxHashSet;
+mod arm_local;
+
+use rustc_hash::{FxHashMap as DefMap, FxHashSet};
 
 use crate::aims::intraprocedural::ledger_events::EventSite;
 use crate::ir::{ArcFunction, ArcVarId};
@@ -12,7 +14,7 @@ use super::super::events::{live_out, live_out_forward, successors_of, ClassEvent
 use super::super::placement::{collect_def_points, def_reaches_slot, DefPoint};
 use super::cfg_region::CycleRegions;
 use super::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
-use rustc_hash::FxHashMap as DefMap;
+pub(in super::super) use arm_local::pair_arm_local_seed_releases;
 
 /// RL-2 unused-owned / RL-5 dead-at-entry releases for a class with zero
 /// demand events: every acquiring event (positive delta) gets its release
@@ -57,114 +59,37 @@ pub(super) fn plan_dead_class_releases(
     Ok(ops)
 }
 
-/// RL-2 arm-local pairing for multi-arm extraction funding: when seeds fund
-/// the SAME class in two or more distinct blocks, each seed whose
-/// (alias-closed) events are pure reads confined to its own block gets its
-/// release planned right there — after the last body read, or at every
-/// single-pred successor front when the last read is the block terminator —
-/// so each arm nets zero and no funded reference crosses a merge the bypass
-/// path reaches unfunded. Seeds that do not qualify stay unpaired for the
-/// pooled death-frontier walk.
-pub(in super::super) fn pair_arm_local_seed_releases(
-    func: &ArcFunction,
-    preds: &[Vec<usize>],
-    events: &ClassEvents,
-    ops: &mut Vec<PlannedOp>,
-) {
-    let seed_blocks: FxHashSet<usize> = ops
-        .iter()
-        .filter(|op| op.kind == PlannedOpKind::Inc)
-        .map(|op| op.slot.block())
-        .collect();
-    if seed_blocks.len() < 2 {
-        return;
-    }
-    let seeds: Vec<PlannedOp> = ops
-        .iter()
-        .filter(|op| op.kind == PlannedOpKind::Inc)
-        .cloned()
-        .collect();
-    for seed in seeds {
-        let block = seed.slot.block();
-        let closure =
-            super::super::emit::close_over_let_aliases(func, std::iter::once(seed.var).collect());
-        let mut last_body: Option<usize> = None;
-        let mut terminator_read = false;
-        let mut arm_local = true;
-        let mut any_read = false;
-        'scan: for (event_block, evs) in events.per_block.iter().enumerate() {
-            for ev in evs {
-                let Some(var) = ev.var else { continue };
-                if !closure.contains(&var) {
-                    continue;
-                }
-                if event_block != block || ev.delta != 0 || ev.floor == 0 {
-                    arm_local = false;
-                    break 'scan;
-                }
-                any_read = true;
-                match ev.site {
-                    EventSite::Body(index) => {
-                        last_body = Some(last_body.map_or(index, |prev| prev.max(index)));
-                    }
-                    EventSite::Terminator => terminator_read = true,
-                    EventSite::BlockEntry => {
-                        arm_local = false;
-                        break 'scan;
-                    }
-                }
-            }
-        }
-        if !arm_local || !any_read {
-            continue;
-        }
-        if terminator_read {
-            let successors = successors_of(func, block);
-            if successors.is_empty()
-                || successors
-                    .iter()
-                    .any(|&s| s == block || preds.get(s).is_none_or(|p| p.len() != 1))
-            {
-                continue;
-            }
-            for successor in successors {
-                ops.push(PlannedOp {
-                    slot: PlanSlot::BlockFront { block: successor },
-                    kind: PlannedOpKind::Dec,
-                    var: seed.var,
-                });
-            }
-        } else if let Some(index) = last_body {
-            ops.push(PlannedOp {
-                slot: PlanSlot::AfterBody { block, index },
-                kind: PlannedOpKind::Dec,
-                var: seed.var,
-            });
-        }
-    }
-}
-
 /// Release placement at the class's death frontier, one walk over the
 /// pre-release entry nets: per-edge (RL-4) releases for dead successors of
 /// live-out blocks; within-block (RL-2 / RL-5) releases after the class's
 /// last event where no successor is live.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "release planning consumes the full per-class dataflow context; a param struct would name no domain concept beyond 'everything plan_class computed'"
-)]
+pub(super) struct ReleasePlanningInput<'a, 'ctx> {
+    pub(super) ctx: &'a ReleaseCtx<'ctx>,
+    pub(super) preds: &'a [Vec<usize>],
+    pub(super) regions: &'a CycleRegions,
+    pub(super) events: &'a ClassEvents,
+    pub(super) activity_live: &'a [bool],
+    pub(super) full_closure: bool,
+    pub(super) entry_net: &'a [Option<i64>],
+    pub(super) delta: &'a [i64],
+}
+
 pub(super) fn plan_releases(
-    func: &ArcFunction,
-    ctx: &ReleaseCtx<'_>,
-    preds: &[Vec<usize>],
-    regions: &CycleRegions,
-    events: &ClassEvents,
-    activity_live: &[bool],
-    full_closure: bool,
-    entry_net: &[Option<i64>],
-    delta: &[i64],
-    dom: &crate::graph::DominatorTree,
+    input: &ReleasePlanningInput<'_, '_>,
     ops: &mut Vec<PlannedOp>,
 ) -> Result<(), DeclineReason> {
+    let ReleasePlanningInput {
+        ctx,
+        preds: _,
+        regions: _,
+        events,
+        activity_live,
+        full_closure,
+        entry_net,
+        delta,
+    } = input;
+    let func = ctx.func;
+    let dom = ctx.dom;
     // Arm-local paired front decs already release at these fronts; the
     // pooled walk must not double-release there.
     let mut fronts: FxHashSet<usize> = ops
@@ -215,7 +140,7 @@ pub(super) fn plan_releases(
         let exit = entry + delta[block];
         // Same discriminator as plan_class's liveness vectors: the
         // per-block query mode must match the vector's closure mode.
-        let block_live_out = if full_closure {
+        let block_live_out = if *full_closure {
             live_out(func, block, activity_live)
         } else {
             live_out_forward(func, block, activity_live, dom)
@@ -223,18 +148,7 @@ pub(super) fn plan_releases(
         if block_live_out {
             plan_edge_releases(ctx, events, activity_live, block, exit, ops, &mut fronts)?;
         } else if exit > 0 && !events.per_block[block].is_empty() {
-            plan_block_release(
-                ctx,
-                func,
-                preds,
-                regions,
-                events,
-                block,
-                *entry,
-                dom,
-                ops,
-                &mut fronts,
-            )?;
+            plan_block_release(input, block, *entry, ops, &mut fronts)?;
         }
     }
     Ok(())
@@ -295,22 +209,19 @@ fn plan_edge_releases(
 /// front when the class has no pre-terminator use here (RL-5
 /// dead-at-entry); at every successor's front when a terminator-site READ
 /// is the last use (the release must follow the terminator).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "block-release placement consumes the full per-class dataflow context; a param struct would name no domain concept beyond 'everything plan_releases holds'"
-)]
 fn plan_block_release(
-    ctx: &ReleaseCtx<'_>,
-    func: &ArcFunction,
-    preds: &[Vec<usize>],
-    regions: &CycleRegions,
-    events: &ClassEvents,
+    input: &ReleasePlanningInput<'_, '_>,
     block: usize,
     entry: i64,
-    dom: &crate::graph::DominatorTree,
     ops: &mut Vec<PlannedOp>,
     fronts: &mut FxHashSet<usize>,
 ) -> Result<(), DeclineReason> {
+    let ctx = input.ctx;
+    let func = ctx.func;
+    let preds = input.preds;
+    let regions = input.regions;
+    let events = input.events;
+    let dom = ctx.dom;
     let evs = &events.per_block[block];
     // Ops already placed in this block (funding incs, seeds) are real
     // pre-terminator deltas: the caller's per-block delta includes them,

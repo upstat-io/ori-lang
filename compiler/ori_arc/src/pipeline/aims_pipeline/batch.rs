@@ -1,8 +1,7 @@
-//! Batch orchestration: run AIMS pipeline on all functions.
+//! Whole-program AIMS orchestration.
 //!
-//! Contains the batch entry point (`run_aims_pipeline_all`), the second-pass
-//! TRMC contract refresh and FIP recomputation (`run_second_pass`), and
-//! ownership application (`apply_aims_ownership`).
+//! The batch freezes external contracts, computes interprocedural contracts,
+//! realizes each function, refreshes TRMC contracts, and freezes one artifact.
 
 use std::hash::BuildHasher;
 
@@ -25,8 +24,7 @@ use second_pass::{run_second_pass, SecondPassContext};
 
 mod second_pass;
 
-/// Run one whole-program realization with immutable producer-authored
-/// contracts for calls whose bodies live in other compiled units.
+/// Realizes a whole program with immutable contracts for external call bodies.
 pub(crate) fn run_aims_pipeline_all_with_external_contracts<S: BuildHasher>(
     functions: &mut [ArcFunction],
     context: &ArcPipelineContext<'_, S>,
@@ -34,7 +32,7 @@ pub(crate) fn run_aims_pipeline_all_with_external_contracts<S: BuildHasher>(
     run_aims_pipeline_all_impl(functions, context, None)
 }
 
-/// Run one whole-program realization while reporting stable phase snapshots.
+/// Realizes a whole program while reporting stable checkpoints.
 pub(crate) fn run_aims_pipeline_all_with_observer<'a, S: BuildHasher>(
     functions: &mut [ArcFunction],
     context: &ArcPipelineContext<'a, S>,
@@ -65,12 +63,9 @@ fn run_aims_pipeline_all_impl<'a, S: BuildHasher>(
                     .map(crate::verify::VerifyError::from)
                     .collect::<Vec<_>>()
             })?;
-    // Freeze typed primitive semantics before any interprocedural transfer
-    // reads them. Each per-function pipeline validates the same table after
-    // normalization; it does not re-resolve policy.
+    // INVARIANT: Interprocedural transfer reads one frozen primitive policy table.
     crate::aims::freeze_primitive_facts(functions, classifier)?;
 
-    // Step 1: interprocedural analysis -> MemoryContract per function.
     let mut contracts = {
         let _span = tracing::info_span!("analyze_program").entered();
         crate::aims::interprocedural::analyze_program_with_external_contracts_and_boundaries(
@@ -83,7 +78,6 @@ fn run_aims_pipeline_all_impl<'a, S: BuildHasher>(
         )
     };
 
-    // Step 2: apply ownership to function parameters.
     {
         let _span = tracing::info_span!("apply_ownership").entered();
         apply_aims_ownership(functions, &contracts);
@@ -92,9 +86,7 @@ fn run_aims_pipeline_all_impl<'a, S: BuildHasher>(
         super::trace_pipeline_checkpoint(function, "ownership_applied", interner, observer);
     }
 
-    // Set of function names in this compilation unit (the analyzed set),
-    // sourced independently of the contracts map so the Site-8 IC-1
-    // debug_assert can catch a local function missing from contracts.
+    // INVARIANT: Local-callable coverage is derived independently of contract insertion.
     let func_names: FxHashSet<Name> = functions.iter().map(|f| f.name).collect();
     let exact_callables: FxHashSet<Name> = func_names
         .iter()
@@ -102,7 +94,6 @@ fn run_aims_pipeline_all_impl<'a, S: BuildHasher>(
         .chain(external_contracts.keys().copied())
         .collect();
 
-    // Steps 3-14: per-function pipeline.
     let config = AimsPipelineConfig {
         classifier,
         contracts: &contracts,
@@ -118,7 +109,6 @@ fn run_aims_pipeline_all_impl<'a, S: BuildHasher>(
 
     let mut execution = run_function_pipelines(functions, &config)?;
 
-    // Second pass: TRMC contract refresh -> may_deallocate -> FIP.
     run_second_pass(
         SecondPassContext {
             functions,
@@ -134,8 +124,6 @@ fn run_aims_pipeline_all_impl<'a, S: BuildHasher>(
         &mut contracts,
     )?;
 
-    // Contract coherence oracle: verify inferred contracts match what the
-    // realization pipeline actually emitted. Only under ORI_VERIFY_ARC=1.
     if verify_arc {
         execution.problems.extend(contract_coherence_problems(
             functions,
@@ -147,9 +135,7 @@ fn run_aims_pipeline_all_impl<'a, S: BuildHasher>(
 
     trace_physical_rc_counts(functions.len(), execution.total_rc);
 
-    // Builtin contracts participate in AIMS analysis but are not executable
-    // program functions. Close the exported map to the realized body set so
-    // the downstream artifact can enforce exact one-to-one coverage.
+    // INVARIANT: Frozen contracts cover exactly the realized function bodies.
     contracts.retain(|name, _| func_names.contains(name));
 
     freeze_batch_outcome(
@@ -226,9 +212,7 @@ fn contract_coherence_problems(
 }
 
 fn trace_physical_rc_counts(function_count: usize, total_rc: crate::pipeline::rc_count::RcOpCount) {
-    // Preserve the historical tracing label for consumer compatibility. These
-    // counters measure only the current compiled-counter adapter; they are not
-    // AIMS facts or a shared-calculus conformance verdict.
+    // INVARIANT: This trace measures the compiled-counter adapter, not an AIMS fact.
     tracing::debug!(
         functions = function_count,
         rc_inc = total_rc.inc,
@@ -245,9 +229,7 @@ fn freeze_batch_outcome(
     pool: &ori_types::Pool,
     type_registry: &ori_types::TypeRegistry,
 ) -> Result<ArcPipelineBatchOutcome, Vec<crate::verify::VerifyError>> {
-    // Freeze backend-neutral semantic facts at the realization owner. The
-    // executable artifact validates and orders these maps; it never re-runs
-    // AIMS analysis at the transport seam.
+    // INVARIANT: Backends consume frozen facts and do not rerun AIMS analysis.
     let function_effects = functions
         .iter()
         .map(|function| {
@@ -294,9 +276,7 @@ fn freeze_batch_outcome(
     })
 }
 
-/// Apply AIMS ownership annotations to function parameters.
-///
-/// Sets `ArcParam.ownership` on each function from its `MemoryContract`.
+/// Applies each [`MemoryContract`] parameter access class to the corresponding IR parameter.
 pub(crate) fn apply_aims_ownership(
     functions: &mut [ArcFunction],
     contracts: &FxHashMap<Name, MemoryContract>,
@@ -309,9 +289,7 @@ pub(crate) fn apply_aims_ownership(
     }
 }
 
-/// Convert a `ParamContract` access class to the `Ownership` enum used by
-/// `ArcParam`. This bridges the AIMS contract representation with the
-/// existing ARC IR parameter ownership field.
+/// Maps parameter access into the IR ownership carrier.
 fn param_contract_to_ownership(pc: ParamContract) -> Ownership {
     match pc.access {
         AccessClass::Borrowed => Ownership::Borrowed,

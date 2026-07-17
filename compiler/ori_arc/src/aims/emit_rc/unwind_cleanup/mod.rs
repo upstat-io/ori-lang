@@ -1,26 +1,9 @@
-//! Unwind cleanup for Invoke terminators.
+//! Unwind cleanup for compiler-owned iterator and for-yield resources.
 //!
-//! When a callee panics, iterator handles and unfinished for-yield scratch
-//! lists created before the Invoke are not automatically cleaned up — the
-//! unwind path must explicitly drop them. This pass adds
-//! `Apply @ori_list_free(list, elem_size)` and `Apply @ori_iter_drop(iter)`
-//! instructions to distinct unwind blocks before they resume propagation or
-//! transfer control to an enclosing catch handler so that:
-//!
-//! 1. Iterator handles release their reference to the source collection.
-//! 2. A scratch list releases its initialized elements and backing buffer.
-//! 3. The `downgrade_trivial_invokes` pass in `merge_blocks()` won't
-//!    collapse the Invoke into an `Apply` (losing the unwind path).
-//! 4. Every physical projection preserves a cleanup edge; LLVM materializes
-//!    a dedicated cleanup landing block for checked operations rather than
-//!    turning a shared catch handler into an invalid mixed-predecessor pad.
-//!
-//! # Pipeline placement
-//!
-//! Runs after `emit_rc_ops()` / `realize_rc_reuse()` (RC instructions
-//! present) and before `merge_blocks()` (which would downgrade the
-//! Invoke). Specifically, it runs in `verify_and_merge()` right before
-//! the `merge_blocks()` call.
+//! Invoke and checked-operation unwind edges release resources live at the
+//! throwing site. Checked operations receive distinct cleanup landing blocks,
+//! so shared catch handlers never mix ordinary and landing-pad predecessors.
+//! Cleanup runs before block merging can downgrade an invoke edge.
 
 use ori_types::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -70,11 +53,10 @@ impl LiveResources {
     }
 }
 
-/// Add resource cleanup to distinct Invoke and checked-operation unwind edges.
+/// Adds cleanup for resources live at invoke and checked-operation unwind sites.
 ///
-/// For each site, find every live compiler-owned iterator and unfinished
-/// for-yield scratch list. Invoke destinations receive cleanup inline; checked
-/// operations are retargeted through a synthesized cleanup-only landing block.
+/// Invoke destinations receive cleanup inline; checked operations use a
+/// synthesized cleanup-only landing block.
 pub(crate) fn add_invoke_unwind_cleanup(func: &mut ArcFunction, interner: &ori_ir::StringInterner) {
     let names = cleanup_names(interner);
     let events = collect_resource_events(func, names);
@@ -297,8 +279,7 @@ fn live_resources_at(
     LiveResources { scratch, iters }
 }
 
-/// Build cleanup in reverse allocation order: scratch outputs are created
-/// after iterator state and therefore release before the iterator handle.
+/// Releases scratch before iterator handles to reverse allocation order.
 fn build_cleanup_instrs(
     func: &mut ArcFunction,
     list_free_name: ori_ir::Name,
@@ -322,9 +303,7 @@ fn build_cleanup_instrs(
         });
     }
 
-    // `ori_iter_drop` consumes the iterator handle. Its ownership marker must
-    // match `ProtocolBuiltin::IterDrop.arg_ownership()` rather than becoming a
-    // second, unwind-only source of truth.
+    // INVARIANT: Iterator cleanup consumes its handle.
     for &iter in live_iters.iter().rev() {
         cleanup.push(ArcInstr::Apply {
             dst: func.fresh_scalar_var(Idx::UNIT),
@@ -339,9 +318,7 @@ fn build_cleanup_instrs(
     cleanup
 }
 
-/// Whether an event occurs before a cleanup site under the pass's existing
-/// forward-reachability model. Instruction coordinates make checked operations
-/// precise when creation/finalization and the checked op share one ARC block.
+/// Tests event precedence by instruction coordinates and forward reachability.
 fn event_precedes_site(successors: &[Vec<usize>], event: ProgramPoint, site: ProgramPoint) -> bool {
     if event.block == site.block {
         return event.instr < site.instr;
@@ -349,7 +326,6 @@ fn event_precedes_site(successors: &[Vec<usize>], event: ProgramPoint, site: Pro
     can_reach(successors, event.block, site.block)
 }
 
-/// Build a successor list for each block from the function's terminators.
 fn compute_block_successors(func: &ArcFunction) -> Vec<Vec<usize>> {
     func.blocks
         .iter()
@@ -362,7 +338,6 @@ fn compute_block_successors(func: &ArcFunction) -> Vec<Vec<usize>> {
         .collect()
 }
 
-/// Check if `from` can reach `to` via forward edges (BFS).
 fn can_reach(successors: &[Vec<usize>], from: usize, to: usize) -> bool {
     if from == to {
         return true;

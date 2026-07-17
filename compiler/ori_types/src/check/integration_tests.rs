@@ -1,4 +1,7 @@
-#![expect(clippy::expect_used, reason = "tests use expect for clarity")]
+#![expect(
+    clippy::expect_used,
+    reason = "integration fixtures abort when parsing or required registry lookup fails"
+)]
 //! Integration tests for the module checker.
 //!
 //! These tests feed real Ori source code through the full pipeline:
@@ -17,12 +20,21 @@
 //! - **Operators**: Arithmetic, comparison, boolean
 //! - **Empty module**: Regression guard
 
-#![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+#![expect(
+    clippy::unwrap_used,
+    reason = "integration fixtures treat unexpected type-check errors as assertion failures"
+)]
 
 use ori_ir::StringInterner;
 
 use crate::check::check_module_with_pool;
 use crate::{Idx, Pool, Tag, TypeCheckResult, TypeErrorKind};
+
+fn fixture_without_trailing_newline(source: &'static str) -> &'static str {
+    source
+        .strip_suffix('\n')
+        .expect("committed Ori fixtures end with a newline")
+}
 
 // Test Infrastructure
 
@@ -96,8 +108,8 @@ impl CheckResult {
     /// All mono instances recorded for the module (name-agnostic).
     ///
     /// Lets a pin assert on the recorded-instance SET when the recorded
-    /// `fn_name` of a builtin-resolved method/ctor is not known in advance
-    /// (the §09.3 fix chooses it); the presence/absence of ANY instance for a
+    /// `fn_name` of a builtin-resolved method/ctor is not known in advance;
+    /// the presence/absence of ANY instance for a
     /// builtin-only program is the producer-spine observable.
     fn mono_instances_all(&self) -> &[crate::MonoInstance] {
         &self.result.typed.mono_instances
@@ -170,7 +182,9 @@ fn empty_source() {
 
 #[test]
 fn literal_int() {
-    let result = check_source("@foo () -> int = 42;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/literal_int.ori"
+    )));
     assert!(!result.has_errors());
     assert_eq!(result.function_count(), 1);
 
@@ -180,7 +194,9 @@ fn literal_int() {
 
 #[test]
 fn literal_float() {
-    let result = check_source("@foo () -> float = 3.14;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/literal_float.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -189,7 +205,9 @@ fn literal_float() {
 
 #[test]
 fn literal_bool() {
-    let result = check_source("@foo () -> bool = true;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/literal_bool.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -198,7 +216,9 @@ fn literal_bool() {
 
 #[test]
 fn literal_string() {
-    let result = check_source(r#"@foo () -> str = "hello";"#);
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/literal_string.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -207,7 +227,9 @@ fn literal_string() {
 
 #[test]
 fn literal_unit() {
-    let result = check_source("@foo () -> void = ();");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/literal_unit.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -218,7 +240,9 @@ fn literal_unit() {
 
 #[test]
 fn single_typed_param() {
-    let result = check_source("@identity (x: int) -> int = x;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/single_typed_param.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -227,7 +251,9 @@ fn single_typed_param() {
 
 #[test]
 fn multiple_typed_params() {
-    let result = check_source("@add (a: int, b: int) -> int = a + b;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/multiple_typed_params.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -236,7 +262,9 @@ fn multiple_typed_params() {
 
 #[test]
 fn param_type_used_in_body() {
-    let result = check_source("@greet (name: str) -> str = name;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/param_type_used_in_body.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -247,11 +275,7 @@ fn param_type_used_in_body() {
 
 #[test]
 fn two_functions() {
-    let source = "\
-@foo () -> int = 1;
-
-@bar () -> int = 2;
-";
+    let source = include_str!("fixtures/integration/two_functions.ori");
     let result = check_source(source);
     assert!(!result.has_errors());
     assert_eq!(result.function_count(), 2);
@@ -265,11 +289,7 @@ fn two_functions() {
 #[test]
 fn function_calling_another() {
     // Forward reference: bar calls foo, foo is defined first
-    let source = "\
-@foo () -> int = 42;
-
-@bar () -> int = foo();
-";
+    let source = include_str!("fixtures/integration/function_calling_another.ori");
     let result = check_source(source);
     assert!(!result.has_errors());
     assert_eq!(result.function_count(), 2);
@@ -278,11 +298,7 @@ fn function_calling_another() {
 #[test]
 fn forward_reference() {
     // bar defined before foo, but calls foo
-    let source = "\
-@bar () -> int = foo();
-
-@foo () -> int = 42;
-";
+    let source = include_str!("fixtures/integration/forward_reference.ori");
     let result = check_source(source);
     assert!(!result.has_errors());
     assert_eq!(result.function_count(), 2);
@@ -292,11 +308,7 @@ fn forward_reference() {
 
 #[test]
 fn test_declaration() {
-    let source = "\
-@foo () -> int = 42;
-
-@test_foo tests @foo () -> void = ();
-";
+    let source = include_str!("fixtures/integration/declaration.ori");
     let result = check_source(source);
     assert!(!result.has_errors());
     // Functions + tests both counted as signatures
@@ -306,14 +318,7 @@ fn test_declaration() {
 #[test]
 fn test_with_function_call() {
     // Test body that uses the target function via block expression
-    let source = "\
-@double (x: int) -> int = x + x;
-
-@test_double tests @double () -> void = {
-    let _ = double(x: 5);
-    ()
-}
-";
+    let source = include_str!("fixtures/integration/with_function_call.ori");
     let result = check_source(source);
     // `run` may produce errors since it's a compiler construct that needs
     // special handling. The key assertion is: no panics in the pipeline.
@@ -325,7 +330,9 @@ fn test_with_function_call() {
 #[test]
 fn return_type_mismatch() {
     // Body returns string but signature says int
-    let result = check_source(r#"@bad () -> int = "hello";"#);
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/return_type_mismatch.ori"
+    )));
     assert!(result.has_errors());
     assert!(result.error_count() >= 1);
 
@@ -343,7 +350,9 @@ fn return_type_mismatch() {
 
 #[test]
 fn unknown_identifier_in_body() {
-    let result = check_source("@bad () -> int = undefined_var;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/unknown_identifier_in_body.ori"
+    )));
     assert!(result.has_errors());
 
     let has_unknown = result
@@ -360,11 +369,7 @@ fn unknown_identifier_in_body() {
 #[test]
 fn unknown_identifier_suggests_similar_names() {
     // "ad" is a typo for "add" — should suggest "add"
-    let source = "\
-@add (x: int, y: int) -> int = x + y;
-
-@caller () -> int = ad(1, 2);
-";
+    let source = include_str!("fixtures/integration/unknown_identifier_suggests_similar_names.ori");
     let result = check_source(source);
     assert!(result.has_errors());
 
@@ -386,11 +391,9 @@ fn unknown_identifier_suggests_similar_names() {
 #[test]
 fn unknown_identifier_no_suggestion_for_unrelated_names() {
     // "xyz" is not similar to any name in scope
-    let source = "\
-@add (x: int, y: int) -> int = x + y;
-
-@caller () -> int = xyz(1, 2);
-";
+    let source = include_str!(
+        "fixtures/integration/unknown_identifier_no_suggestion_for_unrelated_names.ori"
+    );
     let result = check_source(source);
     assert!(result.has_errors());
 
@@ -412,11 +415,7 @@ fn unknown_identifier_no_suggestion_for_unrelated_names() {
 #[test]
 fn call_with_named_arg() {
     // Calling a function with named arguments
-    let source = "\
-@takes_int (x: int) -> int = x;
-
-@caller () -> int = takes_int(x: 42);
-";
+    let source = include_str!("fixtures/integration/call_with_named_arg.ori");
     let result = check_source(source);
     assert!(!result.has_errors());
     assert_eq!(result.function_count(), 2);
@@ -426,12 +425,7 @@ fn call_with_named_arg() {
 
 #[test]
 fn simple_let_binding() {
-    let source = "\
-@foo () -> int = {
-    let x = 42;
-    x
-}
-";
+    let source = include_str!("fixtures/integration/simple_let_binding.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -443,9 +437,7 @@ fn simple_let_binding() {
 #[test]
 fn let_in_block_body() {
     // Using a block expression (if/else) that includes let bindings
-    let source = "\
-@foo () -> int = if true then 42 else 0;
-";
+    let source = include_str!("fixtures/integration/let_in_block_body.ori");
     let result = check_source(source);
     assert!(!result.has_errors());
 
@@ -457,7 +449,9 @@ fn let_in_block_body() {
 
 #[test]
 fn if_then_else_int() {
-    let result = check_source("@foo () -> int = if true then 1 else 2;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/if_then_else_int.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -466,7 +460,9 @@ fn if_then_else_int() {
 
 #[test]
 fn if_then_else_string() {
-    let result = check_source(r#"@foo () -> str = if false then "a" else "b";"#);
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/if_then_else_string.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -476,7 +472,9 @@ fn if_then_else_string() {
 #[test]
 fn if_condition_must_be_bool() {
     // Using an int as condition should produce an error
-    let result = check_source("@bad () -> int = if 42 then 1 else 2;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/if_condition_must_be_bool.ori"
+    )));
     assert!(result.has_errors());
 
     let has_mismatch = result
@@ -494,7 +492,9 @@ fn if_condition_must_be_bool() {
 
 #[test]
 fn list_literal() {
-    let result = check_source("@foo () -> [int] = [1, 2, 3];");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/list_literal.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -504,7 +504,9 @@ fn list_literal() {
 #[test]
 fn empty_list() {
     // Empty list with type annotation on function
-    let result = check_source("@foo () -> [int] = [];");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/empty_list.ori"
+    )));
     // The empty list may or may not unify with [int] depending on inference
     // At minimum, it shouldn't panic
     let _ = result.has_errors();
@@ -514,7 +516,9 @@ fn empty_list() {
 
 #[test]
 fn arithmetic_operators() {
-    let result = check_source("@foo () -> int = 1 + 2 * 3;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/arithmetic_operators.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -523,7 +527,9 @@ fn arithmetic_operators() {
 
 #[test]
 fn comparison_operators() {
-    let result = check_source("@foo () -> bool = 1 < 2;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/comparison_operators.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -532,7 +538,9 @@ fn comparison_operators() {
 
 #[test]
 fn boolean_operators() {
-    let result = check_source("@foo () -> bool = true && false;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/boolean_operators.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -541,7 +549,9 @@ fn boolean_operators() {
 
 #[test]
 fn equality_check() {
-    let result = check_source("@foo () -> bool = 1 == 2;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/equality_check.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -550,7 +560,9 @@ fn equality_check() {
 
 #[test]
 fn string_concatenation() {
-    let result = check_source(r#"@foo () -> str = "hello" + " world";"#);
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/string_concatenation.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -559,7 +571,9 @@ fn string_concatenation() {
 
 #[test]
 fn negation() {
-    let result = check_source("@foo () -> int = -42;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/negation.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -568,7 +582,9 @@ fn negation() {
 
 #[test]
 fn boolean_not() {
-    let result = check_source("@foo () -> bool = !true;");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/boolean_not.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -579,7 +595,9 @@ fn boolean_not() {
 
 #[test]
 fn tuple_literal() {
-    let result = check_source("@foo () -> (int, str) = (42, \"hello\");");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/tuple_literal.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -591,11 +609,7 @@ fn tuple_literal() {
 #[test]
 fn multiple_errors_accumulated() {
     // Two functions with errors - should accumulate both
-    let source = r#"
-@bad1 () -> int = "not an int";
-
-@bad2 () -> bool = 42;
-"#;
+    let source = include_str!("fixtures/integration/multiple_errors_accumulated.ori");
     let result = check_source(source);
     assert!(result.has_errors());
     // Should have at least 2 errors (one per function)
@@ -674,8 +688,12 @@ fn import_simple_function() {
     let interner = StringInterner::new();
 
     let result = check_with_imports(
-        "@caller () -> int = add(1, 2);",
-        "@add (a: int, b: int) -> int = a + b;",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/integration/import_simple_function_consumer.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/integration/multiple_typed_params.ori"
+        )),
         &interner,
     );
 
@@ -690,7 +708,9 @@ fn import_simple_function() {
 #[test]
 fn import_without_registration_fails() {
     // Module B calls `missing_fn()` which was never imported → UnknownIdent
-    let result = check_source("@caller () -> int = missing_fn();");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/import_without_registration_fails.ori"
+    )));
 
     assert!(result.has_errors());
     let has_unknown = result
@@ -710,8 +730,12 @@ fn import_function_with_different_types() {
     let interner = StringInterner::new();
 
     let result = check_with_imports(
-        r#"@caller () -> int = len("hello");"#,
-        "@len (s: str) -> int = 5;",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/integration/import_function_with_different_types_consumer.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/integration/import_function_with_different_types_provider.ori"
+        )),
         &interner,
     );
 
@@ -730,8 +754,12 @@ fn import_return_type_mismatch_detected() {
     let interner = StringInterner::new();
 
     let result = check_with_imports(
-        "@caller () -> int = returns_str();",
-        r#"@returns_str () -> str = "hello";"#,
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/integration/import_return_type_mismatch_detected_consumer.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/integration/import_return_type_mismatch_detected_provider.ori"
+        )),
         &interner,
     );
 
@@ -752,12 +780,11 @@ fn import_does_not_shadow_local() {
     // Local `foo() -> int` should shadow imported `foo() -> str`
     let interner = StringInterner::new();
 
-    let provider_source = r#"@foo () -> str = "imported";"#;
-    let consumer_source = "\
-@foo () -> int = 42;
-
-@caller () -> int = foo();
-";
+    let provider_source = fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/import_does_not_shadow_local_provider.ori"
+    ));
+    let consumer_source =
+        include_str!("fixtures/integration/import_does_not_shadow_local_consumer.ori");
 
     let provider = parse_source(provider_source, &interner);
     let consumer = parse_source(consumer_source, &interner);
@@ -804,14 +831,10 @@ fn import_multiple_functions() {
     // Import two functions from the same module, call both in a chain (positional)
     let interner = StringInterner::new();
 
-    let provider_source = "\
-@double (x: int) -> int = x + x;
-
-@negate (x: int) -> int = 0 - x;
-";
-    let consumer_source = "\
-@caller () -> int = negate(double(5));
-";
+    let provider_source =
+        include_str!("fixtures/integration/import_multiple_functions_provider.ori");
+    let consumer_source =
+        include_str!("fixtures/integration/import_multiple_functions_consumer.ori");
 
     let result = check_with_imports(consumer_source, provider_source, &interner);
 
@@ -826,13 +849,15 @@ fn import_multiple_functions() {
 fn import_module_alias_stores_signatures() {
     // Test that register_module_alias stores public function signatures
     let interner = StringInterner::new();
-    let provider_source = "\
-pub @public_fn () -> int = 1;
-
-@private_fn () -> int = 2;
-";
+    let provider_source =
+        include_str!("fixtures/integration/import_module_alias_stores_signatures_provider.ori");
     let provider = parse_source(provider_source, &interner);
-    let consumer = parse_source("@caller () -> int = 42;", &interner);
+    let consumer = parse_source(
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/integration/import_module_alias_stores_signatures_consumer.ori"
+        )),
+        &interner,
+    );
 
     let (result, _pool) = crate::check::check_module_with_imports(
         &consumer.module,
@@ -865,8 +890,8 @@ fn module_alias_qualified_call_types_to_function_return() {
     // access was deferred), cascading cross-module `assert_eq` to AOT
     // missing-mono. Fails if the module_alias_call resolver is reverted.
     let interner = StringInterner::new();
-    let provider = parse_source("pub @add (a: int, b: int) -> int = a + b;", &interner);
-    let consumer = parse_source("@caller () -> int = math.add(a: 10, b: 20);", &interner);
+    let provider = parse_source(fixture_without_trailing_newline(include_str!("fixtures/integration/module_alias_qualified_call_types_to_function_return_provider.ori")), &interner);
+    let consumer = parse_source(fixture_without_trailing_newline(include_str!("fixtures/integration/module_alias_qualified_call_types_to_function_return_consumer.ori")), &interner);
 
     let (result, _pool) = crate::check::check_module_with_imports(
         &consumer.module,
@@ -915,8 +940,8 @@ fn module_alias_unknown_qualified_method_does_not_resolve() {
     // the resolver returns None and the call falls through to ordinary method
     // dispatch (which finds nothing on the namespace placeholder).
     let interner = StringInterner::new();
-    let provider = parse_source("pub @add (a: int, b: int) -> int = a + b;", &interner);
-    let consumer = parse_source("@caller () -> int = math.nonexistent(x: 1);", &interner);
+    let provider = parse_source(fixture_without_trailing_newline(include_str!("fixtures/integration/module_alias_qualified_call_types_to_function_return_provider.ori")), &interner);
+    let consumer = parse_source(fixture_without_trailing_newline(include_str!("fixtures/integration/module_alias_unknown_qualified_method_does_not_resolve_consumer.ori")), &interner);
 
     let (result, _pool) = crate::check::check_module_with_imports(
         &consumer.module,
@@ -958,7 +983,9 @@ fn only_comments() {
 
 #[test]
 fn function_returning_void() {
-    let result = check_source("@noop () -> void = ();");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/function_returning_void.ori"
+    )));
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -967,17 +994,7 @@ fn function_returning_void() {
 
 #[test]
 fn many_functions() {
-    let source = "\
-@a () -> int = 1;
-
-@b () -> int = 2;
-
-@c () -> int = 3;
-
-@d () -> int = 4;
-
-@e () -> int = 5;
-";
+    let source = include_str!("fixtures/integration/many_functions.ori");
     let result = check_source(source);
     assert!(!result.has_errors());
     assert_eq!(result.function_count(), 5);
@@ -987,11 +1004,7 @@ fn many_functions() {
 
 #[test]
 fn struct_type_exported() {
-    let source = "\
-type Point = { x: int, y: int }
-
-@main () -> int = 42;
-";
+    let source = include_str!("fixtures/integration/struct_type_exported.ori");
     let result = check_source(source);
     assert!(!result.has_errors());
 
@@ -1014,11 +1027,7 @@ type Point = { x: int, y: int }
 
 #[test]
 fn enum_type_exported() {
-    let source = "\
-type Color = Red | Green | Blue;
-
-@main () -> int = 42;
-";
+    let source = include_str!("fixtures/integration/enum_type_exported.ori");
     let result = check_source(source);
     assert!(!result.has_errors());
 
@@ -1064,11 +1073,7 @@ fn builtin_ordering_always_exported() {
 #[test]
 fn bogus_return_type_is_rejected() {
     // `-> garbage` is not a valid type — should produce a type error
-    let source = "\
-@sum (x: int, y: int) -> garbage = x + y;
-
-@main () -> void = println(sum(1, 2).to_str());
-";
+    let source = include_str!("fixtures/integration/bogus_return_type_is_rejected.ori");
     let result = check_source(source);
     assert!(
         result.has_errors(),
@@ -1079,16 +1084,7 @@ fn bogus_return_type_is_rejected() {
 #[test]
 fn bogus_return_type_on_method_is_rejected() {
     // Same bug but on a method with `self` — this is the user's exact repro
-    let source = "\
-type Point = { x: int, y: int }
-
-@sum (self: Point) -> garbage = self.x + self.y;
-
-@main () -> void = {
-  let p = Point { x: 3, y: 4 };
-  println(p.sum().to_str())
-}
-";
+    let source = include_str!("fixtures/integration/bogus_return_type_on_method_is_rejected.ori");
     let result = check_source(source);
     assert!(
         result.has_errors(),
@@ -1101,20 +1097,8 @@ fn bogus_return_type_in_impl_block_is_rejected() {
     // BUG: impl block methods silently accept bogus return type annotations.
     // `-> nt` is not a valid type but the type checker accepts it and the
     // program runs, producing correct output with no errors.
-    let source = "\
-type Point = { x: int, y: int }
-
-impl Point {
-    @sum (self) -> nt = self.x + self.y;
-
-    @scale (self, factor: int) -> Point = Point { x: self.x * factor, y: self.y * factor }
-}
-
-@main () -> void = {
-    let p = Point { x: 3, y: 4 };
-    print(msg: str(p.sum()))
-}
-";
+    let source =
+        include_str!("fixtures/integration/bogus_return_type_in_impl_block_is_rejected.ori");
     let result = check_source(source);
     assert!(
         result.has_errors(),
@@ -1125,11 +1109,7 @@ impl Point {
 #[test]
 fn bogus_param_type_is_rejected() {
     // Also check parameter types — `garbage` as a param type should error
-    let source = "\
-@foo (x: garbage) -> int = 42;
-
-@main () -> void = println(foo(1).to_str());
-";
+    let source = include_str!("fixtures/integration/bogus_param_type_is_rejected.ori");
     let result = check_source(source);
     assert!(
         result.has_errors(),
@@ -1141,16 +1121,7 @@ fn bogus_param_type_is_rejected() {
 fn bogus_return_type_via_imports_api() {
     // Test the exact code path the WASM playground uses:
     // check_module_with_imports with an empty register_fn
-    let source = "\
-type Point = { x: int, y: int }
-
-@sum (self: Point) -> garbage = self.x + self.y;
-
-@main () -> void = {
-  let p = Point { x: 3, y: 4 };
-  println(p.sum().to_str())
-}
-";
+    let source = include_str!("fixtures/integration/bogus_return_type_on_method_is_rejected.ori");
     let interner = StringInterner::new();
     let tokens = ori_lexer::lex(source, &interner);
     let parsed = ori_parse::parse(&tokens, &interner);
@@ -1172,9 +1143,7 @@ type Point = { x: int, y: int }
 #[test]
 fn valid_return_type_still_works() {
     // Regression guard: valid type annotations must still work
-    let source = "\
-@sum (x: int, y: int) -> int = x + y;
-";
+    let source = include_str!("fixtures/integration/valid_return_type_still_works.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1189,13 +1158,7 @@ fn valid_return_type_still_works() {
 fn impl_self_field_access_type_checks() {
     // Regression guard: self in impl block resolves to the impl type,
     // allowing field access and correct return type checking.
-    let source = "\
-type Point = { x: int, y: int }
-
-impl Point {
-    @sum (self) -> int = self.x + self.y;
-}
-";
+    let source = include_str!("fixtures/integration/impl_self_field_access_type_checks.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1207,14 +1170,7 @@ impl Point {
 #[test]
 fn impl_self_with_additional_params() {
     // self and additional typed parameters should all resolve correctly
-    let source = "\
-type Counter = { value: int }
-
-impl Counter {
-    @add (self, amount: int) -> int = self.value + amount;
-    @add_scaled (self, amount: int, scale: int) -> int = self.value + amount * scale;
-}
-";
+    let source = include_str!("fixtures/integration/impl_self_with_additional_params.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1227,13 +1183,7 @@ impl Counter {
 fn impl_self_return_type_mismatch_detected() {
     // Body returns int (self.x + self.y), but declared return type is str.
     // The type checker must catch this mismatch.
-    let source = "\
-type Point = { x: int, y: int }
-
-impl Point {
-    @sum (self) -> str = self.x + self.y;
-}
-";
+    let source = include_str!("fixtures/integration/impl_self_return_type_mismatch_detected.ori");
     let result = check_source(source);
     assert!(
         result.has_errors(),
@@ -1244,13 +1194,7 @@ impl Point {
 #[test]
 fn impl_self_returning_self_type() {
     // Self as return type should resolve to the impl type
-    let source = "\
-type Vector = { x: int, y: int }
-
-impl Vector {
-    @negate (self) -> Self = Vector { x: 0 - self.x, y: 0 - self.y }
-}
-";
+    let source = include_str!("fixtures/integration/impl_self_returning_self_type.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1262,13 +1206,7 @@ impl Vector {
 #[test]
 fn impl_associated_function_no_self() {
     // Associated functions (no self) should work without self-type issues
-    let source = "\
-type Point = { x: int, y: int }
-
-impl Point {
-    @origin () -> Self = Point { x: 0, y: 0 }
-}
-";
+    let source = include_str!("fixtures/integration/impl_associated_function_no_self.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1280,16 +1218,7 @@ impl Point {
 #[test]
 fn impl_multiple_methods_all_use_self() {
     // Multiple methods in the same impl block should each get self bound correctly
-    let source = "\
-type Rect = { w: int, h: int }
-
-impl Rect {
-    @area (self) -> int = self.w * self.h;
-    @perimeter (self) -> int = 2 * (self.w + self.h);
-    @is_square (self) -> bool = self.w == self.h;
-    @scale (self, factor: int) -> Self = Rect { w: self.w * factor, h: self.h * factor }
-}
-";
+    let source = include_str!("fixtures/integration/impl_multiple_methods_all_use_self.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1302,13 +1231,7 @@ impl Rect {
 fn impl_method_bogus_param_type_rejected() {
     // A non-self parameter with a bogus type, when used in the body,
     // should produce a type mismatch (garbage != int).
-    let source = "\
-type Point = { x: int, y: int }
-
-impl Point {
-    @scale (self, factor: garbage) -> int = self.x * factor;
-}
-";
+    let source = include_str!("fixtures/integration/impl_method_bogus_param_type_rejected.ori");
     let result = check_source(source);
     assert!(
         result.has_errors(),
@@ -1320,13 +1243,8 @@ impl Point {
 fn impl_method_wrong_body_type_with_self_and_params() {
     // Body is int (self.value + amount), declared return is bool.
     // With self correctly typed, the mismatch must be detected.
-    let source = "\
-type Counter = { value: int }
-
-impl Counter {
-    @add (self, amount: int) -> bool = self.value + amount;
-}
-";
+    let source =
+        include_str!("fixtures/integration/impl_method_wrong_body_type_with_self_and_params.ori");
     let result = check_source(source);
     assert!(
         result.has_errors(),
@@ -1337,13 +1255,7 @@ impl Counter {
 #[test]
 fn impl_self_method_on_enum() {
     // self should also work correctly on enum types
-    let source = "\
-type Color = Red | Green | Blue;
-
-impl Color {
-    @is_red (self) -> bool = match self { Red -> true, _ -> false }
-}
-";
+    let source = include_str!("fixtures/integration/impl_self_method_on_enum.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1355,13 +1267,7 @@ impl Color {
 #[test]
 fn impl_self_method_on_single_field_struct() {
     // self should work on single-field struct types
-    let source = "\
-type Wrapper = { value: int }
-
-impl Wrapper {
-    @doubled (self) -> int = self.value * 2;
-}
-";
+    let source = include_str!("fixtures/integration/impl_self_method_on_single_field_struct.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1374,15 +1280,8 @@ impl Wrapper {
 fn impl_self_passed_to_function_expecting_type() {
     // self should have the impl type, so passing it to a function that
     // expects that type should work
-    let source = "\
-type Point = { x: int, y: int }
-
-@distance (p: Point) -> int = p.x * p.x + p.y * p.y;
-
-impl Point {
-    @dist (self) -> int = distance(p: self);
-}
-";
+    let source =
+        include_str!("fixtures/integration/impl_self_passed_to_function_expecting_type.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1394,15 +1293,8 @@ impl Point {
 #[test]
 fn impl_self_passed_to_function_expecting_wrong_type() {
     // self is Point, but passed where str is expected — should error
-    let source = "\
-type Point = { x: int, y: int }
-
-@consume (s: str) -> int = 0;
-
-impl Point {
-    @bad (self) -> int = consume(s: self);
-}
-";
+    let source =
+        include_str!("fixtures/integration/impl_self_passed_to_function_expecting_wrong_type.ori");
     let result = check_source(source);
     assert!(
         result.has_errors(),
@@ -1414,11 +1306,7 @@ impl Point {
 
 #[test]
 fn never_struct_field_rejected() {
-    let source = r"
-type Bad = { value: int, impossible: Never }
-@use_it () -> int = 0;
-@test_use_it tests @use_it () -> void = ();
-";
+    let source = include_str!("fixtures/integration/never_struct_field_rejected.ori");
     let result = check_source(source);
     assert!(result.has_errors(), "Never struct field should be an error");
     assert!(
@@ -1433,11 +1321,7 @@ type Bad = { value: int, impossible: Never }
 
 #[test]
 fn never_in_sum_variant_allowed() {
-    let source = r"
-type MaybeNever = Value(v: int) | Impossible(n: Never);
-@use_it (m: MaybeNever) -> int = match m { Value(v) -> v }
-@test_use_it tests @use_it () -> void = ();
-";
+    let source = include_str!("fixtures/integration/never_in_sum_variant_allowed.ori");
     let result = check_source(source);
     assert!(
         !result
@@ -1453,10 +1337,7 @@ type MaybeNever = Value(v: int) | Impossible(n: Never);
 #[test]
 fn collect_to_set_via_return_type() {
     // Return type `Set<int>` should guide `collect()` to produce Set
-    let source = r"
-@to_set () -> Set<int> = [1, 2, 3].iter().collect();
-@test_to_set tests @to_set () -> void = ();
-";
+    let source = include_str!("fixtures/integration/collect_to_set_via_return_type.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1470,10 +1351,7 @@ fn collect_to_set_via_return_type() {
 #[test]
 fn collect_to_list_by_default() {
     // No Set annotation — collect() should default to list
-    let source = r"
-@to_list () -> [int] = [1, 2, 3].iter().collect();
-@test_to_list tests @to_list () -> void = ();
-";
+    let source = include_str!("fixtures/integration/collect_to_list_by_default.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1487,13 +1365,7 @@ fn collect_to_list_by_default() {
 #[test]
 fn collect_to_set_via_let_binding() {
     // Let binding with Set<int> annotation should guide collect()
-    let source = r"
-@via_let () -> bool = {
-    let s: Set<int> = [1, 2, 3].iter().collect();
-    s == s
-}
-@test_via_let tests @via_let () -> void = ();
-";
+    let source = include_str!("fixtures/integration/collect_to_set_via_let_binding.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1505,10 +1377,7 @@ fn collect_to_set_via_let_binding() {
 #[test]
 fn collect_chained_adapters_to_set() {
     // Chained adapters (filter) before collect should preserve Set inference
-    let source = r"
-@filtered () -> Set<int> = [1, 2, 3, 4].iter().filter(predicate: x -> x > 2).collect();
-@test_filtered tests @filtered () -> void = ();
-";
+    let source = include_str!("fixtures/integration/collect_chained_adapters_to_set.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1523,12 +1392,7 @@ fn collect_chained_adapters_to_set() {
 
 #[test]
 fn generic_identity_records_mono_instance() {
-    let source = r"
-@identity <T> (x: T) -> T = x;
-@caller () -> int = identity(x: 42);
-@test_caller tests @caller () -> void = ();
-@test_identity tests @identity () -> void = ();
-";
+    let source = include_str!("fixtures/integration/generic_identity_records_mono_instance.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1549,12 +1413,7 @@ fn generic_identity_records_mono_instance() {
 
 #[test]
 fn generic_two_param_records_mono_instance() {
-    let source = r#"
-@pair <A, B> (a: A, b: B) -> (A, B) = (a, b);
-@caller () -> (int, str) = pair(a: 42, b: "hello");
-@test_caller tests @caller () -> void = ();
-@test_pair tests @pair () -> void = ();
-"#; // Needs r#"..."# because of the " in "hello"
+    let source = include_str!("fixtures/integration/generic_two_param_records_mono_instance.ori"); // Needs r#"..."# because of the " in "hello"
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1574,12 +1433,7 @@ fn generic_two_param_records_mono_instance() {
 
 #[test]
 fn non_generic_call_records_nothing() {
-    let source = r"
-@add (a: int, b: int) -> int = a + b;
-@caller () -> int = add(a: 1, b: 2);
-@test_caller tests @caller () -> void = ();
-@test_add tests @add () -> void = ();
-";
+    let source = include_str!("fixtures/integration/non_generic_call_records_nothing.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1596,16 +1450,7 @@ fn non_generic_call_records_nothing() {
 
 #[test]
 fn same_generic_call_twice_deduplicates() {
-    let source = r"
-@identity <T> (x: T) -> T = x;
-@caller () -> int = {
-    let a = identity(x: 1);
-    let b = identity(x: 2);
-    a + b
-}
-@test_caller tests @caller () -> void = ();
-@test_identity tests @identity () -> void = ();
-";
+    let source = include_str!("fixtures/integration/same_generic_call_twice_deduplicates.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1627,14 +1472,8 @@ fn same_generic_call_twice_deduplicates() {
 
 #[test]
 fn different_type_args_produce_separate_instances() {
-    let source = r#"
-@identity <T> (x: T) -> T = x;
-@caller_int () -> int = identity(x: 42);
-@caller_str () -> str = identity(x: "hello");
-@test_int tests @caller_int () -> void = ();
-@test_str tests @caller_str () -> void = ();
-@test_identity tests @identity () -> void = ();
-"#;
+    let source =
+        include_str!("fixtures/integration/different_type_args_produce_separate_instances.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1666,14 +1505,9 @@ fn different_type_args_produce_separate_instances() {
 
 #[test]
 fn inherent_method_on_generic_receiver_records_method_instance() {
-    let source = r"
-type Box<T> = { value: T };
-@unbox (b: Box<int>) -> int = b.unwrap();
-impl<T> Box<T> {
-    @unwrap (self) -> T = self.value;
-}
-@test_unbox tests @unbox () -> void = ();
-";
+    let source = include_str!(
+        "fixtures/integration/inherent_method_on_generic_receiver_records_method_instance.ori"
+    );
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1711,14 +1545,7 @@ impl<T> Box<T> {
 
 #[test]
 fn same_method_on_same_receiver_deduplicates() {
-    let source = r"
-type Box<T> = { value: T };
-@two_calls (a: Box<int>, b: Box<int>) -> int = a.unwrap() + b.unwrap();
-impl<T> Box<T> {
-    @unwrap (self) -> T = self.value;
-}
-@test_two_calls tests @two_calls () -> void = ();
-";
+    let source = include_str!("fixtures/integration/same_method_on_same_receiver_deduplicates.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1736,16 +1563,9 @@ impl<T> Box<T> {
 
 #[test]
 fn method_on_distinct_receivers_produces_separate_instances() {
-    let source = r"
-type Box<T> = { value: T };
-@unbox_int (b: Box<int>) -> int = b.unwrap();
-@unbox_str (b: Box<str>) -> str = b.unwrap();
-impl<T> Box<T> {
-    @unwrap (self) -> T = self.value;
-}
-@test_int tests @unbox_int () -> void = ();
-@test_str tests @unbox_str () -> void = ();
-";
+    let source = include_str!(
+        "fixtures/integration/method_on_distinct_receivers_produces_separate_instances.ori"
+    );
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1777,16 +1597,9 @@ impl<T> Box<T> {
 /// the two receivers into one instance, re-surfacing the missing-mono condition.
 #[test]
 fn method_on_nested_generic_receiver_records_distinct_instance() {
-    let source = r"
-type Box<T> = { value: T };
-@unbox_int (b: Box<int>) -> int = b.unwrap();
-@unbox_list (b: Box<[int]>) -> [int] = b.unwrap();
-impl<T> Box<T> {
-    @unwrap (self) -> T = self.value;
-}
-@test_int tests @unbox_int () -> void = ();
-@test_list tests @unbox_list () -> void = ();
-";
+    let source = include_str!(
+        "fixtures/integration/method_on_nested_generic_receiver_records_distinct_instance.ori"
+    );
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1825,14 +1638,9 @@ fn inherent_method_on_non_generic_receiver_records_nothing() {
     // The impl is NOT generic over the receiver's type params, so the method
     // call must emit no method MonoInstance (the additive scope guard leaves
     // non-generic inherent dispatch untouched).
-    let source = r"
-type Counter = { count: int };
-@read (c: Counter) -> int = c.get();
-impl Counter {
-    @get (self) -> int = self.count;
-}
-@test_read tests @read () -> void = ();
-";
+    let source = include_str!(
+        "fixtures/integration/inherent_method_on_non_generic_receiver_records_nothing.ori"
+    );
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1908,16 +1716,9 @@ fn deferred_mono_resolution_root_extension_applied_3_hop() {
     // calling generic). With the root-extension fix, every MonoInstance
     // produced for the chain is fully concrete and every body_type_map
     // entry substitutes to a non-Var concrete type.
-    let source = r"
-@id <T> (x: T) -> T = x;
-@wrap <T> (x: T) -> T = id(x: x);
-@double_wrap <T> (x: T) -> T = wrap(x: x);
-@main () -> int = double_wrap(x: 42);
-@test_main tests @main () -> void = ();
-@test_id tests @id () -> void = ();
-@test_wrap tests @wrap () -> void = ();
-@test_double_wrap tests @double_wrap () -> void = ();
-";
+    let source = include_str!(
+        "fixtures/integration/deferred_mono_resolution_root_extension_applied_3_hop.ori"
+    );
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -1970,18 +1771,9 @@ fn deferred_mono_resolution_root_extension_applied_4_hop() {
     // 4-hop chain: @main → @a → @b → @c → @d. The three middle callees
     // (@b, @c, @d) are deferred. Verifies the root-extension holds beyond
     // 3-hop — guards against off-by-one in transitive resolution.
-    let source = r"
-@d <T> (x: T) -> T = x;
-@c <T> (x: T) -> T = d(x: x);
-@b <T> (x: T) -> T = c(x: x);
-@a <T> (x: T) -> T = b(x: x);
-@main () -> int = a(x: 7);
-@test_main tests @main () -> void = ();
-@test_a tests @a () -> void = ();
-@test_b tests @b () -> void = ();
-@test_c tests @c () -> void = ();
-@test_d tests @d () -> void = ();
-";
+    let source = include_str!(
+        "fixtures/integration/deferred_mono_resolution_root_extension_applied_4_hop.ori"
+    );
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -2032,14 +1824,8 @@ fn deferred_mono_resolution_multi_param_forwarding() {
     // root-extension, @g's MonoInstance comes out fully concrete at
     // every call site; without it, the reordered binding can leave
     // Tag::Var leaves depending on which scheme var roots the class.
-    let source = r#"
-@g <A, B> (x: A, y: B) -> B = y;
-@f <A, B> (x: A, y: B) -> B = g(x: y, y: x);
-@main () -> str = f(x: 1, y: "hi");
-@test_main tests @main () -> void = ();
-@test_g tests @g () -> void = ();
-@test_f tests @f () -> void = ();
-"#;
+    let source =
+        include_str!("fixtures/integration/deferred_mono_resolution_multi_param_forwarding.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -2113,13 +1899,8 @@ fn hash_first_import_matches_ast_fallback() {
     let interner = StringInterner::new();
 
     // Provider module with a mix of monomorphic and generic functions
-    let provider_source = "\
-@add (a: int, b: int) -> int = a + b;
-@greet (name: str) -> str = name;
-@noop () -> void = ();
-@identity<T> (x: T) -> T = x;
-@pair_first<T, U> (a: T, b: U) -> T = a;
-";
+    let provider_source =
+        include_str!("fixtures/integration/hash_first_import_matches_ast_fallback_provider.ori");
     let provider = parse_source(provider_source, &interner);
 
     // Step 1: Import via AST fallback to get FunctionSigs with hashes
@@ -2131,7 +1912,9 @@ fn hash_first_import_matches_ast_fallback() {
     );
 
     // Step 2: Import into a fresh checker via hash-first (using AST result's sigs)
-    let consumer_source = "@main () -> int = 0;";
+    let consumer_source = fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/hash_first_import_matches_ast_fallback_consumer.ori"
+    ));
     let consumer = parse_source(consumer_source, &interner);
 
     let (hash_result, _pool2) = crate::check::check_module_with_imports(
@@ -2196,12 +1979,8 @@ fn hash_first_resolves_all_monomorphic_types() {
     let interner = StringInterner::new();
 
     // Provider with multiple non-generic functions using primitive types
-    let provider_source = "\
-@add (a: int, b: int) -> int = a + b;
-@concat (a: str, b: str) -> str = a;
-@not (b: bool) -> bool = b;
-@unit_fn () -> void = ();
-";
+    let provider_source =
+        include_str!("fixtures/integration/hash_first_resolves_all_monomorphic_types_provider.ori");
     let provider = parse_source(provider_source, &interner);
 
     // First pass: get FunctionSigs via AST
@@ -2214,7 +1993,9 @@ fn hash_first_resolves_all_monomorphic_types() {
 
     // Second pass: import via hash-first into a FRESH checker
     // Since all types are primitives (pre-interned), every hash lookup should hit
-    let consumer_source = "@main () -> int = 0;";
+    let consumer_source = fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/hash_first_import_matches_ast_fallback_consumer.ori"
+    ));
     let consumer = parse_source(consumer_source, &interner);
 
     let (result, _pool2) = crate::check::check_module_with_imports(
@@ -2254,7 +2035,9 @@ fn hash_first_resolves_all_monomorphic_types() {
 fn hash_first_skips_generic_functions() {
     let interner = StringInterner::new();
 
-    let provider_source = "@identity<T> (x: T) -> T = x;";
+    let provider_source = fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/hash_first_skips_generic_functions_provider.ori"
+    ));
     let provider = parse_source(provider_source, &interner);
 
     // Get FunctionSig with hashes
@@ -2279,7 +2062,9 @@ fn hash_first_skips_generic_functions() {
     );
 
     // Import via hash-first — should fall back to AST for generic
-    let consumer_source = "@main () -> int = 0;";
+    let consumer_source = fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/hash_first_import_matches_ast_fallback_consumer.ori"
+    ));
     let consumer = parse_source(consumer_source, &interner);
 
     let (result, _pool2) = crate::check::check_module_with_imports(
@@ -2331,12 +2116,9 @@ impl CheckResult {
 fn drop_match_partial_struct_destructure_rejected_e2048() {
     // Negative pin: `Pair { a, .. }` binds 1 of 2 owned fields by value —
     // proper subset → E2048.
-    let result = check_source(
-        "trait Drop { @drop (self) -> void; }
-         type Pair = { a: int, b: int }
-         impl Pair: Drop { @drop (self) -> void = (); }
-         @bad (p: Pair) -> int = match p { Pair { a, .. } -> a, };",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_match_partial_struct_destructure_rejected_e2048.ori"
+    )));
     assert_eq!(
         result.drop_partial_move_count(),
         1,
@@ -2349,12 +2131,9 @@ fn drop_match_partial_struct_destructure_rejected_e2048() {
 fn drop_match_whole_value_struct_destructure_accepted() {
     // Positive pin: `Pair { a, b }` binds EVERY owned field — whole-value
     // consumption → no E2048.
-    let result = check_source(
-        "trait Drop { @drop (self) -> void; }
-         type Pair = { a: int, b: int }
-         impl Pair: Drop { @drop (self) -> void = (); }
-         @good (p: Pair) -> int = match p { Pair { a, b } -> a + b, };",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_match_whole_value_struct_destructure_accepted.ori"
+    )));
     assert_eq!(
         result.drop_partial_move_count(),
         0,
@@ -2366,12 +2145,9 @@ fn drop_match_whole_value_struct_destructure_accepted() {
 #[test]
 fn drop_match_partial_enum_variant_destructure_rejected_e2048() {
     // Negative pin: `Pair(x)` binds 1 of 2 payload fields → E2048.
-    let result = check_source(
-        "trait Drop { @drop (self) -> void; }
-         type Ev = Pair(x: int, y: int) | Solo(z: int);
-         impl Ev: Drop { @drop (self) -> void = (); }
-         @bad (e: Ev) -> int = match e { Pair(x) -> x, Solo(z) -> z, };",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_match_partial_enum_variant_destructure_rejected_e2048.ori"
+    )));
     assert!(
         result.drop_partial_move_count() >= 1,
         "partial enum-variant destructure of a Drop type MUST fire E2048; kinds: {:?}",
@@ -2383,12 +2159,9 @@ fn drop_match_partial_enum_variant_destructure_rejected_e2048() {
 fn drop_match_whole_payload_enum_variant_destructure_accepted() {
     // Positive pin: `Pair(x, y)` binds every payload field of the matched
     // variant → whole-value consumption → no E2048.
-    let result = check_source(
-        "trait Drop { @drop (self) -> void; }
-         type Ev = Pair(x: int, y: int) | Solo(z: int);
-         impl Ev: Drop { @drop (self) -> void = (); }
-         @good (e: Ev) -> int = match e { Pair(x, y) -> x + y, Solo(z) -> z, };",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_match_whole_payload_enum_variant_destructure_accepted.ori"
+    )));
     assert_eq!(
         result.drop_partial_move_count(),
         0,
@@ -2402,10 +2175,9 @@ fn drop_match_partial_destructure_on_non_drop_type_accepted() {
     // Negative-space pin: the E2048 axis is Drop-only. A partial destructure of
     // a NON-Drop type must NOT fire E2048 (it is governed by E2043's
     // conditional-move axis, not E2048's unconditional-Drop axis).
-    let result = check_source(
-        "type Plain = { a: int, b: int }
-         @ok (p: Plain) -> int = match p { Plain { a, .. } -> a, };",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_match_partial_destructure_on_non_drop_type_accepted.ori"
+    )));
     assert_eq!(
         result.drop_partial_move_count(),
         0,
@@ -2420,12 +2192,9 @@ fn drop_let_projection_rejected_e2048() {
     // the find_impl resolve-state fix: the impl is keyed by the Named Idx
     // while the receiver resolves to the Struct Idx — both keys must be
     // tried). `let $f = p.a` on a Drop type → E2048.
-    let result = check_source(
-        "trait Drop { @drop (self) -> void; }
-         type Pair = { a: int, b: int }
-         impl Pair: Drop { @drop (self) -> void = (); }
-         @bad (p: Pair) -> int = { let $first = p.a; first };",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_let_projection_rejected_e2048.ori"
+    )));
     assert_eq!(
         result.drop_partial_move_count(),
         1,
@@ -2438,12 +2207,9 @@ fn drop_let_projection_rejected_e2048() {
 fn drop_match_nested_let_projection_in_arm_rejected_e2048() {
     // Negative pin: a `let $f = v.field` projection nested inside a match arm
     // body must be reached by the validator's FunctionSeq recursion.
-    let result = check_source(
-        "trait Drop { @drop (self) -> void; }
-         type Pair = { a: int, b: int }
-         impl Pair: Drop { @drop (self) -> void = (); }
-         @bad (q: int, p: Pair) -> int = match q { _ -> { let $x = p.a; x }, };",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_match_nested_let_projection_in_arm_rejected_e2048.ori"
+    )));
     assert_eq!(
         result.drop_partial_move_count(),
         1,
@@ -2465,14 +2231,9 @@ fn drop_match_nested_partial_struct_destructure_rejected_e2048() {
     // Negative pin: outer `Outer { inner: ... }` binds Outer's only field
     // (whole-value at the top level), but nested `Inner { x, .. }` binds 1 of 2
     // owned fields of the Drop-typed `inner` → partial move → E2048.
-    let result = check_source(
-        "trait Drop { @drop (self) -> void; }
-         type Inner = { x: int, y: int }
-         type Outer = { inner: Inner }
-         impl Inner: Drop { @drop (self) -> void = (); }
-         impl Outer: Drop { @drop (self) -> void = (); }
-         @bad (o: Outer) -> int = match o { Outer { inner: Inner { x, .. } } -> x, };",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_match_nested_partial_struct_destructure_rejected_e2048.ori"
+    )));
     assert!(
         result.drop_partial_move_count() >= 1,
         "nested partial struct destructure of a Drop-typed field MUST fire E2048; kinds: {:?}",
@@ -2484,14 +2245,9 @@ fn drop_match_nested_partial_struct_destructure_rejected_e2048() {
 fn drop_match_nested_whole_value_struct_destructure_accepted() {
     // Positive pin: nested `Inner { x, y }` binds EVERY owned field of the
     // Drop-typed `inner` — whole-value consumption at every level → no E2048.
-    let result = check_source(
-        "trait Drop { @drop (self) -> void; }
-         type Inner = { x: int, y: int }
-         type Outer = { inner: Inner }
-         impl Inner: Drop { @drop (self) -> void = (); }
-         impl Outer: Drop { @drop (self) -> void = (); }
-         @good (o: Outer) -> int = match o { Outer { inner: Inner { x, y } } -> x + y, };",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_match_nested_whole_value_struct_destructure_accepted.ori"
+    )));
     assert_eq!(
         result.drop_partial_move_count(),
         0,
@@ -2505,14 +2261,9 @@ fn drop_match_nested_partial_in_enum_payload_rejected_e2048() {
     // Negative pin: outer variant `Wrap(inner)` binds its single payload field
     // (whole-value at the top level), but nested `Inner { x, .. }` partially
     // destructures the Drop-typed payload → E2048.
-    let result = check_source(
-        "trait Drop { @drop (self) -> void; }
-         type Inner = { x: int, y: int }
-         type Ev = Wrap(inner: Inner) | Solo(z: int);
-         impl Inner: Drop { @drop (self) -> void = (); }
-         impl Ev: Drop { @drop (self) -> void = (); }
-         @bad (e: Ev) -> int = match e { Wrap(Inner { x, .. }) -> x, Solo(z) -> z, };",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_match_nested_partial_in_enum_payload_rejected_e2048.ori"
+    )));
     assert!(
         result.drop_partial_move_count() >= 1,
         "nested partial destructure inside an enum payload MUST fire E2048; kinds: {:?}",
@@ -2526,13 +2277,9 @@ fn drop_match_nested_partial_on_non_drop_inner_accepted() {
     // NOT a Drop type, a nested partial destructure must NOT fire E2048 — even
     // though the outer type IS Drop. Recursion gates on the nested field's own
     // Drop status, not the outer's.
-    let result = check_source(
-        "trait Drop { @drop (self) -> void; }
-         type Inner = { x: int, y: int }
-         type Outer = { inner: Inner }
-         impl Outer: Drop { @drop (self) -> void = (); }
-         @ok (o: Outer) -> int = match o { Outer { inner: Inner { x, .. } } -> x, };",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_match_nested_partial_on_non_drop_inner_accepted.ori"
+    )));
     assert_eq!(
         result.drop_partial_move_count(),
         0,
@@ -2542,17 +2289,14 @@ fn drop_match_nested_partial_on_non_drop_inner_accepted() {
 }
 
 // E2049 EVALUE_DROP_CONFLICT — runnable source-level enforcement at both
-// non-derived registration surfaces. These are the BUG-07-183 workaround for
-// the negative E2049 spec tests: file-level `#compile_fail("E2049")` is
-// silently dropped by the `ori test` runner, so the conflict is pinned here
-// through the full lex→parse→typecheck pipeline (`check_source`) instead.
+// non-derived registration surfaces. The conflict is pinned through the full
+// lex→parse→typecheck pipeline (`check_source`).
 //
 // `check_source` does not load the prelude, so each source declares a local
-// `trait Drop`. The Value marker is supplied via the pre-proposal
-// `#derive(Value)` form — the only parseable surface today (the spec's
-// `type T: Value = {...}` type-decl trait-bound surface does not yet parse;
-// see BUG-01-009). `#derive(Value)` co-fires E2033 (Value-not-derivable),
-// which these tests tolerate by counting E2049 specifically.
+// `trait Drop`. The Value marker is supplied via `#derive(Value)`, the
+// parseable surface exercised by this integration harness. It co-fires E2033
+// (Value-not-derivable), which these tests tolerate by counting E2049
+// specifically.
 
 impl CheckResult {
     /// Count `ValueDropConflict` (E2049) errors.
@@ -2568,15 +2312,11 @@ impl CheckResult {
 fn value_marker_with_drop_impl_fires_e2049_value_first() {
     // Value marker registered FIRST (type decl), Drop impl SECOND → E2049 at
     // the Drop-impl registration surface (Surface 2). Parse-error-tolerant:
-    // the `#derive(Value)` form co-emits a benign E1016 parse diagnostic
-    // (the missing clean Value surface — BUG-01-009); E2049 still fires.
-    let result = check_source_allow_parse_errors(
-        "trait Drop { @drop (self) -> void; }
-         #derive(Value)
-         type Point = { x: float, y: float }
-         impl Point: Drop { @drop (self) -> void = (); }
-         @main () -> int = 0;",
-    );
+    // the `#derive(Value)` form co-emits an E1016 parse diagnostic; E2049
+    // still fires.
+    let result = check_source_allow_parse_errors(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/value_marker_with_drop_impl_fires_e2049_value_first.ori"
+    )));
     assert_eq!(
         result.value_drop_conflict_count(),
         1,
@@ -2590,11 +2330,9 @@ fn value_marker_without_drop_impl_no_e2049() {
     // Negative-space pin: the E2049 axis requires BOTH markers. A Value type
     // with NO Drop impl must NOT fire E2049 (it may still fire E2033 for the
     // non-derivable `#derive(Value)` form — that is a different axis).
-    let result = check_source_allow_parse_errors(
-        "#derive(Value)
-         type Point = { x: float, y: float }
-         @main () -> int = 0;",
-    );
+    let result = check_source_allow_parse_errors(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/value_marker_without_drop_impl_no_e2049.ori"
+    )));
     assert_eq!(
         result.value_drop_conflict_count(),
         0,
@@ -2607,12 +2345,9 @@ fn value_marker_without_drop_impl_no_e2049() {
 fn drop_impl_without_value_marker_no_e2049() {
     // Negative-space pin: a Drop type with NO Value marker must NOT fire
     // E2049 (the conflict requires the Value marker too).
-    let result = check_source(
-        "trait Drop { @drop (self) -> void; }
-         type Point = { x: float, y: float }
-         impl Point: Drop { @drop (self) -> void = (); }
-         @main () -> int = 0;",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/drop_impl_without_value_marker_no_e2049.ori"
+    )));
     assert_eq!(
         result.value_drop_conflict_count(),
         0,
@@ -2629,9 +2364,9 @@ fn drop_impl_without_value_marker_no_e2049() {
 
 #[test]
 fn test_lambda_param_from_map_iter_iterator_elem_unchanged() {
-    let result = check_source(
-        "@first_keys (kvs: {str: int}) -> [str] = kvs.iter().map(kv -> kv.0).collect();",
-    );
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/lambda_param_from_map_iter_iterator_elem_unchanged.ori"
+    )));
     assert!(
         !result.has_errors(),
         "map-iterator receiver must infer kv: (str, int); kinds: {:?}",
@@ -2645,7 +2380,9 @@ fn test_lambda_param_from_iterator_receiver_unchanged_by_map_arm() {
     // still routes through the `is_iterator()` branch — widening the Map
     // arm to match `Tag::Iterator` would project map_key/map_value on a
     // non-Map idx and break this inference.
-    let result = check_source("@bump (xs: [int]) -> [int] = xs.iter().map(x -> x + 1).collect();");
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "fixtures/integration/lambda_param_from_iterator_receiver_unchanged_by_map_arm.ori"
+    )));
     assert!(
         !result.has_errors(),
         "iterator receiver inference must be unchanged by the Map arm; kinds: {:?}",
@@ -2653,12 +2390,13 @@ fn test_lambda_param_from_iterator_receiver_unchanged_by_map_arm() {
     );
 }
 
-// §09.2 Producer-Spine TDD Matrix — typeck mono-instance recording
+// Mono-instance producer-spine TDD matrix
 //
 // The producer spine is `maybe_record_mono_instance` (free-function path) +
 // `maybe_record_method_mono_instance` (method path) feeding
-// `TypedModule.mono_instances` + `mono_dispatch_map`. The §09.1 RCA pins the
-// dominant AOT "missing mono instance" failures on recorder-NOT-attempted:
+// `TypedModule.mono_instances` + `mono_dispatch_map`. The regression matrix
+// pins the dominant AOT "missing mono instance" failures on a recorder that
+// was not attempted:
 //   - from_* factory assoc-fns + iterator methods (rev/next/collect) take the
 //     `ReceiverDispatch::Return` builtin arm in `infer_method_call` /
 //     `infer_method_call_named` and early-return `ret_ty` WITHOUT calling
@@ -2670,7 +2408,7 @@ fn test_lambda_param_from_iterator_receiver_unchanged_by_map_arm() {
 // dispatch map (`mono_dispatch_map`) — the typeck output `ori_canon` → ARC →
 // `ori_llvm`/`ori_eval` consume — NOT downstream codegen. Each program
 // type-checks cleanly so a RED is "no instance recorded", never a type error.
-// Matrix shape per the §7 producer-spine table: eager direct-param / eager
+// Matrix shape: eager direct-param / eager
 // indirect-param / derived-method / builtin-ctor / iterator-method / deferred-
 // route / deferred-resolve / reverted-fix guard.
 
@@ -2679,11 +2417,8 @@ fn test_lambda_param_from_iterator_receiver_unchanged_by_map_arm() {
 // not break it. GREEN today.
 #[test]
 fn s09_2_eager_direct_param_records_complete_instance() {
-    let source = r"
-@p1_id <T> (x: T) -> T = x;
-@p1_caller () -> int = p1_id(x: 42);
-@test_p1 tests @p1_caller () -> void = ();
-";
+    let source =
+        include_str!("fixtures/integration/s09_2_eager_direct_param_records_complete_instance.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -2704,12 +2439,9 @@ fn s09_2_eager_direct_param_records_complete_instance() {
 // direct param). Boundary pin for `extract_indirect_scheme_var`. GREEN today.
 #[test]
 fn s09_2_eager_indirect_param_records_complete_instance() {
-    let source = r#"
-type P2Pair<A, B> = { first: A, second: B };
-@p2_firstof <T> (p: P2Pair<T, int>) -> T = p.first;
-@p2_use () -> str = p2_firstof(p: P2Pair { first: "hi", second: 0 });
-@test_p2 tests @p2_use () -> void = ();
-"#;
+    let source = include_str!(
+        "fixtures/integration/s09_2_eager_indirect_param_records_complete_instance.ori"
+    );
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -2735,11 +2467,9 @@ type P2Pair<A, B> = { first: A, second: B };
 // rather than a canonical call-dispatch entry to bind the realized body.
 #[test]
 fn s09_2_derived_method_on_generic_composite_typechecks_to_bool() {
-    let source = r"
-#derive(Eq) type P3Pair<A, B> = { a: A, b: B }
-@p3_cmp (p: P3Pair<int, str>, q: P3Pair<int, str>) -> bool = p == q;
-@test_p3 tests @p3_cmp () -> void = ();
-";
+    let source = include_str!(
+        "fixtures/integration/s09_2_derived_method_on_generic_composite_typechecks_to_bool.ori"
+    );
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -2776,12 +2506,9 @@ fn s09_2_derived_method_on_generic_composite_typechecks_to_bool() {
 
 #[test]
 fn generic_derived_methods_share_exact_applied_self_identity() {
-    let source = r"
-#derive(Eq, Hashable, Clone) type P3Box<T> = { value: T }
-@p3_clone (value: P3Box<int>) -> P3Box<int> = value.clone();
-@p3_clone_str (value: P3Box<str>) -> P3Box<str> = value.clone();
-@p3_hash (value: P3Box<int>) -> int = value.hash();
-";
+    let source = include_str!(
+        "fixtures/integration/generic_derived_methods_share_exact_applied_self_identity.ori"
+    );
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -2828,12 +2555,9 @@ fn generic_derived_methods_share_exact_applied_self_identity() {
 
 #[test]
 fn concrete_generic_bound_seeds_exact_derived_method_body() {
-    let source = r"
-trait Debug { @debug (self) -> str; }
-#derive(Debug) type BoundBox<T> = { value: T }
-@render_bound<T: Debug> (value: T) -> str = value.debug();
-@render_box () -> str = render_bound(value: BoundBox { value: 7 });
-";
+    let source = include_str!(
+        "fixtures/integration/concrete_generic_bound_seeds_exact_derived_method_body.ori"
+    );
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -2890,10 +2614,8 @@ trait Debug { @debug (self) -> str; }
 // `ori_llvm` AOT pin `unit_factories::test_duration_from_factories_aot`.
 #[test]
 fn s09_2_builtin_duration_ctor_typechecks_to_duration() {
-    let source = r"
-@p4_mk () -> Duration = Duration.from_seconds(s: 5);
-@test_p4 tests @p4_mk () -> void = ();
-";
+    let source =
+        include_str!("fixtures/integration/s09_2_builtin_duration_ctor_typechecks_to_duration.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -2920,10 +2642,7 @@ fn s09_2_builtin_duration_ctor_typechecks_to_duration() {
 // `iterator_mono::test_dei_methods_aot`.
 #[test]
 fn s09_2_iterator_method_typechecks_to_list() {
-    let source = r"
-@p5_rev () -> [int] = [1, 2, 3].iter().rev().collect();
-@test_p5 tests @p5_rev () -> void = ();
-";
+    let source = include_str!("fixtures/integration/s09_2_iterator_method_typechecks_to_list.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -2949,12 +2668,8 @@ fn s09_2_iterator_method_typechecks_to_list() {
 // whose concrete types still carry a `Tag::Var`. GREEN today.
 #[test]
 fn s09_2_deferred_route_records_no_var_typed_instance() {
-    let source = r"
-@p6_id <T> (x: T) -> T = x;
-@p6_wrap <U> (y: U) -> U = p6_id(x: y);
-@p6_caller () -> int = p6_wrap(y: 42);
-@test_p6 tests @p6_caller () -> void = ();
-";
+    let source =
+        include_str!("fixtures/integration/s09_2_deferred_route_records_no_var_typed_instance.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -2985,11 +2700,9 @@ fn s09_2_deferred_route_records_no_var_typed_instance() {
 // the `Applied` carries no resolution (codegen reads the generic field).
 #[test]
 fn generic_struct_applied_resolves_to_concrete_body() {
-    let source = r"
-#derive(Eq) type P3Pair<A, B> = { a: A, b: B }
-@p3_cmp (p: P3Pair<int, str>, q: P3Pair<int, str>) -> bool = p == q;
-@test_p3 tests @p3_cmp () -> void = ();
-";
+    let source = include_str!(
+        "fixtures/integration/s09_2_derived_method_on_generic_composite_typechecks_to_bool.ori"
+    );
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -3022,11 +2735,9 @@ fn generic_struct_applied_resolves_to_concrete_body() {
 // stays the declared `Tag::Named(A)`/`Named(B)`; materialized it is concrete.
 #[test]
 fn materialized_struct_field_is_not_generic_param() {
-    let source = r"
-#derive(Eq) type P3Pair<A, B> = { a: A, b: B }
-@p3_cmp (p: P3Pair<int, str>, q: P3Pair<int, str>) -> bool = p == q;
-@test_p3 tests @p3_cmp () -> void = ();
-";
+    let source = include_str!(
+        "fixtures/integration/s09_2_derived_method_on_generic_composite_typechecks_to_bool.ori"
+    );
     let result = check_source(source);
     let applied = result
         .find_applied("P3Pair", &[Idx::INT, Idx::STR])
@@ -3049,11 +2760,8 @@ fn materialized_struct_field_is_not_generic_param() {
 // `Tag::Named(B)`. Pins behavior (the payload Idx value), not symbol existence.
 #[test]
 fn generic_enum_r_payload_resolves_to_concrete() {
-    let source = r"
-#derive(Eq) type Either<A, B> = L(value: A) | R(value: B);
-@either_cmp (x: Either<int, str>, y: Either<int, str>) -> bool = x == y;
-@test_either tests @either_cmp () -> void = ();
-";
+    let source =
+        include_str!("fixtures/integration/generic_enum_r_payload_resolves_to_concrete.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -3092,12 +2800,8 @@ fn generic_enum_r_payload_resolves_to_concrete() {
 // `p7_id` is NEVER called directly with a concrete arg. GREEN today.
 #[test]
 fn s09_2_deferred_resolve_produces_concrete_instance() {
-    let source = r"
-@p7_id <T> (x: T) -> T = x;
-@p7_wrap <U> (y: U) -> U = p7_id(x: y);
-@p7_caller () -> int = p7_wrap(y: 42);
-@test_p7 tests @p7_caller () -> void = ();
-";
+    let source =
+        include_str!("fixtures/integration/s09_2_deferred_resolve_produces_concrete_instance.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),
@@ -3127,10 +2831,7 @@ fn s09_2_deferred_resolve_produces_concrete_instance() {
 // re-key is reverted (`emit_apply` E5001 on `last`).
 #[test]
 fn s09_2_dei_consumer_typechecks_to_option() {
-    let source = r"
-@p8_last () -> Option<int> = [1, 2, 3].iter().last();
-@test_p8 tests @p8_last () -> void = ();
-";
+    let source = include_str!("fixtures/integration/s09_2_dei_consumer_typechecks_to_option.ori");
     let result = check_source(source);
     assert!(
         !result.has_errors(),

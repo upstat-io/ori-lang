@@ -7,7 +7,7 @@ use ori_types::Pool;
 
 use crate::ir::{ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
 
-use super::super::lower_function_can;
+use super::super::{lower_function_can, ArcLoweringInput};
 
 /// Helper: create a lowerer with a single canonical expression body.
 fn lower_single_expr(
@@ -21,16 +21,19 @@ fn lower_single_expr(
     let mut problems = Vec::new();
     let name = Name::from_raw(1);
     let (func, _lambdas) = lower_function_can(
-        name,
-        &[],
-        ty,
-        body,
-        canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name,
+            params: &[],
+            return_type: ty,
+            body,
+            canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
     assert!(problems.is_empty(), "unexpected problems: {problems:?}");
     func
@@ -211,16 +214,19 @@ fn lower_await_is_transparent() {
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        await_id,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: await_id,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     // Await is now transparent — just evaluates inner expression, no problems
@@ -245,16 +251,19 @@ fn lower_function_with_params() {
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[(param_name, Idx::INT)],
-        Idx::INT,
-        body,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[(param_name, Idx::INT)],
+            return_type: Idx::INT,
+            body,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert_eq!(func.params.len(), 1);
@@ -295,16 +304,19 @@ fn lower_function_ref_emits_partial_apply() {
     let interner = StringInterner::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        func_ty,
-        body,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: func_ty,
+            body,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -357,16 +369,19 @@ fn lambda_target_preserves_callable_signature_identity() {
 
     let mut problems = Vec::new();
     let (parent, lambdas) = lower_function_can(
-        parent_name,
-        &[],
-        lambda_type,
-        lambda,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: parent_name,
+            params: &[],
+            return_type: lambda_type,
+            body: lambda,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty(), "unexpected problems: {problems:?}");
@@ -464,16 +479,19 @@ fn lower_format_with_dispatches_to_runtime() {
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::STR,
-        fmt,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::STR,
+            body: fmt,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -514,16 +532,19 @@ fn lower_function_exp_panic_emits_unreachable() {
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        panic_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: panic_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -569,16 +590,19 @@ fn lower_function_exp_todo_emits_unreachable() {
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        todo_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: todo_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -616,16 +640,19 @@ fn lower_post_01_concurrency_panics() {
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (_, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        spawn_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: spawn_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 }
 
@@ -659,16 +686,19 @@ fn type_subst_replaces_generic_type_with_concrete() {
     subst.insert(generic_ty, Idx::INT);
 
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT, // return type is already concrete
-        body,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: Some(&subst),
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        Some(&subst),
     );
 
     assert!(problems.is_empty(), "unexpected problems: {problems:?}");
@@ -711,16 +741,19 @@ fn type_subst_none_leaves_types_unchanged() {
     let mut problems = Vec::new();
 
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        ty,
-        body,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: ty,
+            body,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None, // no substitution
     );
 
     assert!(problems.is_empty());

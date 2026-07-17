@@ -132,7 +132,7 @@ pub use lambda_specialization::{
 pub use liveness::{
     compute_liveness, compute_refined_liveness, BlockLiveness, LiveSet, RefinedLiveness,
 };
-pub use lower::{lower_function_can, lower_function_can_with_const_bindings, ArcProblem};
+pub use lower::{lower_function_can, ArcLoweringInput, ArcProblem};
 pub use operator_calls::{rewrite_operator_trait_calls, OperatorCallResolutionError};
 pub use ownership::{AnnotatedParam, AnnotatedSig, DerivedOwnership, Ownership};
 pub use rc_insert::annotate_arg_ownership;

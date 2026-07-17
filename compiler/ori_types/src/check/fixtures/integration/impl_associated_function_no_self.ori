@@ -1,0 +1,5 @@
+type Point = { x: int, y: int }
+
+impl Point {
+    @origin () -> Self = Point { x: 0, y: 0 }
+}

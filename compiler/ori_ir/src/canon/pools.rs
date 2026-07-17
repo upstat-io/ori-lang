@@ -81,12 +81,17 @@ pub struct ConstantPool {
 }
 
 impl ConstantPool {
-    // Pre-interned sentinel IDs.
+    /// Unit sentinel interned at pool construction.
     pub const UNIT: ConstantId = ConstantId(0);
+    /// Boolean `true` sentinel interned at pool construction.
     pub const TRUE: ConstantId = ConstantId(1);
+    /// Boolean `false` sentinel interned at pool construction.
     pub const FALSE: ConstantId = ConstantId(2);
+    /// Integer zero sentinel interned at pool construction.
     pub const ZERO: ConstantId = ConstantId(3);
+    /// Integer one sentinel interned at pool construction.
     pub const ONE: ConstantId = ConstantId(4);
+    /// Empty-string sentinel interned at pool construction.
     pub const EMPTY_STR: ConstantId = ConstantId(5);
 
     /// Create a new constant pool with pre-interned sentinels.

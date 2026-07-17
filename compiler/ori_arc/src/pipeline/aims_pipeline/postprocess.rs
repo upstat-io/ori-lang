@@ -1,14 +1,11 @@
-//! Post-emission processing: verification, tail calls, block merging, FBIP.
-//!
-//! Contains steps 6–9 (`verify_and_merge`), steps 11–12 (`emit_postprocess`),
-//! and the FBIP enforcement check.
+//! Verification and control-flow finalization after ownership-event emission.
 
 use super::AimsPipelineConfig;
 use crate::aims::contract::ContractMapExt;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
 
-/// Verify, AIMS-verify, detect tail calls, merge blocks (steps 6–9).
+/// Verifies ownership facts, lowers tail calls and unwind cleanup, then merges blocks.
 ///
 /// Returns `Err` if verification fails under explicit verification mode
 /// (`ORI_VERIFY_ARC=1`). The error contains the list of ICE-level
@@ -61,7 +58,7 @@ pub(crate) fn verify_and_merge(
     Ok(())
 }
 
-/// Post-emission steps: final verify + FBIP (steps 11–12).
+/// Performs final verification and produces user-facing FBIP diagnostics.
 ///
 /// Returns `Err` if the final verification fails under explicit verification
 /// mode. On success, returns the list of user-facing FBIP diagnostics.
@@ -75,10 +72,7 @@ pub(crate) fn emit_postprocess(
     }
     super::trace_pipeline_checkpoint(func, "verify_final", config.interner, config.observer);
 
-    // VF-1 basic burden-balance check — function-exit net = 0 for
-    // every variable in `func.burden_emitted`. Errors join the same
-    // `Vec<VerifyError>` channel used by Layer 1 structural verification
-    // Layer 1.
+    // INVARIANT: Every burden-emitting variable has zero net credit at function exits.
     run_burden_balance(func, config.verify_arc, config.interner)?;
     super::trace_pipeline_checkpoint(
         func,
@@ -92,10 +86,9 @@ pub(crate) fn emit_postprocess(
     Ok(problems)
 }
 
-/// Run the VF-1 burden-balance check. Mirrors the `verify`/`debug_assertions`
-/// gating used by `crate::pipeline::run_verify`: under explicit verification
-/// mode the errors halt compilation; under debug-assertions-only mode the
-/// errors are logged as warnings but do not abort.
+/// Enforces VF-1 under explicit or debug verification.
+///
+/// Explicit verification returns errors; debug verification logs warnings.
 fn run_burden_balance(
     func: &ArcFunction,
     verify: bool,
@@ -127,7 +120,7 @@ fn run_burden_balance(
     Ok(())
 }
 
-/// Check FBIP enforcement and auto-FBIP detection (step 12).
+/// Produces explicit and inferred FBIP diagnostics.
 fn check_fbip(func: &ArcFunction, config: &AimsPipelineConfig<'_>) -> Vec<ArcProblem> {
     let mut problems = Vec::new();
     if func.is_fbip {

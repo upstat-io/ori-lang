@@ -39,115 +39,155 @@ pub(crate) enum JitArcLoweringError {
     MonoInventory(#[from] crate::realization::MonoFunctionInventoryError),
 }
 
-/// Lower every body in one JIT executable unit to ARC IR.
-///
-/// The returned cache is pre-specialized and has mono/operator/impl targets
-/// rewritten before the shared whole-program realization runs.
-///
-/// Functions lowered: module functions, imported functions, impl methods,
-/// monomorphized generic functions, test bodies, and every nested lambda.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "mirrors the data flow from run_file_llvm — all inputs are required"
-)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "ARC lowering pipeline — local, imported, impl, and mono functions in sequence"
-)]
-pub(crate) fn lower_jit_arc_program(
-    parse_result: &crate::parser::ParseOutput,
-    type_result: &ori_types::TypeCheckResult,
-    tests: &[&ori_ir::TestDef],
-    function_sigs: &[ori_types::FunctionSig],
-    canon: &ori_ir::canon::CanonResult,
-    interner: &ori_ir::StringInterner,
-    pool: &mut ori_types::Pool,
-    import_sigs: &[ori_repr::monomorphize::ImportSig],
-    imported_functions: &[ori_llvm::evaluator::ImportedFunctionForCodegen<'_>],
-    imported_mono_fns: &[crate::commands::ImportedMonoFn],
-    re_interned_canons: &[ori_ir::canon::CanonResult],
-) -> Result<JitArcLowering, JitArcLoweringError> {
-    let module = &parse_result.module;
-    let mut local_lowered: Vec<(ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> = Vec::new();
-    let mut imported_lowered: Vec<(ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> = Vec::new();
-    let mut arc_problems = Vec::new();
+pub(crate) struct JitArcLoweringInput<'a, 'test, 'import> {
+    pub(crate) parse: &'a crate::parser::ParseOutput,
+    pub(crate) typed: &'a ori_types::TypeCheckResult,
+    pub(crate) tests: &'a [&'test ori_ir::TestDef],
+    pub(crate) function_sigs: &'a [ori_types::FunctionSig],
+    pub(crate) canon: &'a ori_ir::canon::CanonResult,
+    pub(crate) interner: &'a ori_ir::StringInterner,
+    pub(crate) pool: &'a mut ori_types::Pool,
+    pub(crate) import_sigs: &'a [ori_repr::monomorphize::ImportSig],
+    pub(crate) imported_functions: &'a [ori_llvm::evaluator::ImportedFunctionForCodegen<'import>],
+    pub(crate) imported_mono_fns: &'a [crate::commands::ImportedMonoFn],
+    pub(crate) re_interned_canons: &'a [ori_ir::canon::CanonResult],
+}
 
-    // Lower module functions (local — uses main pool)
-    let source_seeds = crate::realization::CallableCensusBuilder::new(interner)
-        .source_functions(&module.functions, function_sigs)?;
-    for seed in source_seeds {
-        let func = seed.function;
-        let sig = seed.signature;
-        if sig.is_generic() {
+type LoweredBody = (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>);
+
+struct SpecializedBodies {
+    impl_groups: Vec<crate::realization::ArcFunctionGroup>,
+    derived_groups: Vec<crate::realization::ArcFunctionGroup>,
+    impl_targets: FxHashMap<(ori_types::Idx, Name), Name>,
+    user_drop_bindings: Vec<ori_repr::executable::UserDropBinding>,
+    impl_emission_names: Vec<Option<Name>>,
+    mono_groups: Vec<crate::realization::ArcFunctionGroup>,
+    mono_inventory: crate::realization::MonoFunctionInventory,
+}
+
+fn lower_local_bodies(
+    input: &JitArcLoweringInput<'_, '_, '_>,
+    problems: &mut Vec<ori_arc::ArcProblem>,
+) -> Result<Vec<LoweredBody>, JitArcLoweringError> {
+    let seeds = crate::realization::CallableCensusBuilder::new(input.interner)
+        .source_functions(&input.parse.module.functions, input.function_sigs)?;
+    let mut bodies = Vec::new();
+    for seed in seeds {
+        if seed.signature.is_generic() {
             continue;
         }
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            func.name,
-            sig,
-            func.name,
-            canon,
-            interner,
-            pool,
-            &mut arc_problems,
+        let mut context = crate::arc_lowering::ArcLoweringContext {
+            canon: input.canon,
+            interner: input.interner,
+            pool: &*input.pool,
+            problems,
+        };
+        bodies.push(crate::arc_lowering::lower_to_arc(
+            seed.function.name,
+            seed.signature,
+            seed.function.name,
+            &mut context,
             None,
-        );
-        local_lowered.push((arc_fn, lambdas));
+        ));
     }
+    Ok(bodies)
+}
 
-    // Lower imported functions using the main pool. All Idx values in
-    // imp_fn.sig and imp_fn.canon were re-interned into the main pool by the
-    // caller, so the same pool applies.
-    for imp_fn in imported_functions {
-        if imp_fn.sig.is_generic() {
+fn lower_imported_bodies(
+    input: &JitArcLoweringInput<'_, '_, '_>,
+    problems: &mut Vec<ori_arc::ArcProblem>,
+) -> Vec<LoweredBody> {
+    let mut bodies = Vec::new();
+    for imported in input.imported_functions {
+        if imported.sig.is_generic() {
             continue;
         }
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            imp_fn.function.name,
-            &imp_fn.sig,
-            imp_fn.function.name,
-            imp_fn.canon,
-            interner,
-            pool,
-            &mut arc_problems,
+        let mut context = crate::arc_lowering::ArcLoweringContext {
+            canon: imported.canon,
+            interner: input.interner,
+            pool: &*input.pool,
+            problems,
+        };
+        bodies.push(crate::arc_lowering::lower_to_arc(
+            imported.function.name,
+            &imported.sig,
+            imported.function.name,
+            &mut context,
             None,
-        );
-        imported_lowered.push((arc_fn, lambdas));
+        ));
     }
+    bodies
+}
 
-    // Lower imported monomorphized generic functions with their module's canon.
-    for imported in imported_mono_fns {
-        let mono_fn = &imported.function;
-        let source_canon = &re_interned_canons[imported.module_index];
-        let (arc_fn, lambdas) = match imported.body {
+fn lower_imported_mono_bodies(
+    input: &JitArcLoweringInput<'_, '_, '_>,
+    problems: &mut Vec<ori_arc::ArcProblem>,
+) -> Vec<LoweredBody> {
+    let mut bodies = Vec::new();
+    for imported in input.imported_mono_fns {
+        let mono = &imported.function;
+        let mut context = crate::arc_lowering::ArcLoweringContext {
+            canon: &input.re_interned_canons[imported.module_index],
+            interner: input.interner,
+            pool: &*input.pool,
+            problems,
+        };
+        bodies.push(match imported.body {
             crate::commands::ImportedMonoBody::Function(source_name) => {
                 crate::arc_lowering::lower_to_arc(
-                    mono_fn.mangled_name,
-                    &mono_fn.sig,
+                    mono.mangled_name,
+                    &mono.sig,
                     source_name,
-                    source_canon,
-                    interner,
-                    pool,
-                    &mut arc_problems,
-                    Some(&mono_fn.body_type_map),
+                    &mut context,
+                    Some(&mono.body_type_map),
                 )
             }
             crate::commands::ImportedMonoBody::ImplMethod(source_body) => {
                 crate::arc_lowering::lower_impl_method_to_arc_by_source(
-                    mono_fn.mangled_name,
-                    &mono_fn.sig,
+                    mono.mangled_name,
+                    &mono.sig,
                     source_body,
-                    source_canon,
-                    interner,
-                    pool,
-                    &mut arc_problems,
-                    Some(&mono_fn.body_type_map),
+                    &mut context,
+                    Some(&mono.body_type_map),
                 )
             }
-        };
-        imported_lowered.push((arc_fn, lambdas));
+        });
     }
+    bodies
+}
 
-    // Impl lowering and qualified target identity are centralized with AOT.
+fn lower_test_bodies(
+    input: &JitArcLoweringInput<'_, '_, '_>,
+    problems: &mut Vec<ori_arc::ArcProblem>,
+) -> Vec<LoweredBody> {
+    input
+        .tests
+        .iter()
+        .map(|test| {
+            let body = input.canon.root_for(test.name).unwrap_or(input.canon.root);
+            ori_arc::lower_function_can(
+                ori_arc::ArcLoweringInput {
+                    name: test.name,
+                    params: &[],
+                    return_type: ori_types::Idx::UNIT,
+                    body,
+                    canon: input.canon,
+                    interner: input.interner,
+                    pool: &*input.pool,
+                    type_subst: None,
+                    const_bindings: None,
+                    is_fbip: false,
+                },
+                problems,
+            )
+        })
+        .collect()
+}
+
+fn lower_specialized_bodies(
+    input: &JitArcLoweringInput<'_, '_, '_>,
+    problems: &mut Vec<ori_arc::ArcProblem>,
+) -> Result<SpecializedBodies, JitArcLoweringError> {
     let crate::realization::ImplMethodAnalysis {
         groups: impl_groups,
         targets: mut impl_targets,
@@ -155,15 +195,15 @@ pub(crate) fn lower_jit_arc_program(
         emission_names: impl_emission_names,
         ..
     } = match crate::realization::lower_impl_methods_for_analysis(
-        parse_result,
-        type_result,
-        interner,
-        canon,
-        pool,
+        input.parse,
+        input.typed,
+        input.interner,
+        input.canon,
+        &*input.pool,
     ) {
         Ok(analysis) => analysis,
-        Err(problems) => {
-            arc_problems.extend(problems);
+        Err(found) => {
+            problems.extend(found);
             crate::realization::ImplMethodAnalysis {
                 groups: Vec::new(),
                 targets: FxHashMap::default(),
@@ -173,14 +213,14 @@ pub(crate) fn lower_jit_arc_program(
         }
     };
     let derived = match crate::realization::lower_non_generic_derived_methods_for_analysis(
-        &type_result.typed.accepted_derives,
-        &type_result.typed.derived_call_plans,
-        interner,
-        pool,
+        &input.typed.typed.accepted_derives,
+        &input.typed.typed.derived_call_plans,
+        input.interner,
+        &*input.pool,
     ) {
         Ok(analysis) => analysis,
-        Err(problems) => {
-            arc_problems.extend(problems);
+        Err(found) => {
+            problems.extend(found);
             crate::realization::DerivedMethodAnalysis {
                 groups: Vec::new(),
                 targets: FxHashMap::default(),
@@ -190,63 +230,80 @@ pub(crate) fn lower_jit_arc_program(
     for (key, target) in derived.targets {
         impl_targets.entry(key).or_insert(target);
     }
-    // Lower monomorphized generic functions (local — uses main pool)
     let mono_functions = ori_repr::monomorphize::collect_mono_functions(
-        &type_result.typed.mono_instances,
-        function_sigs,
-        &type_result.typed.impl_sigs,
-        &type_result.typed.accepted_derives,
-        import_sigs,
-        interner,
-        pool,
+        &input.typed.typed.mono_instances,
+        input.function_sigs,
+        &input.typed.typed.impl_sigs,
+        &input.typed.typed.accepted_derives,
+        input.import_sigs,
+        input.interner,
+        &*input.pool,
     );
     let mono_groups = crate::realization::lower_mono_functions_for_analysis(
         &mono_functions,
-        &type_result.typed.accepted_derives,
-        &type_result.typed.derived_call_plans,
-        canon,
-        interner,
-        pool,
-        &mut arc_problems,
+        &input.typed.typed.accepted_derives,
+        &input.typed.typed.derived_call_plans,
+        input.canon,
+        input.interner,
+        &*input.pool,
+        problems,
     );
     let mono_inventory = crate::realization::MonoFunctionInventory::try_new(
         mono_functions,
-        imported_mono_fns
+        input
+            .imported_mono_fns
             .iter()
             .map(|imported| imported.function.clone()),
-        interner,
+        input.interner,
     )?;
-    if let Err(problems) = crate::realization::extend_mono_method_targets(
+    if let Err(found) = crate::realization::extend_mono_method_targets(
         &mut impl_targets,
         mono_inventory.all(),
-        interner,
-        pool,
+        input.interner,
+        &*input.pool,
     ) {
-        arc_problems.extend(problems);
+        problems.extend(found);
     }
+    Ok(SpecializedBodies {
+        impl_groups,
+        derived_groups: derived.groups,
+        impl_targets,
+        user_drop_bindings,
+        impl_emission_names,
+        mono_groups,
+        mono_inventory,
+    })
+}
+
+/// Lower every body in one JIT executable unit to ARC IR.
+///
+/// The returned cache is pre-specialized and has mono/operator/impl targets
+/// rewritten before the shared whole-program realization runs.
+///
+/// Functions lowered: module functions, imported functions, impl methods,
+/// monomorphized generic functions, test bodies, and every nested lambda.
+pub(crate) fn lower_jit_arc_program(
+    input: JitArcLoweringInput<'_, '_, '_>,
+) -> Result<JitArcLowering, JitArcLoweringError> {
+    let mut arc_problems = Vec::new();
+    let mut local_lowered = lower_local_bodies(&input, &mut arc_problems)?;
+    let mut imported_lowered = lower_imported_bodies(&input, &mut arc_problems);
+    imported_lowered.extend(lower_imported_mono_bodies(&input, &mut arc_problems));
+    let SpecializedBodies {
+        impl_groups,
+        derived_groups,
+        impl_targets,
+        user_drop_bindings,
+        impl_emission_names,
+        mono_groups,
+        mono_inventory,
+    } = lower_specialized_bodies(&input, &mut arc_problems)?;
     for group in mono_groups {
         local_lowered.push(group.into_parts());
     }
-
-    // Tests are ordinary executable roots. Lower them before AIMS so the JIT
-    // wrapper projects an already-realized body instead of creating a private
-    // backend-local analysis island.
-    for test in tests {
-        let body = canon.root_for(test.name).unwrap_or(canon.root);
-        local_lowered.push(ori_arc::lower_function_can(
-            test.name,
-            &[],
-            ori_types::Idx::UNIT,
-            body,
-            canon,
-            interner,
-            pool,
-            &mut arc_problems,
-            false,
-            None,
-        ));
-    }
-
+    local_lowered.extend(lower_test_bodies(&input, &mut arc_problems));
+    let interner = input.interner;
+    let pool = input.pool;
     // INVARIANT: None = ARC lowering errored (a compile failure) — distinct
     // from Some(empty) (nothing to compile); an empty arc_cache recurses in
     // codegen resolving missing callees.
@@ -266,7 +323,7 @@ pub(crate) fn lower_jit_arc_program(
         .into_iter()
         .map(crate::realization::ArcFunctionGroup::from)
         .chain(impl_groups)
-        .chain(derived.groups)
+        .chain(derived_groups)
         .chain(
             imported_lowered
                 .into_iter()

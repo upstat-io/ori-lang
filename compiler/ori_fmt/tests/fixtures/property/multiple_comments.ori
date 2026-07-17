@@ -1,0 +1,4 @@
+// #Description
+// * x: Input
+// * y: Another input
+@f (x: int, y: int) -> int = x + y;

@@ -1,7 +1,4 @@
-//! Annotation decision functions for AIMS realization.
-//!
-//! `decide_annotations` (Phase 2) makes COW and drop hint decisions for a
-//! post-merge instruction site from one pre-computed [`AnnotationSiteContext`].
+//! COW and drop-hint decisions for post-merge AIMS sites.
 
 use crate::aims::lattice::{AccessClass, Cardinality, Consumption, ShapeClass, Uniqueness};
 use crate::ir::ArcVarId;
@@ -9,9 +6,7 @@ use crate::uniqueness::CowMode;
 
 use rustc_hash::FxHashSet;
 
-// Phase 2 types
-
-/// Phase 2 decisions: COW and drop hints for a post-merge instruction site.
+/// COW and drop decisions for one post-merge instruction site.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnnotationDecisions {
     /// COW mode for this instruction site (None = not a COW site).
@@ -20,11 +15,7 @@ pub struct AnnotationDecisions {
     pub drop_hint: bool,
 }
 
-/// Context for Phase 2 annotation decisions at a single instruction site.
-///
-/// Provides the instruction-site facts needed by [`decide_annotations`].
-/// All fields are pre-computed by the caller (`realize_annotations` walk)
-/// from the state map and IR — [`decide_annotations`] is a pure function.
+/// Complete converged facts for one annotation site.
 #[expect(
     clippy::struct_excessive_bools,
     reason = "each bool represents an independent binary property of the instruction site"
@@ -71,16 +62,10 @@ pub struct AnnotationSiteContext<'a> {
     pub is_collection: bool,
 }
 
-/// Make all Phase 2 annotation decisions for a single instruction site.
+/// Computes COW and drop decisions from one site context.
 ///
-/// Combines COW and drop hint decisions from one `AnnotationSiteContext`.
-/// This is the unified Phase 2 decision entry point — callers should prefer
-/// this over calling `decide_cow` and `decide_drop_hint` separately.
-///
-/// `is_cow_site` indicates whether this instruction is a COW method call
-/// (Apply/Invoke targeting a COW builtin). When false, `cow` is `None`.
-/// `is_drop_site` indicates whether this instruction is an `RcDec`.
-/// When false, `drop_hint` is `false`.
+/// `cow` is set only for `is_cow_site`; `drop_hint` is set only for
+/// `is_drop_site`.
 pub fn decide_annotations(
     ctx: &AnnotationSiteContext<'_>,
     is_cow_site: bool,
@@ -96,43 +81,24 @@ pub fn decide_annotations(
     }
 }
 
-/// Make Phase 2 annotation decisions for a COW site.
+/// Chooses the COW strategy allowed by current uniqueness and alias facts.
 ///
-/// Derives [`CowMode`] from uniqueness + instruction-site context. Uniqueness
-/// is the SOLE PAST-guarantee source for `StaticUnique` promotion per
-/// §DP-9. The removed DP-10 pattern (deriving past uniqueness
-/// from `Owned + Linear + Once` or `Once + CollectionBuffer`/`ReusableCtor`)
-/// was unsound — backward-analysis facts (consumption, cardinality) are
-/// FUTURE guarantees and cannot prove PAST one-owner status.
-/// The spec-approved `MaybeShared + IC-3 ParamContract.uniqueness = Unique →
-/// StaticUnique` path remains unshipped until contract-derived uniqueness is
-/// complete.
-///
-/// 1. Excluded variables → `Dynamic` (safe fallback)
-/// 2. Added ownership credit still outstanding → `Dynamic`
-/// 3. `Unique` → `StaticUnique`
-/// 4. `MaybeShared` + disjoint borrow → `StaticUnique` (spec §DP-5/§RL-10 —
-///    source uniqueness at the receiver's block is enforced by
-///    `is_borrow_disjoint_from_siblings`)
-/// 5. `MaybeShared` → `Dynamic` (physical-plan sharing probe)
-/// 6. `Shared` → `StaticShared`
+/// Outstanding owner credits force a dynamic probe. A unique value is mutable
+/// in place only without active borrows; shared values always copy. A disjoint
+/// borrow may preserve unique mutation for a `MaybeShared` receiver.
 pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
-    // Excluded (scalar, immortal) → safe fallback.
     if ctx.is_excluded {
         return CowMode::Dynamic;
     }
 
-    // Post-emission guard: an added logical owner may invalidate uniqueness.
+    // Why: An added owner credit invalidates a pre-emission uniqueness proof.
     if ctx.rc_incremented {
         return CowMode::Dynamic;
     }
 
     match ctx.uniqueness {
         Uniqueness::Unique => {
-            // Spec DP-5/DP-9: Unique AND NOT is_owned_and_unique+no_borrows → StaticShared.
-            // IsShared on a Unique value always returns false, so a runtime
-            // Dynamic check cannot distinguish "unique but borrowed" from
-            // "unique and safe to mutate." Must copy unconditionally.
+            // INVARIANT: Active aggregate borrows forbid in-place mutation.
             if ctx.has_active_borrows {
                 CowMode::StaticShared
             } else {
@@ -141,10 +107,7 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
         }
 
         Uniqueness::MaybeShared => {
-            // Uniqueness-preserving local mutation (spec §DP-5/§RL-10):
-            // receiver's borrow is disjoint from all sibling borrows of
-            // the SAME source, AND the source itself is `Uniqueness::Unique`
-            // at the receiver's block (enforced by `is_borrow_disjoint_from_siblings`).
+            // INVARIANT: Disjoint sibling borrows preserve source uniqueness here.
             if ctx.is_borrow_disjoint {
                 return CowMode::StaticUnique;
             }
@@ -156,34 +119,22 @@ pub fn decide_cow(ctx: &AnnotationSiteContext<'_>) -> CowMode {
     }
 }
 
-/// Make Phase 2 annotation decisions for a drop hint site.
+/// Grants the unique-drop fast path only to analyzed collection owners.
 ///
-/// Returns `true` if the variable is eligible for unique-drop fast path.
-/// Matches the logic in `drop_hints.rs::compute_aims_drop_hints`:
-///
-/// 1. Excluded variables (scalar, immortal) → not eligible
-/// 2. Non-collection types → not eligible (drop hints are for buffer cleanup)
-/// 3. Added owner credit → not eligible
-/// 4. Borrowed call arg with possible sharing → not eligible
-/// 5. Unique → eligible for unique-drop fast path
+/// Excluded values, borrowed parameters, outstanding owner credits, and
+/// borrowed-call aliases are ineligible.
 pub fn decide_drop_hint(ctx: &AnnotationSiteContext<'_>) -> bool {
-    // Excluded (scalar, immortal) — no drop hint needed.
     if ctx.is_excluded {
         return false;
     }
 
-    // Only collections (List, Map, Set) have buffer-based drops.
     if !ctx.is_collection {
         return false;
     }
 
-    // Borrowed parameters cannot use single-owner cleanup: the caller retains
-    // the governing owner credit.
     if ctx.is_param_borrowed {
         return false;
     }
 
-    // Unique variables with no RcInc and no borrowed-arg sharing
-    // can use the unique-drop fast path.
     ctx.uniqueness == Uniqueness::Unique && !ctx.rc_incremented && !ctx.is_borrowed_call_arg
 }

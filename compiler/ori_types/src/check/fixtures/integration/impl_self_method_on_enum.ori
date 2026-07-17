@@ -1,0 +1,5 @@
+type Color = Red | Green | Blue;
+
+impl Color {
+    @is_red (self) -> bool = match self { Red -> true, _ -> false }
+}

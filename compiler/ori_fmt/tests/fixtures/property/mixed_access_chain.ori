@@ -1,0 +1,1 @@
+@f (obj: int) -> int = obj.field.method().another_field.final_method();

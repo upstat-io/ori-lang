@@ -1,0 +1,1 @@
+@test (a: str, b: str) -> bool = "string" <= other;

@@ -1,0 +1,5 @@
+
+trait Debug { @debug (self) -> str; }
+#derive(Debug) type BoundBox<T> = { value: T }
+@render_bound<T: Debug> (value: T) -> str = value.debug();
+@render_box () -> str = render_bound(value: BoundBox { value: 7 });

@@ -208,7 +208,7 @@ fn flush_entry(out: &mut Vec<ArcInstr>, var: ArcVarId, entry: &PendingRc) {
 ///
 /// # Inc-before-Dec invariant
 ///
-/// BUG-04-090 F-prj + E-mat: a net-Inc on `Y` and a net-Dec on `X` where
+/// A net-Inc on `Y` and a net-Dec on `X` where
 /// `Dec(X)`'s field-walk owns `Y`'s allocation (e.g. `RcDec b [AggFields]`
 /// walking `b.value` just projected as `Y`) would free `Y` before `Inc(Y)`
 /// fires — a use-after-free at `Y`'s next use. Sound because: (1) `flush_all`

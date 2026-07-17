@@ -1,12 +1,7 @@
-#![allow(
+#![expect(
     clippy::unwrap_used,
     clippy::expect_used,
-    reason = "Tests use unwrap/expect for brevity"
-)]
-#![allow(
-    clippy::uninlined_format_args,
-    clippy::manual_assert,
-    reason = "Test harness code prioritizes readability over pedantic style"
+    reason = "corpus setup and formatter failures are assertion failures for this test harness"
 )]
 //! Idempotence verification tests.
 //!
@@ -22,6 +17,12 @@ use std::path::{Path, PathBuf};
 use ori_fmt::{format_module, format_module_with_comments};
 use ori_ir::StringInterner;
 use ori_lexer::lex_with_comments;
+
+fn fixture_without_trailing_newline(source: &'static str) -> &'static str {
+    source
+        .strip_suffix('\n')
+        .expect("committed Ori fixtures end with a newline")
+}
 
 /// Repo-relative paths whose formatted output fails to re-parse — a
 /// `format -> parse` round-trip defect (Spec: Annex D — formatting must preserve
@@ -147,7 +148,9 @@ fn parse_and_format_with_comments(source: &str) -> Result<String, String> {
 
 #[test]
 fn duplicate_test_names_round_trip_with_source_names() {
-    let source = "@left () -> void = ();\n\n@right () -> void = ();\n\n@test tests @left () -> void = ();\n\n@test tests @right () -> void = ();";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/idempotence/duplicate_test_names_round_trip_with_source_names.ori"
+    ));
 
     let first = parse_and_format_with_comments(source).expect("source should parse and format");
     assert!(!first.contains("$test$"));
@@ -160,7 +163,9 @@ fn duplicate_test_names_round_trip_with_source_names() {
 
 #[test]
 fn constants_round_trip_with_complete_declaration_syntax() {
-    let source = "pub let $LIMIT: int = 4;\n\nlet $ENABLED = true;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/idempotence/constants_round_trip_with_complete_declaration_syntax.ori"
+    ));
 
     let first = parse_and_format_with_comments(source).expect("source should parse and format");
     assert!(first.contains("pub let $LIMIT: int = 4;"));
@@ -172,7 +177,9 @@ fn constants_round_trip_with_complete_declaration_syntax() {
 
 #[test]
 fn trait_associated_type_defaults_round_trip() {
-    let source = "trait Addable<Rhs = Self> {\n    type Output = Self;\n    @add (self, rhs: Rhs) -> Self.Output\n}";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/idempotence/trait_associated_type_defaults_round_trip.ori"
+    ));
 
     let first = parse_and_format_with_comments(source).expect("source should parse and format");
     assert!(first.contains("trait Addable<Rhs = Self>"));
@@ -241,7 +248,7 @@ fn test_idempotence_for_file(path: &Path) -> IdemOutcome {
         Ok(s) => s,
         Err(e) => {
             let repo_rel = repo_relative(path);
-            let detail = format!("Re-parse error: {}", e);
+            let detail = format!("Re-parse error: {e}");
             return if is_known_reparse_break(&repo_rel) {
                 IdemOutcome::KnownReparseBreak
             } else {
@@ -255,8 +262,7 @@ fn test_idempotence_for_file(path: &Path) -> IdemOutcome {
 
     if first_normalized != second_normalized {
         return IdemOutcome::IdempotenceFailure(format!(
-            "Idempotence failure:\n\n--- First format ---\n{}\n--- Second format ---\n{}\n",
-            first_normalized, second_normalized
+            "Idempotence failure:\n\n--- First format ---\n{first_normalized}\n--- Second format ---\n{second_normalized}\n"
         ));
     }
 
@@ -340,13 +346,12 @@ fn assert_no_stale_known_breaks(
             stale.push(known);
         }
     }
-    if !stale.is_empty() {
-        panic!(
-            "{} stale KNOWN_REPARSE_BREAKS entries now re-parse clean — remove them from the allowlist (BUG-07-339 progress):\n{}",
-            stale.len(),
-            stale.join("\n")
-        );
-    }
+    assert!(
+        stale.is_empty(),
+        "{} stale KNOWN_REPARSE_BREAKS entries now re-parse clean — remove them from the allowlist (BUG-07-339 progress):\n{}",
+        stale.len(),
+        stale.join("\n")
+    );
 }
 
 /// Repo-relative paths of every `.ori` file under `dir`.
@@ -376,14 +381,13 @@ fn assert_dir_idem_clean(label: &str, dir: &Path, result: &DirIdemResult) {
         &result.source_skipped,
     );
 
-    if !result.failures.is_empty() {
-        panic!(
-            "{} idempotence / round-trip failures in {}:\n\n{}",
-            result.failures.len(),
-            label,
-            result.failures.join("\n---\n")
-        );
-    }
+    assert!(
+        result.failures.is_empty(),
+        "{} idempotence / round-trip failures in {}:\n\n{}",
+        result.failures.len(),
+        label,
+        result.failures.join("\n---\n")
+    );
 }
 
 #[test]
@@ -451,11 +455,10 @@ fn idempotence_comprehensive() {
 
     assert_no_stale_known_breaks(&all_hit, &all_scanned, &all_source_skipped);
 
-    if !all_failures.is_empty() {
-        panic!(
-            "{} idempotence / round-trip failures:\n\n{}",
-            all_failures.len(),
-            all_failures.join("\n---\n")
-        );
-    }
+    assert!(
+        all_failures.is_empty(),
+        "{} idempotence / round-trip failures:\n\n{}",
+        all_failures.len(),
+        all_failures.join("\n---\n")
+    );
 }

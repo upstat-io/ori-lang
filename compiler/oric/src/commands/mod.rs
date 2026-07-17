@@ -1,8 +1,4 @@
-//! Command handlers for the Ori compiler CLI.
-//!
-//! Each submodule implements a specific CLI command (run, test, check, etc.).
-//! Shared utilities like `read_file` and `report_frontend_errors` live here
-//! in the module root.
+//! Ori compiler CLI handlers and shared frontend-reporting utilities.
 
 use ori_diagnostic::emitter::DiagnosticEmitter;
 use ori_diagnostic::queue::DiagnosticQueue;
@@ -33,7 +29,7 @@ pub(crate) use codegen_pipeline::imported_mono::{
     collect_imported_impl_templates,
     register_prelude_generic_sigs as register_prelude_generic_sigs_for_test_runner,
     ImportedImplTemplate, ImportedImplTemplateSource, ImportedMonoBody, ImportedMonoFn,
-    ImportedSurfaces,
+    ImportedPreludeSource, ImportedSurfaces, PoolReinternState,
 };
 mod debug;
 mod demangle;
@@ -51,8 +47,8 @@ mod watch;
 
 /// Test enforcement level — controls whether missing tests are errors, warnings, or ignored.
 ///
-/// Configurable via `--test-enforcement=off|warn|error` CLI flag.
-/// Default is `Off` (tests optional). See spec §19.2.
+/// Configurable via `--test-enforcement=off|warn|error`; the default is `Off`.
+/// Spec: Clause 19.2.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
 pub enum TestEnforcement {
     /// No enforcement. Missing tests produce no diagnostic.
@@ -65,9 +61,7 @@ pub enum TestEnforcement {
 }
 
 impl TestEnforcement {
-    /// Parse from a CLI flag value.
-    ///
-    /// Returns `None` for unrecognized values.
+    /// Returns the enforcement level named by `s`, or `None` for an unsupported value.
     pub fn parse_flag(s: &str) -> Option<Self> {
         match s {
             "off" => Some(TestEnforcement::Off),
@@ -78,14 +72,11 @@ impl TestEnforcement {
     }
 }
 
-// Public types and functions for external use (tests, library consumers)
 pub use build_options::{
     accumulate_build_options, accumulate_build_options_with_env, parse_build_options, BuildOptions,
     DebugLevel, EmitType, LinkMode, LtoMode, OptLevel,
 };
 
-// Internal re-exports for use by the CLI binary via oric::commands::*
-// These use paths like `oric::commands::build_file` from main.rs
 pub use build::build_file;
 pub use check::check_file;
 pub use debug::{lex_file, parse_file};
@@ -106,36 +97,25 @@ pub(super) struct FrontendResult {
     pub parse_result: ParseOutput,
     pub type_result: TypeCheckResult,
     pub pool: std::sync::Arc<Pool>,
-    /// Number of lex errors found (not tracked by parse/type results).
+    /// Count kept separately from the parse and type-check results.
     lex_error_count: usize,
 }
 
 impl FrontendResult {
-    /// Whether any phase produced errors.
-    ///
-    /// Checks all three sources: lex errors (counted separately since they're
-    /// not part of `ParseOutput`), parse errors, and type errors.
+    /// Reports whether lexing, parsing, or type checking produced an error.
     pub fn has_errors(&self) -> bool {
         self.lex_error_count > 0 || self.parse_result.has_errors() || self.type_result.has_errors()
     }
 }
 
-/// Run the frontend pipeline and report all errors to the emitter.
+/// Emits all frontend diagnostics and returns the cached pipeline state.
 ///
-/// Checks lex errors, parse errors, and type errors, emitting diagnostics for
-/// each. The single source of truth for frontend error reporting.
-///
-/// # Returns
-///
-/// `None` only if the Pool fails to cache (internal error); otherwise
-/// `FrontendResult` with all pipeline outputs. Use
-/// `FrontendResult::has_errors()` to check whether any phase produced errors.
+/// Returns `None` only when type checking fails to cache its [`Pool`].
 pub(super) fn report_frontend_errors(
     db: &CompilerDb,
     file: SourceFile,
     emitter: &mut dyn DiagnosticEmitter,
 ) -> Option<FrontendResult> {
-    // Report lexer errors first (unterminated strings, semicolons, confusables, etc.)
     let lex_errs = lex_errors(db, file);
     let lex_error_count = lex_errs.len();
     for err in &lex_errs {
@@ -143,8 +123,6 @@ pub(super) fn report_frontend_errors(
         emitter.emit(&diag);
     }
 
-    // Emit lex warnings (detached doc comments detected at the token level).
-    // Uses `tokens_with_metadata()` which preserves the full `LexOutput` including warnings.
     let lex_output = tokens_with_metadata(db, file);
     for warning in &lex_output.warnings {
         let diag = LexProblem::DetachedDocComment {
@@ -155,11 +133,8 @@ pub(super) fn report_frontend_errors(
         emitter.emit(&diag);
     }
 
-    // Check for parse errors — route through DiagnosticQueue for
-    // deduplication and soft-error suppression after hard errors
     let parse_result = parsed(db, file);
 
-    // Phase dump: AST after parse, via the dump orchestrator (PARSE phase).
     crate::dump_orchestrator::dump_parse(
         &parse_result,
         db.interner(),
@@ -178,12 +153,10 @@ pub(super) fn report_frontend_errors(
         }
     }
 
-    // Emit parse warnings (detached doc comments detected at the syntax level).
     for warning in &parse_result.warnings {
         emitter.emit(&warning.to_diagnostic());
     }
 
-    // Type check via Salsa query — caches Pool for reuse downstream.
     let type_result = typed(db, file);
     let Some(pool) = typed_pool(db, file) else {
         let diag = ori_diagnostic::Diagnostic::error(ori_diagnostic::ErrorCode::E9001)
@@ -193,8 +166,6 @@ pub(super) fn report_frontend_errors(
         return None;
     };
 
-    // Phase dump: Typed IR after type checking, via the dump orchestrator
-    // (TYPECK phase; the orchestrator applies the idx-filter view).
     crate::dump_orchestrator::dump_typeck(
         &parse_result,
         &type_result.typed,
@@ -203,8 +174,6 @@ pub(super) fn report_frontend_errors(
         &file.path(db).display().to_string(),
     );
 
-    // Provenance DAG: read-only STRUCTURE/RESOLUTION/MONO-edge walk for one
-    // type-pool `Idx` (gated behind ORI_TRACE_IDX). Diagnostic view only.
     provenance::emit_provenance_trace(&pool, &type_result.typed.mono_instances, db.interner());
 
     if type_result.has_errors() {
@@ -214,7 +183,6 @@ pub(super) fn report_frontend_errors(
         }
     }
 
-    // Emit type checker warnings (e.g., infinite iterator consumption)
     for warning in &type_result.typed.warnings {
         emitter.emit(&render_type_warning(warning));
     }
@@ -227,7 +195,6 @@ pub(super) fn report_frontend_errors(
     })
 }
 
-/// Render a type checker warning into a `Diagnostic`.
 #[cold]
 fn render_type_warning(warning: &TypeCheckWarning) -> Diagnostic {
     match &warning.kind {
@@ -259,7 +226,7 @@ pub(super) struct CheckPipelineResult {
     pub test_count: usize,
 }
 
-/// Run the post-frontend check pipeline: pattern exhaustiveness + test coverage.
+/// Applies exhaustiveness and test-coverage checks to a completed frontend result.
 ///
 /// Shared between `check_file` (exits on error) and watch mode's `run_check`
 /// (returns on error). Callers decide how to handle errors via [`CheckPipelineResult`].
@@ -272,9 +239,7 @@ pub(super) fn run_post_frontend_checks(
 ) -> CheckPipelineResult {
     let mut has_errors = frontend.has_errors();
 
-    // Check pattern exhaustiveness via canonicalization.
-    // Skip if parse errors exist (AST may be malformed), but run even with
-    // type errors — pattern problems are independent of type mismatches.
+    // Why: A malformed AST invalidates canonicalization; type mismatches do not.
     if !frontend.parse_result.has_errors() {
         let shared_canon = canonicalize_cached(
             db,
@@ -294,8 +259,7 @@ pub(super) fn run_post_frontend_checks(
         emitter.flush();
     }
 
-    // Check test coverage — severity controlled by enforcement level.
-    // Spec: Clause 19.2 — configurable test enforcement (off/warn/error).
+    // Spec: Clause 19.2.
     let mut has_coverage_issues = false;
     if enforcement != TestEnforcement::Off {
         let interner = db.interner();
@@ -366,7 +330,6 @@ pub(super) fn read_file(path: &str) -> String {
     }
 }
 
-/// Map a file-read [`std::io::Error`] to a user-friendly message for `path`.
 fn read_file_error_message(path: &str, e: &std::io::Error) -> String {
     match e.kind() {
         std::io::ErrorKind::NotFound => format!("cannot find file '{path}'"),

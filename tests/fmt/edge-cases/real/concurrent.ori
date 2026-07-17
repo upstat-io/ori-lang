@@ -17,30 +17,8 @@ type BatchResult = { completed: int, failed: int, total: int }
     for item in items yield process_item(item: item)
 }
 
-// TODO: timeout is rejected as unsupported (E2040) before ARC lowering
-// @process_with_timeout (item: WorkItem) -> Result<int, str> = {
-//     let result = timeout(operation: process_item(item: item), after: 5s),
-//     match result {
-//         Ok(inner) -> inner,
-//         Err(_) -> Err("timeout"),
-//     },
-// }
 @process_without_timeout (item: WorkItem) -> Result<int, str> = process_item(item: item);
 
-// TODO: spawn() not yet supported (E2040)
-// @fire_and_forget (items: [WorkItem]) -> void = {
-//     spawn(
-//         tasks: [1, 2, 3],
-//     )
-// }
-// TODO: parallel is rejected as unsupported (E2040) before ARC lowering
-// @parallel_with_limit (items: [WorkItem]) -> [Result<int, str>] = {
-//     let results = parallel(
-//         tasks: [1, 2, 3, 4, 5],
-//         max_concurrent: 3,
-//     ),
-//     for item in items yield process_item(item: item),
-// }
 @process_batch_sequentially (items: [WorkItem]) -> [Result<int, str>] = process_batch(items: items);
 
 @orchestrate (items: [WorkItem]) -> BatchResult = {
@@ -53,11 +31,6 @@ type BatchResult = { completed: int, failed: int, total: int }
     BatchResult { completed: completed, failed: failed, total: completed + failed }
 }
 
-// TODO: cache currently runs its operation without memoizing the result
-// @cached_process (item: WorkItem) -> int = {
-//     let result = cache(key: "item", operation: item.id * 2),
-//     result,
-// }
 @compute_without_cache (item: WorkItem) -> int = item.id * 2;
 
 @test_process_batch tests @process_batch () -> void = {

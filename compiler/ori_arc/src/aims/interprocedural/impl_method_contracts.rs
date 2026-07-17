@@ -11,6 +11,9 @@
 //! dec suppression), so only callee-independent structural facts (an owned
 //! param returned directly) may be published; every ownership-cooperative
 //! field stays at its conservative default.
+//!
+//! Diagnostics share the `ori_arc::aims::interprocedural` target with the
+//! fixed-point driver because both report the same contract computation.
 
 use std::collections::hash_map::Entry;
 

@@ -4,11 +4,6 @@
 
 use std.testing { assert, assert_eq }
 
-// TODO: std.math functions not yet implemented
-// use std.math { sqrt, abs }
-// TODO: std.time not yet implemented
-// use std.time { Duration }
-
 type Status = Pending | Active | Done;
 
 type Task = { id: int, name: str, status: Status, priority: int }
@@ -30,20 +25,6 @@ type TaskList = { tasks: [Task], owner: str }
 }
 
 @is_high_priority (task: Task) -> bool = task.priority > 5;
-
-// TODO: LLVM backend doesn't support struct field access in for-loop iteration
-// @count_done (tasks: [Task]) -> int = {
-//     let count = 0,
-//     for task in tasks do
-//         {
-//             let status = task.status,
-//             match status {
-//                 Done -> count + 1,
-//                 _ -> count,
-//             },
-//         },
-//     count,
-// }
 
 @test_create_task tests @create_task () -> void = {
     let task = create_task(id: 1, name: "Test", priority: 3);

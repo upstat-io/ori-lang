@@ -14,9 +14,7 @@ type ResHolder = { tag: int, r: Result<int, int> }
 #[derive(Eq, Comparable, Hashable)]
 type TupHolder = { tag: int, t: (int, str) }
 
-// ===========================================================================
 // Result field — Compare (the field is the ONLY differing component)
-// ===========================================================================
 
 // Ok(1) < Ok(2): same variant, recurse on payload. Stub => Equal => fails.
 @test_result_field_ok_payload_orders tests @res_ok_payload () -> void = {
@@ -64,9 +62,7 @@ type TupHolder = { tag: int, t: (int, str) }
     a.compare(other: a)
 }
 
-// ===========================================================================
 // Result field — Hash (distinct values must hash distinctly; stub => 0 == 0)
-// ===========================================================================
 
 @test_result_field_hash_payload_differs tests @res_hash_payload () -> void = {
     let a = ResHolder { tag: 0, r: Ok(1) };
@@ -103,9 +99,7 @@ type TupHolder = { tag: int, t: (int, str) }
     a.hash() == b.hash()
 }
 
-// ===========================================================================
 // Tuple field — Compare (lexicographic; field is the ONLY differing component)
-// ===========================================================================
 
 // First element differs.
 @test_tuple_field_first_orders tests @tup_first () -> void = {
@@ -140,9 +134,7 @@ type TupHolder = { tag: int, t: (int, str) }
     a.compare(other: a)
 }
 
-// ===========================================================================
 // Tuple field — Hash
-// ===========================================================================
 
 @test_tuple_field_hash_differs tests @tup_hash_differs () -> void = {
     let a = TupHolder { tag: 0, t: (1, "x") };
@@ -177,14 +169,12 @@ type TupHolder = { tag: int, t: (int, str) }
     a.hash() == b.hash()
 }
 
-// ===========================================================================
 // Exact-value parity oracle (L9) — golden hash values derived from the
 // shared semantic algorithms. The SAME assert runs on interp + LLVM via
 // dual-exec. Behavioral "distinct/equal" pins above can be satisfied by a
 // self-consistent-but-wrong LLVM hash (XOR vs hash_combine, discriminant 0/1
 // vs 2/3); these golden pins cannot. Re-bless only if the derive hash
 // algorithm changes for BOTH backends together.
-// ===========================================================================
 
 @test_result_field_hash_exact_ok tests @res_hash_exact_ok () -> void = {
     let a = ResHolder { tag: 0, r: Ok(1) };
@@ -213,10 +203,8 @@ type TupHolder = { tag: int, t: (int, str) }
     t.hash()
 }
 
-// ===========================================================================
 // Empty-tuple field cell — the () field is correctly always-Equal (no content);
 // the tag must still break the tie. Golden hash pins exact value.
-// ===========================================================================
 
 #[derive(Eq, Comparable, Hashable)]
 type EmptyTupHolder = { tag: int, e: () }
@@ -241,9 +229,7 @@ type EmptyTupHolder = { tag: int, e: () }
     a.hash()
 }
 
-// ===========================================================================
 // Nested-tuple field cell — inner tuple recursion; innermost element breaks tie.
-// ===========================================================================
 
 #[derive(Eq, Comparable, Hashable)]
 type NestHolder = { tag: int, n: (int, (int, int)) }
@@ -293,11 +279,9 @@ type NestHolder = { tag: int, n: (int, (int, int)) }
 // emit_result_eq already drives; it is structurally covered, not end-to-end
 // testable within this fix's scope.
 
-// ===========================================================================
 // Option field — Compare + Hash. The derived Option hash must match the interp
 // oracle exactly: Some(x) -> hash_combine(1, h(x)), None -> 0 (NOT the XOR fold
 // the codegen previously used). Golden exact-value pins catch the XOR drift.
-// ===========================================================================
 
 #[derive(Eq, Comparable, Hashable)]
 type OptHolder = { tag: int, o: Option<int> }

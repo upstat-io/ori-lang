@@ -1,20 +1,8 @@
-//! Decision tree construction via the Maranget (2008) algorithm.
+//! Maranget-style pattern-matrix compilation.
 //!
-//! Compiles a [`PatternMatrix`] into a [`DecisionTree`] by recursively
-//! selecting the best column to split on and specializing the matrix
-//! for each distinct constructor.
-//!
-//! # Algorithm
-//!
-//! 1. **Base cases**: empty matrix → `Fail`; first row all wildcards → `Leaf`/`Guard`
-//! 2. **Pick column**: choose the column with the most distinct constructors
-//! 3. **Gather edges**: collect distinct test values at the chosen column
-//! 4. **Specialize**: for each test value, filter compatible rows and recurse
-//! 5. **Default**: rows with wildcards at the chosen column form the default
-//!
-//! # References
-//!
-//! - Maranget (2008) "Compiling Pattern Matching to Good Decision Trees"
+//! Recursive specialization chooses a constructor column, emits one edge per
+//! test value, and preserves a default matrix for wildcard rows. Tuple and
+//! struct columns decompose without a runtime test.
 
 mod single_ctor;
 mod specialize;
@@ -40,12 +28,10 @@ pub struct CompiledDecisionTree {
     pub leaf_discard_paths: Vec<LeafDiscardPaths>,
 }
 
-/// Compile a pattern matrix into a decision tree.
+/// Compiles `matrix` using `paths` as the scrutinee path for each column.
 ///
-/// `paths` provides the scrutinee path for each column. Initially, this is
-/// a single-element vec with an empty path (the root scrutinee). As the
-/// algorithm recurses, columns are added for sub-patterns and paths are
-/// extended.
+/// The initial root call supplies one empty path; specialization extends paths
+/// for constructor payloads.
 ///
 /// # Panics
 ///
@@ -58,7 +44,6 @@ pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> CompiledDeci
     #[cfg(debug_assertions)]
     assert_matrix_path_alignment(&matrix, &paths);
 
-    // 1. EMPTY MATRIX: no arms left → Fail (unreachable by exhaustiveness).
     if matrix.is_empty() {
         return CompiledDecisionTree {
             tree: DecisionTree::Fail,
@@ -66,14 +51,11 @@ pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> CompiledDeci
         };
     }
 
-    // 2. FIRST ROW ALL WILDCARDS: match found → Leaf or Guard.
     if matrix[0].patterns.iter().all(FlatPattern::is_wildcard_like) {
         let bindings = extract_all_bindings(&matrix[0], &paths);
         let discard_paths = uncovered_discard_paths(&matrix[0], &bindings);
 
         if let Some(guard) = matrix[0].guard {
-            // Guard present: if guard fails, continue matching with
-            // remaining compatible rows.
             let remaining = matrix[1..].to_vec();
             let on_fail = compile(remaining, paths);
             let mut leaf_discard_paths = vec![discard_paths];
@@ -98,24 +80,17 @@ pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> CompiledDeci
         };
     }
 
-    // 3. PICK COLUMN: choose the best column to split on.
     let col = pick_column(&matrix);
     let path = paths[col].clone();
 
-    // 3b. SINGLE-CONSTRUCTOR DECOMPOSITION: Tuple and Struct patterns are
-    // "single-constructor" types — there's only one shape they can be.
-    // They don't need a runtime test (no Switch), just decomposition into
-    // their sub-patterns. We handle this by directly decomposing.
     if let Some(shape) = single_constructor_column(&matrix, col) {
         let decomposed = decompose_single_constructor(&matrix, col, &paths, &path, shape);
         return compile(decomposed.matrix, decomposed.paths);
     }
 
-    // 4. GATHER EDGES: collect all distinct test values at the chosen column.
     let test_values = collect_test_values(&matrix, col);
     let test_kind = infer_test_kind(&test_values);
 
-    // 5. BUILD EDGES: for each test value, specialize the matrix and recurse.
     let mut edges: Vec<(TestValue, DecisionTree)> = Vec::with_capacity(test_values.len());
     let mut leaf_discard_paths = Vec::new();
     for tv in test_values {
@@ -128,7 +103,6 @@ pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> CompiledDeci
         edges.push((tv, subtree.tree));
     }
 
-    // 6. DEFAULT: rows with wildcards at the chosen column form the default.
     let default_spec = default_matrix(&matrix, col, &paths);
     let default = if default_spec.matrix.is_empty() {
         None
@@ -186,7 +160,7 @@ fn assert_matrix_path_alignment(matrix: &PatternMatrix, paths: &[ScrutineePath])
     }
 }
 
-// Column selection
+// Column selection.
 
 /// Choose the best column to split on.
 ///
@@ -199,7 +173,6 @@ fn pick_column(matrix: &PatternMatrix) -> usize {
     let mut best_score = 0;
 
     for col in 0..ncols {
-        // Skip columns where the first non-wildcard pattern hasn't been found.
         let score = count_distinct_constructors(matrix, col);
         if score > best_score {
             best_score = score;
@@ -207,7 +180,6 @@ fn pick_column(matrix: &PatternMatrix) -> usize {
         }
     }
 
-    // If no constructors found at all, pick the first column with a non-wildcard.
     if best_score == 0 {
         for col in 0..ncols {
             if matrix
@@ -240,7 +212,7 @@ fn count_distinct_constructors(matrix: &PatternMatrix, col: usize) -> usize {
 /// matrix specialization.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ConstructorKey {
-    Variant(u32), // variant index
+    Variant(u32),
     LitInt(i64),
     LitFloat(u64),
     LitBool(bool),
@@ -248,7 +220,7 @@ enum ConstructorKey {
     LitChar(char),
     Tuple,
     Struct,
-    ListLen(u32, bool), // (element count, has_rest)
+    ListLen(u32, bool),
     Range(Option<i64>, Option<i64>, bool),
 }
 
@@ -279,21 +251,18 @@ fn constructor_key(pat: &FlatPattern) -> Option<ConstructorKey> {
             end,
             inclusive,
         } => Some(ConstructorKey::Range(*start, *end, *inclusive)),
-        FlatPattern::Or(alts) => {
-            // Use the first alternative's constructor.
-            alts.first().and_then(constructor_key)
-        }
+        FlatPattern::Or(alts) => alts.first().and_then(constructor_key),
         FlatPattern::At { inner, .. } => constructor_key(inner),
     }
 }
 
-/// The result of specializing or defaulting a matrix.
+/// Matrix and paths produced by specialization.
 pub(super) struct Specialized {
     pub(super) matrix: PatternMatrix,
     pub(super) paths: Vec<ScrutineePath>,
 }
 
-// Binding extraction
+// Binding extraction.
 
 /// Extract all variable bindings from a row where every pattern is
 /// a wildcard or binding.
@@ -335,12 +304,9 @@ fn uncovered_discard_paths(
         .collect()
 }
 
-/// Collect variable bindings from a pattern being consumed at a given path.
+/// Preserves top-level bindings carried by a pattern before specialization.
 ///
-/// When a pattern is removed from a row during specialization or decomposition,
-/// any `Binding(name)`, `At { name, .. }`, or `List { rest: Some(name) }` at
-/// the top level would lose their binding information. This function collects
-/// those bindings so they can be added to the row's accumulated bindings.
+/// Binding, at-pattern, and list-rest names join the row's accumulated bindings.
 pub(super) fn collect_consumed_bindings(
     pat: &FlatPattern,
     path: &ScrutineePath,

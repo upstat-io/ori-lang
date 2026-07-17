@@ -235,7 +235,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // call with sret, and load the result. On ARM64, sret goes
                 // in X8 via the sret attribute (not as a regular parameter).
                 let sret_alloca = self.builder.alloca(ret_ty, "icall.sret");
-                if let Some((pad, _kind)) = self.current_funclet_pad {
+                if let Some(pad) = self.current_cleanup_pad {
                     // Inside a SEH funclet — must carry funclet operand bundle.
                     self.builder.call_indirect_with_sret_and_funclet(
                         ret_ty,
@@ -256,7 +256,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
                 let loaded = self.builder.load(ret_ty, sret_alloca, "icall.sret.load");
                 self.def_var_repr(dst, loaded, func);
-            } else if let Some((pad, _kind)) = self.current_funclet_pad {
+            } else if let Some(pad) = self.current_cleanup_pad {
                 let result = self.builder.call_indirect_with_funclet(
                     ret_ty,
                     &param_types,

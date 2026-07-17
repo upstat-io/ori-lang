@@ -1,0 +1,6 @@
+trait Drop { @drop (self) -> void; }
+         type Inner = { x: int, y: int }
+         type Ev = Wrap(inner: Inner) | Solo(z: int);
+         impl Inner: Drop { @drop (self) -> void = (); }
+         impl Ev: Drop { @drop (self) -> void = (); }
+         @bad (e: Ev) -> int = match e { Wrap(Inner { x, .. }) -> x, Solo(z) -> z, };

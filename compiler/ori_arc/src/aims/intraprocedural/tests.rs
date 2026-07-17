@@ -5370,7 +5370,7 @@ fn propagate_alias_forward_state_unique_source_alias_stays_unset() {
     );
 }
 
-/// BUG-04-097 M1 — TF-4 Project forward View inherits the source's narrowed
+/// TF-4 Project forward View inherits the source's narrowed
 /// contract uniqueness. `v1 = Apply(callee)` carries a `MaybeShared` return
 /// contract; `v2 = Project v1.0` is a borrowed view of that result. The
 /// extended `propagate_alias_forward_state` (Project edge, `AliasKind::View`)
@@ -5430,11 +5430,11 @@ fn propagate_alias_forward_state_project_view_inherits_maybe_shared() {
         state_map.contract_uniqueness(var(2)),
         Some(Uniqueness::MaybeShared),
         "TF-4 Project View MUST inherit the source's MaybeShared contract \
-         uniqueness (BUG-04-097 M1) — the pre-fix TF-2-only collector left it unset"
+         uniqueness — the pre-fix TF-2-only collector left it unset"
     );
 }
 
-/// BUG-04-097 M4 — TF-8 Select takes the lattice JOIN (LUB) over its operands,
+/// TF-8 Select takes the lattice JOIN (LUB) over its operands,
 /// NOT a meet / first-write-wins. `v3 = Select(cond, v1, v2)` where `v1` is a
 /// `MaybeShared`-contract call result and `v2` a `Unique`-contract one: the
 /// stored side-table join is `MaybeShared` (the wider value; `Unique` is the
@@ -5511,11 +5511,11 @@ fn propagate_alias_forward_state_select_joins_to_maybe_shared() {
         state_map.contract_uniqueness(var(3)),
         Some(Uniqueness::MaybeShared),
         "TF-8 Select MUST join (LUB) to MaybeShared (the wider value), never the \
-         optimistic Unique a meet/first-write-wins would pick (BUG-04-097 M4/M11)"
+         optimistic Unique a meet/first-write-wins would pick"
     );
 }
 
-/// BUG-04-097 M7 — TF-15/15a Set/SetTag are EXCLUDED from forward propagation.
+/// TF-15/15a Set/SetTag are EXCLUDED from forward propagation.
 /// A `Set { base, field, value }` is an in-place mutation with no `dst`; the
 /// extended pass MUST NOT manufacture a forward contract fact for the base from
 /// it. `v0` is only ever a Set base here (no contract-defining instruction), so
@@ -5547,7 +5547,7 @@ fn propagate_alias_forward_state_set_base_inherits_no_forward_fact() {
         state_map.contract_uniqueness(var(0)),
         None,
         "TF-15 Set base MUST NOT inherit a forward contract fact — Set/SetTag are \
-         excluded from forward propagation (BUG-04-097 M7)"
+         excluded from forward propagation"
     );
 }
 

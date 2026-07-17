@@ -64,15 +64,17 @@ pub(super) fn run_second_pass(
             // the function's own contract is already in `contracts`.
             let mut new_contract =
                 crate::aims::interprocedural::extract_contract_with_call_ownership(
-                    func,
-                    &state_map,
-                    classifier,
-                    contracts,
-                    &rustc_hash::FxHashSet::default(),
-                    &context_regions,
-                    interner,
-                    builtins,
-                    exact_callables,
+                    &crate::aims::interprocedural::ContractExtractionInput {
+                        func,
+                        state_map: &state_map,
+                        classifier,
+                        sigs: contracts,
+                        scc_peers: &rustc_hash::FxHashSet::default(),
+                        context_regions: &context_regions,
+                        interner,
+                        builtins,
+                        exact_callables,
+                    },
                 );
             callable_boundaries.constrain_contract(name, &mut new_contract);
             let old = contracts.get_mut_required(&name, "trmc_contract_refresh");

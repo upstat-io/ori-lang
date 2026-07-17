@@ -38,16 +38,19 @@ fn lower_call_expr(
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        call,
-        &canon,
-        interner,
-        &pool,
+        super::super::super::ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: call,
+            canon: &canon,
+            interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
     assert!(problems.is_empty());
     func
@@ -187,16 +190,19 @@ fn lower_method_call_user_defined() {
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::STR,
-        method_call,
-        &canon,
-        &interner,
-        &pool,
+        super::super::super::ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::STR,
+            body: method_call,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());

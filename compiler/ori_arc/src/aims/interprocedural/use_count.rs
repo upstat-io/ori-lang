@@ -1,8 +1,8 @@
 //! Variable use-counting for demand-propagation uniqueness analysis.
 //!
-//! `count_var_uses` is load-bearing for BUG-04-069: `arg_satisfies_uniqueness`
-//! gates uniqueness-tightening on `count_var_uses == 1`, so every operand
-//! position (including the `Burden*` family) must be counted.
+//! `count_var_uses` is load-bearing for uniqueness analysis:
+//! `arg_satisfies_uniqueness` gates tightening on `count_var_uses == 1`, so
+//! every operand position (including the `Burden*` family) must be counted.
 
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 

@@ -1,6 +1,9 @@
 //! Tests for expression evaluation (literals, operators, indexing, field access).
 
-#![expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+#![expect(
+    clippy::unwrap_used,
+    reason = "expression-evaluator tests treat evaluation errors as assertion failures"
+)]
 
 use crate::eval::exec::expr::{eval_index, get_collection_length};
 use crate::eval::Value;
@@ -39,7 +42,6 @@ mod binary_values {
     #[test]
     fn div_by_zero_error() {
         let result = evaluate_binary(Value::int(10), Value::int(0), BinaryOp::Div);
-        assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .into_eval_error()
@@ -134,7 +136,7 @@ mod collection_length {
     #[test]
     fn int_error() {
         let result = get_collection_length(&Value::int(42));
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 }
 
@@ -167,40 +169,40 @@ mod index_access {
         #[test]
         fn negative_one_is_out_of_bounds() {
             let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
-            assert!(eval_index(list, Value::int(-1)).is_err());
+            eval_index(list, Value::int(-1)).unwrap_err();
         }
 
         #[test]
         fn negative_length_is_out_of_bounds() {
             let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
-            assert!(eval_index(list, Value::int(-3)).is_err());
+            eval_index(list, Value::int(-3)).unwrap_err();
         }
 
         #[test]
         fn negative_middle_is_out_of_bounds() {
             let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
-            assert!(eval_index(list, Value::int(-2)).is_err());
+            eval_index(list, Value::int(-2)).unwrap_err();
         }
 
         #[test]
         fn out_of_bounds_positive() {
             let list = Value::list(vec![Value::int(1)]);
             let result = eval_index(list, Value::int(5));
-            assert!(result.is_err());
+            result.unwrap_err();
         }
 
         #[test]
         fn out_of_bounds_negative() {
             let list = Value::list(vec![Value::int(1)]);
             let result = eval_index(list, Value::int(-5));
-            assert!(result.is_err());
+            result.unwrap_err();
         }
 
         #[test]
         fn empty_list() {
             let list = Value::list(vec![]);
             let result = eval_index(list, Value::int(0));
-            assert!(result.is_err());
+            result.unwrap_err();
         }
 
         #[test]
@@ -210,7 +212,7 @@ mod index_access {
                 eval_index(list.clone(), Value::int(0)).unwrap(),
                 Value::int(42)
             );
-            assert!(eval_index(list, Value::int(-1)).is_err());
+            eval_index(list, Value::int(-1)).unwrap_err();
         }
     }
 
@@ -234,7 +236,7 @@ mod index_access {
         #[test]
         fn negative_index_is_out_of_bounds() {
             let s = Value::string("hello");
-            assert!(eval_index(s, Value::int(-1)).is_err());
+            eval_index(s, Value::int(-1)).unwrap_err();
         }
 
         #[test]
@@ -261,14 +263,14 @@ mod index_access {
         fn out_of_bounds() {
             let s = Value::string("hi");
             let result = eval_index(s, Value::int(10));
-            assert!(result.is_err());
+            result.unwrap_err();
         }
 
         #[test]
         fn empty_string() {
             let s = Value::string("");
             let result = eval_index(s, Value::int(0));
-            assert!(result.is_err());
+            result.unwrap_err();
         }
     }
 
@@ -319,27 +321,27 @@ mod index_access {
         #[test]
         fn int_not_indexable() {
             let result = eval_index(Value::int(42), Value::int(0));
-            assert!(result.is_err());
+            result.unwrap_err();
         }
 
         #[test]
         fn bool_not_indexable() {
             let result = eval_index(Value::Bool(true), Value::int(0));
-            assert!(result.is_err());
+            result.unwrap_err();
         }
 
         #[test]
         fn list_with_string_index() {
             let list = Value::list(vec![Value::int(1)]);
             let result = eval_index(list, Value::string("0"));
-            assert!(result.is_err());
+            result.unwrap_err();
         }
 
         #[test]
         fn string_with_string_index() {
             let s = Value::string("hello");
             let result = eval_index(s, Value::string("0"));
-            assert!(result.is_err());
+            result.unwrap_err();
         }
     }
 }
@@ -364,7 +366,7 @@ mod boundaries {
             eval_index(list.clone(), Value::int(9999)).unwrap(),
             Value::int(9999)
         );
-        assert!(eval_index(list, Value::int(-1)).is_err());
+        eval_index(list, Value::int(-1)).unwrap_err();
     }
 
     #[test]
@@ -382,16 +384,19 @@ mod boundaries {
             eval_index(s.clone(), Value::int(9999)).unwrap(),
             Value::string("a")
         );
-        assert!(eval_index(s, Value::int(-1)).is_err());
+        eval_index(s, Value::int(-1)).unwrap_err();
     }
 
     #[test]
     fn index_at_boundary() {
         let list = Value::list(vec![Value::int(0), Value::int(1)]);
         // Boundary checks
-        assert!(eval_index(list.clone(), Value::int(1)).is_ok());
-        assert!(eval_index(list.clone(), Value::int(2)).is_err());
-        assert!(eval_index(list.clone(), Value::int(-2)).is_err());
-        assert!(eval_index(list, Value::int(-3)).is_err());
+        assert_eq!(
+            eval_index(list.clone(), Value::int(1)).unwrap(),
+            Value::int(1)
+        );
+        eval_index(list.clone(), Value::int(2)).unwrap_err();
+        eval_index(list.clone(), Value::int(-2)).unwrap_err();
+        eval_index(list, Value::int(-3)).unwrap_err();
     }
 }

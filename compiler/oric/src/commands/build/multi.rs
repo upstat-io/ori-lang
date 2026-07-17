@@ -14,68 +14,73 @@ use super::{
     BuildOptions, LtoMode,
 };
 
+fn resolve_import_path(current: &Path, import: &str) -> Result<PathBuf, String> {
+    let dir = current.parent().unwrap_or_else(|| Path::new("."));
+    let resolved = dir.join(import);
+    let path = if resolved.extension().is_none() {
+        resolved.with_extension("ori")
+    } else {
+        resolved
+    };
+    path.exists()
+        .then_some(path.clone())
+        .ok_or_else(|| format!("cannot find '{import}' at '{}'", path.display()))
+}
+
+fn load_dependency_graph(path: &str, verbose: bool) -> ori_llvm::aot::DependencyBuildResult {
+    use crate::problem::codegen::{report_codegen_error, CodegenProblem};
+
+    if verbose {
+        eprintln!("  Building dependency graph...");
+    }
+    let entry = Path::new(path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(path));
+    let result = ori_llvm::aot::build_dependency_graph(&entry, resolve_import_path).unwrap_or_else(
+        |error| {
+            report_codegen_error(CodegenProblem::ModuleConfigFailed {
+                message: error.to_string(),
+            })
+        },
+    );
+    if verbose {
+        eprintln!(
+            "  Found {} files to compile",
+            result.compilation_order.len()
+        );
+        for (index, path) in result.compilation_order.iter().enumerate() {
+            eprintln!("    {}: {}", index + 1, path.display());
+        }
+    }
+    result
+}
+
+fn compile_modules(
+    context: &ModuleCompileContext<'_>,
+    order: &[PathBuf],
+) -> (Vec<PathBuf>, Vec<CompiledModuleInfo>) {
+    let mut modules = Vec::with_capacity(order.len());
+    let mut objects = Vec::with_capacity(order.len());
+    for source_path in order {
+        let Some((object, module)) = compile_single_module(context, source_path, &modules) else {
+            std::process::exit(1);
+        };
+        modules.push(module);
+        objects.push(object);
+    }
+    (objects, modules)
+}
+
 /// Build a multi-file Ori program (with imports).
 ///
 /// This builds all dependent modules in topological order and links them together.
-#[expect(
-    clippy::too_many_lines,
-    reason = "multi-module build pipeline — splitting would fragment the build flow"
-)]
 pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::time::Instant) {
-    use ori_llvm::aot::build_dependency_graph;
     use oric::CompilerDb;
     use tempfile::TempDir;
 
     use crate::problem::codegen::{report_codegen_error, CodegenProblem};
 
-    if options.verbose {
-        eprintln!("  Building dependency graph...");
-    }
-
-    let entry_path = Path::new(path);
-    let entry_canonical = entry_path
-        .canonicalize()
-        .unwrap_or_else(|_| entry_path.to_path_buf());
-
-    // Import resolver that converts relative paths to absolute paths
-    let resolve_import = |current: &Path, import: &str| -> Result<PathBuf, String> {
-        let dir = current.parent().unwrap_or_else(|| Path::new("."));
-        let resolved = dir.join(import);
-        let with_ext = if resolved.extension().is_none() {
-            resolved.with_extension("ori")
-        } else {
-            resolved
-        };
-
-        if with_ext.exists() {
-            Ok(with_ext)
-        } else {
-            Err(format!(
-                "cannot find '{}' at '{}'",
-                import,
-                with_ext.display()
-            ))
-        }
-    };
-
-    let dep_result = match build_dependency_graph(&entry_canonical, resolve_import) {
-        Ok(result) => result,
-        Err(e) => {
-            report_codegen_error(CodegenProblem::ModuleConfigFailed {
-                message: e.to_string(),
-            });
-        }
-    };
-
-    if options.verbose {
-        eprintln!(
-            "  Found {} files to compile",
-            dep_result.compilation_order.len()
-        );
-        for (i, p) in dep_result.compilation_order.iter().enumerate() {
-            eprintln!("    {}: {}", i + 1, p.display());
-        }
-    }
+    let dep_result = load_dependency_graph(path, options.verbose);
 
     let target = configure_target(options).unwrap_or_else(|e| report_codegen_error(e));
 
@@ -112,19 +117,8 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
         narrowing_policy: options.narrowing_policy,
     };
 
-    let module_count = dep_result.compilation_order.len();
-    let mut compiled_modules: Vec<CompiledModuleInfo> = Vec::with_capacity(module_count);
-    let mut object_files: Vec<PathBuf> = Vec::with_capacity(module_count);
-
-    for source_path in &dep_result.compilation_order {
-        match compile_single_module(&compile_ctx, source_path, &compiled_modules) {
-            Some((obj_path, module_info)) => {
-                compiled_modules.push(module_info);
-                object_files.push(obj_path);
-            }
-            None => std::process::exit(1),
-        }
-    }
+    let (object_files, compiled_modules) =
+        compile_modules(&compile_ctx, &dep_result.compilation_order);
 
     super::require_cli_entry(
         path,
@@ -191,43 +185,59 @@ pub(super) struct CompiledModuleInfo {
 /// Wraps `compile_to_llvm_with_imports` with the `VerificationFailed`
 /// diagnostic path so the caller can stay focused on orchestration. Returns
 /// `None` on codegen error after emitting diagnostics.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "thin wrapper around compile_to_llvm_with_imports; structural cure would push 11+ args one level deeper"
-)]
-fn lower_module_to_llvm<'ctx>(
+#[derive(Clone, Copy)]
+struct ModuleLoweringInput<'ctx, 'a> {
     context: &'ctx ori_llvm::inkwell::context::Context,
-    ctx: &ModuleCompileContext<'_>,
-    source_path_str: &str,
-    module_name: &str,
-    parse_result: &crate::parser::ParseOutput,
-    type_result: &ori_types::TypeCheckResult,
-    merged_pool: &'ctx ori_types::Pool,
-    canon_result: &ori_ir::canon::CanonResult,
-    imported_functions: &[crate::commands::compile_common::ImportedFunctionInfo],
-    imported_type_metadata: &[ori_types::ExportedTypeMetadata],
-    imported_collection_surfaces: &[u64],
-    imported: crate::commands::ImportedSurfaces<'_>,
+    build: &'a ModuleCompileContext<'a>,
+    source_path: &'a str,
+    module_name: &'a str,
+    parse: &'a crate::parser::ParseOutput,
+    typed: &'a ori_types::TypeCheckResult,
+    pool: &'ctx ori_types::Pool,
+    canon: &'a ori_ir::canon::CanonResult,
+    imported_functions: &'a [crate::commands::compile_common::ImportedFunctionInfo],
+    imported_type_metadata: &'a [ori_types::ExportedTypeMetadata],
+    imported_collection_surfaces: &'a [u64],
+    imported: crate::commands::ImportedSurfaces<'a>,
+}
+
+fn lower_module_to_llvm<'ctx>(
+    input: ModuleLoweringInput<'ctx, '_>,
 ) -> Option<crate::commands::codegen_pipeline::LlvmCodegenOutput<'ctx>> {
     use crate::commands::compile_common::compile_to_llvm_with_imports;
     use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics, CodegenProblem};
 
-    match compile_to_llvm_with_imports(
+    let ModuleLoweringInput {
         context,
-        ctx.db,
-        parse_result,
-        type_result,
-        merged_pool,
-        canon_result,
-        source_path_str,
+        build: ctx,
+        source_path: source_path_str,
+        module_name,
+        parse: parse_result,
+        typed: type_result,
+        pool: merged_pool,
+        canon: canon_result,
+        imported_functions,
+        imported_type_metadata,
+        imported_collection_surfaces,
+        imported,
+    } = input;
+
+    match compile_to_llvm_with_imports(crate::commands::compile_common::ImportedModuleCompilation {
+        context,
+        db: ctx.db,
+        parse: parse_result,
+        typed: type_result,
+        pool: merged_pool,
+        canon: canon_result,
+        source_path: source_path_str,
         module_name,
         imported_functions,
         imported_type_metadata,
         imported_collection_surfaces,
         imported,
-        Some(ctx.target.triple()),
-        ctx.narrowing_policy,
-    ) {
+        target_triple: Some(ctx.target.triple()),
+        narrowing_policy: ctx.narrowing_policy,
+    }) {
         Ok(m) => Some(m),
         Err(e) => {
             let mut acc = CodegenDiagnostics::new();
@@ -308,20 +318,20 @@ fn compile_single_module(
         collect_imported_collection_surfaces(source_path, ctx.graph, compiled_modules);
 
     let context = Context::create();
-    let llvm_output = lower_module_to_llvm(
-        &context,
-        ctx,
-        &source_path_str,
-        &module_name,
-        &parse_result,
-        &type_result,
-        &imported_state.merged_pool,
-        &canon_result,
-        &imported_functions,
-        &imported_type_metadata,
-        &imported_collection_surfaces,
-        imported_state.surfaces(),
-    )?;
+    let llvm_output = lower_module_to_llvm(ModuleLoweringInput {
+        context: &context,
+        build: ctx,
+        source_path: &source_path_str,
+        module_name: &module_name,
+        parse: &parse_result,
+        typed: &type_result,
+        pool: &imported_state.merged_pool,
+        canon: &canon_result,
+        imported_functions: &imported_functions,
+        imported_type_metadata: &imported_type_metadata,
+        imported_collection_surfaces: &imported_collection_surfaces,
+        imported: imported_state.surfaces(),
+    })?;
 
     let obj_path = emit_module_artifact(ctx, &llvm_output.module, &module_name, &source_path_str)?;
 

@@ -9,6 +9,13 @@ use ori_parse::parse;
 
 use crate::{check_module_with_pool, Pool, TypeCheckResult};
 
+fn fixture_without_trailing_newline(source: &'static str) -> &'static str {
+    let Some(source) = source.strip_suffix('\n') else {
+        panic!("committed Ori fixtures end with a newline");
+    };
+    source
+}
+
 /// Parse-and-check harness variant that returns the pool alongside the
 /// `TypeCheckResult`, so cells that inspect post-typeck `Tag`/`VarState`
 /// shapes can read the interned types directly.
@@ -27,12 +34,9 @@ fn parse_and_check_with_pool(source: &str) -> (TypeCheckResult, Pool, StringInte
 
 #[test]
 fn catch_direct_loop_block_infers_result_value() {
-    let (result, _interner) = parse_and_check(
-        "@f () -> Result<int, str> = catch(expr: {\
-         for n in [1, 2] do { let _ = n; };\
-         7\
-         });",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/catch_direct_loop_block_infers_result_value.ori"
+    )));
 
     assert!(
         result.typed.errors.is_empty(),
@@ -43,8 +47,9 @@ fn catch_direct_loop_block_infers_result_value() {
 
 #[test]
 fn catch_lambda_expression_rejects_result_value_annotation() {
-    let (result, _interner) =
-        parse_and_check("@f () -> Result<int, str> = catch(expr: () -> { 7 });");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/catch_lambda_expression_rejects_result_value_annotation.ori"
+    )));
 
     assert!(
         result
@@ -93,7 +98,9 @@ fn check_module_with_no_function_bodies_produces_no_errors() {
 /// remaining case that survives defaulting.
 #[test]
 fn check_function_with_unannotated_param_emits_ambiguous_type() {
-    let (result, _interner) = parse_and_check("@f (x) -> int = 0;");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/check_function_with_unannotated_param_emits_ambiguous_type.ori"
+    )));
     assert!(
         result
             .typed
@@ -120,9 +127,9 @@ fn check_function_with_unannotated_param_emits_ambiguous_type() {
 /// the only path for a surviving var is through body expressions.
 #[test]
 fn check_test_with_ungeneralizable_lambda_body_emits_ambiguous_type() {
-    let (result, _interner) = parse_and_check(
-        "@target () -> void = ();\n@test_fn tests @target () -> void = { let _ = { x -> x }; () }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/check_test_with_ungeneralizable_lambda_body_emits_ambiguous_type.ori"
+    )));
     assert!(
         result
             .typed
@@ -151,8 +158,9 @@ fn check_test_with_ungeneralizable_lambda_body_emits_ambiguous_type() {
 /// sig positions."
 #[test]
 fn check_impl_method_with_unannotated_param_emits_ambiguous_type() {
-    let (result, _interner) =
-        parse_and_check("type Foo = { f: int };\nimpl Foo { @process (self, x) -> void = { () } }");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/check_impl_method_with_unannotated_param_emits_ambiguous_type.ori"
+    )));
     assert!(
         result
             .typed
@@ -176,9 +184,9 @@ fn check_impl_method_with_unannotated_param_emits_ambiguous_type() {
 /// `validate_body_types` must walk.
 #[test]
 fn check_impl_method_with_ungeneralizable_body_lambda_emits_ambiguous_type() {
-    let (result, _interner) = parse_and_check(
-        "type Foo = { f: int };\nimpl Foo { @m (self) -> void = { let _ = { x -> x }; () } }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/check_impl_method_with_ungeneralizable_body_lambda_emits_ambiguous_type.ori"
+    )));
     assert!(
         result
             .typed
@@ -261,12 +269,9 @@ fn assert_exact_user_drop_role(source: &str, drop_impl_index: usize) {
 #[test]
 fn user_drop_role_ignores_preceding_same_named_methods() {
     assert_exact_user_drop_role(
-        "trait Drop { @drop (self) -> void; }\n\
-         trait DecoyDrop { @drop (self) -> void; }\n\
-         type Guard = { id: int }\n\
-         impl Guard { @drop (self) -> void = (); }\n\
-         impl Guard: DecoyDrop { @drop (self) -> void = (); }\n\
-         impl Guard: Drop { @drop (self) -> void = (); }",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/user_drop_role_ignores_preceding_same_named_methods.ori"
+        )),
         2,
     );
 }
@@ -274,12 +279,9 @@ fn user_drop_role_ignores_preceding_same_named_methods() {
 #[test]
 fn user_drop_role_ignores_following_same_named_methods() {
     assert_exact_user_drop_role(
-        "trait Drop { @drop (self) -> void; }\n\
-         trait DecoyDrop { @drop (self) -> void; }\n\
-         type Guard = { id: int }\n\
-         impl Guard: Drop { @drop (self) -> void = (); }\n\
-         impl Guard { @drop (self) -> void = (); }\n\
-         impl Guard: DecoyDrop { @drop (self) -> void = (); }",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/user_drop_role_ignores_following_same_named_methods.ori"
+        )),
         0,
     );
 }
@@ -287,12 +289,12 @@ fn user_drop_role_ignores_following_same_named_methods() {
 #[test]
 fn imported_drop_trait_assigns_exact_role_amid_inherent_name_collision() {
     let interner = StringInterner::new();
-    let prelude_tokens = lex("pub trait Drop { @drop (self) -> void; }", &interner);
+    let prelude_tokens = lex(fixture_without_trailing_newline(include_str!("fixtures/imported_drop_trait_assigns_exact_role_amid_inherent_name_collision_prelude.ori")), &interner);
     let prelude = parse(&prelude_tokens, &interner);
     assert!(prelude.errors.is_empty());
-    let source = "type Guard = { id: int }\n\
-                  impl Guard { @drop (self) -> void = (); }\n\
-                  impl Guard: Drop { @drop (self) -> void = (); }";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/imported_drop_trait_assigns_exact_role_amid_inherent_name_collision_source.ori"
+    ));
     let tokens = lex(source, &interner);
     let parsed = parse(&tokens, &interner);
     assert!(parsed.errors.is_empty());
@@ -331,9 +333,9 @@ fn imported_drop_trait_assigns_exact_role_amid_inherent_name_collision() {
 /// "validator wired" from "temporary sig correctly covers param/return positions."
 #[test]
 fn check_def_impl_method_with_unannotated_param_emits_ambiguous_type() {
-    let (result, _interner) = parse_and_check(
-        "trait Processable { @process (x) -> void; }\npub def impl Processable { @process (x) -> void = { () } }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/check_def_impl_method_with_unannotated_param_emits_ambiguous_type.ori"
+    )));
     assert!(
         result
             .typed
@@ -357,9 +359,9 @@ fn check_def_impl_method_with_unannotated_param_emits_ambiguous_type() {
 /// `validate_body_types` must walk via `run_validator`.
 #[test]
 fn check_def_impl_method_with_ungeneralizable_body_lambda_emits_ambiguous_type() {
-    let (result, _interner) = parse_and_check(
-        "trait Processable { @process () -> void; }\npub def impl Processable { @process () -> void = { let _ = { x -> x }; () } }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/check_def_impl_method_with_ungeneralizable_body_lambda_emits_ambiguous_type.ori"
+    )));
     assert!(
         result
             .typed
@@ -383,9 +385,9 @@ fn check_def_impl_method_with_ungeneralizable_body_lambda_emits_ambiguous_type()
 /// silent on this input.
 #[test]
 fn check_def_impl_method_with_well_typed_body_produces_no_errors() {
-    let (result, _interner) = parse_and_check(
-        "trait Greetable { @greet () -> str; }\npub def impl Greetable { @greet () -> str = { \"hi\" } }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/check_def_impl_method_with_well_typed_body_produces_no_errors.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no errors for well-typed def-impl body, got: {:?}",
@@ -402,9 +404,9 @@ fn check_def_impl_method_with_well_typed_body_produces_no_errors() {
 /// is never constrained, surfacing as `E2005` at validator time.
 #[test]
 fn test_def_impl_method_body_binds_self_to_registered_rigid_var() {
-    let (result, _interner) = parse_and_check(
-        "trait Identity { @m (self) -> int; }\npub def impl Identity { @m (self) -> int = { 99 } }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/def_impl_method_body_binds_self_to_registered_rigid_var.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no errors for def-impl with (self) param body, got: {:?}",
@@ -419,9 +421,9 @@ fn test_def_impl_method_body_binds_self_to_registered_rigid_var() {
 /// than a type-binding fix — it makes `self`-receiver dispatch reachable.
 #[test]
 fn test_def_impl_method_body_dispatches_self_method_calls() {
-    let (result, _interner) = parse_and_check(
-        "trait Identity { @inner (self) -> int; @outer (self) -> int; }\npub def impl Identity { @inner (self) -> int = { 1 } @outer (self) -> int = { self.inner() } }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/def_impl_method_body_dispatches_self_method_calls.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no errors for def-impl self-method dispatch, got: {:?}",
@@ -437,9 +439,9 @@ fn test_def_impl_method_body_dispatches_self_method_calls() {
 /// (e.g., trait-level associated-style functions).
 #[test]
 fn test_def_impl_without_self_param_does_not_bind_self() {
-    let (result, _interner) = parse_and_check(
-        "trait Constant { @m () -> int; }\npub def impl Constant { @m () -> int = { 42 } }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/def_impl_without_self_param_does_not_bind_self.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no errors for def-impl without self param, got: {:?}",
@@ -457,8 +459,9 @@ fn test_def_impl_without_self_param_does_not_bind_self() {
 /// error fires.
 #[test]
 fn test_lambda_param_inferred_from_list_map_receiver() {
-    let (result, _interner) =
-        parse_and_check("@process (xs: [int]) -> [int] = { xs.map(x -> x + 1) }");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/lambda_param_inferred_from_list_map_receiver.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no errors for [int].map(x -> x + 1), got: {:?}",
@@ -473,8 +476,9 @@ fn test_lambda_param_inferred_from_list_map_receiver() {
 /// receiver-element propagation invariant.
 #[test]
 fn test_lambda_param_inferred_from_list_filter_receiver() {
-    let (result, _interner) =
-        parse_and_check("@process (xs: [int]) -> [int] = { xs.filter(x -> x > 0) }");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/lambda_param_inferred_from_list_filter_receiver.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no errors for [int].filter(x -> x > 0), got: {:?}",
@@ -489,9 +493,9 @@ fn test_lambda_param_inferred_from_list_filter_receiver() {
 /// 2-param case alongside the 1-param `.map`/`.filter` cases above.
 #[test]
 fn test_lambda_params_inferred_from_list_fold_receiver() {
-    let (result, _interner) = parse_and_check(
-        "@process (xs: [int]) -> int = { xs.fold(initial: 0, (acc, x) -> acc + x) }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/lambda_params_inferred_from_list_fold_receiver.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no errors for [int].fold(0, (acc, x) -> acc + x), got: {:?}",
@@ -526,9 +530,9 @@ fn test_lambda_params_inferred_from_list_fold_receiver() {
 /// is fixed end-to-end.
 #[test]
 fn empty_list_with_push_and_len_typechecks_without_errors_end_to_end() {
-    let (result, _interner) = parse_and_check(
-        "@main () -> int = { let ages = []; ages = ages.push(value: 10); if ages.len() == 1 then 0 else 1 }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/empty_list_with_push_and_len_typechecks_without_errors_end_to_end.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "empty list push repro must type-check cleanly after end-of-body defaulting pre-pass, got: {:?}",
@@ -561,8 +565,9 @@ fn empty_list_with_push_and_len_typechecks_without_errors_end_to_end() {
 /// lambda body `x` — and the assertion fails (RED).
 #[test]
 fn expr_types_port_lambda_body_is_bound_var() {
-    let (result, pool, _interner) =
-        parse_and_check_with_pool("@f () -> int = { let $id = x -> x; id(42) }");
+    let (result, pool, _interner) = parse_and_check_with_pool(fixture_without_trailing_newline(
+        include_str!("fixtures/expr_types_port_lambda_body_is_bound_var.ori"),
+    ));
 
     assert!(
         result.typed.errors.is_empty(),
@@ -605,7 +610,9 @@ fn expr_types_port_lambda_body_is_bound_var() {
 /// resolve to `Tag::Var(Generalized)` and the assertion fails (RED).
 #[test]
 fn function_sig_port_top_level_polymorphic_function() {
-    let (result, pool, interner) = parse_and_check_with_pool("@id<T> (x: T) -> T = x;");
+    let (result, pool, interner) = parse_and_check_with_pool(fixture_without_trailing_newline(
+        include_str!("fixtures/function_sig_port_top_level_polymorphic_function.ori"),
+    ));
 
     assert!(
         result.typed.errors.is_empty(),
@@ -694,7 +701,9 @@ fn function_sig_port_top_level_polymorphic_function() {
 /// arm silences the leak.
 #[test]
 fn validator_strip_polylambda_typechecks_no_e2005() {
-    let (result, _interner) = parse_and_check("@f () -> int = { let $id = x -> x; id(42) }");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/expr_types_port_lambda_body_is_bound_var.ori"
+    )));
 
     let ambiguous_count = result
         .typed
@@ -757,9 +766,9 @@ fn scan_for_generalized_var_leaves(pool: &Pool, ty: Idx, report: &mut dyn FnMut(
 /// shape verbatim.
 #[test]
 fn test_method_call_return_bd2_into_to_error_resolves_field_access() {
-    let (result, _interner) = parse_and_check(
-        "@f () -> str = { let msg: str = \"x\"; let e: Error = msg.into(); e.message }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/method_call_return_bd2_into_to_error_resolves_field_access.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no errors for let e: Error = msg.into() + e.message, got: {:?}",
@@ -773,8 +782,9 @@ fn test_method_call_return_bd2_into_to_error_resolves_field_access() {
 /// the registered `Collect` impl's default return.
 #[test]
 fn test_method_call_return_bd2_collect_default_to_list_unchanged() {
-    let (result, _interner) =
-        parse_and_check("@f () -> [int] = { [1, 2, 3].iter().map(x -> x + 1).collect() }");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/method_call_return_bd2_collect_default_to_list_unchanged.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected [int].iter().map.collect() to remain clean, got: {:?}",
@@ -789,8 +799,9 @@ fn test_method_call_return_bd2_collect_default_to_list_unchanged() {
 /// NOT silently produce `int` and mask the missing-impl error.
 #[test]
 fn test_method_call_return_bd2_no_impl_reports_diagnostic() {
-    let (result, _interner) =
-        parse_and_check("@f () -> void = { let msg: str = \"x\"; let _n: int = msg.into(); () }");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/method_call_return_bd2_no_impl_reports_diagnostic.ori"
+    )));
     let has_diagnostic = result.typed.errors.iter().any(|e| {
         matches!(
             e.kind,
@@ -813,8 +824,9 @@ fn test_method_call_return_bd2_no_impl_reports_diagnostic() {
 /// introduced. Pins the gate's no-spurious-fire invariant.
 #[test]
 fn test_method_call_return_bd2_no_annotation_falls_through_to_synth() {
-    let (result, _interner) =
-        parse_and_check("@f (msg: str) -> str = { let _e = msg.into(); \"\" }");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/method_call_return_bd2_no_annotation_falls_through_to_synth.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no NEW errors for ungated msg.into() (no-annotation path stays synth-only), got: {:?}",
@@ -832,10 +844,9 @@ fn test_method_call_return_bd2_no_annotation_falls_through_to_synth() {
 /// `fresh_named_var` in `resolve_parsed_type`).
 #[test]
 fn test_method_call_return_bd2_user_convert_propagates_to_payload_field() {
-    let source = "trait Convert<T> { @to_t (self) -> T }\n\
-                  type MyErr = { msg: str }\n\
-                  impl str: Convert<MyErr> { @to_t (self) -> MyErr = MyErr { msg: self } }\n\
-                  @f () -> str = { let e: MyErr = \"x\".to_t(); e.msg }\n";
+    let source = include_str!(
+        "fixtures/method_call_return_bd2_user_convert_propagates_to_payload_field.ori"
+    );
     let (result, _interner) = parse_and_check(source);
     assert!(
         result.typed.errors.is_empty(),
@@ -853,9 +864,9 @@ fn test_method_call_return_bd2_user_convert_propagates_to_payload_field() {
 /// was wired earlier; this pins the closure-return direction).
 #[test]
 fn test_method_call_return_bd2_nested_into_in_map_err_closure() {
-    let (result, _interner) = parse_and_check(
-        "@f (ok_int: Result<int, str>) -> Result<int, Error> = { ok_int.map_err(msg -> msg.into()) }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/method_call_return_bd2_nested_into_in_map_err_closure.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no errors for map_err(msg -> msg.into()) into Result<int, Error>, got: {:?}",
@@ -883,7 +894,9 @@ fn test_builtin_assoc_fn_on_concrete_receiver_no_spurious_error() {
     // silent too; its cure depends on completing concrete-receiver dispatch so
     // a miss reliably implies genuine absence. This pin fails if the emit is
     // ever re-broadened to concrete receivers.
-    let (result, _interner) = parse_and_check("@f () -> int = int.default();");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/builtin_assoc_fn_on_concrete_receiver_no_spurious_error.ori"
+    )));
     assert!(
         !result
             .typed
@@ -902,8 +915,9 @@ fn test_unknown_method_on_unbounded_rigid_receiver_reports_error() {
     // Negative case: `@f<T>(x: T)` has no bound providing `hello`, so
     // `x.hello()` must report a method-not-found (with an add-a-bound hint),
     // not silently accept.
-    let (result, _interner) =
-        parse_and_check("trait Greet { @hello (self) -> str }\n@f<T> (x: T) -> str = x.hello();");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/unknown_method_on_unbounded_rigid_receiver_reports_error.ori"
+    )));
     assert!(
         !result.typed.errors.is_empty(),
         "expected a diagnostic for `x.hello()` on an unbounded generic, got none (silent accept)"
@@ -919,10 +933,9 @@ fn test_capability_namespace_receiver_no_spurious_error() {
     // diagnose. Without the trait-name exclusion in `is_named_generic_var`, this
     // mis-emits a method-not-found / arity error on every capability call. This
     // pin fails if the discriminator regresses to name-presence alone.
-    let (result, _interner) = parse_and_check(
-        "trait Http { @get (url: str) -> str }\n\
-         @fetch (url: str) -> str uses Http = Http.get(url: url);",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/capability_namespace_receiver_no_spurious_error.ori"
+    )));
     assert!(
         !result
             .typed
@@ -946,10 +959,9 @@ fn test_capability_no_self_method_dispatch_resolves_clean() {
     // otherwise-unconstrained no-self receiver var does not surface a spurious
     // "cannot infer type". This pin fails if the cap exempt regresses (E2005
     // returns) or if cap_ty is forced to a non-unifiable RigidVar.
-    let (result, _interner) = parse_and_check(
-        "trait Http { @get (url: str) -> str }\n\
-         @fetch (url: str) -> str uses Http = Http.get(url: url);",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/capability_namespace_receiver_no_spurious_error.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected zero errors for no-self capability dispatch `Http.get(url:)`, \
@@ -962,9 +974,9 @@ fn test_capability_no_self_method_dispatch_resolves_clean() {
 fn test_method_on_bounded_rigid_receiver_resolves_clean() {
     // Positive boundary: with the `T: Greet` bound, `x.hello()` resolves via the
     // bound-chain — no spurious method-not-found from the emit.
-    let (result, _interner) = parse_and_check(
-        "trait Greet { @hello (self) -> str }\n@f<T: Greet> (x: T) -> str = x.hello();",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/method_on_bounded_rigid_receiver_resolves_clean.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no errors for bounded `x.hello()`, got: {:?}",
@@ -981,11 +993,9 @@ fn test_unbounded_impl_level_generic_receiver_reports_error() {
     // resolved to an unresolved `Tag::Named` that the rigid-emit skipped, so the
     // unbounded call was silently accepted. This pin fails if impl-level generics
     // regress to `Tag::Named` resolution.
-    let (result, _interner) = parse_and_check(
-        "trait Greet { @hello (self) -> str }\n\
-         type Box<T> = { inner: T }\n\
-         impl<T> Box<T> { @greet (self, x: T) -> str = x.hello(); }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/unbounded_impl_level_generic_receiver_reports_error.ori"
+    )));
     assert!(
         !result.typed.errors.is_empty(),
         "expected a method-not-found diagnostic for `x.hello()` on an unbounded \
@@ -999,11 +1009,9 @@ fn test_bounded_impl_level_generic_receiver_resolves_clean() {
     // on the impl RigidVar, `x.hello()` resolves via the bound-chain in
     // typeck itself (not merely masked by the evaluator's dispatch) — no spurious
     // method-not-found.
-    let (result, _interner) = parse_and_check(
-        "trait Greet { @hello (self) -> str }\n\
-         type Box<T> = { inner: T }\n\
-         impl<T: Greet> Box<T> { @greet (self, x: T) -> str = x.hello(); }",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/bounded_impl_level_generic_receiver_resolves_clean.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "expected no errors for bounded impl-level `x.hello()`, got: {:?}",
@@ -1019,7 +1027,9 @@ fn test_bounded_impl_level_generic_receiver_resolves_clean() {
 /// across the fix.
 #[test]
 fn test_poison_unbound_ident_suppresses_cascade() {
-    let (result, _interner) = parse_and_check("@f () -> int = 1 + unknown_var;");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/poison_unbound_ident_suppresses_cascade.ori"
+    )));
     assert_eq!(
         result.typed.errors.len(),
         1,
@@ -1034,7 +1044,9 @@ fn test_poison_unbound_ident_suppresses_cascade() {
 /// across the user-`Error`/poison `Idx` separation.
 #[test]
 fn test_poison_in_compound_literal_no_secondary_diagnostic() {
-    let (result, _interner) = parse_and_check("@f () -> [int] = [1, unknown_var, 3];");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/poison_in_compound_literal_no_secondary_diagnostic.ori"
+    )));
     assert_eq!(
         result.typed.errors.len(),
         1,
@@ -1050,8 +1062,9 @@ fn test_poison_in_compound_literal_no_secondary_diagnostic() {
 /// from the poison sentinel MUST NOT make `match` on poison cascade.
 #[test]
 fn test_poison_match_scrutinee_no_arm_cascade() {
-    let (result, _interner) =
-        parse_and_check("@f () -> int = match unknown_var { 0 -> 1, _ -> 2 };");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/poison_match_scrutinee_no_arm_cascade.ori"
+    )));
     assert_eq!(
         result.typed.errors.len(),
         1,
@@ -1071,7 +1084,9 @@ fn test_poison_field_access_no_cascade() {
     // `-> str` matches the `.message -> str` field-access result, isolating the
     // no-cascade property: only the unbound-ident error remains (a non-`str`
     // return would add a legitimate result-type mismatch, not a cascade).
-    let (result, _interner) = parse_and_check("@f () -> str = unknown_var.message;");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/poison_field_access_no_cascade.ori"
+    )));
     assert_eq!(
         result.typed.errors.len(),
         1,
@@ -1082,10 +1097,9 @@ fn test_poison_field_access_no_cascade() {
 
 #[test]
 fn module_error_variant_shadows_builtin_error_constructor() {
-    let (result, _interner) = parse_and_check(
-        "type LogLevel = Info(msg: str) | Error(msg: str);\n\
-         @make () -> LogLevel = Error(msg: \"boom\");",
-    );
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/module_error_variant_shadows_builtin_error_constructor.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "module `Error` variant must shadow the universe builtin: {:?}",
@@ -1095,7 +1109,9 @@ fn module_error_variant_shadows_builtin_error_constructor() {
 
 #[test]
 fn builtin_error_constructor_remains_resolvable_without_shadow() {
-    let (result, _interner) = parse_and_check("@make () -> Error = Error(\"boom\");");
+    let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
+        "fixtures/builtin_error_constructor_remains_resolvable_without_shadow.ori"
+    )));
     assert!(
         result.typed.errors.is_empty(),
         "builtin Error constructor must remain available: {:?}",

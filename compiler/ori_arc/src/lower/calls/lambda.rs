@@ -6,7 +6,9 @@
 
 use rustc_hash::FxHashSet;
 
-use ori_ir::canon::{CanExpr, CanId, CanParamRange};
+use ori_ir::canon::{
+    CanExpr, CanFieldRange, CanId, CanMapEntryRange, CanNamedExprRange, CanParamRange, CanRange,
+};
 use ori_ir::{Name, Span};
 use ori_types::{Idx, Tag};
 
@@ -171,10 +173,6 @@ impl ArcLowerer<'_> {
     /// Walks the canonical expression tree. For each `Ident(name)` not in the
     /// lambda's parameter list and present in the outer scope, records
     /// `(name, outer_arc_var_id)`.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "dispatch table — each arm is 1-3 lines"
-    )]
     fn collect_captures(
         &self,
         expr_id: CanId,
@@ -188,142 +186,224 @@ impl ArcLowerer<'_> {
 
         let kind = *self.arena.kind(expr_id);
         match kind {
-            CanExpr::Ident(name) => {
-                if !params.contains(&name) && !seen.contains(&name) {
-                    if let Some(var) = self.scope.lookup(name) {
-                        seen.insert(name);
-                        captures.push((name, var));
-                    }
-                }
+            CanExpr::Ident(name) => self.record_lambda_capture(name, params, captures, seen),
+            CanExpr::Binary {
+                left: first,
+                right: second,
+                ..
             }
-            CanExpr::Binary { left, right, .. } => {
-                self.collect_captures(left, params, captures, seen);
-                self.collect_captures(right, params, captures, seen);
+            | CanExpr::Index {
+                receiver: first,
+                index: second,
             }
-            CanExpr::Unary { operand, .. } => {
-                self.collect_captures(operand, params, captures, seen);
+            | CanExpr::Assign {
+                target: first,
+                value: second,
             }
-            CanExpr::Call { func, args } => {
-                self.collect_captures(func, params, captures, seen);
-                for &arg in self.arena.get_expr_list(args) {
-                    self.collect_captures(arg, params, captures, seen);
-                }
+            | CanExpr::WithCapability {
+                provider: first,
+                body: second,
+                ..
+            } => self.collect_two_captures([first, second], params, captures, seen),
+            CanExpr::Unary { operand: child, .. }
+            | CanExpr::Lambda { body: child, .. }
+            | CanExpr::Loop { body: child, .. }
+            | CanExpr::Field {
+                receiver: child, ..
             }
+            | CanExpr::Ok(child)
+            | CanExpr::Err(child)
+            | CanExpr::Some(child)
+            | CanExpr::Try(child)
+            | CanExpr::Await(child)
+            | CanExpr::Unsafe(child)
+            | CanExpr::Break { value: child, .. }
+            | CanExpr::Continue { value: child, .. }
+            | CanExpr::Cast { expr: child, .. }
+            | CanExpr::FormatWith { expr: child, .. }
+            | CanExpr::Let { init: child, .. } => {
+                self.collect_captures(child, params, captures, seen);
+            }
+            CanExpr::Call { func: callee, args }
+            | CanExpr::MethodCall {
+                receiver: callee,
+                args,
+                ..
+            } => self.collect_call_captures(callee, args, params, captures, seen),
             CanExpr::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => {
-                self.collect_captures(cond, params, captures, seen);
-                self.collect_captures(then_branch, params, captures, seen);
-                self.collect_captures(else_branch, params, captures, seen);
+                cond: first,
+                then_branch: second,
+                else_branch: third,
             }
+            | CanExpr::For {
+                iter: first,
+                guard: second,
+                body: third,
+                ..
+            }
+            | CanExpr::Range {
+                start: first,
+                end: second,
+                step: third,
+                ..
+            } => self.collect_three_captures([first, second, third], params, captures, seen),
             CanExpr::Block { stmts, result } => {
-                for &stmt in self.arena.get_expr_list(stmts) {
-                    self.collect_captures(stmt, params, captures, seen);
-                }
-                self.collect_captures(result, params, captures, seen);
-            }
-            CanExpr::Lambda { body, .. } | CanExpr::Loop { body, .. } => {
-                self.collect_captures(body, params, captures, seen);
-            }
-            CanExpr::Field { receiver, .. } => {
-                self.collect_captures(receiver, params, captures, seen);
-            }
-            CanExpr::Index { receiver, index } => {
-                self.collect_captures(receiver, params, captures, seen);
-                self.collect_captures(index, params, captures, seen);
-            }
-            CanExpr::For {
-                iter, body, guard, ..
-            } => {
-                self.collect_captures(iter, params, captures, seen);
-                self.collect_captures(guard, params, captures, seen);
-                self.collect_captures(body, params, captures, seen);
+                self.collect_block_captures(stmts, result, params, captures, seen);
             }
             CanExpr::Match {
                 scrutinee, arms, ..
             } => {
-                self.collect_captures(scrutinee, params, captures, seen);
-                for &arm_body in self.arena.get_expr_list(arms) {
-                    self.collect_captures(arm_body, params, captures, seen);
-                }
-            }
-            CanExpr::Ok(e)
-            | CanExpr::Err(e)
-            | CanExpr::Some(e)
-            | CanExpr::Try(e)
-            | CanExpr::Await(e)
-            | CanExpr::Unsafe(e)
-            | CanExpr::Break { value: e, .. }
-            | CanExpr::Continue { value: e, .. } => {
-                self.collect_captures(e, params, captures, seen);
-            }
-            CanExpr::Assign { target, value } => {
-                self.collect_captures(target, params, captures, seen);
-                self.collect_captures(value, params, captures, seen);
-            }
-            CanExpr::Cast { expr, .. } | CanExpr::FormatWith { expr, .. } => {
-                self.collect_captures(expr, params, captures, seen);
+                self.collect_match_captures(scrutinee, arms, params, captures, seen);
             }
             CanExpr::Tuple(range) | CanExpr::List(range) => {
-                for &e in self.arena.get_expr_list(range) {
-                    self.collect_captures(e, params, captures, seen);
-                }
+                self.collect_range_captures(range, params, captures, seen);
             }
-            CanExpr::MethodCall { receiver, args, .. } => {
-                self.collect_captures(receiver, params, captures, seen);
-                for &arg in self.arena.get_expr_list(args) {
-                    self.collect_captures(arg, params, captures, seen);
-                }
-            }
-            CanExpr::WithCapability { body, provider, .. } => {
-                self.collect_captures(provider, params, captures, seen);
-                self.collect_captures(body, params, captures, seen);
-            }
-            CanExpr::Let { init, .. } => {
-                self.collect_captures(init, params, captures, seen);
-            }
-            CanExpr::Range {
-                start, end, step, ..
-            } => {
-                self.collect_captures(start, params, captures, seen);
-                self.collect_captures(end, params, captures, seen);
-                self.collect_captures(step, params, captures, seen);
-            }
-            CanExpr::Struct { fields, .. } => {
-                for fi in self.arena.get_fields(fields) {
-                    self.collect_captures(fi.value, params, captures, seen);
-                }
-            }
-            CanExpr::Map(entries) => {
-                for entry in self.arena.get_map_entries(entries) {
-                    self.collect_captures(entry.key, params, captures, seen);
-                    self.collect_captures(entry.value, params, captures, seen);
-                }
-            }
+            CanExpr::Struct { fields, .. } => self.collect_fields(fields, params, captures, seen),
+            CanExpr::Map(entries) => self.collect_map_captures(entries, params, captures, seen),
             CanExpr::FunctionExp { props, .. } => {
-                for ne in self.arena.get_named_exprs(props) {
-                    self.collect_captures(ne.value, params, captures, seen);
-                }
+                self.collect_named_captures(props, params, captures, seen);
             }
-            // Leaf expressions — no free variables
             CanExpr::Constant(_)
             | CanExpr::Int(_)
             | CanExpr::Float(_)
             | CanExpr::Bool(_)
             | CanExpr::Char(_)
             | CanExpr::Str(_)
+            | CanExpr::FunctionRef(_)
+            | CanExpr::TypeRef(_)
+            | CanExpr::Const(_)
+            | CanExpr::Duration { .. }
+            | CanExpr::Size { .. }
             | CanExpr::Unit
             | CanExpr::None
             | CanExpr::Error
             | CanExpr::SelfRef
-            | CanExpr::FunctionRef(_)
-            | CanExpr::TypeRef(_)
-            | CanExpr::Const(_)
-            | CanExpr::HashLength
-            | CanExpr::Duration { .. }
-            | CanExpr::Size { .. } => {}
+            | CanExpr::HashLength => {}
+        }
+    }
+
+    fn record_lambda_capture(
+        &self,
+        name: Name,
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        if params.contains(&name) || seen.contains(&name) {
+            return;
+        }
+        if let Some(var) = self.scope.lookup(name) {
+            seen.insert(name);
+            captures.push((name, var));
+        }
+    }
+
+    fn collect_call_captures(
+        &self,
+        callee: CanId,
+        args: CanRange,
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        self.collect_captures(callee, params, captures, seen);
+        self.collect_range_captures(args, params, captures, seen);
+    }
+
+    fn collect_block_captures(
+        &self,
+        stmts: CanRange,
+        result: CanId,
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        self.collect_range_captures(stmts, params, captures, seen);
+        self.collect_captures(result, params, captures, seen);
+    }
+
+    fn collect_match_captures(
+        &self,
+        scrutinee: CanId,
+        arms: CanRange,
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        self.collect_captures(scrutinee, params, captures, seen);
+        self.collect_range_captures(arms, params, captures, seen);
+    }
+
+    fn collect_three_captures(
+        &self,
+        exprs: [CanId; 3],
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        for expr in exprs {
+            self.collect_captures(expr, params, captures, seen);
+        }
+    }
+
+    fn collect_two_captures(
+        &self,
+        exprs: [CanId; 2],
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        for expr in exprs {
+            self.collect_captures(expr, params, captures, seen);
+        }
+    }
+
+    fn collect_range_captures(
+        &self,
+        range: CanRange,
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        for &expr in self.arena.get_expr_list(range) {
+            self.collect_captures(expr, params, captures, seen);
+        }
+    }
+
+    fn collect_fields(
+        &self,
+        fields: CanFieldRange,
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        for field in self.arena.get_fields(fields) {
+            self.collect_captures(field.value, params, captures, seen);
+        }
+    }
+
+    fn collect_map_captures(
+        &self,
+        entries: CanMapEntryRange,
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        for entry in self.arena.get_map_entries(entries) {
+            self.collect_captures(entry.key, params, captures, seen);
+            self.collect_captures(entry.value, params, captures, seen);
+        }
+    }
+
+    fn collect_named_captures(
+        &self,
+        props: CanNamedExprRange,
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        for named in self.arena.get_named_exprs(props) {
+            self.collect_captures(named.value, params, captures, seen);
         }
     }
 }

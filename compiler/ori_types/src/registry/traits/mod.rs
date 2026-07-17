@@ -469,5 +469,8 @@ pub enum BoundChainLookup<'a> {
 }
 
 #[cfg(test)]
-#[expect(clippy::expect_used, reason = "Test code uses expect for clarity")]
+#[expect(
+    clippy::expect_used,
+    reason = "trait-registry tests abort when a required fixture method is absent"
+)]
 mod tests;

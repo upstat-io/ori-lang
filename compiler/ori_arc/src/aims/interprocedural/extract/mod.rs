@@ -27,6 +27,19 @@ pub(crate) use param_facts::find_iter_consume_call_args;
 use param_facts::{detect_param_facts, ParamFacts};
 use return_contract::extract_return_info;
 
+/// Complete converged state and callable authority needed for one contract.
+pub(crate) struct ContractExtractionInput<'a> {
+    pub(crate) func: &'a ArcFunction,
+    pub(crate) state_map: &'a AimsStateMap,
+    pub(crate) classifier: &'a dyn ArcClassification,
+    pub(crate) sigs: &'a FxHashMap<Name, MemoryContract>,
+    pub(crate) scc_peers: &'a FxHashSet<Name>,
+    pub(crate) context_regions: &'a [ContextRegion],
+    pub(crate) interner: &'a ori_ir::StringInterner,
+    pub(crate) builtins: &'a crate::borrow::BuiltinOwnershipSets,
+    pub(crate) exact_callables: &'a FxHashSet<Name>,
+}
+
 /// Extract a [`MemoryContract`] from a converged intraprocedural state map.
 ///
 /// Reads the backward-computed demand at the function entry point for each
@@ -53,7 +66,7 @@ pub(crate) fn extract_contract(
     interner: &ori_ir::StringInterner,
 ) -> MemoryContract {
     let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
-    extract_contract_with_call_ownership(
+    extract_contract_with_call_ownership(&ContractExtractionInput {
         func,
         state_map,
         classifier,
@@ -61,28 +74,25 @@ pub(crate) fn extract_contract(
         scc_peers,
         context_regions,
         interner,
-        &builtins,
-        &FxHashSet::default(),
-    )
+        builtins: &builtins,
+        exact_callables: &FxHashSet::default(),
+    })
 }
 
 /// Production contract extraction with exact callable identities and the
 /// registry-derived builtin ownership authority supplied by the SCC driver.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "contract extraction keeps analysis, call identity, and ownership authorities explicit"
-)]
 pub(crate) fn extract_contract_with_call_ownership(
-    func: &ArcFunction,
-    state_map: &AimsStateMap,
-    classifier: &dyn ArcClassification,
-    sigs: &FxHashMap<Name, MemoryContract>,
-    scc_peers: &FxHashSet<Name>,
-    context_regions: &[ContextRegion],
-    interner: &ori_ir::StringInterner,
-    builtins: &crate::borrow::BuiltinOwnershipSets,
-    exact_callables: &FxHashSet<Name>,
+    input: &ContractExtractionInput<'_>,
 ) -> MemoryContract {
+    let func = input.func;
+    let state_map = input.state_map;
+    let classifier = input.classifier;
+    let sigs = input.sigs;
+    let scc_peers = input.scc_peers;
+    let context_regions = input.context_regions;
+    let interner = input.interner;
+    let builtins = input.builtins;
+    let exact_callables = input.exact_callables;
     // Build a map of param_var → param_index for lookup.
     let param_vars: FxHashMap<ArcVarId, usize> = func
         .params

@@ -1,0 +1,7 @@
+
+type Box<T> = { value: T };
+@two_calls (a: Box<int>, b: Box<int>) -> int = a.unwrap() + b.unwrap();
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+@test_two_calls tests @two_calls () -> void = ();

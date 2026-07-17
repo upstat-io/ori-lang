@@ -39,11 +39,7 @@ use super::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness
 /// - **COW indexed update** (`updated`): consume receiver and value (arg 2),
 ///   borrow key (arg 1)
 /// - **Sharing** methods: return values sharing receiver's backing storage
-#[expect(
-    clippy::implicit_hasher,
-    reason = "FxHashMap is the project-wide hasher"
-)]
-pub fn seed_builtin_contracts(
+pub(crate) fn seed_builtin_contracts(
     sigs: &mut FxHashMap<Name, MemoryContract>,
     builtins: &BuiltinOwnershipSets,
     interner: &StringInterner,

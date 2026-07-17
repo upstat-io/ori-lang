@@ -665,7 +665,7 @@ fn trace_entries_on_non_error_named_struct_is_not_hijacked() {
 /// registry entry carries `backend_required: false` (no codegen accessor
 /// exists), so the allow-list — derived dynamically from that SAME field —
 /// correctly excludes it. Clamps the allow-list boundary; the poison itself
-/// is a genuinely separate, orthogonal gap tracked as BUG-02-093.
+/// is a genuinely separate, orthogonal gap.
 #[test]
 fn message_call_on_named_error_struct_stays_poisoned() {
     use super::resolve_builtin_method;

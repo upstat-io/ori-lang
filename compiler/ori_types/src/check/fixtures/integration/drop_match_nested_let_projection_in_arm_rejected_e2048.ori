@@ -1,0 +1,4 @@
+trait Drop { @drop (self) -> void; }
+         type Pair = { a: int, b: int }
+         impl Pair: Drop { @drop (self) -> void = (); }
+         @bad (q: int, p: Pair) -> int = match q { _ -> { let $x = p.a; x }, };

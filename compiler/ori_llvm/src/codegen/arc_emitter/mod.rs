@@ -159,25 +159,6 @@ impl FormatRtNames {
     }
 }
 
-/// Whether the current funclet is a catch handler or a cleanup block.
-///
-/// SEH funclets exit differently: catch pads use `catchret` (can branch to
-/// normal code), cleanup pads use `cleanupret` (re-raises the exception).
-/// Encoding this in the type prevents `br_exiting_catchpad` from accidentally
-/// emitting `catchret` for a cleanup pad.
-#[derive(Clone, Copy, Debug)]
-pub(super) enum FuncletPadKind {
-    /// `catchpad` — exits via `catchret` to a trampoline, then branches normally.
-    ///
-    /// Currently unused: SEH catch blocks use the `ori_try_call` trampoline
-    /// instead of LLVM `catchpad`. Retained for match exhaustiveness in
-    /// `br_exiting_catchpad` and Jump terminator handlers.
-    #[expect(dead_code, reason = "retained for defensive match exhaustiveness")]
-    Catch,
-    /// `cleanuppad` — exits via `cleanupret` (re-raises exception).
-    Cleanup,
-}
-
 /// Emits LLVM IR from ARC IR basic blocks.
 ///
 /// Maps `ArcVarId` → `ValueId` and `ArcBlockId` → `BlockId`, walking
@@ -244,12 +225,10 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     pub(super) current_block_idx: usize,
     /// Current instruction index within the current block (set during emission).
     pub(super) current_instr_idx: usize,
-    /// Active SEH funclet pad token and kind, if inside a `catchpad` or `cleanuppad`.
-    /// When `Some`, all runtime calls are emitted with a `"funclet"` operand
-    /// bundle so that LLVM's verifier accepts them inside SEH pads.
-    /// The `FuncletPadKind` distinguishes catch (exits via `catchret`) from
-    /// cleanup (exits via `cleanupret`).
-    pub(super) current_funclet_pad: Option<(TokenId, FuncletPadKind)>,
+    /// Active SEH cleanup-pad token.
+    ///
+    /// Runtime calls carry this token in their `"funclet"` operand bundle.
+    pub(super) current_cleanup_pad: Option<TokenId>,
     /// Live ARC unwind block for the in-flight INTERCEPTED may-unwind builtin
     /// emission (e.g. list `updated` — `ori_list_updated_cow` panics on OOB).
     /// When `Some`, `emit_rt_call` routes calls to non-nounwind runtime
@@ -403,7 +382,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             phi_incoming: Vec::new(),
             current_block_idx: 0,
             current_instr_idx: 0,
-            current_funclet_pad: None,
+            current_cleanup_pad: None,
             intercepted_unwind: None,
             same_frame_catch_landing_pads: FxHashMap::default(),
             borrowed_rooted_vars: FxHashSet::default(),

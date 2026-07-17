@@ -203,20 +203,29 @@ pub(crate) fn extend_mono_method_targets(
 ///
 /// Must run AFTER borrow inference (accepts `ArcFunction`s for range analysis)
 /// and BEFORE codegen (`TypeLayoutResolver` and `TypeInfoStore` read the plan).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each parameter carries distinct metadata from different compiler phases"
-)]
-pub(crate) fn compute_module_repr_plan(
-    pool: &Pool,
-    all_arc_funcs: &[ori_arc::ArcFunction],
-    narrowing_policy: ori_repr::NarrowingPolicy,
-    type_result: &TypeCheckResult,
-    interner: Option<&StringInterner>,
-    imported_type_metadata: &[ori_types::ExportedTypeMetadata],
-    imported_collection_surfaces: &[u64],
-    has_analysis_only_functions: bool,
-) -> ori_repr::ReprPlan {
+#[derive(Clone, Copy)]
+pub(crate) struct ModuleReprInput<'a> {
+    pub(crate) pool: &'a Pool,
+    pub(crate) arc_functions: &'a [ori_arc::ArcFunction],
+    pub(crate) narrowing_policy: ori_repr::NarrowingPolicy,
+    pub(crate) type_result: &'a TypeCheckResult,
+    pub(crate) interner: Option<&'a StringInterner>,
+    pub(crate) imported_type_metadata: &'a [ori_types::ExportedTypeMetadata],
+    pub(crate) imported_collection_surfaces: &'a [u64],
+    pub(crate) has_analysis_only_functions: bool,
+}
+
+pub(crate) fn compute_module_repr_plan(input: ModuleReprInput<'_>) -> ori_repr::ReprPlan {
+    let ModuleReprInput {
+        pool,
+        arc_functions,
+        narrowing_policy,
+        type_result,
+        interner,
+        imported_type_metadata,
+        imported_collection_surfaces,
+        has_analysis_only_functions,
+    } = input;
     // Extract #repr attributes from typed module for the repr plan.
     let repr_attrs: Vec<(Idx, ReprAttrKind)> = type_result
         .typed
@@ -258,7 +267,7 @@ pub(crate) fn compute_module_repr_plan(
 
     ori_repr::compute_repr_plan_with_interner(
         pool,
-        all_arc_funcs,
+        arc_functions,
         narrowing_policy,
         &repr_attrs,
         interner,

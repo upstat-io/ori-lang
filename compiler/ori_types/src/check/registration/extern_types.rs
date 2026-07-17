@@ -104,42 +104,4 @@ pub fn compute_extern_type_burden(free_fn: Option<ori_ir::Name>) -> Option<UserB
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use ori_ir::Name;
-
-    fn unwrap_burden(burden: Option<UserBurdenSpec>) -> UserBurdenSpec {
-        match burden {
-            Some(b) => b,
-            None => panic!("expected Some(UserBurdenSpec)"),
-        }
-    }
-
-    fn unwrap_fn_sym(user_drop: Option<FnSym>) -> FnSym {
-        match user_drop {
-            Some(f) => f,
-            None => panic!("expected user_drop = Some(FnSym)"),
-        }
-    }
-
-    #[test]
-    fn extern_burden_with_free_fn_carries_user_drop() {
-        let raw = 42u32;
-        let name = Name::from_raw(raw);
-        let burden = unwrap_burden(compute_extern_type_burden(Some(name)));
-        assert!(!burden.self_owned_identity);
-        assert!(burden.owned_fields.is_empty());
-        assert!(burden.borrowed_fields.is_empty());
-        assert!(burden.variant_burdens.is_empty());
-        assert!(burden.element_burden.is_none());
-        assert!(burden.drop_operation.is_none());
-        let fn_sym = unwrap_fn_sym(burden.user_drop);
-        assert_eq!(fn_sym.get().get(), raw);
-    }
-
-    #[test]
-    fn extern_burden_without_free_fn_returns_none() {
-        let burden = compute_extern_type_burden(None);
-        assert!(burden.is_none());
-    }
-}
+mod tests;

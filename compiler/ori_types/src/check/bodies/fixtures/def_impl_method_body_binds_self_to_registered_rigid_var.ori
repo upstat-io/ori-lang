@@ -1,0 +1,2 @@
+trait Identity { @m (self) -> int; }
+pub def impl Identity { @m (self) -> int = { 99 } }

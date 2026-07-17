@@ -58,6 +58,12 @@ use type_resolution::{
 };
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
-#[expect(clippy::expect_used, reason = "Tests use expect for clarity")]
+#[expect(
+    clippy::unwrap_used,
+    reason = "registration tests abort when a required fixture symbol is absent"
+)]
+#[expect(
+    clippy::expect_used,
+    reason = "registration tests abort when a required fixture symbol is absent"
+)]
 mod tests;

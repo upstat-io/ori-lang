@@ -218,13 +218,17 @@ fn re_intern_generic_function_sigs(
         let prelude_index = resolved_imports.modules.len();
         crate::commands::register_prelude_generic_sigs_for_test_runner(
             &mut signatures,
-            &prelude_module.parse_output,
-            &imported_type_results[prelude_index].typed,
-            &imported_pools[prelude_index],
-            prelude_index,
-            merged_pool,
-            &mut per_module_caches[prelude_index],
-            &mut per_module_var_remaps[prelude_index],
+            crate::commands::ImportedPreludeSource {
+                parse: &prelude_module.parse_output,
+                typed: &imported_type_results[prelude_index].typed,
+                source_pool: &imported_pools[prelude_index],
+                module_index: prelude_index,
+            },
+            crate::commands::PoolReinternState {
+                merged_pool,
+                cache: &mut per_module_caches[prelude_index],
+                var_remap: &mut per_module_var_remaps[prelude_index],
+            },
         );
     }
     signatures

@@ -33,14 +33,14 @@
 //! and siblings continue to resolve without changing import paths.
 
 mod contracts;
-pub mod def_impls;
-pub mod functions;
-pub mod impls;
+mod def_impls;
+mod functions;
+mod impls;
 mod method_sig;
 
-pub use def_impls::check_def_impl_bodies;
-pub use functions::{check_function_bodies, check_test_bodies};
-pub use impls::check_impl_bodies;
+pub(super) use def_impls::check_def_impl_bodies;
+pub(super) use functions::{check_function_bodies, check_test_bodies};
+pub(super) use impls::check_impl_bodies;
 pub(crate) use method_sig::allocate_rigid_var_map;
 
 use ori_ir::{ExprId, ExprKind};

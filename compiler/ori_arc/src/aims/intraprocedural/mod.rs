@@ -167,7 +167,7 @@ pub fn analyze_function(
     // `var_state_at_block_exit(invoke_block, dst)` consults it.
     let invoke_dst_to_owner = build_invoke_dst_to_owner(func);
 
-    // BUG-04-090: pre-walk Apply-result allocation-identity side-table.
+    // Pre-walk Apply-result allocation-identity side-table.
     // Ordering load-bearing per PL-5 — populate BEFORE
     // `compute_project_alias_sources` so its Step 1b seed sees the converged
     // map. See `apply_aliases.rs` and `project_aliases.rs` for full design.

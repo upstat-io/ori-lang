@@ -3,20 +3,23 @@
 //! Owns `check_impl_bodies` (Pass 4), its block/method helpers. See
 //! `bodies/mod.rs` for the architecture docstring that covers all four body passes.
 
-use ori_ir::{ImplMethod, Module, Name, TraitDef, TraitItem};
+use ori_ir::{ExprArena, ExprId, ImplMethod, Module, Name, Param, Span, TraitDef, TraitItem};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::method_sig::{allocate_generic_binders, build_method_sig};
 use crate::check::registration::resolve_type_with_method_generics;
 use crate::check::ModuleChecker;
-use crate::{check_expr, ContextKind, Expected, ExpectedOrigin, Idx, ImplMethodId};
+use crate::output::ConstParamInfo;
+use crate::{
+    check_expr, ContextKind, Expected, ExpectedOrigin, Idx, ImplMethodId, InferEngine, TypeEnv,
+};
 
 /// Check all impl method bodies.
 ///
 /// For trait impls, this also checks unoverridden default methods from the trait
 /// definition, registering their signatures for LLVM codegen.
 #[tracing::instrument(level = "debug", skip_all, fields(count = module.impls.len()))]
-pub fn check_impl_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
+pub(in crate::check) fn check_impl_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
     for (impl_index, impl_def) in module.impls.iter().enumerate() {
         check_impl_block(checker, impl_def, &module.traits, impl_index);
     }
@@ -135,12 +138,6 @@ struct ImplBodyContext<'a> {
 }
 
 /// Type check a single impl method body.
-#[expect(
-    clippy::too_many_lines,
-    reason = "rank-scope-wrapped body-inference closure with method-binder setup \
-              matches the canonical body-checking shape shared with check_function; \
-              splitting across helpers would obscure the rank-scope enter/exit pairing"
-)]
 fn check_impl_method(
     checker: &mut ModuleChecker<'_>,
     method: &ImplMethod,
@@ -148,317 +145,257 @@ fn check_impl_method(
 ) {
     let method_id = ImplMethodId::new(impl_context.impl_index, method.body);
     let role = checker.impl_method_role(method_id);
-    let self_type = impl_context.self_type;
-
-    // Create child environment from frozen base
-    let Some(child_env) = checker.child_of_base() else {
+    let Some(mut setup) = prepare_impl_method(checker, method, impl_context) else {
         return;
     };
 
-    // Bind method-level type generics as fresh RigidVars; also collect
-    // method-level const generics for body-scope binding below, and inline
-    // `<T: Bound>` assumptions for body-internal trait dispatch.
-    // REUSE the method-level `RigidVar`s allocated at Pass 0c
-    // (`register_impls`), keyed by body `ExprId`, so the body's generic types
-    // reference the identical `RigidVar` Idxs the pass-3 call-site recording
-    // scan substituted into `body_type_map`. Falls back to fresh allocation
-    // (`None`) for any method without a registered map (e.g. a synthesized
-    // trait default whose body was not registered), preserving prior behavior.
-    let method_prealloc: Option<FxHashMap<Name, Idx>> =
-        checker.method_rigid_var_map_for(method.body).cloned();
-    let (method_substitutions, method_generic_params, method_const_params, method_inline_bounds) =
-        allocate_generic_binders(checker, method.generics, method_prealloc.as_ref());
-
-    // Merge impl-level (`impl<T>`) + method-level (`@m<U>`) RigidVar
-    // overlays so an impl-level type-param annotation (`x: T`) resolves to the
-    // impl `RigidVar` allocated once in `check_impl_block`, not a fresh
-    // `Tag::Named`. Method-level binders win on a name collision (inner scope).
-    let mut combined_substitutions = impl_context.substitutions.clone();
-    combined_substitutions.extend(method_substitutions.iter().map(|(&n, &i)| (n, i)));
-
-    // Combined scope for type resolution: impl-level (parent) + method-level
-    // (child). Without method-level names in scope, `(self, f: T -> U) -> Box<U>`
-    // shapes would fail to resolve `U` at body-check time.
-    let combined_type_params: Vec<Name> = impl_context
-        .type_params
-        .iter()
-        .copied()
-        .chain(method_generic_params.iter().copied())
-        .collect();
-
-    // Resolve parameter types with Self substitution + method-level overlay
-    let params: Vec<_> = checker.arena().get_params(method.params).to_vec();
-    let mut param_env = child_env;
-
-    let mut param_types = Vec::with_capacity(params.len());
-    for p in &params {
-        let is_self = p.name == checker.well_known().self_kw;
-        let ty = match &p.ty {
-            Some(parsed_ty) => resolve_type_with_method_generics(
-                checker,
-                parsed_ty,
-                &combined_substitutions,
-                &combined_type_params,
-                self_type,
-            ),
-            None if is_self => self_type,
-            None => checker.pool_mut().fresh_var(),
-        };
-        param_env.bind(p.name, ty);
-        param_types.push(ty);
-    }
-
-    // Collect (default expr, param name, declared type) for every
-    // method param carrying a default, so the body-check closure can type-check
-    // each default against its declared type (mirrors functions.rs). Captured
-    // here before `param_types` is borrowed mutably below.
-    let default_checks: Vec<_> = params
-        .iter()
-        .zip(param_types.iter())
-        .filter_map(|(p, &ty)| p.default.map(|d| (d, p.name, ty)))
-        .collect();
-
-    // Resolve return type with Self substitution + method-level overlay. `mut`
-    // so the defaulting pass can refresh it to `Idx::NEVER` before
-    // `build_method_sig` bakes it into the exported sig.
-    let mut return_type = resolve_type_with_method_generics(
-        checker,
-        &method.return_ty,
-        &combined_substitutions,
-        &combined_type_params,
-        self_type,
-    );
-
-    // Push method-level RigidVar bindings into the TypeEnv child map.
-    // Body-level type-annotation lookups (e.g., `let x: T = expr;` inside
-    // the method body) consult `param_env`; the child-map shadowing here is
-    // what makes those lookups see the method-level `RigidVar` rather than
-    // any impl-level `Tag::Named("T")` that happens to share the name.
-    for (&mname, &rigid_idx) in &combined_substitutions {
-        param_env.bind(mname, rigid_idx);
-    }
-
-    // Bind method-level const generics as their declared type. For
-    // `@first_n<$N: int>`, bind N -> int so the body can reference N (e.g.,
-    // `take(count: N)`).
-    for cp in &method_const_params {
-        param_env.bind(cp.name, cp.const_type);
-    }
-
-    // Build function type for recursion support
-    let fn_type = checker.pool_mut().function(&param_types, return_type);
-
-    // Get body span before entering scope
-    let body_span = checker.arena().get_expr(method.body).span;
-
-    // Check body within impl scope + function scope
-    //
-    // the inner closure defaults unbound vars reachable from
-    // empty-literal expr roots BEFORE returning. `param_types` and
-    // `return_type` are captured mutably so `build_method_sig` (below) sees
-    // the defaulted values. Exempt set is empty — impl-block generic params
-    // are RigidVars (not Unbound), so `collect_unbound_reachable_vars`
-    // naturally skips them per `VarState::Rigid` branch.
-    let param_types_ref = &mut param_types;
-    let return_type_ref = &mut return_type;
-    let const_params_for_engine = method_const_params.clone();
-    let inline_bounds_for_engine = method_inline_bounds;
-    // Impl-level bounds (`impl<T: Bound>`) registered on the engine
-    // alongside method-level ones so body-internal dispatch on an impl-level
-    // `RigidVar` resolves via the bound-chain.
-    let impl_bounds_for_engine = impl_context.inline_bounds.to_vec();
-    let (
-        expr_types,
-        errors,
-        warnings,
-        pat_resolutions,
-        mono_instances,
-        mono_dispatch_pre_dedup,
-        deferred_mono_calls,
-        composed_burdens,
-        assign_desugars,
-        module_alias_calls,
-        iter_route_desugars,
-    ) = checker.with_impl_scope(self_type, |c| {
-        c.with_function_scope(fn_type, FxHashSet::default(), |c| {
-            let arena = c.arena();
-            let mut engine = c.create_engine_with_env(param_env);
-
-            // Bind method-level const generics on the engine for `$N`
-            // const-position lookups inside the body (e.g., `to_fixed<$N>()`).
-            // Identifier-position lookups (`count: N`) are already covered by
-            // `param_env.bind` above.
-            for cp in &const_params_for_engine {
-                engine.bind_method_const(cp.name, cp.const_type);
-            }
-
-            // Register inline `<T: Bound>` trait-bound assumptions on the
-            // engine so body-internal trait dispatch (e.g.,
-            // `Printable.to_str(prefix)` in string interpolation when
-            // `prefix : T` and `T: Printable`) succeeds for the RigidVar.
-            for (rigid_idx, trait_names) in &inline_bounds_for_engine {
-                for &tname in trait_names {
-                    engine.bind_method_rigid_bound(*rigid_idx, tname);
-                }
-            }
-            // Register impl-level bounds on the same engine.
-            for (rigid_idx, trait_names) in &impl_bounds_for_engine {
-                for &tname in trait_names {
-                    engine.bind_method_rigid_bound(*rigid_idx, tname);
-                }
-            }
-
-            // Rank scope (CK-2: rank discipline; GN-1: generalization rule).
-            // Method-level binders live at strictly higher rank than
-            // impl-level bindings; the push/pop pair here is manually matched
-            // (no RAII) — exit MUST happen on every path, including error
-            // recovery, hence the explicit `engine.exit_rank_scope()`
-            // immediately before the result tuple is built.
-            engine.enter_rank_scope();
-
-            engine.push_context(ContextKind::FunctionReturn {
-                func_name: Some(method.name),
-            });
-
-            // Check body against declared return type (bidirectional)
-            let expected = Expected {
-                ty: *return_type_ref,
-                origin: ExpectedOrigin::Context {
-                    span: body_span,
-                    kind: ContextKind::FunctionReturn {
-                        func_name: Some(method.name),
-                    },
-                },
-            };
-            let _body_ty = check_expr(&mut engine, arena, method.body, &expected, body_span);
-
-            engine.pop_context();
-
-            // Type-check each method parameter's default expression
-            // against its declared type, mirroring the free-function path in
-            // functions.rs. Canon fills omitted method defaults at the call site;
-            // without resolved type info a composite default (e.g. `[9, 9]`)
-            // lowers with Tag::Error and the LLVM backend rejects it.
-            for &(default_id, param_name, param_ty) in &default_checks {
-                let default_span = arena.get_expr(default_id).span;
-                let default_expected = Expected {
-                    ty: param_ty,
-                    origin: ExpectedOrigin::Annotation {
-                        name: param_name,
-                        span: default_span,
-                        const_terms: Vec::new(),
-                    },
-                };
-                let _ = check_expr(
-                    &mut engine,
-                    arena,
-                    default_id,
-                    &default_expected,
-                    default_span,
-                );
-            }
-
-            // Mark body inference complete before the defaulting pre-pass runs;
-            // defaulting helpers debug-assert this flag (see `check_function`).
-            engine.mark_body_inference_complete();
-
-            let mut expr_types = engine.take_expr_types();
-            engine.default_unbound_vars_in_scope(
-                arena,
-                &mut expr_types,
-                param_types_ref,
-                return_type_ref,
-                &FxHashSet::default(),
-            );
-
-            // Normalize `Tag::Var(Generalized)` leaves to
-            // `Tag::BoundVar`. Impl methods have no
-            // top-level scheme_var_ids (generic params are RigidVars),
-            // so only pending_generalized_vars from inner let-polymorphism
-            // drives the rewrite here. See `check_function` for full rationale.
-            engine.normalize_body_generalized_to_bound_var(
-                &mut expr_types,
-                param_types_ref,
-                return_type_ref,
-                &[],
-            );
-
-            // Pop rank scope (matching push above, one-to-one rule).
-            engine.exit_rank_scope();
-
-            // Deep-resolve var-links so late-resolved generic-builtin
-            // instantiations are var-free in the exported IR + composed by the
-            // burden sweep (see `intern_link_resolved_body_types`).
-            engine.compose_body_type_burdens(&expr_types);
-
-            (
-                expr_types,
-                engine.take_errors(),
-                engine.take_warnings(),
-                engine.take_pattern_resolutions(),
-                engine.take_mono_instances(),
-                engine.take_mono_dispatch_pre_dedup(),
-                engine.take_deferred_mono_calls(),
-                engine.take_composed_burdens(),
-                engine.take_assign_desugars(),
-                engine.take_module_alias_calls(),
-                engine.take_iter_routes(),
-            )
-        })
-    });
-
-    // Build the post-defaulted signature. `param_types` and `return_type` have
-    // been refreshed in place by `default_unbound_vars_in_scope` inside the
-    // inference closure, so the sig reflects end-of-body truth — the exact
-    // inputs `run_validator` needs to enforce `PC-2` across sig positions.
-    // include the method's own generic params (`@wrap<T>`) in the
-    // registered sig's `type_params`, not just the impl-level ones. `compile_impls`
-    // skips a method whose sig `is_generic()` (relying on mono instances); a
-    // concrete-receiver impl has empty impl `type_params`, so without the method
-    // binders here a method-level-generic template (`@wrap<T> -> [T]`) reported
-    // non-generic and was codegen'd directly, emitting `[Rigid(T)]` (PC-2 break).
-    // `combined_type_params` is impl-level + method-level in declaration order.
+    let outputs = infer_impl_method(checker, method, impl_context, &mut setup);
     let sig = build_method_sig(
         method.name,
-        &params,
-        param_types,
-        return_type,
-        &combined_type_params,
-        method_const_params,
+        &setup.params,
+        setup.param_types,
+        setup.return_type,
+        &setup.combined_type_params,
+        setup.method_const_params,
         checker.pool(),
     );
 
-    // Shared PC-2 validation + store/push/accumulate spine.
-    super::finalize_body_and_export(
-        checker,
-        &sig,
-        method.span,
-        method.body,
-        super::BodyOutputs {
-            expr_types,
-            errors,
-            warnings,
-            pat_resolutions,
-            mono_instances,
-            mono_dispatch_pre_dedup,
-            deferred_mono_calls,
-            composed_burdens,
-            capability_exempt_var_ids: Vec::new(),
-            assign_desugars,
-            module_alias_calls,
-            iter_route_desugars,
-        },
-    );
-
-    // Export impl method signature for codegen.
-    // Codegen needs param_types, return_type, and type_params to compute ABI,
-    // plus the owning receiver `self_type` to key mono-collection dispatch.
+    super::finalize_body_and_export(checker, &sig, method.span, method.body, outputs);
     checker.register_impl_sig(
         method_id,
-        self_type,
+        impl_context.self_type,
         impl_context.trait_type,
         method.name,
         role,
         sig,
     );
+}
+
+struct MethodSetup {
+    params: Vec<Param>,
+    param_env: TypeEnv,
+    param_types: Vec<Idx>,
+    return_type: Idx,
+    combined_type_params: Vec<Name>,
+    method_const_params: Vec<ConstParamInfo>,
+    method_inline_bounds: Vec<(Idx, Vec<Name>)>,
+    impl_inline_bounds: Vec<(Idx, Vec<Name>)>,
+    fn_type: Idx,
+    body_span: Span,
+    default_checks: Vec<(ExprId, Name, Idx)>,
+}
+
+fn prepare_impl_method(
+    checker: &mut ModuleChecker<'_>,
+    method: &ImplMethod,
+    impl_context: &ImplBodyContext<'_>,
+) -> Option<MethodSetup> {
+    let mut param_env = checker.child_of_base()?;
+    let preallocated = checker.method_rigid_var_map_for(method.body).cloned();
+    let (method_substitutions, method_generic_params, method_const_params, method_inline_bounds) =
+        allocate_generic_binders(checker, method.generics, preallocated.as_ref());
+
+    let mut combined_substitutions = impl_context.substitutions.clone();
+    combined_substitutions.extend(method_substitutions);
+    let combined_type_params = impl_context
+        .type_params
+        .iter()
+        .copied()
+        .chain(method_generic_params)
+        .collect::<Vec<_>>();
+    let params = checker.arena().get_params(method.params).to_vec();
+    let param_types = resolve_method_parameters(
+        checker,
+        &params,
+        &combined_substitutions,
+        &combined_type_params,
+        impl_context.self_type,
+        &mut param_env,
+    );
+    let default_checks = params
+        .iter()
+        .zip(&param_types)
+        .filter_map(|(param, &ty)| param.default.map(|id| (id, param.name, ty)))
+        .collect();
+    let return_type = resolve_type_with_method_generics(
+        checker,
+        &method.return_ty,
+        &combined_substitutions,
+        &combined_type_params,
+        impl_context.self_type,
+    );
+
+    for (&name, &ty) in &combined_substitutions {
+        param_env.bind(name, ty);
+    }
+    for param in &method_const_params {
+        param_env.bind(param.name, param.const_type);
+    }
+
+    let fn_type = checker.pool_mut().function(&param_types, return_type);
+    let body_span = checker.arena().get_expr(method.body).span;
+    Some(MethodSetup {
+        params,
+        param_env,
+        param_types,
+        return_type,
+        combined_type_params,
+        method_const_params,
+        method_inline_bounds,
+        impl_inline_bounds: impl_context.inline_bounds.to_vec(),
+        fn_type,
+        body_span,
+        default_checks,
+    })
+}
+
+fn resolve_method_parameters(
+    checker: &mut ModuleChecker<'_>,
+    params: &[Param],
+    substitutions: &FxHashMap<Name, Idx>,
+    type_params: &[Name],
+    self_type: Idx,
+    param_env: &mut TypeEnv,
+) -> Vec<Idx> {
+    params
+        .iter()
+        .map(|param| {
+            let ty = match &param.ty {
+                Some(parsed) => resolve_type_with_method_generics(
+                    checker,
+                    parsed,
+                    substitutions,
+                    type_params,
+                    self_type,
+                ),
+                None if param.name == checker.well_known().self_kw => self_type,
+                None => checker.pool_mut().fresh_var(),
+            };
+            param_env.bind(param.name, ty);
+            ty
+        })
+        .collect()
+}
+
+fn infer_impl_method(
+    checker: &mut ModuleChecker<'_>,
+    method: &ImplMethod,
+    impl_context: &ImplBodyContext<'_>,
+    setup: &mut MethodSetup,
+) -> super::BodyOutputs {
+    checker.with_impl_scope(impl_context.self_type, |checker| {
+        checker.with_function_scope(setup.fn_type, FxHashSet::default(), |checker| {
+            let arena = checker.arena();
+            let mut engine = checker.create_engine_with_env(setup.param_env.clone());
+            configure_method_engine(
+                &mut engine,
+                &setup.method_const_params,
+                &setup.method_inline_bounds,
+                &setup.impl_inline_bounds,
+            );
+            check_method_expressions(
+                &mut engine,
+                arena,
+                method,
+                setup.return_type,
+                setup.body_span,
+                &setup.default_checks,
+            );
+            finish_method_inference(
+                &mut engine,
+                arena,
+                &mut setup.param_types,
+                &mut setup.return_type,
+            )
+        })
+    })
+}
+
+fn configure_method_engine(
+    engine: &mut InferEngine<'_>,
+    const_params: &[ConstParamInfo],
+    method_bounds: &[(Idx, Vec<Name>)],
+    impl_bounds: &[(Idx, Vec<Name>)],
+) {
+    for param in const_params {
+        engine.bind_method_const(param.name, param.const_type);
+    }
+    for (rigid, trait_names) in method_bounds.iter().chain(impl_bounds) {
+        for &trait_name in trait_names {
+            engine.bind_method_rigid_bound(*rigid, trait_name);
+        }
+    }
+    engine.enter_rank_scope();
+}
+
+fn check_method_expressions(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    method: &ImplMethod,
+    return_type: Idx,
+    body_span: Span,
+    default_checks: &[(ExprId, Name, Idx)],
+) {
+    engine.push_context(ContextKind::FunctionReturn {
+        func_name: Some(method.name),
+    });
+    let expected = Expected {
+        ty: return_type,
+        origin: ExpectedOrigin::Context {
+            span: body_span,
+            kind: ContextKind::FunctionReturn {
+                func_name: Some(method.name),
+            },
+        },
+    };
+    let _ = check_expr(engine, arena, method.body, &expected, body_span);
+    engine.pop_context();
+
+    for &(default_id, param_name, param_ty) in default_checks {
+        let span = arena.get_expr(default_id).span;
+        let expected = Expected {
+            ty: param_ty,
+            origin: ExpectedOrigin::Annotation {
+                name: param_name,
+                span,
+                const_terms: Vec::new(),
+            },
+        };
+        let _ = check_expr(engine, arena, default_id, &expected, span);
+    }
+    engine.mark_body_inference_complete();
+}
+
+fn finish_method_inference(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    param_types: &mut [Idx],
+    return_type: &mut Idx,
+) -> super::BodyOutputs {
+    let mut expr_types = engine.take_expr_types();
+    engine.default_unbound_vars_in_scope(
+        arena,
+        &mut expr_types,
+        param_types,
+        return_type,
+        &FxHashSet::default(),
+    );
+    engine.normalize_body_generalized_to_bound_var(&mut expr_types, param_types, return_type, &[]);
+    engine.exit_rank_scope();
+    engine.compose_body_type_burdens(&expr_types);
+
+    super::BodyOutputs {
+        expr_types,
+        errors: engine.take_errors(),
+        warnings: engine.take_warnings(),
+        pat_resolutions: engine.take_pattern_resolutions(),
+        mono_instances: engine.take_mono_instances(),
+        mono_dispatch_pre_dedup: engine.take_mono_dispatch_pre_dedup(),
+        deferred_mono_calls: engine.take_deferred_mono_calls(),
+        composed_burdens: engine.take_composed_burdens(),
+        capability_exempt_var_ids: Vec::new(),
+        assign_desugars: engine.take_assign_desugars(),
+        module_alias_calls: engine.take_module_alias_calls(),
+        iter_route_desugars: engine.take_iter_routes(),
+    }
 }

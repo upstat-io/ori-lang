@@ -1,20 +1,54 @@
 //! Method call type inference: `receiver.method(args)`.
 
-use ori_diagnostic::Suggestion;
+mod support;
+
 use ori_ir::{ExprArena, ExprId, Name, Span};
 
+use crate::{Expected, Idx};
+
 use super::super::super::InferEngine;
-use super::super::{infer_expr, lookup_struct_field_types};
+use super::super::infer_expr;
 use super::closure_unify::unify_higher_order_constraints;
 use super::constraints::{check_method_inline_bounds, check_method_where_clauses};
-use super::impl_lookup::{lookup_impl_method, ImplMethodSig, LookupOutcome};
+use super::impl_lookup::{lookup_impl_method, LookupOutcome};
 use super::impl_signature::resolve_impl_signature;
 use super::method_diagnostics::{emit_into_not_implemented, emit_unknown_method};
 use super::method_receiver::{resolve_receiver_and_builtin, ReceiverDispatch};
 use super::module_alias_call;
 use super::monomorphization::maybe_record_method_mono_instance;
-use crate::infer::expr::type_resolution::resolve_parsed_type_list;
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag};
+use support::{
+    apply_receiver_type_args, callable_field_fn_ty, check_callable_field_positional,
+    check_named_args, check_positional_args,
+};
+
+pub(crate) use support::suggest_iterator_fix;
+
+#[derive(Clone, Copy)]
+pub(in crate::infer::expr) struct MethodCallSite<'a> {
+    call_expr_id: ExprId,
+    receiver: ExprId,
+    method: Name,
+    span: Span,
+    expected: Option<&'a Expected>,
+}
+
+impl<'a> MethodCallSite<'a> {
+    pub(in crate::infer::expr) const fn new(
+        call_expr_id: ExprId,
+        receiver: ExprId,
+        method: Name,
+        span: Span,
+        expected: Option<&'a Expected>,
+    ) -> Self {
+        Self {
+            call_expr_id,
+            receiver,
+            method,
+            span,
+            expected,
+        }
+    }
+}
 
 /// Infer the type of a method call expression: `receiver.method(args)`.
 ///
@@ -24,20 +58,20 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag};
 /// 3. User-defined trait methods (from `impl Type: Trait { ... }`)
 ///
 /// For unresolved type variables, returns a fresh variable to defer resolution.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "mirrors ExprKind::MethodCall fields"
-)]
-pub(crate) fn infer_method_call(
+pub(in crate::infer::expr) fn infer_method_call(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    call_expr_id: ExprId,
-    receiver: ExprId,
-    method: Name,
+    site: MethodCallSite<'_>,
     args: ori_ir::ExprRange,
-    span: Span,
-    expected: Option<&Expected>,
 ) -> Idx {
+    let MethodCallSite {
+        call_expr_id,
+        receiver,
+        method,
+        span,
+        expected,
+    } = site;
+
     // Module-alias qualified call `alias.func(args)` (Spec: Clause 18.3.4). Resolved
     // against the aliased module's signature BEFORE ordinary method dispatch so
     // the namespace receiver does not poison to `Idx::ERROR`.
@@ -163,20 +197,20 @@ pub(crate) fn infer_method_call(
 }
 
 /// Infer the type of a named-argument method call: `receiver.method(name: value)`.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "mirrors ExprKind::MethodCallNamed fields"
-)]
-pub(crate) fn infer_method_call_named(
+pub(in crate::infer::expr) fn infer_method_call_named(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    call_expr_id: ExprId,
-    receiver: ExprId,
-    method: Name,
+    site: MethodCallSite<'_>,
     args: ori_ir::CallArgRange,
-    span: Span,
-    expected: Option<&Expected>,
 ) -> Idx {
+    let MethodCallSite {
+        call_expr_id,
+        receiver,
+        method,
+        span,
+        expected,
+    } = site;
+
     // Module-alias qualified call `alias.func(name: value, ...)` (Spec: Clause 18.3.4).
     {
         let call_args = arena.get_call_args(args).to_vec();
@@ -295,190 +329,4 @@ pub(crate) fn infer_method_call_named(
     }
 
     Idx::ERROR
-}
-
-fn check_named_args(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    args: ori_ir::CallArgRange,
-    sig: &ImplMethodSig,
-    span: Span,
-) {
-    for (i, (arg, &param_ty)) in arena
-        .get_call_args(args)
-        .iter()
-        .zip(sig.params.iter())
-        .enumerate()
-    {
-        let expected = Expected {
-            ty: param_ty,
-            origin: ExpectedOrigin::Context {
-                span,
-                kind: ContextKind::FunctionArgument {
-                    func_name: None,
-                    arg_index: i,
-                    param_name: arg.name,
-                },
-            },
-        };
-        let arg_ty = infer_expr(engine, arena, arg.value);
-        let _ = engine.check_type(arg_ty, &expected, arg.span);
-    }
-}
-
-/// If `receiver_ty` is a struct carrying a field named `method` whose type is a
-/// closure (`Tag::Function`), return that field's resolved function type.
-///
-/// typeck's concrete-receiver method dispatch is otherwise incomplete for
-/// callable struct fields — `s.transform(21)` where `transform: (int) -> int`
-/// is a FIELD, not a method. Without resolving it here, the method call silently
-/// poisons to `Idx::ERROR` (no diagnostic), and only the evaluator's dynamic
-/// dispatch produces the right value. The LLVM backend needs the real return
-/// type in the typed IR (the ARC lowerer projects the field and emits an
-/// indirect call). Mirrors `ori_eval` callable-struct-field dispatch.
-fn callable_field_fn_ty(
-    engine: &mut InferEngine<'_>,
-    receiver_ty: Idx,
-    method: Name,
-) -> Option<Idx> {
-    let (type_name, type_args) = match engine.pool().tag(receiver_ty) {
-        Tag::Named => (engine.pool().named_name(receiver_ty), None),
-        Tag::Applied => (
-            engine.pool().applied_name(receiver_ty),
-            Some(engine.pool().applied_args(receiver_ty)),
-        ),
-        _ => return None,
-    };
-    let fields = lookup_struct_field_types(engine, type_name, type_args.as_deref())?;
-    let field_ty = engine.resolve(*fields.get(&method)?);
-    (engine.pool().tag(field_ty) == Tag::Function).then_some(field_ty)
-}
-
-/// Check positional call args against a closure field's parameter types and
-/// return the closure's return type. Shared by the positional method-call path.
-fn check_callable_field_positional(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    fn_ty: Idx,
-    arg_ids: &[ExprId],
-    span: Span,
-    expected: Option<&Expected>,
-) -> Idx {
-    let params = engine.pool().function_params(fn_ty);
-    let ret = engine.pool().function_return(fn_ty);
-    for (i, &arg_id) in arg_ids.iter().enumerate() {
-        let arg_ty = infer_expr(engine, arena, arg_id);
-        if let Some(&param_ty) = params.get(i) {
-            let arg_expected = Expected {
-                ty: param_ty,
-                origin: ExpectedOrigin::Context {
-                    span,
-                    kind: ContextKind::FunctionArgument {
-                        func_name: None,
-                        arg_index: i,
-                        param_name: None,
-                    },
-                },
-            };
-            let _ = engine.check_type(arg_ty, &arg_expected, arena.get_expr(arg_id).span);
-        }
-    }
-    if let Some(exp) = expected {
-        let _ = engine.check_type(ret, exp, span);
-    }
-    ret
-}
-
-/// Instantiate a primary-position type-path turbofish receiver (`Box<int>.new(...)`)
-/// with its parsed receiver type-arguments (recorded in the arena side-table keyed by
-/// the receiver `ExprId`), so the receiver type is concrete BEFORE associated-function
-/// resolution. Mirrors the `Box<int>` annotation path in `type_resolution.rs`
-/// (well-known generics use their dedicated pool constructors). Returns `resolved`
-/// unchanged when there are no receiver type-args or the receiver is not a bare
-/// nominal type-name (`Tag::Named`).
-fn apply_receiver_type_args(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    resolved: Idx,
-    receiver: ExprId,
-    _span: Span,
-) -> Idx {
-    let type_args = arena.receiver_type_args(receiver);
-    if type_args.is_empty() {
-        return resolved;
-    }
-    let arg_idxs = resolve_parsed_type_list(engine, arena, type_args);
-    match engine.pool().tag(resolved) {
-        // The receiver type-name already instantiated to `Applied(Box, [fresh_var])`
-        // (the generic struct's params became fresh inference vars). Bind each fresh
-        // arg-var to the explicit turbofish arg so the receiver is concrete BEFORE
-        // associated-function resolution; the value-arg check then sees the bound type.
-        Tag::Applied => {
-            let existing = engine.pool().applied_args(resolved);
-            for (&recv_arg, &explicit) in existing.iter().zip(arg_idxs.iter()) {
-                let _ = engine.unify_types(recv_arg, explicit);
-            }
-            resolved
-        }
-        // A bare nominal type-name with no instantiated args: build `Applied(base, args)`
-        // matching the `Box<int>` annotation path (well-known generics use their
-        // dedicated pool constructors so the entry matches an annotation's).
-        Tag::Named => {
-            let base_name = engine.pool().named_name(resolved);
-            let wk = engine.well_known();
-            let resolved_wk = if let Some(wk) = wk {
-                wk.resolve_generic(engine.pool_mut(), base_name, &arg_idxs)
-            } else {
-                None
-            };
-            resolved_wk.unwrap_or_else(|| engine.pool_mut().applied(base_name, &arg_idxs))
-        }
-        _ => resolved,
-    }
-}
-
-/// Type-check positional method call arguments against resolved param types.
-fn check_positional_args(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    arg_ids: &[ExprId],
-    sig: &ImplMethodSig,
-    span: Span,
-) -> Idx {
-    for (i, (&arg_id, &param_ty)) in arg_ids.iter().zip(sig.params.iter()).enumerate() {
-        let expected = Expected {
-            ty: param_ty,
-            origin: ExpectedOrigin::Context {
-                span,
-                kind: ContextKind::FunctionArgument {
-                    func_name: None,
-                    arg_index: i,
-                    param_name: None,
-                },
-            },
-        };
-        let arg_ty = infer_expr(engine, arena, arg_id);
-        let _ = engine.check_type(arg_ty, &expected, arena.get_expr(arg_id).span);
-    }
-    sig.ret
-}
-
-/// Tag-specialized fix suggestion for the `flat_map` closure-return diagnostic.
-///
-/// Queries `ori_registry` to determine whether the actual closure-return
-/// tag has a callable `.iter()` method that yields `Iterator<U>`. When yes,
-/// the suggestion points users straight at that fix. When no (or when the
-/// tag has no registry mapping — type variables, named types, projections,
-/// etc.), the suggestion falls back to the generic "wrap in iterator" message.
-pub(crate) fn suggest_iterator_fix(inner_tag: Tag) -> Suggestion {
-    use super::super::registry_bridge::tag_to_type_tag;
-    let has_iter = tag_to_type_tag(inner_tag)
-        .and_then(|tt| ori_registry::find_method(tt, "iter"))
-        .is_some();
-    let text = if has_iter {
-        "this type is not an Iterator; call `.iter()` on it (e.g., `[x, x * 10].iter()`)"
-    } else {
-        "this type is not an Iterator; `flat_map` requires the closure to return an iterator type"
-    };
-    Suggestion::text(text, 1)
 }

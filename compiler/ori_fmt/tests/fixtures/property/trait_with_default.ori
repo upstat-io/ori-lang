@@ -1,0 +1,4 @@
+trait WithDefault {
+    @required (self) -> int
+    @optional (self) -> int = 0;
+}

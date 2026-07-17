@@ -5,24 +5,26 @@ use ori_ir::canon::CanId;
 use ori_ir::Name;
 use ori_types::Idx;
 
-use crate::ir::{ArcValue, ArcVarId, LitValue, PrimOp};
+use crate::ir::{ArcBlockId, ArcValue, ArcVarId, LitValue, PrimOp};
 use crate::lower::expr::{ArcLowerer, LoopContext};
+use crate::lower::scope::ArcScope;
+
+type MutableBinding = (Name, ArcVarId, Idx);
+type HeaderMutableParam = (Name, ArcVarId, ArcVarId);
+
+struct IteratorLoopSetup {
+    header_block: ArcBlockId,
+    body_block: ArcBlockId,
+    exit_block: ArcBlockId,
+    exit_prep_block: ArcBlockId,
+    pre_scope: ArcScope,
+    header_mut_params: Vec<HeaderMutableParam>,
+    exit_mut_params: Vec<(Name, ArcVarId)>,
+    result_param: ArcVarId,
+}
 
 impl ArcLowerer<'_> {
-    /// Lower `for x in <iterator> do body` using `__iter_next`.
-    ///
-    /// Loop structure:
-    /// ```text
-    /// entry → header
-    /// header: next = __iter_next(iter); tag = project(next, 0);
-    ///         has_more = (tag != 0); branch(has_more, body, exit)
-    /// body: elem = project(next, 1); bind(elem); ... → header
-    /// exit: ...
-    /// ```
-    #[expect(
-        clippy::too_many_lines,
-        reason = "iterator loop lowering with guard/mutable-var SSA merge is inherently sequential"
-    )]
+    /// Lowers iterator traversal while threading mutable bindings through loop blocks.
     pub(in crate::lower) fn lower_for_iterator(
         &mut self,
         pattern: CanBindingPatternId,
@@ -32,70 +34,80 @@ impl ArcLowerer<'_> {
         body: CanId,
         label: ori_ir::Name,
     ) -> ArcVarId {
-        let header_block = self.builder.new_block();
-        let body_block = self.builder.new_block();
-        let exit_block = self.builder.new_block();
-        // Normal exit prep block: Branch can't carry args, so the normal
-        // exit path (iterator exhausted) goes header → exit_prep → exit.
-        let exit_prep_block = self.builder.new_block();
-
-        // Collect mutable bindings for SSA merge.
-        let pre_scope = self.scope.clone();
-        let mut mut_info: Vec<(Name, ArcVarId, Idx)> = Vec::new();
-        for (name, var) in pre_scope.mutable_bindings() {
-            let var_ty = self.builder.var_type_or_unit(var);
-            mut_info.push((name, var, var_ty));
-        }
+        let setup = self.prepare_iterator_loop();
 
         tracing::debug!(
             pattern = ?pattern,
-            header_bb = header_block.index(),
-            body_bb = body_block.index(),
-            exit_bb = exit_block.index(),
-            mutable_vars = mut_info.len(),
+            header_bb = setup.header_block.index(),
+            body_bb = setup.body_block.index(),
+            exit_bb = setup.exit_block.index(),
+            mutable_vars = setup.header_mut_params.len(),
             has_guard = guard.is_valid(),
             "for_iterator: enter"
         );
 
-        // Header params: mutable vars only (no counter variable).
-        let mut header_mut_params = Vec::new();
-        for &(name, pre_var, var_ty) in &mut_info {
-            let param = self.builder.add_block_param(header_block, var_ty);
-            header_mut_params.push((name, pre_var, param));
-        }
+        let (next_result, has_more) = self.emit_iterator_next(iter_val, elem_ty);
+        self.push_iterator_loop_context(label, iter_val, &setup);
+        self.lower_iterator_guard(pattern, elem_ty, guard, next_result, has_more, &setup);
+        self.lower_iterator_body(pattern, elem_ty, body, next_result, &setup);
+        self.loop_ctx_stack.pop();
+        self.finish_iterator_loop(iter_val, setup)
+    }
 
-        // Exit block params: result value (from break) + mutable vars.
-        // Matches what lower_break() sends: [break_val, mut0, mut1, ...]
-        let result_param = self.builder.add_block_param(exit_block, Idx::UNIT);
-        let mut exit_mut_params = Vec::new();
-        for &(name, _, var_ty) in &mut_info {
-            let param = self.builder.add_block_param(exit_block, var_ty);
-            exit_mut_params.push((name, param));
-        }
-
-        // Entry jump: pass current mutable var values to header.
-        let entry_args: Vec<_> = header_mut_params
+    fn prepare_iterator_loop(&mut self) -> IteratorLoopSetup {
+        let header_block = self.builder.new_block();
+        let body_block = self.builder.new_block();
+        let exit_block = self.builder.new_block();
+        let exit_prep_block = self.builder.new_block();
+        let pre_scope = self.scope.clone();
+        let mutable_bindings: Vec<MutableBinding> = pre_scope
+            .mutable_bindings()
+            .map(|(name, var)| (name, var, self.builder.var_type_or_unit(var)))
+            .collect();
+        let header_mut_params = mutable_bindings
             .iter()
-            .map(|(_, pre_var, _)| *pre_var)
+            .map(|&(name, pre_var, ty)| {
+                (
+                    name,
+                    pre_var,
+                    self.builder.add_block_param(header_block, ty),
+                )
+            })
+            .collect::<Vec<_>>();
+        let result_param = self.builder.add_block_param(exit_block, Idx::UNIT);
+        let exit_mut_params = mutable_bindings
+            .iter()
+            .map(|&(name, _, ty)| (name, self.builder.add_block_param(exit_block, ty)))
+            .collect::<Vec<_>>();
+
+        let entry_args = header_mut_params
+            .iter()
+            .map(|&(_, pre_var, _)| pre_var)
             .collect();
         self.builder.terminate_jump(header_block, entry_args);
-
-        // Header: call __iter_next(iter) → {i8 has_more, T element}
         self.builder.position_at(header_block);
         self.scope = pre_scope.clone();
-        for &(name, _, param_var) in &header_mut_params {
-            self.scope.bind_mutable(name, param_var);
+        for &(name, _, param) in &header_mut_params {
+            self.scope.bind_mutable(name, param);
         }
 
+        IteratorLoopSetup {
+            header_block,
+            body_block,
+            exit_block,
+            exit_prep_block,
+            pre_scope,
+            header_mut_params,
+            exit_mut_params,
+            result_param,
+        }
+    }
+
+    fn emit_iterator_next(&mut self, iter_val: ArcVarId, elem_ty: Idx) -> (ArcVarId, ArcVarId) {
         let iter_next_name = self
             .interner
             .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::IterNext.name());
-        // Use INT for the result type to suppress ARC RC management on the
-        // `{tag, elem}` wrapper struct.  The actual element (accessed via
-        // Project at index 1) carries elem_ty and gets correct RC.
-        // Pass a zero marker of elem_ty as args[1] so physical projections
-        // retain the logical element identity for scratch-buffer sizing. The
-        // marker does not prescribe a byte layout.
+        // INVARIANT: The scalar wrapper carries a typed marker for physical scratch sizing.
         let elem_ty_marker =
             self.builder
                 .emit_let(elem_ty, ArcValue::Literal(LitValue::Int(0)), None);
@@ -106,8 +118,6 @@ impl ArcLowerer<'_> {
             None,
             None,
         );
-
-        // Tag is field 0: 0 = done, 1 = has element
         let tag = self.builder.emit_project(Idx::INT, next_result, 0, None);
         let zero = self
             .builder
@@ -120,93 +130,104 @@ impl ArcLowerer<'_> {
             },
             None,
         );
+        (next_result, has_more)
+    }
 
-        // Install this for's loop context BEFORE lowering the guard: the guard
-        // runs per-iteration inside the for's own loop, so a guard-position
-        // break/continue targets this for (its exit_block / header_block), not
-        // an enclosing loop. Mirrors the parser IN_LOOP guard + infer_while.
-        let mutable_var_entries: Vec<_> = header_mut_params
+    fn push_iterator_loop_context(
+        &mut self,
+        label: Name,
+        iter_val: ArcVarId,
+        setup: &IteratorLoopSetup,
+    ) {
+        let mutable_vars = setup
+            .header_mut_params
             .iter()
             .map(|&(name, _, param)| (name, param))
             .collect();
         self.loop_ctx_stack.push(LoopContext {
             label,
-            exit_block,
-            continue_block: header_block,
-            mutable_vars: mutable_var_entries,
+            exit_block: setup.exit_block,
+            continue_block: setup.header_block,
+            mutable_vars,
             abandon_iter: Some(iter_val),
             yield_ctx: None,
         });
+    }
 
-        if guard.is_valid() {
-            let guarded_block = self.builder.new_block();
+    fn lower_iterator_guard(
+        &mut self,
+        pattern: CanBindingPatternId,
+        elem_ty: Idx,
+        guard: CanId,
+        next_result: ArcVarId,
+        has_more: ArcVarId,
+        setup: &IteratorLoopSetup,
+    ) {
+        if !guard.is_valid() {
             self.builder
-                .terminate_branch(has_more, guarded_block, exit_prep_block);
-
-            self.builder.position_at(guarded_block);
-            let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-            self.bind_for_pattern(pattern, elem, elem_ty);
-            let guard_val = self.lower_expr(guard);
-
-            // A guard-position break/continue terminates guarded_block (it jumps
-            // straight to exit/header); only branch on the guard value when the
-            // guard did NOT already divert control.
-            if !self.builder.is_terminated() {
-                let guard_skip = self.builder.new_block();
-                self.builder
-                    .terminate_branch(guard_val, body_block, guard_skip);
-
-                // Guard skip: jump back to header with unmodified mutable vars.
-                self.builder.position_at(guard_skip);
-                let skip_args: Vec<_> = header_mut_params
-                    .iter()
-                    .map(|&(_, _, param_var)| param_var)
-                    .collect();
-                self.builder.terminate_jump(header_block, skip_args);
-            }
-        } else {
-            self.builder
-                .terminate_branch(has_more, body_block, exit_prep_block);
+                .terminate_branch(has_more, setup.body_block, setup.exit_prep_block);
+            return;
         }
-
-        // Body: extract element and bind. Loop context already installed above
-        // (before the guard) so guard-position break/continue resolve to this for.
-        self.builder.position_at(body_block);
+        let guarded_block = self.builder.new_block();
+        self.builder
+            .terminate_branch(has_more, guarded_block, setup.exit_prep_block);
+        self.builder.position_at(guarded_block);
         let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
         self.bind_for_pattern(pattern, elem, elem_ty);
-
-        self.lower_expr(body);
-
-        if !self.builder.is_terminated() {
-            // Jump back to header with updated mutable var values.
-            let body_args: Vec<_> = header_mut_params
-                .iter()
-                .map(|&(name, _, param)| self.scope.lookup(name).unwrap_or(param))
-                .collect();
-            self.builder.terminate_jump(header_block, body_args);
+        let guard_val = self.lower_expr(guard);
+        if self.builder.is_terminated() {
+            return;
         }
+        let guard_skip = self.builder.new_block();
+        self.builder
+            .terminate_branch(guard_val, setup.body_block, guard_skip);
+        self.builder.position_at(guard_skip);
+        let skip_args = setup
+            .header_mut_params
+            .iter()
+            .map(|&(_, _, param)| param)
+            .collect();
+        self.builder.terminate_jump(setup.header_block, skip_args);
+    }
 
-        self.loop_ctx_stack.pop();
+    fn lower_iterator_body(
+        &mut self,
+        pattern: CanBindingPatternId,
+        elem_ty: Idx,
+        body: CanId,
+        next_result: ArcVarId,
+        setup: &IteratorLoopSetup,
+    ) {
+        self.builder.position_at(setup.body_block);
+        let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
+        self.bind_for_pattern(pattern, elem, elem_ty);
+        self.lower_expr(body);
+        if self.builder.is_terminated() {
+            return;
+        }
+        let body_args = setup
+            .header_mut_params
+            .iter()
+            .map(|&(name, _, param)| self.scope.lookup(name).unwrap_or(param))
+            .collect();
+        self.builder.terminate_jump(setup.header_block, body_args);
+    }
 
-        // Exit prep: normal loop exhaustion path. Passes unit (no break
-        // value) + current mutable var values to the exit block.
-        self.builder.position_at(exit_prep_block);
+    fn finish_iterator_loop(&mut self, iter_val: ArcVarId, setup: IteratorLoopSetup) -> ArcVarId {
+        self.builder.position_at(setup.exit_prep_block);
         let unit_val = self.emit_unit();
         let mut prep_args = vec![unit_val];
-        prep_args.extend(header_mut_params.iter().map(|&(_, _, param_var)| param_var));
-        self.builder.terminate_jump(exit_block, prep_args);
+        prep_args.extend(setup.header_mut_params.iter().map(|&(_, _, param)| param));
+        self.builder.terminate_jump(setup.exit_block, prep_args);
 
-        // Exit: drop the iterator handle, then restore scope.
-        // Both normal exhaustion and break paths converge here.
-        self.builder.position_at(exit_block);
+        self.builder.position_at(setup.exit_block);
         let iter_drop_name = self.interner.intern("ori_iter_drop");
         self.builder
             .emit_apply(Idx::UNIT, iter_drop_name, vec![iter_val], None, None);
-
-        self.scope = pre_scope;
-        for &(name, param) in &exit_mut_params {
+        self.scope = setup.pre_scope;
+        for &(name, param) in &setup.exit_mut_params {
             self.scope.bind_mutable(name, param);
         }
-        result_param
+        setup.result_param
     }
 }

@@ -224,7 +224,7 @@ fn user_drop_plan_rejects_missing_mismatched_and_invalid_bindings() {
 fn closes_valid_main_function() {
     let symbols = SharedInterner::new();
     let program = ExecutableProgram::validate(parts(&symbols));
-    assert!(program.is_ok());
+    program.unwrap_or_else(|error| panic!("valid main function was rejected: {error:?}"));
 }
 
 #[test]

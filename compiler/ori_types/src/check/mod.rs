@@ -38,7 +38,8 @@
 //! use ori_ir::StringInterner;
 //!
 //! let interner = StringInterner::new();
-//! let tokens = ori_lexer::lex("@main () -> int = 42", &interner);
+//! let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/doc_main.ori"));
+//! let tokens = ori_lexer::lex(source, &interner);
 //! let parsed = ori_parse::parse(&tokens, &interner);
 //! let result = ori_types::check_module(&parsed.module, &parsed.arena, &interner);
 //! assert!(!result.has_errors(), "{:?}", result.errors());

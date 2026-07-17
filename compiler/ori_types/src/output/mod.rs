@@ -45,5 +45,8 @@ use crate::{Idx, TypeCheckError};
 use ori_ir::{Name, Span};
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
+#[expect(
+    clippy::unwrap_used,
+    reason = "typed-output tests abort when a required fixture entry is absent"
+)]
 mod tests;

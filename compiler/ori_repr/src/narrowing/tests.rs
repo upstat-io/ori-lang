@@ -1905,9 +1905,7 @@ fn apply_returning_int_does_not_affect_elements() {
     let mut table = ElementSummaryTable::new();
     update_element_summaries(&instr, &ranges, &var_types, &pool, &mut table);
 
-    // No collection type involved — table must remain truly empty.
-    // We check observation_count() to distinguish "no observations" from
-    // "accidentally inserted Top" (both return Top from element_range()).
+    // `observation_count` distinguishes an empty table from an inserted `Top` range.
     assert_eq!(
         table.observation_count(),
         0,

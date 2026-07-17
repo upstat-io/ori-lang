@@ -175,16 +175,14 @@ fn lower_module_to_arc(
         if sig.is_generic() {
             continue;
         }
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            func.name,
-            sig,
-            func.name,
+        let mut context = crate::arc_lowering::ArcLoweringContext {
             canon,
             interner,
             pool,
-            &mut arc_problems,
-            None,
-        );
+            problems: &mut arc_problems,
+        };
+        let (arc_fn, lambdas) =
+            crate::arc_lowering::lower_to_arc(func.name, sig, func.name, &mut context, None);
         all_funcs.push(arc_fn);
         all_funcs.extend(lambdas);
     }

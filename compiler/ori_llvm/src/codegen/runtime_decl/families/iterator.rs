@@ -2,12 +2,13 @@
 
 use super::super::types::{Attr, RtFn, Ty};
 
+/// Runtime declarations for iterator construction, adaptation, consumption, and cleanup.
 pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
-    // Iterator constructors — all extern "C"
+    // Iterator constructors use the C ABI.
     RtFn {
         name: "ori_iter_from_list",
+        // INVARIANT: Runtime parameter order is data, len, cap, elem_size, owns_data.
         params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Bool],
-        //        data   len   cap   elem_size  owns_data
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
@@ -21,7 +22,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_range_len",
-        //        start  end   step  inclusive
+        // INVARIANT: Runtime parameter order is start, end, step, inclusive.
         params: &[Ty::I64, Ty::I64, Ty::I64, Ty::Bool],
         ret: Some(Ty::I64),
         attrs: &[Attr::Nounwind],
@@ -29,7 +30,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_range_contains",
-        //        start  end   step  inclusive  value
+        // INVARIANT: Runtime parameter order ends with the tested value.
         params: &[Ty::I64, Ty::I64, Ty::I64, Ty::Bool, Ty::I64],
         ret: Some(Ty::Bool),
         attrs: &[Attr::Nounwind],
@@ -37,15 +38,15 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_from_str",
+        // INVARIANT: The pointer addresses an SSO-safe `OriStr` value.
         params: &[Ty::Ptr],
-        //        *const OriStr (SSO-safe)
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_from_map",
-        // (data, cap, len, key_size, val_size, owns_data, key_dec_fn, val_dec_fn)
+        // INVARIANT: Map storage and layout precede ownership and drop hooks.
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -56,14 +57,13 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
             Ty::Ptr,
             Ty::Ptr,
         ],
-        //        data   cap    len   ks     vs     owns_data  k_dec  v_dec
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_from_option",
-        // (is_some, payload_ptr, elem_size, elem_dec_fn)
+        // INVARIANT: Presence and payload precede element layout and its drop hook.
         params: &[Ty::Bool, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
@@ -71,13 +71,13 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_repeat",
-        // (value_ptr, elem_size, elem_dec_fn)
+        // INVARIANT: Element layout and its drop hook follow the repeated value.
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Iterator next — extern "C-unwind" (adapter callbacks may panic)
+    // Iterator advancement may unwind through adapter callbacks.
     RtFn {
         name: "ori_iter_next",
         params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
@@ -85,7 +85,6 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         attrs: &[],
         jit_allowed: true,
     },
-    // Iterator next_back — extern "C-unwind" (adapter callbacks may panic)
     RtFn {
         name: "ori_iter_next_back",
         params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
@@ -93,10 +92,10 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         attrs: &[],
         jit_allowed: true,
     },
-    // Iterator adapters — extern "C" (store callback, don't call it)
+    // Iterator adapters store callbacks without invoking them.
     RtFn {
         name: "ori_iter_map",
-        // (iter, transform_fn, transform_env, input_size, output_dec_fn)
+        // INVARIANT: Transform code and environment precede input layout and output cleanup.
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
@@ -146,7 +145,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_flatten",
-        // (iter, inner_elem_size)
+        // INVARIANT: The inner element size follows the source iterator.
         params: &[Ty::Ptr, Ty::I64],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
@@ -154,7 +153,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_cycle",
-        // (iter, elem_size, elem_inc_fn, elem_dec_fn)
+        // INVARIANT: Element layout precedes its retain and drop hooks.
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
@@ -162,16 +161,16 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_rev",
-        // (iter, elem_size, elem_inc_fn, elem_dec_fn)
+        // INVARIANT: Element layout precedes its retain and drop hooks.
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Ptr),
         attrs: &[],
         jit_allowed: true,
     },
-    // Iterator consumers — extern "C-unwind" (advancing may call user closures)
+    // Iterator consumers may unwind through user callbacks.
     RtFn {
         name: "ori_iter_collect",
-        // (iter, elem_size, elem_inc_fn, elem_dec_fn, out_ptr)
+        // INVARIANT: Element layout and ownership hooks precede the output pointer.
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr, Ty::Ptr],
         ret: None,
         attrs: &[],
@@ -179,7 +178,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_collect_set",
-        // (iter, elem_size, elem_eq, elem_hash, elem_inc_fn, elem_dec_fn, out_ptr)
+        // INVARIANT: Equality/hash and ownership hooks precede the output pointer.
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -245,7 +244,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_last",
-        // (iter, elem_size, out_ptr)
+        // INVARIANT: Element layout precedes the output pointer.
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: None,
         attrs: &[],
@@ -253,7 +252,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_rfind",
-        // (iter, pred_fn, pred_env, elem_size, out_ptr)
+        // INVARIANT: Predicate code and environment precede layout and output.
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: None,
         attrs: &[],
@@ -261,7 +260,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_rfold",
-        // (iter, init_ptr, fold_fn, fold_env, elem_size, acc_size, out_ptr)
+        // INVARIANT: Fold state and callback precede element/accumulator layout and output.
         params: &[
             Ty::Ptr,
             Ty::Ptr,
@@ -277,10 +276,9 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_join",
-        // (iter, sep_field0, sep_field1, sep_field2, to_str_fn, to_str_env, elem_size, elem_dec_fn, out_ptr)
-        // sep_field0-2: raw fields of OriStr {i64, i64, ptr} — SSO-safe reconstruction in runtime
-        // elem_dec_fn: consumed-element release; non-null only when the emit-site
-        // provenance walk proves every element adapter-produced (else null)
+        // INVARIANT: The separator crosses as three raw, SSO-safe `OriStr` fields.
+        // INVARIANT: Conversion code and environment precede element layout and output.
+        // INVARIANT: The drop hook is non-null only for proven adapter-produced elements.
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -296,7 +294,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         attrs: &[],
         jit_allowed: true,
     },
-    // Iterator cleanup — extern "C"
+    // Iterator cleanup uses the C ABI.
     RtFn {
         name: "ori_iter_drop",
         params: &[Ty::Ptr],

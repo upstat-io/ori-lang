@@ -97,7 +97,14 @@ def _comment_blocks(content: str) -> list[tuple[int, str]]:
     lines = content.splitlines()
     blocks: list[tuple[int, str]] = []
     i = 0
-    while i < len(lines):
+    n = len(lines)
+    while i < n:
+        # Cheap gate before the capture regex: `lstrip()` == the regex's
+        # `^\s*`, and the `//`/`*` prefixes cover `//` `//!` `///` `*`.
+        ls = lines[i].lstrip()
+        if not (ls.startswith("//") or ls.startswith("*")):
+            i += 1
+            continue
         m = COMMENT_LINE_RE.match(lines[i])
         if not m:
             i += 1
@@ -105,7 +112,10 @@ def _comment_blocks(content: str) -> list[tuple[int, str]]:
         start = i
         texts = [m.group(1)]
         i += 1
-        while i < len(lines) and len(texts) < MAX_BLOCK_LINES:
+        while i < n and len(texts) < MAX_BLOCK_LINES:
+            ls = lines[i].lstrip()
+            if not (ls.startswith("//") or ls.startswith("*")):
+                break
             m2 = COMMENT_LINE_RE.match(lines[i])
             if not m2:
                 break
@@ -127,8 +137,19 @@ def scan_text(content: str) -> list[tuple[int, str, str]]:
     return out
 
 
+# Every finding requires a PROVENANCE_VERB_RE phrase or the HISTORY "previously"
+# marker in the JOINED block text. Block-joining keeps single words intact, so a
+# file lacking every distinctive word below can never produce a finding and is
+# skipped without line-walking (lowercased-bytes substring checks; decode deferred).
+_HINT_WORDS = (b"previously", b"factored", b"extracted", b"lives", b"split")
+
+
 def scan_file(path: Path) -> list[Finding]:
-    content = path.read_text(encoding="utf-8", errors="replace")
+    raw = path.read_bytes()
+    low = raw.lower()
+    if not any(w in low for w in _HINT_WORDS):
+        return []
+    content = raw.decode("utf-8", errors="replace")
     return [Finding(str(path), ln, snippet, cat) for ln, snippet, cat in scan_text(content)]
 
 

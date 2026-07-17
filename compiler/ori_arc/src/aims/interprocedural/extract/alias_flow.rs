@@ -30,8 +30,8 @@ pub(super) use return_alias_shapes::find_return_alias_shapes;
 /// to ask "which parameter indices does this variable alias?" — two
 /// independent alias-tracing implementations would duplicate the algorithm.
 ///
-/// `sigs` enables BUG-04-090 transitive `transfers_through_return`
-/// propagation: when callee `g(x)` has `g.x.transfers_through_return = true`,
+/// `sigs` enables transitive `transfers_through_return` propagation: when
+/// callee `g(x)` has `g.x.transfers_through_return = true`,
 /// then `let r = g(arg)` makes `r` alias whatever params `arg` aliases.
 /// This makes multi-hop forwarder chains (`wrap` calls `id`) transitively
 /// mark the caller's params for return-transfer suppression. Pass `None`
@@ -134,7 +134,7 @@ fn absorb_instr_aliases(
             let b = absorb_alias(*false_val, *dst, alias_to_param);
             a || b
         }
-        // BUG-04-090 transitivity: Apply { dst, callee, args } where the
+        // Transitive return transfer: Apply { dst, callee, args } where the
         // callee's contract marks param i as `transfers_through_return`.
         // The callee returns args[i], so dst aliases whatever args[i]
         // aliases. SCC topological order guarantees the callee's contract
@@ -162,10 +162,10 @@ fn absorb_instr_aliases(
     }
 }
 
-/// BUG-04-090 transitivity helper: when `callee` has any param marked
-/// `transfers_through_return`, propagate the corresponding arg's alias set
-/// to `dst`. Used by both `absorb_instr_aliases` (for `Apply`) and the
-/// terminator-loop in `build_alias_to_param_map` (for `Invoke`).
+/// When `callee` has any param marked `transfers_through_return`, propagate
+/// the corresponding arg's alias set to `dst`. Used by both
+/// `absorb_instr_aliases` (for `Apply`) and the terminator-loop in
+/// `build_alias_to_param_map` (for `Invoke`).
 ///
 /// Multi-param case: if `callee` has both param 0 AND param 1 marked
 /// `transfers_through_return`, the callee's return value may alias either
@@ -303,9 +303,8 @@ fn absorb_owned_callee_args(
 /// Identify parameters that flow to a Return terminator (directly or
 /// through Let / Jump-arg / Select alias chains). These params must be
 /// Owned (the own-params-using-args borrow-inference rule) AND get
-/// `transfers_through_return = true` for the BUG-04-090 fix — the gate
-/// reads this STRUCTURAL fact (Return-trace only), kept distinct from
-/// the Apply/Invoke consumption set.
+/// `transfers_through_return = true` — the gate reads this structural fact
+/// (Return-trace only), kept distinct from the Apply/Invoke consumption set.
 pub(super) fn find_return_flow_params(
     func: &ArcFunction,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,

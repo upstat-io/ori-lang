@@ -1,0 +1,3 @@
+@double (x: int) -> int = x + x;
+
+@negate (x: int) -> int = 0 - x;

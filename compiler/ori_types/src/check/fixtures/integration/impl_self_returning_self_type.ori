@@ -1,0 +1,5 @@
+type Vector = { x: int, y: int }
+
+impl Vector {
+    @negate (self) -> Self = Vector { x: 0 - self.x, y: 0 - self.y }
+}

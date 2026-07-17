@@ -13,7 +13,7 @@ use ori_ir::{Name, TokenKind};
 
 use super::{Cursor, ParseError};
 
-// Identifier acceptance methods
+// Spec: Clauses 7.2 and 7.3.3.
 
 impl Cursor<'_> {
     /// Check if current token is a context-sensitive keyword that can be used as an identifier.

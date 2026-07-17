@@ -13,7 +13,7 @@ use crate::{check_expr, ContextKind, Expected, ExpectedOrigin};
 
 /// Check all def impl method bodies.
 #[tracing::instrument(level = "debug", skip_all, fields(count = module.def_impls.len()))]
-pub fn check_def_impl_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
+pub(in crate::check) fn check_def_impl_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
     for def_impl in &module.def_impls {
         check_def_impl_block(checker, def_impl);
     }

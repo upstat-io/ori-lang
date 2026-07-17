@@ -50,7 +50,8 @@ use crate::{Pool, TraitRegistry, TypeCheckResult, TypeRegistry};
 /// use ori_types::check_module;
 ///
 /// let interner = StringInterner::new();
-/// let tokens = ori_lexer::lex("@main () -> int = 42", &interner);
+/// let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/doc_main.ori"));
+/// let tokens = ori_lexer::lex(source, &interner);
 /// let parse_output = ori_parse::parse(&tokens, &interner);
 /// let result = check_module(&parse_output.module, &parse_output.arena, &interner);
 ///
@@ -83,7 +84,8 @@ pub fn check_module(
 /// use ori_types::{check_module_with_registries, TraitRegistry, TypeRegistry};
 ///
 /// let interner = StringInterner::new();
-/// let tokens = ori_lexer::lex("@main () -> int = 42", &interner);
+/// let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/doc_main.ori"));
+/// let tokens = ori_lexer::lex(source, &interner);
 /// let parsed = ori_parse::parse(&tokens, &interner);
 /// let types = TypeRegistry::new();
 /// let traits = TraitRegistry::new();
@@ -142,7 +144,8 @@ pub fn check_module_with_pool(
 /// use ori_types::check_module_with_imports;
 ///
 /// let interner = StringInterner::new();
-/// let tokens = ori_lexer::lex("@main () -> int = 42", &interner);
+/// let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/doc_main.ori"));
+/// let tokens = ori_lexer::lex(source, &interner);
 /// let parsed = ori_parse::parse(&tokens, &interner);
 /// let (result, pool) = check_module_with_imports(
 ///     &parsed.module, &parsed.arena, &interner,
@@ -214,7 +217,7 @@ fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
     register_object_safety_violations(checker, module);
     register_impls(checker, module);
     // Index builtin-type extension methods (`extend str { @m }`) so they are not
-    // false-rejected as unknown by `emit_unknown_method` (BUG-02-041 class C).
+    // false-rejected as unknown by `emit_unknown_method`.
     register_builtin_extensions(checker, module);
 
     // Pass 0d: Register derived implementations

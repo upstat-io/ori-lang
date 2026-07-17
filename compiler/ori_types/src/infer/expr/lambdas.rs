@@ -137,279 +137,254 @@ pub(crate) fn maybe_generalize(
     }
 }
 
-/// Check if a lambda body captures outer variables by scanning for
-/// `Ident` nodes that are not in the parameter list.
+/// Returns whether a lambda body references a lexically bound outer name.
 ///
-/// **Soundness direction: conservative in the direction of rejecting
-/// generalization.** Unknown or unhandled expression shapes are treated as
-/// capturing — a false positive costs one missed polymorphic generalization;
-/// a false negative silently generalizes a capturing lambda, whose bound
-/// type variables then include outer captures, and subsequent instantiation
-/// produces wrong types (a type-soundness violation, not a detectable
-/// codegen failure).
-///
-/// Leaf arms returning `false` cover only verified non-capturing shapes:
-/// literals, `Unit`, `None`, module-level references (`Const`, `FunctionRef`),
-/// and the `Error` poison placeholder. Every other shape either descends
-/// into its children or, for shapes this function does not yet walk, is
-/// absorbed by the `_ => true` wildcard.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive ExprKind dispatch — every shape with child \
-              expressions must be walked for capture-analysis soundness; \
-              splitting the match would require a parallel second match \
-              that could drift out of sync with this one"
-)]
-#[expect(
-    clippy::match_same_arms,
-    reason = "`ExprKind::SelfRef` intentionally stays as its own arm: it \
-              is a verified-true case (lambdas that reference `self` \
-              genuinely capture the enclosing method's receiver), distinct \
-              from the conservative `_ => true` default for unknown shapes. \
-              Collapsing loses the semantic distinction and makes future \
-              maintainers re-derive why `self` ends up captured"
-)]
+/// Unknown shapes conservatively count as captures to preserve type soundness.
 fn body_captures_outer(
     arena: &ExprArena,
     id: ExprId,
     param_names: &[Name],
     outer_vars: &FxHashSet<Name>,
 ) -> bool {
-    if id == ExprId::INVALID {
-        return false;
+    CaptureContext {
+        arena,
+        param_names,
+        outer_vars,
     }
-    match &arena.get_expr(id).kind {
-        // Leaves with no child expressions — provably cannot capture.
-        ExprKind::Int(_)
-        | ExprKind::Float(_)
-        | ExprKind::Bool(_)
-        | ExprKind::String(_)
-        | ExprKind::Char(_)
-        | ExprKind::Duration { .. }
-        | ExprKind::Size { .. }
-        | ExprKind::Unit
-        | ExprKind::None
-        | ExprKind::HashLength
-        | ExprKind::Const(_)
-        | ExprKind::FunctionRef(_)
-        | ExprKind::TemplateFull(_)
-        | ExprKind::Error => false,
+    .captures(id)
+}
 
-        // A bare identifier is a capture iff it is not one of the lambda's
-        // own params AND it is a lexically-bound outer name. Names that are
-        // neither (prelude free functions, built-in constructors, type names
-        // resolved via `ori_registry`) are module-level and do NOT count as
-        // captures — their presence in a lambda body is orthogonal to
-        // let-polymorphism soundness.
-        ExprKind::Ident(n) => !param_names.contains(n) && outer_vars.contains(n),
+struct CaptureContext<'a> {
+    arena: &'a ExprArena,
+    param_names: &'a [Name],
+    outer_vars: &'a FxHashSet<Name>,
+}
 
-        // `self` inside a lambda body references the enclosing method's
-        // receiver — that is a capture of outer scope.
-        ExprKind::SelfRef => true,
+impl CaptureContext<'_> {
+    fn captures(&self, id: ExprId) -> bool {
+        if id == ExprId::INVALID {
+            return false;
+        }
 
-        // Nested lambdas: descend with the inner params added to the visible set.
-        ExprKind::Lambda { params, body, .. } => {
-            let mut all_params: Vec<Name> = param_names.to_vec();
-            for p in arena.get_params(*params) {
-                all_params.push(p.name);
+        let kind = &self.arena.get_expr(id).kind;
+        if is_capture_free_leaf(kind) {
+            return false;
+        }
+
+        self.captures_direct_child(kind)
+            .or_else(|| self.captures_call_or_collection(kind))
+            .or_else(|| self.captures_structured(kind))
+            .or_else(|| self.captures_spread(kind))
+            .unwrap_or(true)
+    }
+
+    fn captures_direct_child(&self, kind: &ExprKind) -> Option<bool> {
+        let captured = match kind {
+            ExprKind::Ident(name) => {
+                !self.param_names.contains(name) && self.outer_vars.contains(name)
             }
-            body_captures_outer(arena, *body, &all_params, outer_vars)
-        }
-
-        // Single-child wrappers.
-        ExprKind::Unary { operand, .. } => {
-            body_captures_outer(arena, *operand, param_names, outer_vars)
-        }
-        ExprKind::Await(child)
-        | ExprKind::Try(child)
-        | ExprKind::Unsafe(child)
-        | ExprKind::Ok(child)
-        | ExprKind::Err(child)
-        | ExprKind::Some(child) => body_captures_outer(arena, *child, param_names, outer_vars),
-        ExprKind::Cast { expr, .. } => body_captures_outer(arena, *expr, param_names, outer_vars),
-        ExprKind::Break { value, .. } | ExprKind::Continue { value, .. } => {
-            body_captures_outer(arena, *value, param_names, outer_vars)
-        }
-        ExprKind::Let { init, .. } => body_captures_outer(arena, *init, param_names, outer_vars),
-        ExprKind::Loop { body, .. } => body_captures_outer(arena, *body, param_names, outer_vars),
-        ExprKind::While { cond, body, .. } => {
-            body_captures_outer(arena, *cond, param_names, outer_vars)
-                || body_captures_outer(arena, *body, param_names, outer_vars)
-        }
-        ExprKind::Field { receiver, .. } => {
-            body_captures_outer(arena, *receiver, param_names, outer_vars)
-        }
-
-        // Two-child shapes.
-        ExprKind::Binary { left, right, .. } => {
-            body_captures_outer(arena, *left, param_names, outer_vars)
-                || body_captures_outer(arena, *right, param_names, outer_vars)
-        }
-        ExprKind::Index { receiver, index } => {
-            body_captures_outer(arena, *receiver, param_names, outer_vars)
-                || body_captures_outer(arena, *index, param_names, outer_vars)
-        }
-        ExprKind::Assign { target, value } => {
-            body_captures_outer(arena, *target, param_names, outer_vars)
-                || body_captures_outer(arena, *value, param_names, outer_vars)
-        }
-        ExprKind::WithCapability { provider, body, .. } => {
-            body_captures_outer(arena, *provider, param_names, outer_vars)
-                || body_captures_outer(arena, *body, param_names, outer_vars)
-        }
-
-        // Three-child shapes.
-        ExprKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            body_captures_outer(arena, *cond, param_names, outer_vars)
-                || body_captures_outer(arena, *then_branch, param_names, outer_vars)
-                || body_captures_outer(arena, *else_branch, param_names, outer_vars)
-        }
-        ExprKind::Range {
-            start, end, step, ..
-        } => {
-            body_captures_outer(arena, *start, param_names, outer_vars)
-                || body_captures_outer(arena, *end, param_names, outer_vars)
-                || body_captures_outer(arena, *step, param_names, outer_vars)
-        }
-        ExprKind::For {
-            iter, guard, body, ..
-        } => {
-            body_captures_outer(arena, *iter, param_names, outer_vars)
-                || body_captures_outer(arena, *guard, param_names, outer_vars)
-                || body_captures_outer(arena, *body, param_names, outer_vars)
-        }
-
-        ExprKind::Call { func, args } => {
-            body_captures_outer(arena, *func, param_names, outer_vars)
-                || arena
-                    .get_expr_list(*args)
-                    .iter()
-                    .any(|e| body_captures_outer(arena, *e, param_names, outer_vars))
-        }
-
-        ExprKind::MethodCall { receiver, args, .. } => {
-            body_captures_outer(arena, *receiver, param_names, outer_vars)
-                || arena
-                    .get_expr_list(*args)
-                    .iter()
-                    .any(|e| body_captures_outer(arena, *e, param_names, outer_vars))
-        }
-
-        // List / Tuple literals: walk every element.
-        ExprKind::List(range) | ExprKind::Tuple(range) => arena
-            .get_expr_list(*range)
-            .iter()
-            .any(|e| body_captures_outer(arena, *e, param_names, outer_vars)),
-
-        // Map literal: walk every key and value.
-        ExprKind::Map(range) => arena.get_map_entries(*range).iter().any(|entry| {
-            body_captures_outer(arena, entry.key, param_names, outer_vars)
-                || body_captures_outer(arena, entry.value, param_names, outer_vars)
-        }),
-
-        // Struct literal: walk every supplied field value.
-        ExprKind::Struct { fields, .. } => arena.get_field_inits(*fields).iter().any(|fi| {
-            fi.value
-                .is_some_and(|v| body_captures_outer(arena, v, param_names, outer_vars))
-        }),
-
-        // Why: Pattern bindings are not added to the visible set; conservative false positives are acceptable.
-        ExprKind::Match { scrutinee, arms } => {
-            if body_captures_outer(arena, *scrutinee, param_names, outer_vars) {
-                return true;
+            ExprKind::SelfRef => true,
+            ExprKind::Lambda { params, body, .. } => {
+                let mut all_params = self.param_names.to_vec();
+                all_params.extend(self.arena.get_params(*params).iter().map(|p| p.name));
+                CaptureContext {
+                    arena: self.arena,
+                    param_names: &all_params,
+                    outer_vars: self.outer_vars,
+                }
+                .captures(*body)
             }
-            arena.get_arms(*arms).iter().any(|arm| {
-                arm.guard
-                    .is_some_and(|g| body_captures_outer(arena, g, param_names, outer_vars))
-                    || body_captures_outer(arena, arm.body, param_names, outer_vars)
-            })
-        }
-
-        // Block: walk every statement's carried expression plus the result.
-        ExprKind::Block { stmts, result } => {
-            if body_captures_outer(arena, *result, param_names, outer_vars) {
-                return true;
+            ExprKind::Unary { operand: child, .. }
+            | ExprKind::Await(child)
+            | ExprKind::Try(child)
+            | ExprKind::Unsafe(child)
+            | ExprKind::Ok(child)
+            | ExprKind::Err(child)
+            | ExprKind::Some(child)
+            | ExprKind::Cast { expr: child, .. }
+            | ExprKind::Break { value: child, .. }
+            | ExprKind::Continue { value: child, .. }
+            | ExprKind::Let { init: child, .. }
+            | ExprKind::Loop { body: child, .. }
+            | ExprKind::Field {
+                receiver: child, ..
+            } => self.captures(*child),
+            ExprKind::Binary {
+                left: first,
+                right: second,
+                ..
             }
-            arena
-                .get_stmt_range(*stmts)
+            | ExprKind::Index {
+                receiver: first,
+                index: second,
+            }
+            | ExprKind::Assign {
+                target: first,
+                value: second,
+            }
+            | ExprKind::WithCapability {
+                provider: first,
+                body: second,
+                ..
+            }
+            | ExprKind::While {
+                cond: first,
+                body: second,
+                ..
+            } => self.captures_all([*first, *second]),
+            ExprKind::If {
+                cond: first,
+                then_branch: second,
+                else_branch: third,
+            }
+            | ExprKind::Range {
+                start: first,
+                end: second,
+                step: third,
+                ..
+            }
+            | ExprKind::For {
+                iter: first,
+                guard: second,
+                body: third,
+                ..
+            } => self.captures_all([*first, *second, *third]),
+            _ => return None,
+        };
+        Some(captured)
+    }
+
+    fn captures_call_or_collection(&self, kind: &ExprKind) -> Option<bool> {
+        let captured = match kind {
+            ExprKind::Call { func: head, args }
+            | ExprKind::MethodCall {
+                receiver: head,
+                args,
+                ..
+            } => self.captures(*head) || self.captures_exprs(self.arena.get_expr_list(*args)),
+            ExprKind::List(range) | ExprKind::Tuple(range) => {
+                self.captures_exprs(self.arena.get_expr_list(*range))
+            }
+            ExprKind::Map(range) => self
+                .arena
+                .get_map_entries(*range)
                 .iter()
-                .any(|stmt| match &stmt.kind {
-                    ori_ir::StmtKind::Expr(e) => {
-                        body_captures_outer(arena, *e, param_names, outer_vars)
-                    }
-                    ori_ir::StmtKind::Let { init, .. } => {
-                        body_captures_outer(arena, *init, param_names, outer_vars)
-                    }
-                })
-        }
-
-        // Named-argument call forms (sugar eliminated by canon but present
-        // during type checking — when `body_captures_outer` actually runs).
-        // Must walk func/receiver AND every named arg value.
-        ExprKind::CallNamed { func, args } => {
-            body_captures_outer(arena, *func, param_names, outer_vars)
-                || arena
-                    .get_call_args(*args)
-                    .iter()
-                    .any(|a| body_captures_outer(arena, a.value, param_names, outer_vars))
-        }
-        ExprKind::MethodCallNamed { receiver, args, .. } => {
-            body_captures_outer(arena, *receiver, param_names, outer_vars)
-                || arena
-                    .get_call_args(*args)
-                    .iter()
-                    .any(|a| body_captures_outer(arena, a.value, param_names, outer_vars))
-        }
-
-        // Spread-aware literal forms: each element/entry either carries a
-        // plain expression or a `...expr` spread; both contribute captures.
-        ExprKind::ListWithSpread(range) => {
-            arena.get_list_elements(*range).iter().any(|el| match el {
-                ori_ir::ast::ListElement::Expr { expr, .. }
-                | ori_ir::ast::ListElement::Spread { expr, .. } => {
-                    body_captures_outer(arena, *expr, param_names, outer_vars)
-                }
-            })
-        }
-        ExprKind::MapWithSpread(range) => {
-            arena.get_map_elements(*range).iter().any(|el| match el {
-                ori_ir::ast::MapElement::Entry(entry) => {
-                    body_captures_outer(arena, entry.key, param_names, outer_vars)
-                        || body_captures_outer(arena, entry.value, param_names, outer_vars)
-                }
-                ori_ir::ast::MapElement::Spread { expr, .. } => {
-                    body_captures_outer(arena, *expr, param_names, outer_vars)
-                }
-            })
-        }
-        ExprKind::StructWithSpread { fields, .. } => arena
-            .get_struct_lit_fields(*fields)
-            .iter()
-            .any(|field| match field {
-                ori_ir::ast::StructLitField::Field(fi) => fi
-                    .value
-                    .is_some_and(|v| body_captures_outer(arena, v, param_names, outer_vars)),
-                ori_ir::ast::StructLitField::Spread { expr, .. } => {
-                    body_captures_outer(arena, *expr, param_names, outer_vars)
-                }
-            }),
-
-        // Template literals with interpolations: walk every part's expr.
-        ExprKind::TemplateLiteral { parts, .. } => arena
-            .get_template_parts(*parts)
-            .iter()
-            .any(|part| body_captures_outer(arena, part.expr, param_names, outer_vars)),
-
-        // Remaining arena-indexed shapes this function does not yet decode
-        // (`FunctionSeq`, `FunctionExp` — the recurse/parallel/nursery/etc.
-        // combinator families). These are conservatively treated as
-        // capturing. A false positive here costs one missed polymorphic
-        // generalization on an uncommon shape; a false negative would
-        // silently generalize a capturing lambda — a type-soundness bug.
-        _ => true,
+                .any(|entry| self.captures(entry.key) || self.captures(entry.value)),
+            ExprKind::Struct { fields, .. } => self
+                .arena
+                .get_field_inits(*fields)
+                .iter()
+                .any(|field| field.value.is_some_and(|value| self.captures(value))),
+            _ => return None,
+        };
+        Some(captured)
     }
+
+    fn captures_structured(&self, kind: &ExprKind) -> Option<bool> {
+        let captured = match kind {
+            ExprKind::Match { scrutinee, arms } => {
+                self.captures(*scrutinee)
+                    || self.arena.get_arms(*arms).iter().any(|arm| {
+                        arm.guard.is_some_and(|guard| self.captures(guard))
+                            || self.captures(arm.body)
+                    })
+            }
+            ExprKind::Block { stmts, result } => {
+                self.captures(*result)
+                    || self
+                        .arena
+                        .get_stmt_range(*stmts)
+                        .iter()
+                        .any(|stmt| match &stmt.kind {
+                            ori_ir::StmtKind::Expr(expr) => self.captures(*expr),
+                            ori_ir::StmtKind::Let { init, .. } => self.captures(*init),
+                        })
+            }
+            ExprKind::CallNamed { func: head, args }
+            | ExprKind::MethodCallNamed {
+                receiver: head,
+                args,
+                ..
+            } => {
+                self.captures(*head)
+                    || self
+                        .arena
+                        .get_call_args(*args)
+                        .iter()
+                        .any(|arg| self.captures(arg.value))
+            }
+            _ => return None,
+        };
+        Some(captured)
+    }
+
+    fn captures_spread(&self, kind: &ExprKind) -> Option<bool> {
+        let captured = match kind {
+            ExprKind::ListWithSpread(range) => {
+                self.arena
+                    .get_list_elements(*range)
+                    .iter()
+                    .any(|element| match element {
+                        ori_ir::ast::ListElement::Expr { expr, .. }
+                        | ori_ir::ast::ListElement::Spread { expr, .. } => self.captures(*expr),
+                    })
+            }
+            ExprKind::MapWithSpread(range) => {
+                self.arena
+                    .get_map_elements(*range)
+                    .iter()
+                    .any(|element| match element {
+                        ori_ir::ast::MapElement::Entry(entry) => {
+                            self.captures(entry.key) || self.captures(entry.value)
+                        }
+                        ori_ir::ast::MapElement::Spread { expr, .. } => self.captures(*expr),
+                    })
+            }
+            ExprKind::StructWithSpread { fields, .. } => self
+                .arena
+                .get_struct_lit_fields(*fields)
+                .iter()
+                .any(|field| match field {
+                    ori_ir::ast::StructLitField::Field(init) => {
+                        init.value.is_some_and(|value| self.captures(value))
+                    }
+                    ori_ir::ast::StructLitField::Spread { expr, .. } => self.captures(*expr),
+                }),
+            ExprKind::TemplateLiteral { parts, .. } => self
+                .arena
+                .get_template_parts(*parts)
+                .iter()
+                .any(|part| self.captures(part.expr)),
+            _ => return None,
+        };
+        Some(captured)
+    }
+
+    fn captures_all<const N: usize>(&self, ids: [ExprId; N]) -> bool {
+        ids.into_iter().any(|id| self.captures(id))
+    }
+
+    fn captures_exprs(&self, ids: &[ExprId]) -> bool {
+        ids.iter().any(|id| self.captures(*id))
+    }
+}
+
+fn is_capture_free_leaf(kind: &ExprKind) -> bool {
+    matches!(
+        kind,
+        ExprKind::Int(_)
+            | ExprKind::Float(_)
+            | ExprKind::Bool(_)
+            | ExprKind::String(_)
+            | ExprKind::Char(_)
+            | ExprKind::Duration { .. }
+            | ExprKind::Size { .. }
+            | ExprKind::Unit
+            | ExprKind::None
+            | ExprKind::HashLength
+            | ExprKind::Const(_)
+            | ExprKind::FunctionRef(_)
+            | ExprKind::TemplateFull(_)
+            | ExprKind::Error
+    )
 }

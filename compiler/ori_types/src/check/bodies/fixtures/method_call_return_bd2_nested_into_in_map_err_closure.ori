@@ -1,0 +1,1 @@
+@f (ok_int: Result<int, str>) -> Result<int, Error> = { ok_int.map_err(msg -> msg.into()) }

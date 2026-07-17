@@ -1,4 +1,4 @@
-// BUG-04-097 M9/M10 — seamless-slice result reached through a NON-Let derived
+// Seamless-slice result reached through a non-Let derived
 // alias (Select / Project / phi) onto a drop site.
 //
 // A seamless slice shares the source buffer, so its contract uniqueness is
@@ -15,7 +15,7 @@
 
 use std.testing { assert_eq }
 
-// --- Select-derived alias of a seamless slice, both live across the drop ---
+// Select-derived alias of a seamless slice, both live across the drop
 
 @slice_through_select (flag: bool) -> int = {
     let xs = [10, 20, 30, 40, 50];
@@ -35,7 +35,7 @@ use std.testing { assert_eq }
     assert_eq(actual: slice_through_select(flag: false), expected: 7)
 }
 
-// --- Projection-derived alias: slice stored in a struct, read back, dropped ---
+// Projection-derived alias: slice stored in a struct, read back, dropped
 
 type SliceHolder = { view: [int], origin: [int] }
 
@@ -50,7 +50,7 @@ type SliceHolder = { view: [int], origin: [int] }
     assert_eq(actual: slice_through_projection(), expected: 9)
 }
 
-// --- Loop-carried (phi) alias of a slice, re-bound each iteration ---
+// Loop-carried (phi) alias of a slice, re-bound each iteration
 
 @slice_through_loop_phi () -> int = {
     let xs = [7, 8, 9, 10];

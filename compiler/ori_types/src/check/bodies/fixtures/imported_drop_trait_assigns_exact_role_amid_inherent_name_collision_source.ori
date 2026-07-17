@@ -1,0 +1,3 @@
+type Guard = { id: int }
+impl Guard { @drop (self) -> void = (); }
+impl Guard: Drop { @drop (self) -> void = (); }

@@ -49,8 +49,9 @@ use crate::parser::ParseOutput;
 pub(crate) fn prelude_candidates(current_file: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    // 1. ORI_STDLIB override. Accept both the `library/` root and a value
-    //    pointing directly at `library/std/` (parent treated as the root).
+    // Env: ORI_STDLIB — overrides the standard-library root, stable.
+    // Accept both the `library/` root and a value pointing directly at
+    // `library/std/` (parent treated as the root).
     if let Ok(stdlib) = std::env::var("ORI_STDLIB") {
         for root in imports::ori_stdlib_library_roots(&stdlib) {
             candidates.push(root.join("std").join("prelude.ori"));

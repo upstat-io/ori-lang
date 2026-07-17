@@ -1228,9 +1228,7 @@ fn test_comment_only_change_triggers_early_cutoff_for_typed() {
         "typed results should be identical after comment-only change"
     );
 
-    // typed() should NOT be in the re-executed queries.
-    // We expect at most lex_result + tokens to re-execute (2 events).
-    // If parsed() also re-executes that's 3, but typed() should not.
+    // A comment-only edit may re-execute lexing and parsing, but never type checking.
     let typed_reexecuted = logs.iter().any(|l| l.contains("typed"));
     assert!(
         !typed_reexecuted,

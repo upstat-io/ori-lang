@@ -39,6 +39,115 @@ pub(super) enum ArcBatchLoweringFailure {
     MonoInventory(crate::realization::MonoFunctionInventoryError),
 }
 
+#[cfg(feature = "llvm")]
+#[derive(Clone, Copy)]
+pub(super) struct ArcBatchLoweringInput<'a> {
+    pub(super) parse: &'a ParseOutput,
+    pub(super) function_sigs: &'a [FunctionSig],
+    pub(super) impl_sigs: &'a [ori_types::ImplSig],
+    pub(super) import_sigs: &'a [ori_repr::monomorphize::ImportSig],
+    pub(super) imported: ImportedSurfaces<'a>,
+    pub(super) canon: &'a CanonResult,
+    pub(super) interner: &'a StringInterner,
+    pub(super) pool: &'a Pool,
+    pub(super) mono_instances: &'a [ori_types::MonoInstance],
+    pub(super) accepted_derives: &'a [ori_types::AcceptedDerivedImpl],
+    pub(super) derived_call_plans: &'a [ori_types::DerivedCallPlan],
+}
+
+fn lower_source_groups(
+    input: &ArcBatchLoweringInput<'_>,
+    problems: &mut Vec<ori_arc::ArcProblem>,
+    exempt: &FxHashSet<u32>,
+) -> Result<Vec<crate::realization::ArcFunctionGroup>, ArcBatchLoweringFailure> {
+    let seeds = crate::realization::CallableCensusBuilder::new(input.interner)
+        .source_functions(&input.parse.module.functions, input.function_sigs)
+        .map_err(ArcBatchLoweringFailure::CallableCensus)?;
+    let mut groups = Vec::new();
+    for seed in seeds {
+        if seed.signature.is_generic() {
+            continue;
+        }
+        let mut context = crate::arc_lowering::ArcLoweringContext {
+            canon: input.canon,
+            interner: input.interner,
+            pool: input.pool,
+            problems,
+        };
+        let (function, lambdas) = crate::arc_lowering::lower_to_arc(
+            seed.function.name,
+            seed.signature,
+            seed.function.name,
+            &mut context,
+            None,
+        );
+        super::pc2_hooks::run_pc2_hook_aot(
+            input.pool,
+            &function,
+            &lambdas,
+            input.interner,
+            exempt,
+            "aot_pre_mono",
+            "aot_pre_mono_lambda",
+        );
+        groups.push(crate::realization::ArcFunctionGroup::new(function, lambdas));
+    }
+    Ok(groups)
+}
+
+fn lower_imported_mono_groups(
+    input: &ArcBatchLoweringInput<'_>,
+    problems: &mut Vec<ori_arc::ArcProblem>,
+    exempt: &FxHashSet<u32>,
+) -> Vec<crate::realization::ArcFunctionGroup> {
+    let mut groups = Vec::new();
+    for imported in input.imported.imported_mono_fns {
+        let mono = &imported.function;
+        let source_canon = input
+            .imported
+            .re_interned_canons
+            .get(imported.module_index)
+            .unwrap_or(input.canon);
+        let mut context = crate::arc_lowering::ArcLoweringContext {
+            canon: source_canon,
+            interner: input.interner,
+            pool: input.pool,
+            problems,
+        };
+        let (function, lambdas) = match imported.body {
+            super::imported_mono::ImportedMonoBody::Function(source_name) => {
+                crate::arc_lowering::lower_to_arc(
+                    mono.mangled_name,
+                    &mono.sig,
+                    source_name,
+                    &mut context,
+                    Some(&mono.body_type_map),
+                )
+            }
+            super::imported_mono::ImportedMonoBody::ImplMethod(source_body) => {
+                crate::arc_lowering::lower_impl_method_to_arc_by_source(
+                    mono.mangled_name,
+                    &mono.sig,
+                    source_body,
+                    &mut context,
+                    Some(&mono.body_type_map),
+                )
+            }
+        };
+        super::pc2_hooks::run_pc2_hook_aot(
+            input.pool,
+            &function,
+            &lambdas,
+            input.interner,
+            exempt,
+            "aot_imported_mono",
+            "aot_imported_mono_lambda",
+        );
+        groups.push(crate::realization::ArcFunctionGroup::new(function, lambdas));
+    }
+    groups
+}
+
 /// Lower every non-generic, specialized, and imported-specialized body.
 ///
 /// Lowers each function (local, mono, imported mono) to ARC IR. Returns one
@@ -47,88 +156,31 @@ pub(super) enum ArcBatchLoweringFailure {
 /// ARC lowering diagnostics are emitted here. The returned lowered state has
 /// not crossed the shared specialization and target-closure seam.
 #[cfg(feature = "llvm")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "pipeline helper — distinct data flow inputs per compilation stage"
-)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "pipeline driver composing local, mono, and imported-mono lowering loops"
-)]
 pub(super) fn lower_arc_batch(
-    parse_result: &ParseOutput,
-    function_sigs: &[FunctionSig],
-    impl_sigs: &[ori_types::ImplSig],
-    import_sigs: &[ori_repr::monomorphize::ImportSig],
-    imported: ImportedSurfaces<'_>,
-    canon: &CanonResult,
-    interner: &StringInterner,
-    pool: &Pool,
-    mono_instances: &[ori_types::MonoInstance],
-    accepted_derives: &[ori_types::AcceptedDerivedImpl],
-    derived_call_plans: &[ori_types::DerivedCallPlan],
+    input: ArcBatchLoweringInput<'_>,
 ) -> Result<ArcBatchLoweringResult, ArcBatchLoweringFailure> {
-    let ImportedSurfaces {
-        imported_mono_fns,
-        re_interned_canons,
-    } = imported;
-
-    let mut groups = Vec::new();
     let mut arc_problems = Vec::new();
-
-    // Why: the PC-2 exempt set is empty — pre-mono skips generics via
-    // sig.is_generic(); mono instances are fully substituted (empty scheme_var_ids).
-    let exempt: FxHashSet<u32> = FxHashSet::default();
-
-    let source_seeds = crate::realization::CallableCensusBuilder::new(interner)
-        .source_functions(&parse_result.module.functions, function_sigs)
-        .map_err(ArcBatchLoweringFailure::CallableCensus)?;
-    for seed in source_seeds {
-        let func = seed.function;
-        let sig = seed.signature;
-        if sig.is_generic() {
-            continue;
-        }
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            func.name,
-            sig,
-            func.name,
-            canon,
-            interner,
-            pool,
-            &mut arc_problems,
-            None,
-        );
-        super::pc2_hooks::run_pc2_hook_aot(
-            pool,
-            &arc_fn,
-            &lambdas,
-            interner,
-            &exempt,
-            "aot_pre_mono",
-            "aot_pre_mono_lambda",
-        );
-        groups.push(crate::realization::ArcFunctionGroup::new(arc_fn, lambdas));
-    }
-
+    let exempt = FxHashSet::default();
+    let mut groups = lower_source_groups(&input, &mut arc_problems, &exempt)?;
+    let imported_mono_fns = input.imported.imported_mono_fns;
     // Lower monomorphized generic functions.
     // Why: without mono entries in annotated_sigs, borrow lookup falls back to all-Owned.
     let mono_functions = ori_repr::monomorphize::collect_mono_functions(
-        mono_instances,
-        function_sigs,
-        impl_sigs,
-        accepted_derives,
-        import_sigs,
-        interner,
-        pool,
+        input.mono_instances,
+        input.function_sigs,
+        input.impl_sigs,
+        input.accepted_derives,
+        input.import_sigs,
+        input.interner,
+        input.pool,
     );
     let mono_groups = crate::realization::lower_mono_functions_for_analysis(
         &mono_functions,
-        accepted_derives,
-        derived_call_plans,
-        canon,
-        interner,
-        pool,
+        input.accepted_derives,
+        input.derived_call_plans,
+        input.canon,
+        input.interner,
+        input.pool,
         &mut arc_problems,
     );
     let mono_inventory = crate::realization::MonoFunctionInventory::try_new(
@@ -136,16 +188,16 @@ pub(super) fn lower_arc_batch(
         imported_mono_fns
             .iter()
             .map(|imported| imported.function.clone()),
-        interner,
+        input.interner,
     )
     .map_err(ArcBatchLoweringFailure::MonoInventory)?;
     for group in mono_groups {
         let (arc_fn, lambdas) = group.into_parts();
         super::pc2_hooks::run_pc2_hook_aot(
-            pool,
+            input.pool,
             &arc_fn,
             &lambdas,
-            interner,
+            input.interner,
             &exempt,
             "aot_mono",
             "aot_mono_lambda",
@@ -153,52 +205,11 @@ pub(super) fn lower_arc_batch(
         groups.push(crate::realization::ArcFunctionGroup::new(arc_fn, lambdas));
     }
 
-    // Lower imported monos via body-import linkage; an out-of-bounds
-    // source_module_idx falls back to the host canon.
-    // Why: the generic body lives in the SOURCE module's re-interned canon.
-    for imported in imported_mono_fns {
-        let mono_fn = &imported.function;
-        let source_canon = re_interned_canons
-            .get(imported.module_index)
-            .unwrap_or(canon);
-        let (arc_fn, lambdas) = match imported.body {
-            super::imported_mono::ImportedMonoBody::Function(source_name) => {
-                crate::arc_lowering::lower_to_arc(
-                    mono_fn.mangled_name,
-                    &mono_fn.sig,
-                    source_name,
-                    source_canon,
-                    interner,
-                    pool,
-                    &mut arc_problems,
-                    Some(&mono_fn.body_type_map),
-                )
-            }
-            super::imported_mono::ImportedMonoBody::ImplMethod(source_body) => {
-                crate::arc_lowering::lower_impl_method_to_arc_by_source(
-                    mono_fn.mangled_name,
-                    &mono_fn.sig,
-                    source_body,
-                    source_canon,
-                    interner,
-                    pool,
-                    &mut arc_problems,
-                    Some(&mono_fn.body_type_map),
-                )
-            }
-        };
-        super::pc2_hooks::run_pc2_hook_aot(
-            pool,
-            &arc_fn,
-            &lambdas,
-            interner,
-            &exempt,
-            "aot_imported_mono",
-            "aot_imported_mono_lambda",
-        );
-        groups.push(crate::realization::ArcFunctionGroup::new(arc_fn, lambdas));
-    }
-
+    groups.extend(lower_imported_mono_groups(
+        &input,
+        &mut arc_problems,
+        &exempt,
+    ));
     if !arc_problems.is_empty() {
         use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics};
         let mut acc = CodegenDiagnostics::new();

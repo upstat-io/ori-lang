@@ -42,28 +42,14 @@ pub(super) fn build_imported_mono_functions(
 ///
 /// Forwards to the production `register_prelude_generic_sigs` via the
 /// `crate::commands` re-export.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "forwards the production sig-registration surface verbatim"
-)]
 pub(super) fn register_prelude_generic_sigs(
     imported_generic_sigs: &mut FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)>,
-    prelude_parse: &crate::parser::ParseOutput,
-    prelude_typed: &ori_types::TypedModule,
-    prelude_source_pool: &Pool,
-    prelude_module_index: usize,
-    merged_pool: &mut Pool,
-    per_module_cache: &mut FxHashMap<Idx, Idx>,
-    per_module_var_remap: &mut FxHashMap<u32, u32>,
+    source: crate::commands::ImportedPreludeSource<'_>,
+    state: crate::commands::PoolReinternState<'_>,
 ) {
     crate::commands::register_prelude_generic_sigs_for_test_runner(
         imported_generic_sigs,
-        prelude_parse,
-        prelude_typed,
-        prelude_source_pool,
-        prelude_module_index,
-        merged_pool,
-        per_module_cache,
-        per_module_var_remap,
+        source,
+        state,
     );
 }

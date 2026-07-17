@@ -23,5 +23,5 @@ pub(crate) use mono_inventory::{MonoFunctionInventory, MonoFunctionInventoryErro
 pub(crate) use repr::{
     compute_module_repr_plan, extend_mono_method_targets, lower_impl_methods_for_analysis,
     lower_non_generic_derived_methods_for_analysis, method_receiver_key, DerivedMethodAnalysis,
-    ImplMethodAnalysis,
+    ImplMethodAnalysis, ModuleReprInput,
 };

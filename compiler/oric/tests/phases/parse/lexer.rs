@@ -88,7 +88,7 @@ fn test_lex_pattern_keywords() {
 #[test]
 fn test_lex_function_def() {
     let interner = test_interner();
-    let tokens = lex("@main () -> int = 42;", &interner);
+    let tokens = lex(include_str!("fixtures/function_def.ori"), &interner);
 
     assert!(matches!(tokens[0].kind, TokenKind::At));
     assert!(matches!(tokens[1].kind, TokenKind::Ident(_)));
@@ -368,7 +368,7 @@ fn test_lex_char_literals() {
     clippy::approx_constant,
     reason = "testing float literal parsing, not using PI"
 )]
-#[allow(
+#[expect(
     clippy::float_cmp,
     reason = "exact bit-level comparison of lexer float output"
 )]

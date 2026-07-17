@@ -599,7 +599,7 @@ fn well_known_generic_types_consistent() {
             "registration",
             "ori_types/src/check/registration/type_resolution.rs",
         ),
-        ("signatures", "ori_types/src/check/signatures/mod.rs"),
+        ("signatures", "ori_types/src/check/signatures/resolution.rs"),
         (
             "type_resolution",
             "ori_types/src/infer/expr/type_resolution.rs",

@@ -4,11 +4,6 @@
 //! tuples as function parameters/returns, tuples in collections, and
 //! tuple interaction with other language features.
 
-#![allow(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::assert_aot_success;
 
 // ─── Construction ───

@@ -345,7 +345,7 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
 /// source side table is fully populated. Fixpoint over the alias edge set
 /// handles transitive chains and arbitrary block ordering; monotone (each dst
 /// dimension transitions unset -> set at most once) so it terminates.
-/// Per-dst forward-alias propagation kind (TF-2/4/8/11; BUG-04-097).
+/// Per-dst forward-alias propagation kind (TF-2/4/8/11).
 ///
 /// - `Full` (TF-2 `Let { Var }`): the dst inherits the source's FULL lattice
 ///   state (uniqueness + locality + shape). Single source; first-write-wins.

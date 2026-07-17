@@ -61,16 +61,18 @@ pub(super) fn build_file_single(
     // Salsa/ArtifactCache boundary: Salsa queries end here; codegen uses ArtifactCache.
     let context = Context::create();
     let llvm_module = compile_to_llvm_with_imported_monos(
-        &context,
-        &db,
-        &parse_result,
-        &type_result,
-        &imported_state.merged_pool,
-        imported_state.surfaces(),
-        &canon_result,
-        path,
-        Some(target.triple()),
-        options.narrowing_policy,
+        crate::commands::compile_common::ImportedMonoCompilation {
+            context: &context,
+            db: &db,
+            parse: &parse_result,
+            typed: &type_result,
+            pool: &imported_state.merged_pool,
+            imported: imported_state.surfaces(),
+            canon: &canon_result,
+            source_path: path,
+            target_triple: Some(target.triple()),
+            narrowing_policy: options.narrowing_policy,
+        },
     )
     .unwrap_or_else(|e| report_codegen_error(CodegenProblem::VerificationFailed { message: e }));
 

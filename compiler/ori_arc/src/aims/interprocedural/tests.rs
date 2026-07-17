@@ -831,17 +831,17 @@ fn exact_callable_named_like_cow_builtin_does_not_publish_credit() {
         .with_builtin_tag(1, ori_registry::TypeTag::Int);
     let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
     let exact_callables = FxHashSet::from_iter([local_push]);
-    let contract = extract_contract_with_call_ownership(
-        &func,
-        &state_map,
-        &classifier,
-        &sigs,
-        &FxHashSet::default(),
-        &[],
-        &interner,
-        &builtins,
-        &exact_callables,
-    );
+    let contract = extract_contract_with_call_ownership(&ContractExtractionInput {
+        func: &func,
+        state_map: &state_map,
+        classifier: &classifier,
+        sigs: &sigs,
+        scc_peers: &FxHashSet::default(),
+        context_regions: &[],
+        interner: &interner,
+        builtins: &builtins,
+        exact_callables: &exact_callables,
+    });
 
     assert!(
         !contract.params[0].may_share,
@@ -1590,7 +1590,7 @@ fn demand_propagation_no_callers_stays_maybe_shared() {
     );
 }
 
-/// BUG-04-069: a forwarded Owned param is NOT provably single-owner. `Owned+Linear+Once`
+/// A forwarded Owned param is NOT provably single-owner. `Owned+Linear+Once`
 /// proves no-future-duplication, NOT no-existing-alias (the removed-IC-8/DP-10
 /// fallacy). The forwarded-param Case 2 use-count heuristic is dropped; only a
 /// fresh `Construct` (one logical owner by TF-3) tightens. This is the negative soundness pin.
@@ -1657,7 +1657,7 @@ fn demand_propagation_forwarded_param_stays_maybe_shared() {
     );
 }
 
-/// BUG-04-069: a SINGLE fresh-`Construct` variable passed to the SAME
+/// A SINGLE fresh-`Construct` variable passed to the SAME
 /// (callee, `param_idx`) at >=2 call sites may have another owner at the non-first use. The
 /// per-(callee,param) AND-fold must NOT tighten to Unique — the `count_var_uses
 /// == 1` guard on Case 1 (fresh Construct used exactly once) keeps it

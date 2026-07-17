@@ -1,0 +1,1 @@
+@test_fn () -> (int, int) -> int = (a, b) -> a + b;

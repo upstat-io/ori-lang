@@ -122,6 +122,12 @@ fn lower_declared_impl_methods(
             impl_def.trait_path.is_none(),
         );
         outputs.emission_names.push(Some(qualified_name));
+        let mut context = crate::arc_lowering::ArcLoweringContext {
+            canon: inputs.canon,
+            interner: inputs.interner,
+            pool: inputs.pool,
+            problems: &mut outputs.problems,
+        };
         let (arc_fn, lambdas) = if let Some(type_name) = type_name_name {
             crate::arc_lowering::lower_impl_method_to_arc_nth(
                 qualified_name,
@@ -129,23 +135,11 @@ fn lower_declared_impl_methods(
                 method.name,
                 type_name,
                 ordinal,
-                inputs.canon,
-                inputs.interner,
-                inputs.pool,
-                &mut outputs.problems,
+                &mut context,
                 None,
             )
         } else {
-            crate::arc_lowering::lower_to_arc(
-                qualified_name,
-                sig,
-                method.name,
-                inputs.canon,
-                inputs.interner,
-                inputs.pool,
-                &mut outputs.problems,
-                None,
-            )
+            crate::arc_lowering::lower_to_arc(qualified_name, sig, method.name, &mut context, None)
         };
         outputs
             .groups
@@ -253,6 +247,12 @@ fn lower_default_trait_methods(
                     .dispatch
                     .record(recv_key, default.name, qualified_name, false);
                 outputs.emission_names.push(Some(qualified_name));
+                let mut context = crate::arc_lowering::ArcLoweringContext {
+                    canon: inputs.canon,
+                    interner: inputs.interner,
+                    pool: inputs.pool,
+                    problems: &mut outputs.problems,
+                };
                 let (arc_fn, lambdas) = if let Some(tn) = type_name_name {
                     crate::arc_lowering::lower_impl_method_to_arc_nth(
                         qualified_name,
@@ -260,10 +260,7 @@ fn lower_default_trait_methods(
                         default.name,
                         tn,
                         ordinal,
-                        inputs.canon,
-                        inputs.interner,
-                        inputs.pool,
-                        &mut outputs.problems,
+                        &mut context,
                         None,
                     )
                 } else {
@@ -271,10 +268,7 @@ fn lower_default_trait_methods(
                         qualified_name,
                         sig,
                         default.name,
-                        inputs.canon,
-                        inputs.interner,
-                        inputs.pool,
-                        &mut outputs.problems,
+                        &mut context,
                         None,
                     )
                 };

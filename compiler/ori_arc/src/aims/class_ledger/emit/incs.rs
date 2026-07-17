@@ -16,20 +16,28 @@ use super::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
 /// successor), or the class is borrowed-rooted. A consume refunded by a
 /// same-site CREDIT (the passthrough return leg) transfers the existing
 /// reference and needs no inc on an owned-rooted class.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "internal funding pass over plan_class's own dataflow vectors"
-)]
-pub(super) fn plan_incs(
-    func: &ArcFunction,
-    events: &ClassEvents,
-    demand_live: &[bool],
-    credit_kills: &[bool],
-    seed_vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
-    seed_roots: &[crate::ir::ArcVarId],
-    full_closure: bool,
-    dom: &crate::graph::DominatorTree,
-) -> Result<Vec<PlannedOp>, DeclineReason> {
+pub(super) struct IncPlanningInput<'a> {
+    pub(super) func: &'a ArcFunction,
+    pub(super) events: &'a ClassEvents,
+    pub(super) demand_live: &'a [bool],
+    pub(super) credit_kills: &'a [bool],
+    pub(super) seed_vars: &'a rustc_hash::FxHashSet<crate::ir::ArcVarId>,
+    pub(super) seed_roots: &'a [crate::ir::ArcVarId],
+    pub(super) full_closure: bool,
+    pub(super) dom: &'a crate::graph::DominatorTree,
+}
+
+pub(super) fn plan_incs(input: &IncPlanningInput<'_>) -> Result<Vec<PlannedOp>, DeclineReason> {
+    let IncPlanningInput {
+        func,
+        events,
+        demand_live,
+        credit_kills,
+        seed_vars,
+        seed_roots,
+        full_closure,
+        dom,
+    } = input;
     let borrowed = events.is_externally_funded();
     // Per-seed same-reference closures: a consumed alias belongs to the
     // SEED whose downstream Let-alias closure contains it (the closure
@@ -72,7 +80,7 @@ pub(super) fn plan_incs(
                     suffix_has_demand_of_vars(evs, position, closure),
                 )
             } else {
-                let demand_out = if full_closure {
+                let demand_out = if *full_closure {
                     live_out_killing(func, block, demand_live, credit_kills)
                 } else {
                     live_out_forward_killing(func, block, demand_live, credit_kills, dom)

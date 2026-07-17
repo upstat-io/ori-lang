@@ -1,0 +1,5 @@
+type Point = { x: int, y: int }
+
+impl Point {
+    @scale (self, factor: garbage) -> int = self.x * factor;
+}

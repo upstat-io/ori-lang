@@ -1,0 +1,3 @@
+pub @public_fn () -> int = 1;
+
+@private_fn () -> int = 2;

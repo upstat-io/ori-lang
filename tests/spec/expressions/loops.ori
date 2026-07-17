@@ -4,9 +4,7 @@
 
 use std.testing { assert, assert_eq }
 
-// =============================================================================
 // For-Do Basic
-// =============================================================================
 
 @test_for_do_basic tests @for_do_basic () -> void = {
     let sum = 0;
@@ -41,9 +39,7 @@ use std.testing { assert, assert_eq }
     result
 }
 
-// =============================================================================
 // For-Do with Guard
-// =============================================================================
 
 @test_for_do_with_guard tests @for_do_with_guard () -> void = {
     let sum = 0;
@@ -69,9 +65,7 @@ use std.testing { assert, assert_eq }
     count
 }
 
-// =============================================================================
 // For-Yield Basic
-// =============================================================================
 
 @test_for_yield_basic tests @for_yield_basic () -> void = {
     let result = for x in [1, 2, 3] yield x * 2;
@@ -98,9 +92,7 @@ use std.testing { assert, assert_eq }
 
 @for_yield_identity () -> [int] = for x in [1, 2, 3] yield x;
 
-// =============================================================================
 // For-Yield with Guard
-// =============================================================================
 
 @test_for_yield_with_guard tests @for_yield_with_guard () -> void = {
     let result = for x in [1, 2, 3, 4, 5] if x % 2 == 0 yield x;
@@ -116,9 +108,7 @@ use std.testing { assert, assert_eq }
 
 @for_yield_guard_transform () -> [int] = for x in [1, 2, 3, 4, 5] if x > 2 yield x * 10;
 
-// =============================================================================
 // For with Destructuring
-// =============================================================================
 
 @test_for_tuple_destructure tests @for_tuple_destructure () -> void = {
     let pairs = [(1, "a"), (2, "b"), (3, "c")];
@@ -147,9 +137,7 @@ type Point = { x: int, y: int }
     for p in points yield p.x
 }
 
-// =============================================================================
 // Nested For
-// =============================================================================
 
 @test_nested_for_do tests @nested_for_do () -> void = {
     let sum = 0;
@@ -174,9 +162,7 @@ type Point = { x: int, y: int }
 
 @nested_for_yield () -> [[int]] = for x in [1, 2] yield for y in [10, 20] yield x + y;
 
-// =============================================================================
 // Loop Basic
-// =============================================================================
 
 @test_loop_with_break tests @loop_with_break () -> void = {
     let count = 0;
@@ -226,9 +212,7 @@ type Point = { x: int, y: int }
     }
 }
 
-// =============================================================================
 // Loop with Continue
-// =============================================================================
 
 @test_loop_continue tests @loop_continue () -> void = {
     let count = 0;
@@ -254,9 +238,7 @@ type Point = { x: int, y: int }
     sum
 }
 
-// =============================================================================
 // For with Break
-// =============================================================================
 
 @test_for_do_break tests @for_do_break () -> void = {
     let sum = 0;
@@ -303,9 +285,7 @@ type Point = { x: int, y: int }
     x
 }
 
-// =============================================================================
 // For with Continue
-// =============================================================================
 
 @test_for_do_continue tests @for_do_continue () -> void = {
     let sum = 0;
@@ -351,9 +331,7 @@ type Point = { x: int, y: int }
     x
 }
 
-// =============================================================================
 // Labeled Loops (NOT YET IMPLEMENTED)
-// =============================================================================
 
 // Note: Labeled loops (loop:name, for:name, break:name, continue:name) are
 // specified but not yet implemented in the compiler. These tests are
@@ -365,9 +343,7 @@ type Point = { x: int, y: int }
 // - for:name with continue:name
 // - Nested labeled loops
 
-// =============================================================================
 // Loop Type Inference
-// =============================================================================
 
 @test_loop_void tests @loop_void () -> void = {
     let count = 0;
@@ -394,9 +370,7 @@ type Point = { x: int, y: int }
 
 @loop_int () -> int = loop {break 42}
 
-// =============================================================================
 // Complex Patterns
-// =============================================================================
 //
 // Regression: labeled `break:outer value` from a nested BARE inner `loop`
 // propagates to the outer labeled `loop` (Spec: Clause 16.3.3). Nested bare
@@ -503,9 +477,7 @@ type Point = { x: int, y: int }
     sum
 }
 
-// =============================================================================
 // Break in for-do with mutable variables (SSA exit block params)
-// =============================================================================
 
 // Break in for-range preserves mutable variable values at point of break.
 @test_for_range_break_with_mutation tests @for_range_break_mutation () -> void = {
@@ -594,7 +566,6 @@ type Point = { x: int, y: int }
     42
 }
 
-// =============================================================================
 // Regression: for-loop GUARD-position break/continue
 // `infer_for` pushed the loop context AFTER inferring the guard, so a
 // guard-position break/continue resolved against the ENCLOSING loop while the
@@ -605,7 +576,6 @@ type Point = { x: int, y: int }
 // Spec: 16-control-flow.md § Loop Control — the guard runs per-iteration inside
 // the for, so a guard-position break/continue targets the for, not an enclosing
 // loop.
-// =============================================================================
 
 // Semantic pin (list/iterator): guard-position break targets the FOR. Builds +
 // runs (pre-fix: ARC ICE at build). x=1,2 run the body; x=3 breaks the for.

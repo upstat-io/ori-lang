@@ -98,6 +98,24 @@ fn test_infer_literal_bool() {
 }
 
 #[test]
+fn await_expression_when_inferred_reports_unsupported_feature() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+    let inner = alloc(&mut arena, ExprKind::Int(1));
+    let awaited = alloc(&mut arena, ExprKind::Await(inner));
+
+    let ty = infer_expr(&mut engine, &arena, awaited);
+
+    assert_eq!(ty, Idx::ERROR);
+    assert!(matches!(
+        engine.errors().first().map(|error| &error.kind),
+        Some(crate::TypeErrorKind::UnsupportedFeature {
+            feature: "await expressions"
+        })
+    ));
+}
+
+#[test]
 fn test_infer_literal_str() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();

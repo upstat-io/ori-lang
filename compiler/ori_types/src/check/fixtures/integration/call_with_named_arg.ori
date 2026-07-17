@@ -1,0 +1,3 @@
+@takes_int (x: int) -> int = x;
+
+@caller () -> int = takes_int(x: 42);

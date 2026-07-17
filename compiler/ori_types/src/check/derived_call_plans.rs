@@ -4,7 +4,7 @@ mod monos;
 mod planning;
 mod selection;
 
-use monos::{push_derived_mono, push_impl_mono, push_imported_impl_mono};
+use monos::{push_derived_mono, push_impl_mono, push_imported_impl_mono, MethodMonoDemand};
 use planning::build_plan;
 use selection::{select_producer, selected_local_impl};
 
@@ -281,10 +281,12 @@ fn close_plan_worklist(
                         push_impl_mono(
                             sig,
                             call.receiver_type,
-                            &call.producer,
-                            sources.traits,
-                            accepted.trait_type,
-                            call.method_name,
+                            MethodMonoDemand {
+                                producer: &call.producer,
+                                traits: sources.traits,
+                                trait_type: accepted.trait_type,
+                                method_name: call.method_name,
+                            },
                             mono_instances,
                             pool,
                         );
@@ -339,10 +341,12 @@ fn close_imported_call(
     push_imported_impl_mono(
         signature,
         call.receiver_type,
-        &call.producer,
-        sources.traits,
-        call.trait_type,
-        call.method_name,
+        MethodMonoDemand {
+            producer: &call.producer,
+            traits: sources.traits,
+            trait_type: call.trait_type,
+            method_name: call.method_name,
+        },
         mono_instances,
         pool,
     );

@@ -1,0 +1,1 @@
+@f () -> Result<Option<[int]>, str> = Ok(None);

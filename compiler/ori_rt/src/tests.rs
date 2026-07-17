@@ -4,8 +4,14 @@
 //! `RC_LIVE_COUNT` is a global atomic counter modified by
 //! `ori_rc_alloc`/`ori_rc_free`. Without serialization, parallel tests
 //! cause TOCTOU races in live-count assertions.
-#![expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
-#![expect(clippy::expect_used, reason = "test code uses expect for clarity")]
+#![expect(
+    clippy::unwrap_used,
+    reason = "runtime tests abort when an allocation or subprocess fixture fails"
+)]
+#![expect(
+    clippy::expect_used,
+    reason = "runtime tests abort when an allocation or subprocess fixture fails"
+)]
 #![expect(
     clippy::items_after_statements,
     reason = "inner helper fns in test functions are idiomatic"
@@ -2708,8 +2714,7 @@ fn cow_push_1000_sequential_amortized() {
     assert_eq!(len, 1000, "should have 1000 elements");
     assert!(cap >= 1000, "capacity should be at least 1000, got {cap}");
 
-    // With doubling growth (4, 8, 16, 32, 64, 128, 256, 512, 1024),
-    // we expect roughly 10 allocations (1 initial + ~9 doublings)
+    // Capacity doubling reaches 1024 in at most 15 reallocations from any small seed.
     assert!(
         realloc_count <= 15,
         "amortized O(1): expected ~10 reallocations for 1000 pushes, got {realloc_count}"

@@ -128,21 +128,16 @@ fn template_depth_empty_after_complete_scan() {
 // Byte Coverage
 
 #[test]
-fn all_256_bytes_produce_valid_token() {
-    for byte in 0u8..=255 {
-        let source = [byte];
-        // We need valid UTF-8 for SourceBuffer, so use from_utf8_lossy
-        // For non-UTF-8 bytes, we test via raw cursor construction instead
-        if let Ok(s) = std::str::from_utf8(&source) {
-            let buf = SourceBuffer::new(s);
-            let mut scanner = RawScanner::new(buf.cursor());
-            let tok = scanner.next_token();
-            // Should not panic and should produce a token
-            assert!(
-                tok.tag == RawTag::Eof || tok.len > 0,
-                "byte {byte} produced invalid token: {tok:?}",
-            );
-        }
+fn all_ascii_bytes_produce_valid_token() {
+    for byte in 0u8..=127 {
+        let source = char::from(byte).to_string();
+        let buf = SourceBuffer::new(&source);
+        let mut scanner = RawScanner::new(buf.cursor());
+        let tok = scanner.next_token();
+        assert!(
+            tok.tag == RawTag::Eof || tok.len > 0,
+            "byte {byte} produced invalid token: {tok:?}",
+        );
     }
 }
 
@@ -327,7 +322,7 @@ fn compound_operators() {
     assert_eq!(scan_tags("??"), vec![RawTag::QuestionQuestion]);
 }
 
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "short operator symbols have length fitting in u32"
 )]
@@ -1095,10 +1090,8 @@ fn template_format_spec_length_correct() {
 
 #[test]
 fn non_ascii_byte_is_invalid() {
-    // Non-ASCII in UTF-8 context — the SourceBuffer accepts &str so
-    // we can test with a multi-byte UTF-8 char
-    let tags = scan_tags("\u{00E9}"); // é (2 bytes: 0xC3 0xA9)
-                                      // Each non-ASCII byte produces InvalidByte
+    // UTF-8 encodes `é` as two non-ASCII bytes, each reported separately.
+    let tags = scan_tags("é");
     assert_eq!(tags.len(), 2);
     assert!(tags.iter().all(|t| *t == RawTag::InvalidByte));
 }
@@ -1225,7 +1218,7 @@ fn realistic_function_def() {
 
 #[test]
 fn realistic_attribute_and_test() {
-    let source = "@test tests\n@target () -> void";
+    let source = include_str!("fixtures/attribute_test.ori").trim_end();
     let tags = scan_tags(source);
     assert_eq!(
         tags,

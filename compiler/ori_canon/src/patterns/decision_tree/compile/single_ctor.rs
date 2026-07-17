@@ -1,8 +1,4 @@
-//! Single-constructor decomposition for Tuple and Struct patterns.
-//!
-//! These types have only one "shape" — there's no runtime test needed,
-//! just decomposition into sub-patterns. This module handles detecting
-//! single-constructor columns and expanding them into sub-pattern columns.
+//! Runtime-test-free decomposition of tuple and struct pattern columns.
 
 use super::collect_consumed_bindings;
 use super::Specialized;
@@ -34,9 +30,7 @@ impl SingleConstructorColumn {
     }
 }
 
-/// Check if a column contains only single-constructor patterns (Tuple/Struct)
-/// plus wildcards. These types don't need a runtime test — they're always
-/// the same "shape" and just need field decomposition.
+/// Returns the common tuple or struct shape when every concrete pattern shares it.
 pub(super) fn single_constructor_column(
     matrix: &PatternMatrix,
     col: usize,
@@ -65,7 +59,6 @@ pub(super) fn single_constructor_column(
     shape
 }
 
-/// Unwrap an at-pattern to get its underlying pattern.
 fn unwrap_at_or(pat: &FlatPattern) -> &FlatPattern {
     match pat {
         FlatPattern::At { inner, .. } => unwrap_at_or(inner),
@@ -73,10 +66,7 @@ fn unwrap_at_or(pat: &FlatPattern) -> &FlatPattern {
     }
 }
 
-/// Decompose a single-constructor column (Tuple/Struct) into sub-pattern columns.
-///
-/// This is similar to `specialize_matrix` but without a `TestValue` — the
-/// decomposition is unconditional since there's only one possible shape.
+/// Expands a tuple or struct column without emitting a runtime test.
 pub(super) fn decompose_single_constructor(
     matrix: &PatternMatrix,
     col: usize,
@@ -86,7 +76,6 @@ pub(super) fn decompose_single_constructor(
 ) -> Specialized {
     let sub_count = shape.field_count();
 
-    // Build new paths: replace column `col` with sub-pattern paths.
     let mut new_paths = Vec::with_capacity(paths.len() - 1 + sub_count);
     new_paths.extend_from_slice(&paths[..col]);
     for i in 0..sub_count {
@@ -96,11 +85,9 @@ pub(super) fn decompose_single_constructor(
     }
     new_paths.extend_from_slice(&paths[col + 1..]);
 
-    // Build new rows: decompose each pattern at `col`.
     let new_matrix = matrix
         .iter()
         .map(|row| {
-            // Collect any bindings from the consumed pattern (e.g., Binding or At).
             let mut bindings = row.bindings.clone();
             bindings.extend(collect_consumed_bindings(&row.patterns[col], base_path));
 
@@ -141,7 +128,6 @@ pub(super) fn decompose_single_constructor(
     }
 }
 
-/// Decompose a single-constructor pattern into its sub-patterns.
 fn decompose_single_ctor_pattern(pat: &FlatPattern, sub_count: usize) -> Vec<FlatPattern> {
     match pat {
         FlatPattern::Tuple(elements) => elements.clone(),
@@ -151,7 +137,6 @@ fn decompose_single_ctor_pattern(pat: &FlatPattern, sub_count: usize) -> Vec<Fla
         }
         FlatPattern::At { inner, .. } => decompose_single_ctor_pattern(inner, sub_count),
         FlatPattern::Or(alts) => {
-            // Use the first alternative's decomposition.
             if let Some(first) = alts.first() {
                 decompose_single_ctor_pattern(first, sub_count)
             } else {

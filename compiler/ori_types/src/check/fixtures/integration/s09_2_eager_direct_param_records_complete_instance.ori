@@ -1,0 +1,4 @@
+
+@p1_id <T> (x: T) -> T = x;
+@p1_caller () -> int = p1_id(x: 42);
+@test_p1 tests @p1_caller () -> void = ();

@@ -3,6 +3,8 @@
 //! Builds the call graph, computes Tarjan SCCs, and processes them in
 //! topological order (callees before callers). Non-recursive SCCs get a
 //! single intraprocedural pass; recursive SCCs iterate to convergence.
+//! Diagnostics share the `ori_arc::aims::interprocedural` target so one filter
+//! observes every participant in the fixed-point computation.
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
@@ -51,7 +53,7 @@ pub fn analyze_program(
 
 /// Compute local contracts while treating producer-frozen external contracts
 /// as immutable interprocedural inputs.
-pub fn analyze_program_with_external_contracts<S: BuildHasher>(
+pub(crate) fn analyze_program_with_external_contracts<S: BuildHasher>(
     functions: &[ArcFunction],
     classifier: &dyn ArcClassification,
     builtins: &BuiltinOwnershipSets,
@@ -241,17 +243,17 @@ pub(super) fn analyze_scc_single(
     // Non-recursive: empty SCC peer set → has_unbounded_stack = false.
     // No context regions for non-recursive (TRMC requires recursion).
     let empty_peers = rustc_hash::FxHashSet::default();
-    let mut contract = extract_contract_with_call_ownership(
+    let mut contract = extract_contract_with_call_ownership(&super::ContractExtractionInput {
         func,
-        &state_map,
+        state_map: &state_map,
         classifier,
-        all_sigs,
-        &empty_peers,
-        &[],
+        sigs: all_sigs,
+        scc_peers: &empty_peers,
+        context_regions: &[],
         interner,
         builtins,
         exact_callables,
-    );
+    });
     callable_boundaries.constrain_contract(func.name, &mut contract);
     contract
 }
@@ -310,17 +312,18 @@ fn analyze_scc_fixpoint(
             // interprocedural fixpoint; the rewrite runs in the per-function
             // pipeline after contracts converge).
             let context_regions = crate::aims::normalize::detect_context_regions(func);
-            let mut new_contract = extract_contract_with_call_ownership(
-                func,
-                &state_map,
-                classifier,
-                &combined_sigs,
-                &scc_peers,
-                &context_regions,
-                interner,
-                builtins,
-                exact_callables,
-            );
+            let mut new_contract =
+                extract_contract_with_call_ownership(&super::ContractExtractionInput {
+                    func,
+                    state_map: &state_map,
+                    classifier,
+                    sigs: &combined_sigs,
+                    scc_peers: &scc_peers,
+                    context_regions: &context_regions,
+                    interner,
+                    builtins,
+                    exact_callables,
+                });
             callable_boundaries.constrain_contract(func.name, &mut new_contract);
 
             let old_contract = &local_sigs[&func.name];

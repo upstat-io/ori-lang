@@ -8,13 +8,15 @@
 //! by generating synthetic code that might exercise edge cases not
 //! present in the test corpus.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, reason = "Tests can panic")]
-#![allow(
+#![expect(
+    clippy::expect_used,
+    reason = "property-test failures report the generated counterexample by panicking"
+)]
+#![expect(
     clippy::doc_markdown,
     clippy::disallowed_types,
     clippy::uninlined_format_args,
     clippy::redundant_closure_for_method_calls,
-    clippy::no_effect_replace,
     reason = "Proptest macros generate code with these patterns"
 )]
 
@@ -22,6 +24,12 @@ use ori_fmt::{format_module, format_module_with_comments};
 use ori_ir::StringInterner;
 use ori_lexer::lex_with_comments;
 use proptest::prelude::*;
+
+fn fixture_without_trailing_newline(source: &'static str) -> &'static str {
+    source
+        .strip_suffix('\n')
+        .expect("committed Ori fixtures end with a newline")
+}
 
 // Code Generation Strategies
 
@@ -1008,100 +1016,119 @@ proptest! {
 #[test]
 fn test_single_element_tuple_idempotence() {
     // Single-element tuples need trailing comma
-    let source = "@test_fn () -> int = (42,);";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/single_element_tuple_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "single element tuple should be idempotent");
 }
 
 #[test]
 fn test_empty_list_idempotence() {
-    let source = "@test_fn () -> [int] = [];";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/empty_list_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "empty list should be idempotent");
 }
 
 #[test]
 fn test_nested_if_idempotence() {
-    let source = "@test_fn (x: int) -> int = if x > 0 then if x > 10 then 100 else 10 else 0;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/nested_if_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "nested if should be idempotent");
 }
 
 #[test]
 fn test_lambda_idempotence() {
-    let source = "@test_fn () -> (int) -> int = x -> x + 1;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/lambda_idempotence.ori"));
     assert_fixed_idempotent(source, "lambda should be idempotent");
 }
 
 #[test]
 fn test_multi_param_lambda_idempotence() {
-    let source = "@test_fn () -> (int, int) -> int = (a, b) -> a + b;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/multi_param_lambda_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "multi-param lambda should be idempotent");
 }
 
 #[test]
 fn test_option_some_idempotence() {
-    let source = "@test_fn () -> Option<int> = Some(42);";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/option_some_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "Some should be idempotent");
 }
 
 #[test]
 fn test_option_none_idempotence() {
-    let source = "@test_fn () -> Option<int> = None;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/option_none_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "None should be idempotent");
 }
 
 #[test]
 fn test_result_ok_idempotence() {
-    let source = "@test_fn () -> Result<int, str> = Ok(42);";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/result_ok_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "Ok should be idempotent");
 }
 
 #[test]
 fn test_result_err_idempotence() {
-    let source = r#"@test_fn () -> Result<int, str> = Err("error");"#;
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/result_err_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "Err should be idempotent");
 }
 
 #[test]
 fn test_complex_struct_idempotence() {
-    let source = "type Point = { x: int, y: int, z: int }";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/complex_struct_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "struct should be idempotent");
 }
 
 #[test]
 fn test_sum_type_idempotence() {
     // Note: Ok/Err are reserved (Result constructors), use different names
-    let source = "type Status = Success | Failure | Pending;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/sum_type_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "sum type should be idempotent");
 }
 
 #[test]
 fn test_generic_function_idempotence() {
-    let source = "@identity<T> (x: T) -> T = x;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/generic_function_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "generic function should be idempotent");
 }
 
 #[test]
 fn test_where_clause_idempotence() {
-    let source = "@compare<T> (a: T, b: T) -> bool where T: Eq = a == b;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/where_clause_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "where clause should be idempotent");
 }
 
 #[test]
 fn test_const_def_idempotence() {
-    let source = "let $PI = 3.14159;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/const_def_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "const should be idempotent");
 }
 
 #[test]
 fn test_multiple_declarations_idempotence() {
-    let source = r"
-let $MAX = 100;
-
-type Point = { x: int, y: int }
-
-@origin () -> Point = Point { x: 0, y: 0 }
-
-@distance (p: Point) -> float = 0.0;
-";
+    let source = include_str!("fixtures/property/multiple_declarations_idempotence.ori");
     assert_fixed_idempotent(source, "module should be idempotent");
 }
 
@@ -1109,7 +1136,9 @@ type Point = { x: int, y: int }
 fn test_binary_expr_line_break() {
     // Regression test: binary expression breaking must preserve semantics.
     // The parser must accept binary operators at line start.
-    let source = r#"@test (a: str, b: str) -> bool = "string" <= other;"#;
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/binary_expr_line_break.ori"
+    ));
     assert_fixed_idempotent(
         source,
         "binary expression with line break should be idempotent",
@@ -1122,60 +1151,78 @@ fn test_binary_expr_line_break() {
 
 #[test]
 fn test_zero_literal() {
-    let source = "@f () -> int = 0;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/zero_literal.ori"));
     assert_fixed_idempotent(source, "zero should be idempotent");
 }
 
 #[test]
 fn test_negative_literal() {
-    let source = "@f () -> int = -42;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/negative_literal.ori"));
     assert_fixed_idempotent(source, "negative should be idempotent");
 }
 
 #[test]
 fn test_large_int_literal() {
-    let source = "@f () -> int = 9_223_372_036_854_775_807;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/large_int_literal.ori"));
     assert_fixed_idempotent(source, "large int should be idempotent");
 }
 
 #[test]
 fn test_float_zero() {
-    let source = "@f () -> float = 0.0;";
+    let source = fixture_without_trailing_newline(include_str!("fixtures/property/float_zero.ori"));
     assert_fixed_idempotent(source, "float zero should be idempotent");
 }
 
 #[test]
 fn test_float_scientific() {
-    let source = "@f () -> float = 1.5e10;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/float_scientific.ori"));
     assert_fixed_idempotent(source, "scientific notation should be idempotent");
 }
 
 #[test]
 fn test_float_negative_exponent() {
-    let source = "@f () -> float = 2.5e-8;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/float_negative_exponent.ori"
+    ));
     assert_fixed_idempotent(source, "negative exponent should be idempotent");
 }
 
 #[test]
 fn test_empty_string() {
-    let source = r#"@f () -> str = "";"#;
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/empty_string.ori"));
     assert_fixed_idempotent(source, "empty string should be idempotent");
 }
 
 #[test]
 fn test_string_with_escapes() {
-    let source = r#"@f () -> str = "hello\nworld\ttab";"#;
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/string_with_escapes.ori"));
     assert_fixed_idempotent(source, "escaped string should be idempotent");
 }
 
 #[test]
 fn test_char_escape_sequences() {
     let sources = [
-        r"@f () -> char = '\n';",
-        r"@f () -> char = '\t';",
-        r"@f () -> char = '\r';",
-        r"@f () -> char = '\0';",
-        r"@f () -> char = '\\';",
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/property/char_escape_sequences_source_1.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/property/char_escape_sequences_source_2.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/property/char_escape_sequences_source_3.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/property/char_escape_sequences_source_4.ori"
+        )),
+        fixture_without_trailing_newline(include_str!(
+            "fixtures/property/char_escape_sequences_source_5.ori"
+        )),
     ];
     for source in sources {
         assert_fixed_idempotent(source, "char escape should be idempotent");
@@ -1186,67 +1233,76 @@ fn test_char_escape_sequences() {
 
 #[test]
 fn test_bitwise_and() {
-    let source = "@f (a: int, b: int) -> int = a & b;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/bitwise_and.ori"));
     assert_fixed_idempotent(source, "bitwise and should be idempotent");
 }
 
 #[test]
 fn test_bitwise_or() {
-    let source = "@f (a: int, b: int) -> int = a | b;";
+    let source = fixture_without_trailing_newline(include_str!("fixtures/property/bitwise_or.ori"));
     assert_fixed_idempotent(source, "bitwise or should be idempotent");
 }
 
 #[test]
 fn test_bitwise_xor() {
-    let source = "@f (a: int, b: int) -> int = a ^ b;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/bitwise_xor.ori"));
     assert_fixed_idempotent(source, "bitwise xor should be idempotent");
 }
 
 #[test]
 fn test_left_shift() {
-    let source = "@f (a: int) -> int = a << 2;";
+    let source = fixture_without_trailing_newline(include_str!("fixtures/property/left_shift.ori"));
     assert_fixed_idempotent(source, "left shift should be idempotent");
 }
 
 #[test]
 fn test_right_shift() {
-    let source = "@f (a: int) -> int = a >> 2;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/right_shift.ori"));
     assert_fixed_idempotent(source, "right shift should be idempotent");
 }
 
 #[test]
 fn test_modulo() {
-    let source = "@f (a: int, b: int) -> int = a % b;";
+    let source = fixture_without_trailing_newline(include_str!("fixtures/property/modulo.ori"));
     assert_fixed_idempotent(source, "modulo should be idempotent");
 }
 
 #[test]
 fn test_unary_not() {
-    let source = "@f (a: bool) -> bool = !a;";
+    let source = fixture_without_trailing_newline(include_str!("fixtures/property/unary_not.ori"));
     assert_fixed_idempotent(source, "unary not should be idempotent");
 }
 
 #[test]
 fn test_unary_negate() {
-    let source = "@f (a: int) -> int = -a;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/unary_negate.ori"));
     assert_fixed_idempotent(source, "unary negate should be idempotent");
 }
 
 #[test]
 fn test_double_negation() {
-    let source = "@f (a: int) -> int = --a;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/double_negation.ori"));
     assert_fixed_idempotent(source, "double negation should be idempotent");
 }
 
 #[test]
 fn test_complex_operator_precedence() {
-    let source = "@f (a: int, b: int, c: int) -> int = a + b * c - (a / b) % c;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/complex_operator_precedence.ori"
+    ));
     assert_fixed_idempotent(source, "complex precedence should be idempotent");
 }
 
 #[test]
 fn test_mixed_comparison_logical() {
-    let source = "@f (a: int, b: int) -> bool = a > 0 && b < 10 || a == b;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/mixed_comparison_logical.ori"
+    ));
     assert_fixed_idempotent(source, "mixed comparison/logical should be idempotent");
 }
 
@@ -1254,60 +1310,65 @@ fn test_mixed_comparison_logical() {
 
 #[test]
 fn test_list_of_lists() {
-    let source = "@f () -> [[int]] = [[1, 2], [3, 4], [5, 6]];";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/list_of_lists.ori"));
     assert_fixed_idempotent(source, "nested lists should be idempotent");
 }
 
 #[test]
 fn test_list_of_tuples() {
-    let source = "@f () -> [(int, str)] = [(1, \"a\"), (2, \"b\")];";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/list_of_tuples.ori"));
     assert_fixed_idempotent(source, "list of tuples should be idempotent");
 }
 
 #[test]
 fn test_tuple_of_lists() {
-    let source = "@f () -> ([int], [str]) = ([1, 2], [\"a\", \"b\"]);";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/tuple_of_lists.ori"));
     assert_fixed_idempotent(source, "tuple of lists should be idempotent");
 }
 
 #[test]
 fn test_empty_tuple() {
-    let source = "@f () -> () = ();";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/empty_tuple.ori"));
     assert_fixed_idempotent(source, "empty tuple should be idempotent");
 }
 
 #[test]
 fn test_struct_literal_simple() {
-    let source = "type Point = { x: int, y: int }\n\n@f () -> Point = Point { x: 1, y: 2 }";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/struct_literal_simple.ori"
+    ));
     assert_fixed_idempotent(source, "struct literal should be idempotent");
 }
 
 #[test]
 fn test_struct_literal_shorthand() {
-    let source = "type Point = { x: int, y: int }\n\n@f (x: int, y: int) -> Point = Point { x, y }";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/struct_literal_shorthand.ori"
+    ));
     assert_fixed_idempotent(source, "struct shorthand should be idempotent");
 }
 
 #[test]
 fn test_struct_nested() {
-    let source = r"
-type Inner = { a: int }
-type Outer = { inner: Inner, b: int }
-
-@f () -> Outer = Outer { inner: Inner { a: 1 }, b: 2 }
-";
+    let source = include_str!("fixtures/property/struct_nested.ori");
     assert_fixed_idempotent(source, "nested struct should be idempotent");
 }
 
 #[test]
 fn test_range_exclusive() {
-    let source = "@f () -> int = for i in 0..10 yield i;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/range_exclusive.ori"));
     assert_fixed_idempotent(source, "exclusive range should be idempotent");
 }
 
 #[test]
 fn test_range_inclusive() {
-    let source = "@f () -> int = for i in 0..=10 yield i;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/range_inclusive.ori"));
     assert_fixed_idempotent(source, "inclusive range should be idempotent");
 }
 
@@ -1315,31 +1376,35 @@ fn test_range_inclusive() {
 
 #[test]
 fn test_if_without_else() {
-    let source = "@f (x: int) -> void = if x > 0 then print(msg: \"positive\");";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/if_without_else.ori"));
     assert_fixed_idempotent(source, "if without else should be idempotent");
 }
 
 #[test]
 fn test_chained_if_else() {
-    let source = "@f (x: int) -> str = if x < 0 then \"negative\" else if x == 0 then \"zero\" else \"positive\";";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/chained_if_else.ori"));
     assert_fixed_idempotent(source, "chained if-else should be idempotent");
 }
 
 #[test]
 fn test_deeply_nested_if() {
-    let source = "@f (a: bool, b: bool, c: bool) -> int = if a then if b then if c then 1 else 2 else 3 else 4;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/deeply_nested_if.ori"));
     assert_fixed_idempotent(source, "deeply nested if should be idempotent");
 }
 
 #[test]
 fn test_for_with_filter() {
-    let source = "@f (items: [int]) -> [int] = for x in items if x > 0 yield x;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/for_with_filter.ori"));
     assert_fixed_idempotent(source, "for with filter should be idempotent");
 }
 
 #[test]
 fn test_nested_for() {
-    let source = "@f (rows: [[int]]) -> [int] = for row in rows yield for x in row yield x;";
+    let source = fixture_without_trailing_newline(include_str!("fixtures/property/nested_for.ori"));
     assert_fixed_idempotent(source, "nested for should be idempotent");
 }
 
@@ -1347,49 +1412,59 @@ fn test_nested_for() {
 
 #[test]
 fn test_run_multiple_bindings() {
-    let source = "@f () -> int = { let a = 1; let b = 2; a + b }";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/run_multiple_bindings.ori"
+    ));
     assert_fixed_idempotent(source, "block multiple bindings should be idempotent");
 }
 
 #[test]
 fn test_try_expression() {
-    let source = "@f (x: Result<int, str>) -> Result<int, str> = try { let v = x; Ok(v + 1) }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/try_expression.ori"));
     assert_fixed_idempotent(source, "try expression should be idempotent");
 }
 
 #[test]
 fn test_match_option() {
-    let source = "@f (opt: Option<int>) -> int = match opt { Some(x) -> x, None -> 0 }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/match_option.ori"));
     assert_fixed_idempotent(source, "match option should be idempotent");
 }
 
 #[test]
 fn test_match_result() {
-    let source = "@f (res: Result<int, str>) -> int = match res { Ok(x) -> x, Err(_) -> 0 }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/match_result.ori"));
     assert_fixed_idempotent(source, "match result should be idempotent");
 }
 
 #[test]
 fn test_match_simple_patterns() {
-    let source = "@f (x: int) -> str = match x { 0 -> \"zero\", 1 -> \"one\", _ -> \"other\" }";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/match_simple_patterns.ori"
+    ));
     assert_fixed_idempotent(source, "match simple patterns should be idempotent");
 }
 
 #[test]
 fn test_match_nested() {
-    let source = "@f (x: Option<Option<int>>) -> int = match x { Some(inner) -> match inner { Some(v) -> v, None -> 0 }, None -> -1 }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/match_nested.ori"));
     assert_fixed_idempotent(source, "nested match should be idempotent");
 }
 
 #[test]
 fn test_match_tuple_pattern() {
-    let source = "@f (pair: (int, str)) -> int = match pair { (x, _) -> x }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/match_tuple_pattern.ori"));
     assert_fixed_idempotent(source, "match tuple pattern should be idempotent");
 }
 
 #[test]
 fn test_match_list_pattern() {
-    let source = "@f (list: [int]) -> int = match list { [first, ..rest] -> first, [] -> 0 }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/match_list_pattern.ori"));
     assert_fixed_idempotent(source, "match list pattern should be idempotent");
 }
 
@@ -1397,49 +1472,58 @@ fn test_match_list_pattern() {
 
 #[test]
 fn test_simple_call() {
-    let source = "@f (x: int) -> int = x;\n\n@g () -> int = f(x: 42);";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/simple_call.ori"));
     assert_fixed_idempotent(source, "simple call should be idempotent");
 }
 
 #[test]
 fn test_nested_calls() {
-    let source = "@f (x: int) -> int = x;\n\n@g () -> int = f(x: f(x: f(x: 1)));";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/nested_calls.ori"));
     assert_fixed_idempotent(source, "nested calls should be idempotent");
 }
 
 #[test]
 fn test_call_with_lambda() {
-    let source = "@f (transform: (int) -> int) -> int = transform(1);\n\n@g () -> int = f(transform: x -> x + 1);";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/call_with_lambda.ori"));
     assert_fixed_idempotent(source, "call with lambda should be idempotent");
 }
 
 #[test]
 fn test_method_call_chain_long() {
-    let source = "@f (x: int) -> int = x.foo().bar().baz().qux().quux();";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/method_call_chain_long.ori"
+    ));
     assert_fixed_idempotent(source, "long method chain should be idempotent");
 }
 
 #[test]
 fn test_mixed_access_chain() {
-    let source = "@f (obj: int) -> int = obj.field.method().another_field.final_method();";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/mixed_access_chain.ori"));
     assert_fixed_idempotent(source, "mixed access chain should be idempotent");
 }
 
 #[test]
 fn test_index_access() {
-    let source = "@f (list: [int]) -> int = list[0];";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/index_access.ori"));
     assert_fixed_idempotent(source, "index access should be idempotent");
 }
 
 #[test]
 fn test_index_with_hash() {
-    let source = "@f (list: [int]) -> int = list[# - 1];";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/index_with_hash.ori"));
     assert_fixed_idempotent(source, "index with hash should be idempotent");
 }
 
 #[test]
 fn test_nested_index() {
-    let source = "@f (matrix: [[int]]) -> int = matrix[0][1];";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/nested_index.ori"));
     assert_fixed_idempotent(source, "nested index should be idempotent");
 }
 
@@ -1447,37 +1531,45 @@ fn test_nested_index() {
 
 #[test]
 fn test_lambda_no_params() {
-    let source = "@f () -> (() -> int) = () -> 42;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/lambda_no_params.ori"));
     assert_fixed_idempotent(source, "no-param lambda should be idempotent");
 }
 
 #[test]
 fn test_lambda_single_param() {
-    let source = "@f () -> ((int) -> int) = x -> x * 2;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/lambda_single_param.ori"));
     assert_fixed_idempotent(source, "single-param lambda should be idempotent");
 }
 
 #[test]
 fn test_lambda_multi_param() {
-    let source = "@f () -> ((int, int, int) -> int) = (a, b, c) -> a + b + c;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/lambda_multi_param.ori"));
     assert_fixed_idempotent(source, "multi-param lambda should be idempotent");
 }
 
 #[test]
 fn test_lambda_with_type_annotation() {
-    let source = "@f () -> ((int) -> int) = (x: int) -> int = x + 1;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/lambda_with_type_annotation.ori"
+    ));
     assert_fixed_idempotent(source, "typed lambda should be idempotent");
 }
 
 #[test]
 fn test_nested_lambda() {
-    let source = "@f () -> ((int) -> (int) -> int) = x -> y -> x + y;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/nested_lambda.ori"));
     assert_fixed_idempotent(source, "nested lambda should be idempotent");
 }
 
 #[test]
 fn test_lambda_with_complex_body() {
-    let source = "@f () -> ((int) -> int) = x -> if x > 0 then x * 2 else 0;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/lambda_with_complex_body.ori"
+    ));
     assert_fixed_idempotent(source, "lambda with complex body should be idempotent");
 }
 
@@ -1485,61 +1577,73 @@ fn test_lambda_with_complex_body() {
 
 #[test]
 fn test_empty_struct() {
-    let source = "type Empty = {}";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/empty_struct.ori"));
     assert_fixed_idempotent(source, "empty struct should be idempotent");
 }
 
 #[test]
 fn test_struct_single_field() {
-    let source = "type Single = { value: int }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/struct_single_field.ori"));
     assert_fixed_idempotent(source, "single field struct should be idempotent");
 }
 
 #[test]
 fn test_struct_many_fields() {
-    let source = "type Many = { a: int, b: str, c: bool, d: float, e: char }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/struct_many_fields.ori"));
     assert_fixed_idempotent(source, "many field struct should be idempotent");
 }
 
 #[test]
 fn test_sum_type_two_variants() {
-    let source = "type Either = Left | Right;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/sum_type_two_variants.ori"
+    ));
     assert_fixed_idempotent(source, "two variant sum should be idempotent");
 }
 
 #[test]
 fn test_sum_type_with_fields() {
-    let source = "type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/sum_type_with_fields.ori"
+    ));
     assert_fixed_idempotent(source, "sum with fields should be idempotent");
 }
 
 #[test]
 fn test_generic_type() {
-    let source = "type Box<T> = { value: T }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/generic_type.ori"));
     assert_fixed_idempotent(source, "generic type should be idempotent");
 }
 
 #[test]
 fn test_generic_type_multi_param() {
-    let source = "type Pair<A, B> = { first: A, second: B }";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/generic_type_multi_param.ori"
+    ));
     assert_fixed_idempotent(source, "multi-param generic should be idempotent");
 }
 
 #[test]
 fn test_derive_eq() {
-    let source = "#derive(Eq)\ntype Point = { x: int, y: int }";
+    let source = fixture_without_trailing_newline(include_str!("fixtures/property/derive_eq.ori"));
     assert_fixed_idempotent(source, "derive Eq should be idempotent");
 }
 
 #[test]
 fn test_derive_multiple() {
-    let source = "#derive(Eq, Clone, Debug)\ntype Point = { x: int, y: int }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/derive_multiple.ori"));
     assert_fixed_idempotent(source, "derive multiple should be idempotent");
 }
 
 #[test]
 fn test_public_type() {
-    let source = "pub type PublicPoint = { x: int, y: int }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/public_type.ori"));
     assert_fixed_idempotent(source, "public type should be idempotent");
 }
 
@@ -1547,50 +1651,57 @@ fn test_public_type() {
 
 #[test]
 fn test_empty_trait() {
-    let source = "trait Marker { }";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/empty_trait.ori"));
     assert_fixed_idempotent(source, "empty trait should be idempotent");
 }
 
 #[test]
 fn test_trait_single_method() {
-    let source = "trait Sized {\n    @size (self) -> int\n}";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/trait_single_method.ori"));
     assert_fixed_idempotent(source, "single method trait should be idempotent");
 }
 
 #[test]
 fn test_trait_multiple_methods() {
-    let source = "trait Container {\n    @len (self) -> int\n    @is_empty (self) -> bool\n    @capacity (self) -> int\n}";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/trait_multiple_methods.ori"
+    ));
     assert_fixed_idempotent(source, "multi-method trait should be idempotent");
 }
 
 #[test]
 fn test_trait_with_default() {
     let source =
-        "trait WithDefault {\n    @required (self) -> int\n    @optional (self) -> int = 0;\n}";
+        fixture_without_trailing_newline(include_str!("fixtures/property/trait_with_default.ori"));
     assert_fixed_idempotent(source, "trait with default should be idempotent");
 }
 
 #[test]
 fn test_trait_inheritance() {
-    let source = "trait Parent {\n    @parent_method (self) -> int\n}\n\ntrait Child: Parent {\n    @child_method (self) -> int\n}";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/trait_inheritance.ori"));
     assert_fixed_idempotent(source, "trait inheritance should be idempotent");
 }
 
 #[test]
 fn test_impl_inherent() {
-    let source = "type Point = { x: int, y: int }\n\nimpl Point {\n    @origin () -> Point = Point { x: 0, y: 0 }\n}";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/impl_inherent.ori"));
     assert_fixed_idempotent(source, "inherent impl should be idempotent");
 }
 
 #[test]
 fn test_impl_trait() {
-    let source = "trait Printable {\n    @to_str (self) -> str\n}\n\ntype Num = { value: int }\n\nimpl Num: Printable {\n    @to_str (self) -> str = \"num\";\n}";
+    let source = fixture_without_trailing_newline(include_str!("fixtures/property/impl_trait.ori"));
     assert_fixed_idempotent(source, "trait impl should be idempotent");
 }
 
 #[test]
 fn test_impl_generic() {
-    let source = "trait Default {\n    @default () -> Self\n}\n\ntype Box<T> = { value: T }\n\nimpl<T: Default> Box<T>: Default {\n    @default () -> Box<T> = Box { value: T.default() }\n}";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/impl_generic.ori"));
     assert_fixed_idempotent(source, "generic impl should be idempotent");
 }
 
@@ -1598,81 +1709,104 @@ fn test_impl_generic() {
 
 #[test]
 fn test_function_no_params() {
-    let source = "@constant () -> int = 42;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/function_no_params.ori"));
     assert_fixed_idempotent(source, "no params should be idempotent");
 }
 
 #[test]
 fn test_function_single_param() {
-    let source = "@identity (x: int) -> int = x;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/function_single_param.ori"
+    ));
     assert_fixed_idempotent(source, "single param should be idempotent");
 }
 
 #[test]
 fn test_function_many_params() {
-    let source = "@sum (a: int, b: int, c: int, d: int, e: int) -> int = a + b + c + d + e;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/function_many_params.ori"
+    ));
     assert_fixed_idempotent(source, "many params should be idempotent");
 }
 
 #[test]
 fn test_function_void_return() {
-    let source = "@log (msg: str) -> void = print(msg: msg);";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/function_void_return.ori"
+    ));
     assert_fixed_idempotent(source, "void return should be idempotent");
 }
 
 #[test]
 fn test_function_generic_single() {
-    let source = "@identity<T> (x: T) -> T = x;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/generic_function_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "single generic should be idempotent");
 }
 
 #[test]
 fn test_function_generic_multiple() {
-    let source = "@pair<A, B> (a: A, b: B) -> (A, B) = (a, b);";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/function_generic_multiple.ori"
+    ));
     assert_fixed_idempotent(source, "multiple generics should be idempotent");
 }
 
 #[test]
 fn test_function_generic_bounded() {
-    let source = "@compare<T: Eq> (a: T, b: T) -> bool = a == b;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/function_generic_bounded.ori"
+    ));
     assert_fixed_idempotent(source, "bounded generic should be idempotent");
 }
 
 #[test]
 fn test_function_where_single() {
-    let source = "@f<T> (x: T) -> T where T: Clone = x.clone();";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/function_where_single.ori"
+    ));
     assert_fixed_idempotent(source, "single where should be idempotent");
 }
 
 #[test]
 fn test_function_where_multiple() {
-    let source = "@f<T, U> (x: T, y: U) -> T where T: Clone, U: Default = x.clone();";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/function_where_multiple.ori"
+    ));
     assert_fixed_idempotent(source, "multiple where should be idempotent");
 }
 
 #[test]
 fn test_function_capability_single() {
-    let source = "@fetch (url: str) -> str uses Http = \"response\";";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/function_capability_single.ori"
+    ));
     assert_fixed_idempotent(source, "single capability should be idempotent");
 }
 
 #[test]
 fn test_function_capability_multiple() {
-    let source = "@complex () -> void uses Http, FileSystem, Clock = ();";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/function_capability_multiple.ori"
+    ));
     assert_fixed_idempotent(source, "multiple capabilities should be idempotent");
 }
 
 #[test]
 fn test_function_public() {
-    let source = "pub @public_fn () -> int = 42;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/function_public.ori"));
     assert_fixed_idempotent(source, "public function should be idempotent");
 }
 
 #[test]
 fn test_function_all_features() {
     // Order: generics, params, return, uses, where, body
-    let source =
-        "pub @complex<T, U> (a: T, b: U) -> T uses Http where T: Clone, U: Default = a.clone();";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/function_all_features.ori"
+    ));
     assert_fixed_idempotent(source, "function with all features should be idempotent");
 }
 
@@ -1680,26 +1814,29 @@ fn test_function_all_features() {
 
 #[test]
 fn test_import_single() {
-    let source = "use std.math { sqrt }\n\n@f () -> float = sqrt(value: 4.0);";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/import_single.ori"));
     assert_fixed_idempotent(source, "single import should be idempotent");
 }
 
 #[test]
 fn test_import_multiple() {
-    let source = "use std.math { sqrt, abs, min, max }\n\n@f () -> float = sqrt(value: 4.0);";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/import_multiple.ori"));
     assert_fixed_idempotent(source, "multiple imports should be idempotent");
 }
 
 #[test]
 fn test_import_alias() {
     let source =
-        "use std.math { sqrt as square_root }\n\n@f () -> float = square_root(value: 4.0);";
+        fixture_without_trailing_newline(include_str!("fixtures/property/import_alias.ori"));
     assert_fixed_idempotent(source, "import alias should be idempotent");
 }
 
 #[test]
 fn test_import_relative() {
-    let source = "use \"./helper\" { util }\n\n@f () -> int = util(x: 1);";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/import_relative.ori"));
     assert_fixed_idempotent(source, "relative import should be idempotent");
 }
 
@@ -1707,31 +1844,35 @@ fn test_import_relative() {
 
 #[test]
 fn test_const_int() {
-    let source = "let $MAX_SIZE = 1000;";
+    let source = fixture_without_trailing_newline(include_str!("fixtures/property/const_int.ori"));
     assert_fixed_idempotent(source, "int const should be idempotent");
 }
 
 #[test]
 fn test_const_float() {
-    let source = "let $PI = 3.14159;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/const_def_idempotence.ori"
+    ));
     assert_fixed_idempotent(source, "float const should be idempotent");
 }
 
 #[test]
 fn test_const_string() {
-    let source = "let $GREETING = \"Hello, World!\";";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/const_string.ori"));
     assert_fixed_idempotent(source, "string const should be idempotent");
 }
 
 #[test]
 fn test_const_bool() {
-    let source = "let $DEBUG = true;";
+    let source = fixture_without_trailing_newline(include_str!("fixtures/property/const_bool.ori"));
     assert_fixed_idempotent(source, "bool const should be idempotent");
 }
 
 #[test]
 fn test_const_public() {
-    let source = "pub let $PUBLIC_CONST = 42;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/const_public.ori"));
     assert_fixed_idempotent(source, "public const should be idempotent");
 }
 
@@ -1739,14 +1880,16 @@ fn test_const_public() {
 
 #[test]
 fn test_targeted_test() {
-    let source = "@add (a: int, b: int) -> int = a + b;\n\n@test_add tests @add () -> void = assert_eq(actual: add(a: 1, b: 2), expected: 3);";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/targeted_test.ori"));
     assert_fixed_idempotent(source, "targeted test should be idempotent");
 }
 
 #[test]
 fn test_free_floating_test() {
     // Free-floating tests use @name syntax without a target
-    let source = "@test_something () -> void = assert(condition: true);";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/free_floating_test.ori"));
     assert_fixed_idempotent(source, "free floating test should be idempotent");
 }
 
@@ -1754,26 +1897,29 @@ fn test_free_floating_test() {
 
 #[test]
 fn test_single_comment() {
-    let source = "// This is a comment\n@f () -> int = 42;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/single_comment.ori"));
     assert_fixed_idempotent(source, "single comment should be idempotent");
 }
 
 #[test]
 fn test_doc_comment() {
-    let source = "// #Description of function\n@f () -> int = 42;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/doc_comment.ori"));
     assert_fixed_idempotent(source, "doc comment should be idempotent");
 }
 
 #[test]
 fn test_param_comment() {
-    let source = "// * x: The input value\n@f (x: int) -> int = x;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/param_comment.ori"));
     assert_fixed_idempotent(source, "param comment should be idempotent");
 }
 
 #[test]
 fn test_multiple_comments() {
     let source =
-        "// #Description\n// * x: Input\n// * y: Another input\n@f (x: int, y: int) -> int = x + y;";
+        fixture_without_trailing_newline(include_str!("fixtures/property/multiple_comments.ori"));
     assert_fixed_idempotent(source, "multiple comments should be idempotent");
 }
 
@@ -1782,32 +1928,38 @@ fn test_multiple_comments() {
 #[test]
 fn test_long_int_chain() {
     // Create a line with many integers
-    let source = "@f () -> int = 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/long_int_chain.ori"));
     assert_fixed_idempotent(source, "long int chain should be idempotent");
 }
 
 #[test]
 fn test_long_function_name() {
     let source =
-        "@this_is_a_very_long_function_name_that_goes_on_for_quite_a_while () -> int = 42;";
+        fixture_without_trailing_newline(include_str!("fixtures/property/long_function_name.ori"));
     assert_fixed_idempotent(source, "long function name should be idempotent");
 }
 
 #[test]
 fn test_long_param_names() {
-    let source = "@f (this_is_a_long_parameter_name: int, another_very_long_parameter_name: str) -> int = 42;";
+    let source =
+        fixture_without_trailing_newline(include_str!("fixtures/property/long_param_names.ori"));
     assert_fixed_idempotent(source, "long param names should be idempotent");
 }
 
 #[test]
 fn test_long_type_annotation() {
-    let source = "@f () -> Result<Option<[int]>, str> = Ok(None);";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/long_type_annotation.ori"
+    ));
     assert_fixed_idempotent(source, "long type annotation should be idempotent");
 }
 
 #[test]
 fn test_very_long_expression() {
-    let source = "@f () -> int = 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 + 19 + 20;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/very_long_expression.ori"
+    ));
     assert_fixed_idempotent(source, "very long expression should be idempotent");
 }
 
@@ -1815,38 +1967,24 @@ fn test_very_long_expression() {
 
 #[test]
 fn test_full_module() {
-    let source = r#"
-let $MAX = 100;
-
-type Point = { x: int, y: int }
-
-trait Printable {
-    @to_str (self) -> str
-}
-
-impl Point {
-    @new (x: int, y: int) -> Point = Point { x, y }
-}
-
-impl Point: Printable {
-    @to_str (self) -> str = "point";
-}
-
-@distance (p1: Point, p2: Point) -> float = 0.0;
-"#;
+    let source = include_str!("fixtures/property/full_module.ori");
     assert_fixed_idempotent(source, "full module should be idempotent");
 }
 
 #[test]
 fn test_complex_expression_composition() {
     // Simpler method chain that doesn't trigger lambda line-break issues
-    let source = "@f (data: [int]) -> int = data.filter(predicate: x -> x > 0).map(transform: x -> x * 2).fold(init: 0, f: (a, b) -> a + b);";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/complex_expression_composition.ori"
+    ));
     assert_fixed_idempotent(source, "complex expression should be idempotent");
 }
 
 #[test]
 fn test_deeply_nested_everything() {
-    let source = "@f () -> int = if true then match [1, 2, 3] { [x, ..rest] -> { let sum = x + for r in rest yield r; sum }, [] -> 0 } else 0;";
+    let source = fixture_without_trailing_newline(include_str!(
+        "fixtures/property/deeply_nested_everything.ori"
+    ));
     assert_fixed_idempotent(source, "deeply nested everything should be idempotent");
 }
 

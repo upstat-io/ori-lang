@@ -1,4 +1,4 @@
-use ori_ir::canon::{CanArena, CanBindingPattern, CanExpr, CanNode, CanonResult};
+use ori_ir::canon::{CanArena, CanBindingPattern, CanExpr, CanId, CanNode, CanonResult};
 use ori_ir::{Mutability, Name, Span, StringInterner, TypeId};
 use ori_types::Idx;
 use ori_types::Pool;
@@ -6,7 +6,7 @@ use ori_types::Pool;
 use super::pool_type_store_size;
 
 use crate::ir::ArcTerminator;
-use crate::lower::ArcProblem;
+use crate::lower::{ArcLoweringInput, ArcProblem};
 
 #[test]
 fn lower_block_with_let() {
@@ -67,16 +67,19 @@ fn lower_block_with_let() {
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        block,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: block,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty(), "problems: {problems:?}");
@@ -119,16 +122,19 @@ fn lower_if_else_produces_four_blocks() {
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        if_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: if_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -174,16 +180,19 @@ fn lower_loop_produces_header_and_exit() {
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        loop_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: loop_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty(), "problems: {problems:?}");
@@ -214,59 +223,94 @@ fn assert_jump_args_match_params(func: &crate::ir::ArcFunction) {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "SSA integration test requires building a full AST with 2 mutable vars + for-range loop"
-)]
 fn for_range_with_mutable_vars_ssa_well_formed() {
     let interner = StringInterner::new();
+    let (pool, canon, block) = build_mutable_for_range_fixture(&interner);
+
+    let mut problems = Vec::new();
+    let (func, _) = super::super::super::lower_function_can(
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: block,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+
+    assert!(problems.is_empty(), "problems: {problems:?}");
+    assert!(
+        func.blocks.len() >= 6,
+        "expected at least 6 blocks for for-range with mutable vars, got {}",
+        func.blocks.len()
+    );
+    assert_jump_args_match_params(&func);
+}
+
+fn build_mutable_for_range_fixture(interner: &StringInterner) -> (Pool, CanonResult, CanId) {
     let mut pool = Pool::new();
     let mut arena = CanArena::with_capacity(400);
-
     let x_name = interner.intern("x");
-    let y_name = interner.intern("y");
-
-    // let mut x: int = 0
-    let lit0 = arena.push(CanNode::new(
-        CanExpr::Int(0),
-        Span::new(0, 1),
-        TypeId::from_raw(Idx::INT.raw()),
-    ));
-    let pat_x = arena.push_binding_pattern(CanBindingPattern::Name {
-        name: x_name,
-        mutable: Mutability::Mutable,
+    let let_x = push_mutable_int_binding(&mut arena, x_name, 0);
+    let let_y = push_mutable_int_binding(&mut arena, interner.intern("y"), 12);
+    let range = push_ascending_range(&mut arena, &mut pool);
+    let body = push_int_assignment(&mut arena, x_name);
+    let pattern = arena.push_binding_pattern(CanBindingPattern::Name {
+        name: interner.intern("i"),
+        mutable: Mutability::Immutable,
     });
-    let let_x = arena.push(CanNode::new(
-        CanExpr::Let {
-            pattern: pat_x,
-            init: lit0,
-            mutable: Mutability::Mutable,
+    let for_expr = arena.push(CanNode::new(
+        CanExpr::For {
+            label: Name::EMPTY,
+            pattern,
+            iter: range,
+            guard: CanId::INVALID,
+            body,
+            is_yield: false,
         },
-        Span::new(0, 10),
+        Span::new(25, 42),
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
-
-    // let mut y: int = 0
-    let lit0b = arena.push(CanNode::new(
-        CanExpr::Int(0),
-        Span::new(12, 13),
-        TypeId::from_raw(Idx::INT.raw()),
-    ));
-    let pat_y = arena.push_binding_pattern(CanBindingPattern::Name {
-        name: y_name,
-        mutable: Mutability::Mutable,
-    });
-    let let_y = arena.push(CanNode::new(
-        CanExpr::Let {
-            pattern: pat_y,
-            init: lit0b,
-            mutable: Mutability::Mutable,
+    let stmts = arena.push_expr_list(&[let_x, let_y]);
+    let block = arena.push(CanNode::new(
+        CanExpr::Block {
+            stmts,
+            result: for_expr,
         },
-        Span::new(12, 22),
+        Span::new(0, 50),
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
+    (pool, CanonResult::new(arena, block), block)
+}
 
-    // Range: 0..10
+fn push_mutable_int_binding(arena: &mut CanArena, name: Name, start: u32) -> CanId {
+    let init = arena.push(CanNode::new(
+        CanExpr::Int(0),
+        Span::new(start, start + 1),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let pattern = arena.push_binding_pattern(CanBindingPattern::Name {
+        name,
+        mutable: Mutability::Mutable,
+    });
+    arena.push(CanNode::new(
+        CanExpr::Let {
+            pattern,
+            init,
+            mutable: Mutability::Mutable,
+        },
+        Span::new(start, start + 10),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ))
+}
+
+fn push_ascending_range(arena: &mut CanArena, pool: &mut Pool) -> CanId {
     let start = arena.push(CanNode::new(
         CanExpr::Int(0),
         Span::new(30, 31),
@@ -283,7 +327,7 @@ fn for_range_with_mutable_vars_ssa_well_formed() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
     let range_ty = pool.range(Idx::INT);
-    let range = arena.push(CanNode::new(
+    arena.push(CanNode::new(
         CanExpr::Range {
             start,
             end,
@@ -292,82 +336,25 @@ fn for_range_with_mutable_vars_ssa_well_formed() {
         },
         Span::new(30, 35),
         TypeId::from_raw(range_ty.raw()),
-    ));
+    ))
+}
 
-    // Body: x = x + 1 (simplified as just an int literal for testing)
-    let body_lit = arena.push(CanNode::new(
+fn push_int_assignment(arena: &mut CanArena, name: Name) -> CanId {
+    let target = arena.push(CanNode::new(
+        CanExpr::Ident(name),
+        Span::new(38, 39),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let value = arena.push(CanNode::new(
         CanExpr::Int(1),
         Span::new(40, 41),
         TypeId::from_raw(Idx::INT.raw()),
     ));
-    let assign_target = arena.push(CanNode::new(
-        CanExpr::Ident(x_name),
-        Span::new(38, 39),
-        TypeId::from_raw(Idx::INT.raw()),
-    ));
-    let assign_val = arena.push(CanNode::new(
-        CanExpr::Assign {
-            target: assign_target,
-            value: body_lit,
-        },
+    arena.push(CanNode::new(
+        CanExpr::Assign { target, value },
         Span::new(38, 41),
         TypeId::from_raw(Idx::UNIT.raw()),
-    ));
-
-    let pat_i = arena.push_binding_pattern(CanBindingPattern::Name {
-        name: interner.intern("i"),
-        mutable: Mutability::Immutable,
-    });
-    let for_expr = arena.push(CanNode::new(
-        CanExpr::For {
-            label: Name::EMPTY,
-            pattern: pat_i,
-            iter: range,
-            guard: ori_ir::canon::CanId::INVALID,
-            body: assign_val,
-            is_yield: false,
-        },
-        Span::new(25, 42),
-        TypeId::from_raw(Idx::UNIT.raw()),
-    ));
-
-    // Block: { let mut x = 0; let mut y = 0; for i in 0..10 do x = 1 }
-    let stmts = arena.push_expr_list(&[let_x, let_y]);
-    let block = arena.push(CanNode::new(
-        CanExpr::Block {
-            stmts,
-            result: for_expr,
-        },
-        Span::new(0, 50),
-        TypeId::from_raw(Idx::UNIT.raw()),
-    ));
-
-    let canon = CanonResult::new(arena, block);
-
-    let mut problems = Vec::new();
-    let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        block,
-        &canon,
-        &interner,
-        &pool,
-        &mut problems,
-        false,
-        None,
-    );
-
-    assert!(problems.is_empty(), "problems: {problems:?}");
-    // The for-range loop should produce header, body, latch, exit, exit_prep blocks.
-    assert!(
-        func.blocks.len() >= 6,
-        "expected at least 6 blocks for for-range with mutable vars, got {}",
-        func.blocks.len()
-    );
-
-    // Core invariant: every Jump's args must match the target block's params.
-    assert_jump_args_match_params(&func);
+    ))
 }
 
 #[test]
@@ -407,16 +394,19 @@ fn lower_index_assignment_reports_internal_error_instead_of_panicking() {
 
     let mut problems = Vec::new();
     let _ = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        assign,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: assign,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(
@@ -465,16 +455,19 @@ fn lower_field_assignment_reports_internal_error_instead_of_panicking() {
 
     let mut problems = Vec::new();
     let _ = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        assign,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: assign,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(
@@ -1131,16 +1124,19 @@ fn match_wildcard_discard_materializes_field_project() {
     };
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        match_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: match_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty(), "problems: {problems:?}");
@@ -1240,16 +1236,19 @@ fn lower_bool_match_with_mutable_binding(
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        body,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
     assert!(problems.is_empty(), "problems: {problems:?}");
     assert_jump_args_match_params(&func);

@@ -1,0 +1,1 @@
+@f (data: [int]) -> int = data.filter(predicate: x -> x > 0).map(transform: x -> x * 2).fold(init: 0, f: (a, b) -> a + b);

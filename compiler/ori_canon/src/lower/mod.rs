@@ -16,11 +16,12 @@ use format_names::FormatDesugarNames;
 
 use ori_ir::ast::items::Module;
 use ori_ir::canon::{
-    CanArena, CanExpr, CanId, CanNode, CanonResult, ConstantPool, DecisionTreePool, MethodRoot,
-    MonoInstanceId,
+    CanArena, CanExpr, CanId, CanNode, CanonResult, CanonRoot, ConstantPool, DecisionTreePool,
+    MethodRoot, MonoInstanceId,
 };
 use ori_ir::{ExprArena, ExprId, Name, Span, TypeId};
 use ori_types::{Idx, Tag, TypeCheckResult, TypedModule};
+use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::debug;
 
 /// Lower a type-checked AST to canonical form.
@@ -88,11 +89,6 @@ pub fn lower(
 /// # Returns
 ///
 /// A `CanonResult` with all functions lowered and named roots populated.
-#[expect(
-    clippy::too_many_lines,
-    clippy::cognitive_complexity,
-    reason = "module-level canonicalization pipeline — orchestrates all lowering passes"
-)]
 pub fn lower_module(
     module: &Module,
     src: &ExprArena,
@@ -109,155 +105,15 @@ pub fn lower_module(
     );
 
     let mut lowerer = Lowerer::new(src, &type_result.typed, pool, interner);
-    let mut roots = Vec::with_capacity(module.functions.len() + module.tests.len());
+    let mut roots = lower_function_roots(&mut lowerer, module);
+    lower_test_roots(&mut lowerer, module, &mut roots);
 
-    // Group functions by name to detect multi-clause definitions.
-    let mut func_groups: rustc_hash::FxHashMap<Name, Vec<&ori_ir::Function>> =
-        rustc_hash::FxHashMap::default();
-    for func in &module.functions {
-        func_groups.entry(func.name).or_default().push(func);
-    }
+    let trait_defaults = trait_default_methods(module);
+    let mut method_roots = lower_impl_method_roots(&mut lowerer, module, interner, &trait_defaults);
+    lower_extend_method_roots(&mut lowerer, module, &mut method_roots);
+    lower_def_impl_method_roots(&mut lowerer, module, &mut method_roots);
 
-    // Lower each function/group body, recording name → CanonRoot.
-    // Iteration order must match `module.functions` for compatibility with
-    // `register_module_functions` which uses the same ordering.
-    let mut seen_names: rustc_hash::FxHashSet<Name> = rustc_hash::FxHashSet::default();
-    for func in &module.functions {
-        if !seen_names.insert(func.name) {
-            continue; // Already handled this group.
-        }
-        let group = &func_groups[&func.name];
-        if group.len() == 1 {
-            // Single clause — lower body and parameter defaults.
-            if func.body.is_valid() {
-                let can_id = lowerer.lower_expr(func.body);
-                let defaults = lowerer.lower_param_defaults(func.params);
-                roots.push(ori_ir::canon::CanonRoot {
-                    name: func.name,
-                    body: can_id,
-                    defaults,
-                    param_names: Vec::new(),
-                });
-            }
-        } else {
-            // Multi-clause — synthesize a match body. Use first clause's defaults.
-            // Store canonical param names from FunctionSig so the evaluator
-            // can bind arguments with the same names as the scrutinee Idents.
-            let can_id = lowerer.lower_multi_clause(group);
-            let defaults = lowerer.lower_param_defaults(group[0].params);
-            let sig_param_names = lowerer
-                .typed
-                .function(func.name)
-                .map(|sig| sig.param_names.clone())
-                .unwrap_or_default();
-            roots.push(ori_ir::canon::CanonRoot {
-                name: func.name,
-                body: can_id,
-                defaults,
-                param_names: sig_param_names,
-            });
-        }
-    }
-
-    // Lower each test body into the same arena (tests have no defaults).
-    for test in &module.tests {
-        if test.body.is_valid() {
-            let can_id = lowerer.lower_expr(test.body);
-            roots.push(ori_ir::canon::CanonRoot {
-                name: test.name,
-                body: can_id,
-                defaults: Vec::new(),
-                param_names: Vec::new(),
-            });
-        }
-    }
-
-    // Lower impl/extend/def_impl method bodies for canonical user method dispatch.
-    let mut method_roots = Vec::new();
-
-    // Build trait default method map for unoverridden defaults.
-    let mut trait_defaults: rustc_hash::FxHashMap<Name, Vec<&ori_ir::TraitDefaultMethod>> =
-        rustc_hash::FxHashMap::default();
-    for trait_def in &module.traits {
-        for item in &trait_def.items {
-            if let ori_ir::TraitItem::DefaultMethod(dm) = item {
-                trait_defaults.entry(trait_def.name).or_default().push(dm);
-            }
-        }
-    }
-
-    for impl_def in &module.impls {
-        let Some(type_name) = impl_def.semantic_type_name(interner) else {
-            continue;
-        };
-
-        // Collect overridden method names.
-        let mut overridden: rustc_hash::FxHashSet<Name> = rustc_hash::FxHashSet::default();
-
-        for method in &impl_def.methods {
-            overridden.insert(method.name);
-            if method.body.is_valid() {
-                let can_id = lowerer.lower_expr(method.body);
-                method_roots.push(MethodRoot {
-                    type_name,
-                    method_name: method.name,
-                    source_body: method.body,
-                    body: can_id,
-                });
-            }
-        }
-
-        // Lower default trait methods that weren't overridden.
-        if let Some(trait_path) = &impl_def.trait_path {
-            if let Some(&trait_name) = trait_path.last() {
-                if let Some(defaults) = trait_defaults.get(&trait_name) {
-                    for dm in defaults {
-                        if !overridden.contains(&dm.name) && dm.body.is_valid() {
-                            let can_id = lowerer.lower_expr(dm.body);
-                            method_roots.push(MethodRoot {
-                                type_name,
-                                method_name: dm.name,
-                                source_body: dm.body,
-                                body: can_id,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    for extend_def in &module.extends {
-        for method in &extend_def.methods {
-            if method.body.is_valid() {
-                let can_id = lowerer.lower_expr(method.body);
-                method_roots.push(MethodRoot {
-                    type_name: extend_def.target_type_name,
-                    method_name: method.name,
-                    source_body: method.body,
-                    body: can_id,
-                });
-            }
-        }
-    }
-
-    for def_impl_def in &module.def_impls {
-        for method in &def_impl_def.methods {
-            if method.body.is_valid() {
-                let can_id = lowerer.lower_expr(method.body);
-                method_roots.push(MethodRoot {
-                    type_name: def_impl_def.trait_name,
-                    method_name: method.name,
-                    source_body: method.body,
-                    body: can_id,
-                });
-            }
-        }
-    }
-
-    // Use the first function's root as the primary root (for single-expression compat).
-    let root = roots.first().map_or(CanId::INVALID, |r| r.body);
-
+    let root = roots.first().map_or(CanId::INVALID, |entry| entry.body);
     let mut result = lowerer.finish(root);
     result.roots = roots;
     result.method_roots = method_roots;
@@ -270,11 +126,176 @@ pub fn lower_module(
         decision_trees = result.decision_trees.len(),
         "canon lower_module complete"
     );
-
     #[cfg(debug_assertions)]
     crate::validate(&result);
-
     result
+}
+
+fn lower_function_roots(lowerer: &mut Lowerer<'_>, module: &Module) -> Vec<CanonRoot> {
+    let mut groups: FxHashMap<Name, Vec<&ori_ir::Function>> = FxHashMap::default();
+    for function in &module.functions {
+        groups.entry(function.name).or_default().push(function);
+    }
+
+    let mut roots = Vec::with_capacity(module.functions.len() + module.tests.len());
+    let mut seen = FxHashSet::default();
+    for function in &module.functions {
+        if !seen.insert(function.name) {
+            continue;
+        }
+        if let Some(root) = lower_function_group(lowerer, function, &groups[&function.name]) {
+            roots.push(root);
+        }
+    }
+    roots
+}
+
+fn lower_function_group(
+    lowerer: &mut Lowerer<'_>,
+    function: &ori_ir::Function,
+    group: &[&ori_ir::Function],
+) -> Option<CanonRoot> {
+    if group.len() == 1 {
+        if !function.body.is_valid() {
+            return None;
+        }
+        return Some(CanonRoot {
+            name: function.name,
+            body: lowerer.lower_expr(function.body),
+            defaults: lowerer.lower_param_defaults(function.params),
+            param_names: Vec::new(),
+        });
+    }
+
+    let body = lowerer.lower_multi_clause(group);
+    let defaults = lowerer.lower_param_defaults(group[0].params);
+    let param_names = lowerer
+        .typed
+        .function(function.name)
+        .map(|signature| signature.param_names.clone())
+        .unwrap_or_default();
+    Some(CanonRoot {
+        name: function.name,
+        body,
+        defaults,
+        param_names,
+    })
+}
+
+fn lower_test_roots(lowerer: &mut Lowerer<'_>, module: &Module, roots: &mut Vec<CanonRoot>) {
+    for test in &module.tests {
+        if !test.body.is_valid() {
+            continue;
+        }
+        roots.push(CanonRoot {
+            name: test.name,
+            body: lowerer.lower_expr(test.body),
+            defaults: Vec::new(),
+            param_names: Vec::new(),
+        });
+    }
+}
+
+fn trait_default_methods(module: &Module) -> FxHashMap<Name, Vec<&ori_ir::TraitDefaultMethod>> {
+    let mut defaults = FxHashMap::default();
+    for trait_def in &module.traits {
+        for item in &trait_def.items {
+            if let ori_ir::TraitItem::DefaultMethod(method) = item {
+                defaults
+                    .entry(trait_def.name)
+                    .or_insert_with(Vec::new)
+                    .push(method);
+            }
+        }
+    }
+    defaults
+}
+
+fn lower_impl_method_roots(
+    lowerer: &mut Lowerer<'_>,
+    module: &Module,
+    interner: &ori_ir::StringInterner,
+    trait_defaults: &FxHashMap<Name, Vec<&ori_ir::TraitDefaultMethod>>,
+) -> Vec<MethodRoot> {
+    let mut roots = Vec::new();
+    for impl_def in &module.impls {
+        let Some(type_name) = impl_def.semantic_type_name(interner) else {
+            continue;
+        };
+        let mut overridden = FxHashSet::default();
+        for method in &impl_def.methods {
+            overridden.insert(method.name);
+            if method.body.is_valid() {
+                roots.push(MethodRoot {
+                    type_name,
+                    method_name: method.name,
+                    source_body: method.body,
+                    body: lowerer.lower_expr(method.body),
+                });
+            }
+        }
+
+        let Some(trait_name) = impl_def
+            .trait_path
+            .as_ref()
+            .and_then(|path| path.last())
+            .copied()
+        else {
+            continue;
+        };
+        let Some(defaults) = trait_defaults.get(&trait_name) else {
+            continue;
+        };
+        for method in defaults {
+            if !overridden.contains(&method.name) && method.body.is_valid() {
+                roots.push(MethodRoot {
+                    type_name,
+                    method_name: method.name,
+                    source_body: method.body,
+                    body: lowerer.lower_expr(method.body),
+                });
+            }
+        }
+    }
+    roots
+}
+
+fn lower_extend_method_roots(
+    lowerer: &mut Lowerer<'_>,
+    module: &Module,
+    roots: &mut Vec<MethodRoot>,
+) {
+    for extension in &module.extends {
+        for method in &extension.methods {
+            if method.body.is_valid() {
+                roots.push(MethodRoot {
+                    type_name: extension.target_type_name,
+                    method_name: method.name,
+                    source_body: method.body,
+                    body: lowerer.lower_expr(method.body),
+                });
+            }
+        }
+    }
+}
+
+fn lower_def_impl_method_roots(
+    lowerer: &mut Lowerer<'_>,
+    module: &Module,
+    roots: &mut Vec<MethodRoot>,
+) {
+    for impl_def in &module.def_impls {
+        for method in &impl_def.methods {
+            if method.body.is_valid() {
+                roots.push(MethodRoot {
+                    type_name: impl_def.trait_name,
+                    method_name: method.name,
+                    source_body: method.body,
+                    body: lowerer.lower_expr(method.body),
+                });
+            }
+        }
+    }
 }
 
 // Lowerer

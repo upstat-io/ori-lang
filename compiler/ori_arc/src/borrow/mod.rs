@@ -52,9 +52,7 @@ mod update;
 pub(crate) use builtins::persistent_list_runtime_methods;
 pub use builtins::{
     accessor_retain_builtin_names, all_cow_method_names, borrow_view_accessor_builtin_names,
-    borrowing_builtin_names, consuming_receiver_builtin_names,
-    consuming_receiver_only_builtin_names, consuming_second_arg_builtin_names,
-    copy_in_builtin_names, sharing_builtin_names, BuiltinOwnershipSets,
+    borrowing_builtin_names, copy_in_builtin_names, sharing_builtin_names, BuiltinOwnershipSets,
 };
 pub use callees::extract_callees;
 pub use derived::infer_derived_ownership;

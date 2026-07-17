@@ -1963,9 +1963,7 @@ fn set_tag_emits_gep_and_store() {
     );
 
     drop(em);
-} // set_tag_emits_gep_and_store
-
-// EmittedValue helper method tests
+}
 
 #[test]
 fn emitted_value_into_raw_single_variants() {
@@ -1980,71 +1978,6 @@ fn emitted_value_into_raw_single_variants() {
     assert_eq!(super::EmittedValue::Immediate(v1).into_raw(), v1);
     assert_eq!(super::EmittedValue::RcPointer(v2).into_raw(), v2);
     assert_eq!(super::EmittedValue::Aggregate(v3).into_raw(), v3);
-}
-
-#[test]
-#[should_panic(expected = "Pair has no single ValueId")]
-fn emitted_value_into_raw_panics_on_pair() {
-    use crate::codegen::value_id::ValueId;
-
-    super::EmittedValue::Pair {
-        first: ValueId::NONE,
-        second: ValueId::NONE,
-    }
-    .into_raw();
-}
-
-#[test]
-#[should_panic(expected = "ZeroSized has no ValueId")]
-fn emitted_value_into_raw_panics_on_zero_sized() {
-    super::EmittedValue::ZeroSized.into_raw();
-}
-
-#[test]
-fn emitted_value_rc_data_ptr() {
-    let ctx = Context::create();
-    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_ev_rc"));
-    let mut builder = IrBuilder::new(&scx);
-
-    let v1 = builder.const_i64(10);
-    let v2 = builder.const_i64(20);
-    let v3 = builder.const_i64(30);
-
-    // RcPointer returns the pointer itself
-    assert_eq!(super::EmittedValue::RcPointer(v1).rc_data_ptr(), Some(v1));
-
-    // Pair returns the second component (the RC-managed pointer)
-    assert_eq!(
-        super::EmittedValue::Pair {
-            first: v2,
-            second: v3
-        }
-        .rc_data_ptr(),
-        Some(v3)
-    );
-
-    // Non-RC variants return None
-    assert_eq!(super::EmittedValue::Immediate(v1).rc_data_ptr(), None);
-    assert_eq!(super::EmittedValue::Aggregate(v2).rc_data_ptr(), None);
-    assert_eq!(super::EmittedValue::ZeroSized.rc_data_ptr(), None);
-}
-
-#[test]
-fn emitted_value_is_rc_managed() {
-    let ctx = Context::create();
-    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_ev_managed"));
-    let mut builder = IrBuilder::new(&scx);
-    let v = builder.const_i64(0);
-
-    assert!(super::EmittedValue::RcPointer(v).is_rc_managed());
-    assert!(super::EmittedValue::Pair {
-        first: v,
-        second: v
-    }
-    .is_rc_managed());
-    assert!(!super::EmittedValue::Immediate(v).is_rc_managed());
-    assert!(!super::EmittedValue::Aggregate(v).is_rc_managed());
-    assert!(!super::EmittedValue::ZeroSized.is_rc_managed());
 }
 
 #[test]

@@ -194,35 +194,47 @@ fn build_imported_methods(
         );
         checker.imported_impl_sigs.push(build_imported_impl_sig(
             checker,
-            method,
-            &method_def,
-            producer,
-            context.self_type,
-            context.trait_type,
-            context.type_params,
-            context.type_param_bounds,
-            context.foreign_arena,
+            ImportedSignatureInput {
+                method,
+                method_def: &method_def,
+                producer,
+                receiver: context.self_type,
+                trait_type: context.trait_type,
+                impl_type_params: context.type_params,
+                impl_type_param_bounds: context.type_param_bounds,
+                foreign_arena: context.foreign_arena,
+            },
         ));
         methods.insert(method.name, method_def);
     }
     (methods, origins)
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "imported signature construction preserves the full foreign impl/method boundary"
-)]
-fn build_imported_impl_sig(
-    checker: &ModuleChecker<'_>,
-    method: &ori_ir::ImplMethod,
-    method_def: &ImplMethodDef,
+struct ImportedSignatureInput<'a> {
+    method: &'a ori_ir::ImplMethod,
+    method_def: &'a ImplMethodDef,
     producer: crate::MethodProducer,
     receiver: Idx,
     trait_type: Option<Idx>,
-    impl_type_params: &[Name],
-    impl_type_param_bounds: &[Vec<Name>],
-    foreign_arena: &ori_ir::ExprArena,
+    impl_type_params: &'a [Name],
+    impl_type_param_bounds: &'a [Vec<Name>],
+    foreign_arena: &'a ori_ir::ExprArena,
+}
+
+fn build_imported_impl_sig(
+    checker: &ModuleChecker<'_>,
+    input: ImportedSignatureInput<'_>,
 ) -> ImportedImplSig {
+    let ImportedSignatureInput {
+        method,
+        method_def,
+        producer,
+        receiver,
+        trait_type,
+        impl_type_params,
+        impl_type_param_bounds,
+        foreign_arena,
+    } = input;
     let signature = if checker.pool().tag(method_def.signature) == Tag::Scheme {
         checker.pool().scheme_body(method_def.signature)
     } else {

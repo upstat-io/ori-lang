@@ -1,0 +1,3 @@
+@f (transform: (int) -> int) -> int = transform(1);
+
+@g () -> int = f(transform: x -> x + 1);

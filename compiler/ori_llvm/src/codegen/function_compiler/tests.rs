@@ -1,8 +1,3 @@
-#![allow(
-    clippy::too_many_lines,
-    reason = "test setup for LLVM IR requires many sequential steps"
-)]
-
 use super::*;
 use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
 use crate::context::SimpleCx;
@@ -10,7 +5,7 @@ use inkwell::context::Context;
 use ori_arc::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
 use ori_arc::verify::VerifyError;
 use ori_arc::{AnnotatedSig, ArcClassifier, ArcFunction};
-use ori_ir::Name;
+use ori_ir::{GenericParamRange, ImplDef, ImplMethod, Name, ParsedType, ParsedTypeRange, Span};
 use ori_types::{Idx, ImplSig, Pool};
 use rustc_hash::FxHashMap;
 use std::mem::ManuallyDrop;
@@ -46,6 +41,56 @@ fn make_sig(
         param_hashes,
         return_hash: 0,
         return_projection: None,
+    }
+}
+
+fn make_distance_impl(type_name: Name, distance_name: Name) -> ImplDef {
+    ImplDef {
+        generics: GenericParamRange::EMPTY,
+        trait_path: None,
+        trait_type_args: ParsedTypeRange::EMPTY,
+        self_path: vec![type_name],
+        self_ty: ParsedType::Named {
+            name: type_name,
+            type_args: ParsedTypeRange::EMPTY,
+        },
+        where_clauses: vec![],
+        methods: vec![ImplMethod {
+            name: distance_name,
+            generics: GenericParamRange::EMPTY,
+            params: ori_ir::ParamRange::EMPTY,
+            return_ty: ParsedType::Primitive(ori_ir::TypeId::FLOAT),
+            capabilities: vec![],
+            where_clauses: vec![],
+            body: ori_ir::ExprId::INVALID,
+            span: Span::new(0, 0),
+        }],
+        assoc_types: vec![],
+        span: Span::new(0, 0),
+        target_attr: None,
+        cfg_attr: None,
+    }
+}
+
+fn make_distance_impl_sig(
+    impl_index: usize,
+    receiver: Idx,
+    distance_name: Name,
+    self_name: Name,
+) -> ImplSig {
+    ImplSig {
+        id: ori_types::ImplMethodId::new(impl_index, ori_ir::ExprId::INVALID),
+        receiver,
+        trait_type: None,
+        name: distance_name,
+        role: ori_types::ImplMethodRole::Ordinary,
+        sig: make_sig(
+            distance_name,
+            vec![self_name],
+            vec![receiver],
+            Idx::FLOAT,
+            false,
+        ),
     }
 }
 
@@ -375,8 +420,6 @@ fn function_map_returns_all_declared() {
 
 #[test]
 fn compile_impls_populates_method_functions_map() {
-    use ori_ir::{GenericParamRange, ImplDef, ImplMethod, ParsedType, ParsedTypeRange, Span};
-
     let interner = StringInterner::new();
     let point_name = interner.intern("Point");
     let line_name = interner.intern("Line");
@@ -395,92 +438,12 @@ fn compile_impls_populates_method_functions_map() {
     let distance_name = interner.intern("distance");
     let self_name = interner.intern("self");
 
-    // Create two impl blocks with same-name method "distance"
-    let impl_point = ImplDef {
-        generics: GenericParamRange::EMPTY,
-        trait_path: None,
-        trait_type_args: ParsedTypeRange::EMPTY,
-        self_path: vec![point_name],
-        self_ty: ParsedType::Named {
-            name: point_name,
-            type_args: ParsedTypeRange::EMPTY,
-        },
-        where_clauses: vec![],
-        methods: vec![ImplMethod {
-            name: distance_name,
-            generics: ori_ir::GenericParamRange::EMPTY,
-            params: ori_ir::ParamRange::EMPTY,
-            return_ty: ParsedType::Primitive(ori_ir::TypeId::FLOAT),
-            capabilities: vec![],
-            where_clauses: vec![],
-            body: ori_ir::ExprId::INVALID,
-            span: Span::new(0, 0),
-        }],
-        assoc_types: vec![],
-        span: Span::new(0, 0),
-        target_attr: None,
-        cfg_attr: None,
-    };
-
-    let impl_line = ImplDef {
-        generics: GenericParamRange::EMPTY,
-        trait_path: None,
-        trait_type_args: ParsedTypeRange::EMPTY,
-        self_path: vec![line_name],
-        self_ty: ParsedType::Named {
-            name: line_name,
-            type_args: ParsedTypeRange::EMPTY,
-        },
-        where_clauses: vec![],
-        methods: vec![ImplMethod {
-            name: distance_name,
-            generics: ori_ir::GenericParamRange::EMPTY,
-            params: ori_ir::ParamRange::EMPTY,
-            return_ty: ParsedType::Primitive(ori_ir::TypeId::FLOAT),
-            capabilities: vec![],
-            where_clauses: vec![],
-            body: ori_ir::ExprId::INVALID,
-            span: Span::new(0, 0),
-        }],
-        assoc_types: vec![],
-        span: Span::new(0, 0),
-        target_attr: None,
-        cfg_attr: None,
-    };
-
-    // Signatures: distance(self: Point) -> float, distance(self: Line) -> float
-    let sig_point = make_sig(
-        distance_name,
-        vec![self_name],
-        vec![point_idx],
-        Idx::FLOAT,
-        false,
-    );
-    let sig_line = make_sig(
-        distance_name,
-        vec![self_name],
-        vec![line_idx],
-        Idx::FLOAT,
-        false,
-    );
+    let impl_point = make_distance_impl(point_name, distance_name);
+    let impl_line = make_distance_impl(line_name, distance_name);
 
     let impl_sigs = vec![
-        ImplSig {
-            id: ori_types::ImplMethodId::new(0, ori_ir::ExprId::INVALID),
-            receiver: point_idx,
-            trait_type: None,
-            name: distance_name,
-            role: ori_types::ImplMethodRole::Ordinary,
-            sig: sig_point,
-        },
-        ImplSig {
-            id: ori_types::ImplMethodId::new(1, ori_ir::ExprId::INVALID),
-            receiver: line_idx,
-            trait_type: None,
-            name: distance_name,
-            role: ori_types::ImplMethodRole::Ordinary,
-            sig: sig_line,
-        },
+        make_distance_impl_sig(0, point_idx, distance_name, self_name),
+        make_distance_impl_sig(1, line_idx, distance_name, self_name),
     ];
 
     // Create a minimal CanonResult for testing (methods have INVALID bodies,

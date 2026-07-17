@@ -1,0 +1,1 @@
+@this_is_a_very_long_function_name_that_goes_on_for_quite_a_while () -> int = 42;

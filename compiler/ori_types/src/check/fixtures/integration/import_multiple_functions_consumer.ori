@@ -1,0 +1,1 @@
+@caller () -> int = negate(double(5));

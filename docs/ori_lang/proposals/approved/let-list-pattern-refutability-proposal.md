@@ -11,6 +11,12 @@
 
 ---
 
+## Errata (added 2026-07-17)
+
+> **Amended by fallible-let-binding-proposal.md**: Resolution A stands unchanged — plain `let` remains irrefutable and E2001 remains correct. What is now stale is this proposal's RECOURSE framing: "use `match` instead" is no longer the ONLY recourse for refutable patterns in bindings. The approved `let?` fallible binding form (`let? [a, b] = xs;`, `let? [head, ..tail] = xs;`) binds refutable patterns with `?`-style `None` propagation on mismatch. E2001's help text gains a `let?` suggestion accordingly.
+
+---
+
 ## Summary
 
 Two spec clauses disagree on whether list-destructuring patterns are legal in `let` bindings. `13-variables.md` shows `let [head, ..tail] = list;` as a valid core feature; `15-patterns.md` classifies list-with-length patterns as refutable and requires `let` bindings to be irrefutable, making the same form illegal. The compiler implements `15-patterns.md` and rejects `let [a, b, c] = [1, 2, 3]` with E2001. This proposal resolves the contradiction by picking one authoritative rule and aligning the loser clause, the compiler, and the test corpus to it.

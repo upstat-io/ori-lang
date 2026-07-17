@@ -684,9 +684,8 @@ fn test_annotate_apply_indirect_builtin_partial_apply() {
         },
     }];
 
-    // v0 is the list — type must be List for consuming override to fire
+    // The consuming override requires `v0` to carry `List<int>`.
     let mut var_types = vec![Idx::INT; 4];
-    // We need v0 to be List type. Use a pool to create a List<int> type.
     let list_int = pool.list(Idx::INT);
     var_types[0] = list_int;
 

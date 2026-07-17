@@ -109,32 +109,31 @@ pub enum ArcProblem {
 
 // Public entry point
 
+/// Canonical function coordinates consumed by ARC IR lowering.
+#[derive(Clone, Copy)]
+pub struct ArcLoweringInput<'a> {
+    pub name: Name,
+    pub params: &'a [(Name, Idx)],
+    pub return_type: Idx,
+    pub body: CanId,
+    pub canon: &'a CanonResult,
+    pub interner: &'a StringInterner,
+    pub pool: &'a Pool,
+    pub type_subst: Option<&'a FxHashMap<Idx, Idx>>,
+    pub const_bindings: Option<&'a [MonoConstBinding]>,
+    pub is_fbip: bool,
+}
+
 /// Lower a typed function body from canonical IR into ARC IR.
 ///
 /// This is the canonical-IR entry point, consuming `CanId` + `CanonResult`
 /// instead of `ExprId` + `ExprArena`. Returns the lowered function plus
 /// any lambda bodies encountered during lowering.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "public API entry point -- a config struct would add unnecessary complexity"
-)]
-#[expect(
-    clippy::implicit_hasher,
-    reason = "always called with FxHashMap internally"
-)]
 pub fn lower_function_can(
-    name: Name,
-    params: &[(Name, Idx)],
-    return_type: Idx,
-    body: CanId,
-    canon: &CanonResult,
-    interner: &StringInterner,
-    pool: &Pool,
+    input: ArcLoweringInput<'_>,
     problems: &mut Vec<ArcProblem>,
-    is_fbip: bool,
-    type_subst: Option<&rustc_hash::FxHashMap<Idx, Idx>>,
 ) -> (ArcFunction, Vec<ArcFunction>) {
-    lower_function_can_with_const_bindings(
+    let ArcLoweringInput {
         name,
         params,
         return_type,
@@ -142,35 +141,10 @@ pub fn lower_function_can(
         canon,
         interner,
         pool,
-        problems,
-        is_fbip,
         type_subst,
-        None,
-    )
-}
-
-/// Lower a canonical body under an exact mono instance's const environment.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "mono lowering extends the public canonical lowering coordinates"
-)]
-#[expect(
-    clippy::implicit_hasher,
-    reason = "always called with FxHashMap internally"
-)]
-pub fn lower_function_can_with_const_bindings(
-    name: Name,
-    params: &[(Name, Idx)],
-    return_type: Idx,
-    body: CanId,
-    canon: &CanonResult,
-    interner: &StringInterner,
-    pool: &Pool,
-    problems: &mut Vec<ArcProblem>,
-    is_fbip: bool,
-    type_subst: Option<&rustc_hash::FxHashMap<Idx, Idx>>,
-    const_bindings: Option<&[MonoConstBinding]>,
-) -> (ArcFunction, Vec<ArcFunction>) {
+        const_bindings,
+        is_fbip,
+    } = input;
     let fn_name = interner.lookup(name);
     tracing::debug!(
         name = fn_name,

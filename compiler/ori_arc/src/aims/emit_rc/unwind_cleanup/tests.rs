@@ -1,7 +1,4 @@
-//! Unit tests for `add_invoke_unwind_cleanup()` — `InvokeIndirect` handling.
-//!
-//! Tests verify that `InvokeIndirect` terminators get iterator drop cleanup on
-//! both propagating and catch-transfer unwind blocks.
+//! Unwind-cleanup tests for indirect invokes and checked operations.
 
 use ori_ir::StringInterner;
 use ori_types::Idx;
@@ -11,19 +8,13 @@ use crate::test_helpers::{
     invoke_indirect_no_args, jump_without_args, make_apply, make_block, make_func_named,
 };
 
-/// Semantic pin: `InvokeIndirect` with Resume unwind and live iterator
-/// should get `ori_iter_drop` inserted — would fail if `InvokeIndirect`
-/// handling is removed.
+/// Pins iterator cleanup on propagating indirect-invoke unwind edges.
 #[test]
 fn invoke_indirect_resume_inserts_iter_drop() {
     let interner = StringInterner::new();
     let func_name = interner.intern("test_fn");
     let iter_name = interner.intern("iter");
 
-    // Block 0: create iterator via Apply @iter
-    // Block 1: InvokeIndirect terminator, normal->2, unwind->3
-    // Block 2: return
-    // Block 3: Resume (empty — should get iter drop inserted)
     let blocks = vec![
         ArcBlock {
             id: ArcBlockId::new(0),
@@ -74,14 +65,12 @@ fn invoke_indirect_resume_inserts_iter_drop() {
     let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 5]);
     super::add_invoke_unwind_cleanup(&mut func, &interner);
 
-    // Block 3 (Resume) should now have an ori_iter_drop instruction
     let unwind_block = &func.blocks[3];
     assert!(
         !unwind_block.body.is_empty(),
         "unwind block should have iter drop inserted"
     );
 
-    // Verify it's an Apply to ori_iter_drop
     let iter_drop_name = interner.intern("ori_iter_drop");
     if let ArcInstr::Apply {
         func: f,
@@ -92,11 +81,7 @@ fn invoke_indirect_resume_inserts_iter_drop() {
     {
         assert_eq!(*f, iter_drop_name, "should call ori_iter_drop");
         assert_eq!(args.len(), 1, "ori_iter_drop takes one arg");
-        // `ori_iter_drop` consumes the iterator handle.
-        // The ownership contract must match
-        // `ProtocolBuiltin::IterDrop.arg_ownership()` which is `Owned`.
-        // A `Borrowed` marker here would be a shadow source contradicting
-        // the SSOT.
+        // INVARIANT: Iterator cleanup consumes its handle.
         assert_eq!(
             arg_ownership,
             &[ArgOwnership::Owned],
@@ -367,7 +352,6 @@ fn invoke_indirect_no_live_iterators_no_cleanup() {
     let interner = StringInterner::new();
     let func_name = interner.intern("test_fn");
 
-    // No iterator creation — just an InvokeIndirect with Resume unwind
     let blocks = vec![
         ArcBlock {
             id: ArcBlockId::new(0),
@@ -402,33 +386,13 @@ fn invoke_indirect_no_live_iterators_no_cleanup() {
     let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 2]);
     super::add_invoke_unwind_cleanup(&mut func, &interner);
 
-    // Block 2 (Resume) should remain empty — no live iterators
     assert!(
         func.blocks[2].body.is_empty(),
         "no cleanup when no iterators are live"
     );
 }
 
-/// semantic pin: an iterator created on a sibling branch
-/// that CANNOT reach the Invoke block must NOT be treated as live
-/// at that Invoke. The previous check used block-ordering
-/// (`create_block <= invoke_block_idx`), which silently treated
-/// earlier-numbered sibling branches as live — causing spurious
-/// `ori_iter_drop` synthesis on unwind edges for variables that are
-/// uninitialized at that point.
-///
-/// CFG shape:
-/// ```text
-///   bb0: Branch cond → bb1 | bb2
-///   bb1: Apply @iter %iter  →  Return  (sibling branch, creates iterator)
-///   bb2: InvokeIndirect (normal=bb3, unwind=bb4)
-///   bb3: Return
-///   bb4: Resume (unwind block — must NOT get a drop for bb1's iterator)
-/// ```
-///
-/// bb1 cannot reach bb2 via forward edges — they are siblings off bb0.
-/// Therefore bb1's iterator is never live at bb2's Invoke and no
-/// cleanup should be inserted into bb4.
+/// A resource on a sibling branch is not live at an unreachable invoke.
 #[test]
 fn sibling_branch_iterator_not_live_at_invoke() {
     let interner = StringInterner::new();
@@ -436,7 +400,6 @@ fn sibling_branch_iterator_not_live_at_invoke() {
     let iter_name = interner.intern("iter");
 
     let blocks = vec![
-        // bb0: Branch cond → bb1 | bb2
         ArcBlock {
             id: ArcBlockId::new(0),
             params: vec![],
@@ -447,7 +410,6 @@ fn sibling_branch_iterator_not_live_at_invoke() {
                 else_block: ArcBlockId::new(2),
             },
         },
-        // bb1: Apply @iter → Return (sibling branch creates iterator)
         ArcBlock {
             id: ArcBlockId::new(1),
             params: vec![],
@@ -463,7 +425,6 @@ fn sibling_branch_iterator_not_live_at_invoke() {
                 value: ArcVarId::new(1),
             },
         },
-        // bb2: InvokeIndirect (normal=bb3, unwind=bb4)
         ArcBlock {
             id: ArcBlockId::new(2),
             params: vec![],
@@ -478,7 +439,6 @@ fn sibling_branch_iterator_not_live_at_invoke() {
                 unwind: ArcBlockId::new(4),
             },
         },
-        // bb3: Return (normal path from bb2's invoke)
         ArcBlock {
             id: ArcBlockId::new(3),
             params: vec![],
@@ -487,7 +447,6 @@ fn sibling_branch_iterator_not_live_at_invoke() {
                 value: ArcVarId::new(4),
             },
         },
-        // bb4: Resume (unwind path from bb2's invoke)
         ArcBlock {
             id: ArcBlockId::new(4),
             params: vec![],
@@ -499,11 +458,6 @@ fn sibling_branch_iterator_not_live_at_invoke() {
     let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 5]);
     super::add_invoke_unwind_cleanup(&mut func, &interner);
 
-    // bb4 (the Resume unwind block) must remain empty. The iterator
-    // created in bb1 is on a sibling branch that never reaches bb2,
-    // so it cannot be "live" at bb2's Invoke. Before the
-    // filter used `create_block <= invoke_block_idx` (1 <= 2 → true)
-    // and synthesized a spurious `ori_iter_drop` here.
     assert!(
         func.blocks[4].body.is_empty(),
         "sibling-branch iterator must not be treated as live at an \

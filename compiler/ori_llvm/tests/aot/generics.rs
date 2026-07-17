@@ -5,11 +5,6 @@
 //! generic-calling-generic chains, multiple specializations, generic with
 //! Option/Result, and generic functions returning tuples.
 
-#![allow(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // Generic with string arguments (RC-managed)
@@ -490,7 +485,7 @@ fn test_generic_chain_list_element() {
     );
 }
 
-// BUG-04-090: generic forwarder over [T] hop-count axis
+// Generic forwarder over [T] hop-count axis
 // Each forwarder hop currently emits a spurious scope-exit RcDec on the param
 // because AIMS interprocedural analysis lacks `transfers_through_return`. The
 // fix completes the Lean 4 `ownParamsUsingArgs` pattern — eliminate BOTH the
@@ -499,7 +494,7 @@ fn test_generic_chain_list_element() {
 // (matching the existing ignored 3-hop case) and pass after the fix activates.
 
 /// Single-hop generic identity forwarder applied to `[int]`. The minimal
-/// repro for BUG-04-090: even one hop produces a use-after-free because the
+/// Even one hop produces a use-after-free because the
 /// callee's spurious scope-exit dec frees the freshly-allocated list before
 /// the caller's scope exits.
 #[test]
@@ -534,7 +529,7 @@ fn test_generic_forwarder_hop4_returns_list_intact() {
     );
 }
 
-// BUG-04-090: cross-type axis
+// Cross-type axis
 // 1-hop generic forwarder applied to every relevant heap-typed shape.
 // Heap types fail today (use-after-free); scalar must NOT regress.
 
@@ -659,7 +654,7 @@ fn test_generic_forwarder_box_list_returns_intact() {
     );
 }
 
-// BUG-04-090: forwarder shape axis
+// Forwarder shape axis
 // The param-return-alias rule must apply uniformly across forwarder
 // shapes. Generics are merely the most common pattern; non-generic
 // forwarders and inherent methods must also be covered.
@@ -686,7 +681,7 @@ fn test_inherent_method_forwarder_self_returns_self() {
     );
 }
 
-// BUG-04-090: path-sensitivity
+// Path sensitivity
 // The fix's suppression gate MUST be path-sensitive. A naive global-
 // suppression implementation (suppress all decs unconditionally for
 // params with transfers_through_return=true) would LEAK the not-returned
@@ -828,7 +823,7 @@ fn test_forwarder_result_list_construct_owner_no_double_free() {
     );
 }
 
-// BUG-04-090: edge cases
+// Edge cases
 // Each cell pins a specific architectural decision the fix must
 // thread between.
 
@@ -1164,7 +1159,7 @@ fn test_box_method_with_drifted_args_emits_typeck_error() {
     );
 }
 
-// BUG-04-111: (B-1) Return-as-transfer extensions
+// Return-as-transfer extensions
 // Borrowed param + use(s) + Return. Verifies the new pre-compute set
 // for borrow-flow scope-exit RcDec covers (B-1) shape across types
 // and use patterns beyond the str-flavored snapshot (use_twice).
@@ -1225,7 +1220,7 @@ fn test_borrow_list_int_match_arm_use_then_return_no_leak() {
     );
 }
 
-// BUG-04-111: (B-3) Borrow-only access
+// Borrow-only access
 // Value used as borrow inside function-call boundaries; verifies the
 // pre-compute set distinguishes borrow Applies (no dec at site) from
 // Return-as-transfer (dec required at function exit).
@@ -1260,7 +1255,7 @@ fn test_borrow_list_int_mixed_apply_then_return_no_leak() {
     );
 }
 
-// BUG-04-111: Cross-pattern cells
+// Cross-pattern cells
 // Distinct control-flow shapes that exercise Return-as-transfer across
 // genuinely uncovered patterns: Project consumer, depth-3 alias chain,
 // loop-body Let-alias, multi-block CFG, for...yield iteration.
@@ -1369,7 +1364,7 @@ fn test_borrow_list_int_loop_body_let_alias_no_return_no_leak() {
     );
 }
 
-// BUG-04-111: Canonical-rep semantics pins
+// Canonical-representation semantics pins
 // Positive pins exercising post-fix canonical-rep selection logic.
 // May not be RED at HEAD (they verify NEW semantics introduced by the
 // fix); pre-fix passing is acceptable for these.
@@ -1405,7 +1400,7 @@ fn test_borrow_list_int_bypass_safe_interaction_then_return_no_leak() {
     );
 }
 
-// BUG-04-111: (A)-shape new pins
+// Additional ownership-shape pins
 // Positive pins exercising post-fix PIN-6 chain semantics.
 
 /// Positive pin: 3-alias merge at CFG join — verifies

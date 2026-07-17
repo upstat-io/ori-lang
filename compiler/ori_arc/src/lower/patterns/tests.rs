@@ -49,16 +49,19 @@ fn bind_name_pattern() {
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        block,
-        &canon,
-        &interner,
-        &pool,
+        super::super::super::ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: block,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty(), "problems: {problems:?}");

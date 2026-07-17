@@ -116,22 +116,36 @@ pub fn check_source(
 /// `build_imported_mono_state`; `imported_state.merged_pool` MUST outlive the
 /// returned LLVM module — `'ctx` ties context, pool, and module together.
 #[cfg(feature = "llvm")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "pipeline boundary mirrors compile_to_llvm + adds imported-mono state"
-)]
+#[derive(Clone, Copy)]
+pub struct ImportedMonoCompilation<'ctx, 'a> {
+    pub context: &'ctx Context,
+    pub db: &'a CompilerDb,
+    pub parse: &'a ParseOutput,
+    pub typed: &'a TypeCheckResult,
+    pub pool: &'ctx Pool,
+    pub imported: super::ImportedSurfaces<'a>,
+    pub canon: &'a CanonResult,
+    pub source_path: &'a str,
+    pub target_triple: Option<&'a str>,
+    pub narrowing_policy: ori_repr::NarrowingPolicy,
+}
+
+#[cfg(feature = "llvm")]
 pub fn compile_to_llvm_with_imported_monos<'ctx>(
-    context: &'ctx Context,
-    db: &CompilerDb,
-    parse_result: &ParseOutput,
-    type_result: &TypeCheckResult,
-    merged_pool: &'ctx Pool,
-    imported: super::ImportedSurfaces<'_>,
-    canon: &CanonResult,
-    source_path: &str,
-    target_triple: Option<&str>,
-    narrowing_policy: ori_repr::NarrowingPolicy,
+    input: ImportedMonoCompilation<'ctx, '_>,
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
+    let ImportedMonoCompilation {
+        context,
+        db,
+        parse: parse_result,
+        typed: type_result,
+        pool: merged_pool,
+        imported,
+        canon,
+        source_path,
+        target_triple,
+        narrowing_policy,
+    } = input;
     let module_name = Path::new(source_path)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -171,26 +185,44 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
 /// plus re-interned canons for cross-module generic body specialization
 /// (both empty when the host has no imported generic instantiations).
 #[cfg(feature = "llvm")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "multi-module compilation needs all parameters"
-)]
+#[derive(Clone, Copy)]
+pub struct ImportedModuleCompilation<'ctx, 'a> {
+    pub context: &'ctx Context,
+    pub db: &'a CompilerDb,
+    pub parse: &'a ParseOutput,
+    pub typed: &'a TypeCheckResult,
+    pub pool: &'ctx Pool,
+    pub canon: &'a CanonResult,
+    pub source_path: &'a str,
+    pub module_name: &'a str,
+    pub imported_functions: &'a [ImportedFunctionInfo],
+    pub imported_type_metadata: &'a [ori_types::ExportedTypeMetadata],
+    pub imported_collection_surfaces: &'a [u64],
+    pub imported: super::ImportedSurfaces<'a>,
+    pub target_triple: Option<&'a str>,
+    pub narrowing_policy: ori_repr::NarrowingPolicy,
+}
+
+#[cfg(feature = "llvm")]
 pub fn compile_to_llvm_with_imports<'ctx>(
-    context: &'ctx Context,
-    db: &CompilerDb,
-    parse_result: &ParseOutput,
-    type_result: &TypeCheckResult,
-    pool: &'ctx Pool,
-    canon: &CanonResult,
-    source_path: &str,
-    module_name: &str,
-    imported_functions: &[ImportedFunctionInfo],
-    imported_type_metadata: &[ori_types::ExportedTypeMetadata],
-    imported_collection_surfaces: &[u64],
-    imported: super::ImportedSurfaces<'_>,
-    target_triple: Option<&str>,
-    narrowing_policy: ori_repr::NarrowingPolicy,
+    input: ImportedModuleCompilation<'ctx, '_>,
 ) -> Result<super::codegen_pipeline::LlvmCodegenOutput<'ctx>, String> {
+    let ImportedModuleCompilation {
+        context,
+        db,
+        parse: parse_result,
+        typed: type_result,
+        pool,
+        canon,
+        source_path,
+        module_name,
+        imported_functions,
+        imported_type_metadata,
+        imported_collection_surfaces,
+        imported,
+        target_triple,
+        narrowing_policy,
+    } = input;
     let interner = db.interner();
     // Registration key = the call-site local/aliased name (matching the ARC
     // IR callee Name resolve_callee probes); the LLVM extern symbol stays the

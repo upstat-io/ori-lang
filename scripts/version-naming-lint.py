@@ -86,8 +86,20 @@ def _scan_names(line: str, patterns: Iterable[re.Pattern[str]]) -> Iterable[str]
             yield m.group(1)
 
 
+# Every MARKER_PATTERNS hit requires `V`/`v` followed by a digit, so a file or
+# line without that shape can never produce a finding — skip it unscanned.
+_MARKER_HINT_RE = re.compile(r"[Vv]\d")
+_MARKER_HINT_BYTES_RE = re.compile(rb"[Vv]\d")
+
+
 def scan_rust(path: Path) -> Iterable[Finding]:
-    for idx, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+    raw = path.read_bytes()
+    if not _MARKER_HINT_BYTES_RE.search(raw):
+        return
+    text = raw.decode("utf-8", errors="replace")
+    for idx, line in enumerate(text.splitlines(), 1):
+        if not _MARKER_HINT_RE.search(line):
+            continue
         for name in _scan_names(line, (RUST_DECL_RE,)):
             cat = classify(name)
             if cat:
@@ -95,7 +107,13 @@ def scan_rust(path: Path) -> Iterable[Finding]:
 
 
 def scan_ori(path: Path) -> Iterable[Finding]:
-    for idx, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+    raw = path.read_bytes()
+    if not _MARKER_HINT_BYTES_RE.search(raw):
+        return
+    text = raw.decode("utf-8", errors="replace")
+    for idx, line in enumerate(text.splitlines(), 1):
+        if not _MARKER_HINT_RE.search(line):
+            continue
         for name in _scan_names(line, (ORI_FN_RE, ORI_DECL_RE)):
             cat = classify(name)
             if cat:

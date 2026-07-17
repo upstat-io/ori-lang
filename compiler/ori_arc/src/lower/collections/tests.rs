@@ -3,6 +3,7 @@ use ori_ir::{Name, Span, StringInterner, TypeId};
 use ori_types::{Idx, Pool};
 
 use crate::ir::{ArcInstr, ArcValue, CtorKind, LitValue};
+use crate::lower::ArcLoweringInput;
 
 /// Wrap a built arena into a single-root `CanonResult` and lower it.
 fn lower_root(
@@ -15,16 +16,19 @@ fn lower_root(
     let canon = CanonResult::new(arena, root);
     let mut problems = Vec::new();
     let _ = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        ret_ty,
-        root,
-        &canon,
-        interner,
-        pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: ret_ty,
+            body: root,
+            canon: &canon,
+            interner,
+            pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 }
 
@@ -113,16 +117,19 @@ fn lower_try_injects_trace_on_genuine_error_err_payload() {
     let canon = CanonResult::new(arena, try_expr);
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        try_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: try_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -171,16 +178,19 @@ fn lower_try_does_not_inject_trace_on_newtype_over_error_err_payload() {
     let canon = CanonResult::new(arena, try_expr);
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        try_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: try_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -225,16 +235,19 @@ fn lower_tuple() {
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        tuple_ty,
-        tup,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: tuple_ty,
+            body: tup,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -263,16 +276,19 @@ fn lower_empty_tuple_as_unit_literal() {
     let mut problems = Vec::new();
 
     let (function, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        unit,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: unit,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -302,16 +318,19 @@ fn lower_none() {
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        none_id,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: none_id,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());

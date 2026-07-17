@@ -25,11 +25,17 @@
 //!
 //! The walk is bounded by the AST size: no CFG, no fixpoint, no lattice.
 
-use ori_ir::{ExprArena, ExprId, ExprKind, MatchPattern, Name, Span};
+mod support;
+
+use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 use rustc_hash::FxHashMap;
 
 use crate::check::validators::expr_children::child_ids;
 use crate::TypeCheckError;
+use support::{
+    binding_pattern_bound_names, drop_early_named_target, drop_early_positional_target,
+    match_pattern_bound_names, record_consume, unbind_binding_pattern,
+};
 
 /// Consumed-binding map: surface name -> span of the `drop_early` that
 /// consumed it.
@@ -443,167 +449,6 @@ fn thread_loop_with(
 fn union_into(dst: &mut Consumed, src: Consumed) {
     for (k, v) in src {
         dst.entry(k).or_insert(v);
-    }
-}
-
-/// Record a `drop_early` consume of `bound` at `span`. A second consume of an
-/// already-consumed binding (a double `drop_early`) is itself a use of
-/// reclaimed memory and emits E2054.
-fn record_consume(
-    bound: Name,
-    span: Span,
-    consumed: &mut Consumed,
-    errors: &mut Vec<TypeCheckError>,
-) {
-    if consumed.contains_key(&bound) {
-        errors.push(TypeCheckError::use_after_drop_early(span, bound));
-    }
-    consumed.insert(bound, span);
-}
-
-/// Return `true` iff `func` is the `Ident(drop_early)` callee.
-fn is_drop_early_callee(ctx: &WalkCtx<'_>, func: ExprId) -> bool {
-    matches!(*ctx.arena.expr_kind(func), ExprKind::Ident(callee) if callee == ctx.drop_early_name)
-}
-
-/// Return `(bound, span)` when `value` is a bare `Ident` (the consume target).
-fn ident_consume_target(ctx: &WalkCtx<'_>, value: ExprId) -> Option<(Name, Span)> {
-    if let ExprKind::Ident(bound) = *ctx.arena.expr_kind(value) {
-        Some((bound, ctx.arena.get_expr(value).span))
-    } else {
-        None
-    }
-}
-
-/// Recognise `drop_early(value: x)` (named call) and return `(x, span)` when the
-/// single argument is a bare identifier. `None` for any other callee, arity, or
-/// non-identifier / spread argument (those thread normally as ordinary uses).
-fn drop_early_named_target(
-    ctx: &WalkCtx<'_>,
-    func: ExprId,
-    args: ori_ir::CallArgRange,
-) -> Option<(Name, Span)> {
-    if !is_drop_early_callee(ctx, func) {
-        return None;
-    }
-    let call_args = ctx.arena.get_call_args(args);
-    if call_args.len() != 1 || call_args[0].is_spread {
-        return None;
-    }
-    ident_consume_target(ctx, call_args[0].value)
-}
-
-/// Recognise positional `drop_early(x)` (`Call`) and return `(x, span)` when the
-/// single positional argument is a bare identifier. The shipped checker matches
-/// call arguments positionally, so `drop_early(x)` (no `value:`) is well-typed
-/// and lowers to `Call` rather than `CallNamed`.
-fn drop_early_positional_target(
-    ctx: &WalkCtx<'_>,
-    func: ExprId,
-    args: ori_ir::ExprRange,
-) -> Option<(Name, Span)> {
-    if !is_drop_early_callee(ctx, func) {
-        return None;
-    }
-    let arg_ids = ctx.arena.get_expr_list(args);
-    if arg_ids.len() != 1 {
-        return None;
-    }
-    ident_consume_target(ctx, arg_ids[0])
-}
-
-/// Remove every name bound by a `let` binding pattern from the consumed set —
-/// a fresh binding shadows (un-consumes) a previously-consumed name.
-fn unbind_binding_pattern(
-    ctx: &WalkCtx<'_>,
-    pattern: ori_ir::BindingPatternId,
-    consumed: &mut Consumed,
-) {
-    for n in binding_pattern_bound_names(ctx, pattern) {
-        consumed.remove(&n);
-    }
-}
-
-/// Collect every surface name a `let` binding pattern binds (recursing into
-/// tuple / struct / list destructures, including the list `rest` binder).
-fn binding_pattern_bound_names(ctx: &WalkCtx<'_>, pattern: ori_ir::BindingPatternId) -> Vec<Name> {
-    let mut out = Vec::new();
-    collect_binding_pattern_names(ctx.arena.get_binding_pattern(pattern), &mut out);
-    out
-}
-
-/// Recursive worker for [`binding_pattern_bound_names`].
-fn collect_binding_pattern_names(pattern: &ori_ir::BindingPattern, out: &mut Vec<Name>) {
-    match pattern {
-        ori_ir::BindingPattern::Name { name, .. } => out.push(*name),
-        ori_ir::BindingPattern::Tuple(elems) => {
-            for e in elems {
-                collect_binding_pattern_names(e, out);
-            }
-        }
-        ori_ir::BindingPattern::Struct { fields } => {
-            for f in fields {
-                match &f.pattern {
-                    Some(sub) => collect_binding_pattern_names(sub, out),
-                    None => out.push(f.name),
-                }
-            }
-        }
-        ori_ir::BindingPattern::List { elements, rest } => {
-            for e in elements {
-                collect_binding_pattern_names(e, out);
-            }
-            if let Some((name, _)) = rest {
-                out.push(*name);
-            }
-        }
-        ori_ir::BindingPattern::Wildcard => {}
-    }
-}
-
-/// Collect every surface name a match-arm pattern binds (recursing through
-/// variant payloads, struct fields, tuples, lists, or-alternatives, and
-/// `@`-patterns).
-fn match_pattern_bound_names(ctx: &WalkCtx<'_>, pattern: &MatchPattern) -> Vec<Name> {
-    let mut out = Vec::new();
-    collect_match_pattern_names(ctx, pattern, &mut out);
-    out
-}
-
-/// Recursive worker for [`match_pattern_bound_names`].
-fn collect_match_pattern_names(ctx: &WalkCtx<'_>, pattern: &MatchPattern, out: &mut Vec<Name>) {
-    match pattern {
-        MatchPattern::Binding(name) => out.push(*name),
-        MatchPattern::At { name, pattern } => {
-            out.push(*name);
-            collect_match_pattern_names(ctx, ctx.arena.get_match_pattern(*pattern), out);
-        }
-        MatchPattern::Struct { fields, .. } => {
-            for (fname, sub) in fields {
-                match sub {
-                    Some(id) => {
-                        collect_match_pattern_names(ctx, ctx.arena.get_match_pattern(*id), out);
-                    }
-                    None => out.push(*fname),
-                }
-            }
-        }
-        MatchPattern::Variant { inner, .. }
-        | MatchPattern::Tuple(inner)
-        | MatchPattern::Or(inner) => {
-            for sub in ctx.arena.get_match_pattern_list(*inner) {
-                collect_match_pattern_names(ctx, ctx.arena.get_match_pattern(*sub), out);
-            }
-        }
-        MatchPattern::List { elements, rest } => {
-            for sub in ctx.arena.get_match_pattern_list(*elements) {
-                collect_match_pattern_names(ctx, ctx.arena.get_match_pattern(*sub), out);
-            }
-            if let Some(name) = rest {
-                out.push(*name);
-            }
-        }
-        MatchPattern::Wildcard | MatchPattern::Literal(_) | MatchPattern::Range { .. } => {}
     }
 }
 

@@ -38,13 +38,11 @@
 
 use crate::util::assert_aot_success;
 
-// ---------------------------------------------------------------------------
 // Producer-closure guard — `assert_eq<Box<int>>` is discovered through the
 // generic-calling-generic fixed point, then its `T: Debug` bound must seed the
 // exact derived `Box<int>.debug` body before shared executable realization.
 // Pre-fix: AOT closed-program failure, unresolved `debug` from the concrete
 // `assert_eq` specialization. Interp passes through dynamic dispatch.
-// ---------------------------------------------------------------------------
 #[test]
 fn assert_eq_on_generic_struct_in_generic_body_monos() {
     assert_aot_success(
@@ -53,11 +51,9 @@ fn assert_eq_on_generic_struct_in_generic_body_monos() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // FAIL-FIRST — `empty_queue` cluster (generic constructor on rigid `U`).
 // `make_empty<U>` calls `empty_queue<U>`; nested `empty_queue<int>` unrecorded.
 // Pre-fix: AOT E5001 `unresolved function 'empty_queue'`. Interp passes.
-// ---------------------------------------------------------------------------
 #[test]
 fn empty_queue_generic_ctor_in_generic_body_monos() {
     assert_aot_success(
@@ -66,11 +62,9 @@ fn empty_queue_generic_ctor_in_generic_body_monos() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // FAIL-FIRST — `dequeue` cluster (generic fn on rigid `U`). `drain<U>` calls
 // `dequeue<U>`; nested `dequeue<int>` unrecorded. Pre-fix: AOT E5001
 // `unresolved function 'dequeue'`. Interp passes (Some(42) -> exit 0).
-// ---------------------------------------------------------------------------
 #[test]
 fn dequeue_generic_fn_in_generic_body_monos() {
     assert_aot_success(
@@ -79,11 +73,9 @@ fn dequeue_generic_fn_in_generic_body_monos() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // FAIL-FIRST — `buffer_pop` cluster (generic fn on rigid `U`). `pop_one<U>`
 // calls `buffer_pop<U>`; nested `buffer_pop<int>` unrecorded. Pre-fix: AOT
 // E5001 `unresolved function 'buffer_pop'`. Interp passes (None -> exit 0).
-// ---------------------------------------------------------------------------
 #[test]
 fn buffer_pop_generic_fn_in_generic_body_monos() {
     assert_aot_success(
@@ -92,13 +84,11 @@ fn buffer_pop_generic_fn_in_generic_body_monos() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // DISTINCT ROOT from the transitive-generic-body mono gap: `thread_id` is a
 // prelude builtin whose AOT path is its runtime-symbol + codegen lowering
 // (`ori_thread_id` + the `emit_thread_id` prelude arm), NOT monomorphization.
 // `get_id<int>` monomorphizes correctly; this pins that the `thread_id()` call
 // inside a generic body also lowers at AOT once the builtin lowering lands.
-// ---------------------------------------------------------------------------
 #[test]
 fn thread_id_nested_in_generic_body_monos() {
     assert_aot_success(
@@ -107,10 +97,8 @@ fn thread_id_nested_in_generic_body_monos() {
     );
 }
 
-// ---------------------------------------------------------------------------
 // CURED guard — prelude generic `repeat` (T: Clone) on rigid `U`. Passes
 // pre-fix; pins the already-resolved face against regression.
-// ---------------------------------------------------------------------------
 #[test]
 fn repeat_prelude_generic_in_generic_body_stays_resolved() {
     assert_aot_success(

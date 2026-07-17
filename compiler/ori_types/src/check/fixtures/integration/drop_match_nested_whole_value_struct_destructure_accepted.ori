@@ -1,0 +1,6 @@
+trait Drop { @drop (self) -> void; }
+         type Inner = { x: int, y: int }
+         type Outer = { inner: Inner }
+         impl Inner: Drop { @drop (self) -> void = (); }
+         impl Outer: Drop { @drop (self) -> void = (); }
+         @good (o: Outer) -> int = match o { Outer { inner: Inner { x, y } } -> x + y, };
