@@ -28,7 +28,10 @@ pub use reset::*;
 pub use slice::*;
 
 use crate::next_capacity;
-use crate::rc::{ori_rc_alloc, ori_rc_dec, ori_rc_free, ori_rc_realloc};
+use crate::rc::{
+    load_elem_count, ori_buffer_rc_dec, ori_rc_alloc, ori_rc_dec, ori_rc_free, ori_rc_realloc,
+    store_elem_count,
+};
 use crate::slice_encoding::{is_slice_cap, slice_original_data};
 
 /// Ori list representation: { i64 len, i64 cap, *mut u8 data }
@@ -177,6 +180,11 @@ pub extern "C" fn ori_list_new(capacity: i64, elem_size: i64) -> *mut OriList {
 }
 
 /// Free a heap-allocated `OriList` (from `ori_list_new`).
+///
+/// The data buffer is RC-managed. Its V5 header carries the element destructor
+/// installed by for-yield codegen, so teardown must use `ori_buffer_rc_dec`
+/// rather than raw-freeing the bytes. This releases every initialized element
+/// before reclaiming the scratch buffer and wrapper.
 #[no_mangle]
 pub extern "C" fn ori_list_free(list: *mut OriList, elem_size: i64) {
     if list.is_null() {
@@ -187,9 +195,11 @@ pub extern "C" fn ori_list_free(list: *mut OriList, elem_size: i64) {
     unsafe {
         let list = Box::from_raw(list);
         if !list.data.is_null() && list.cap > 0 {
-            let size = elem_size.max(1) as usize;
-            let total = list.cap as usize * size;
-            ori_rc_free(list.data, total, 8);
+            // The header's stored elem_dec_fn is authoritative; passing None
+            // prevents a parallel destructor source. The stored count is the
+            // matching initialization boundary maintained after each push.
+            let initialized = load_elem_count(list.data).clamp(0, list.cap);
+            ori_buffer_rc_dec(list.data, initialized, list.cap, elem_size, None);
         }
     }
 }
@@ -261,6 +271,8 @@ pub extern "C" fn ori_list_push(list: *mut u8, elem_ptr: *const u8, elem_size: i
         std::ptr::copy_nonoverlapping(elem_ptr, list.data.add(list.len as usize * es), es);
     }
     list.len += 1;
+    // SAFETY: successful push leaves `data` pointing at an RC-managed buffer.
+    unsafe { store_elem_count(list.data, list.len) };
 }
 
 /// Extract the `OriList` contents and free the heap wrapper.

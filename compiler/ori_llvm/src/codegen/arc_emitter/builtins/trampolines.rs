@@ -123,7 +123,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         };
         self.builder.set_module_local(func_id);
-        self.builder.add_nounwind_attribute(func_id);
+        // The indirect Ori closure is allowed to panic. The runtime calls this
+        // trampoline through an extern-C-unwind callback, so marking the helper
+        // nounwind would turn a catchable language panic into process abort.
         self.builder.add_uwtable_attribute(func_id);
         // All trampoline params are pointers passed by the runtime — always
         // valid, defined addresses (never undef/poison).

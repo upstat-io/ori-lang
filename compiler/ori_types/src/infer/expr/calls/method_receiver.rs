@@ -11,7 +11,7 @@ use super::super::super::InferEngine;
 use super::super::{infer_expr, range_method_requires_iteration, resolve_builtin_method};
 use super::infinite_iterator::check_infinite_iterator_consumed;
 use super::method_diagnostics::is_named_generic_var;
-use crate::{Idx, Tag, TypeCheckError};
+use crate::{Idx, IterMethodRoute, Tag, TypeCheckError};
 
 /// Result of resolving a method receiver and checking builtin dispatch.
 pub(super) enum ReceiverDispatch {
@@ -34,6 +34,7 @@ pub(super) enum ReceiverDispatch {
 pub(super) fn resolve_receiver_and_builtin(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
+    call_expr_id: ExprId,
     receiver: ExprId,
     method: Name,
     span: Span,
@@ -88,13 +89,23 @@ pub(super) fn resolve_receiver_and_builtin(
     // 1. Try built-in method resolution
     if let Some(name_str) = method_str {
         if let Some(ret) = resolve_builtin_method(engine, resolved, tag, name_str) {
+            // Annex C gives direct Range higher-order methods eager result
+            // shapes. Keep that public type while recording the iterator
+            // implementation path that canonicalization must materialize.
+            let mut dispatch_receiver_ty = resolved;
+            if tag == Tag::Range {
+                if let Some(route) = range_eager_iter_route(engine, resolved, name_str, ret) {
+                    dispatch_receiver_ty = route.iter_ty;
+                    engine.record_iter_route(call_expr_id, route);
+                }
+            }
             // 1a. Before returning, check for infinite iterator consumption
             if matches!(tag, Tag::Iterator | Tag::DoubleEndedIterator) {
                 check_infinite_iterator_consumed(engine, arena, receiver, name_str, span);
             }
             return ReceiverDispatch::Return {
                 ret_ty: ret,
-                receiver_ty: resolved,
+                receiver_ty: dispatch_receiver_ty,
             };
         }
     }
@@ -148,9 +159,15 @@ pub(super) fn resolve_receiver_and_builtin(
             if matches!(iter_tag, Tag::Iterator | Tag::DoubleEndedIterator) {
                 if let Some(ret) = resolve_builtin_method(engine, iter_ty, iter_tag, name_str) {
                     // Record the route so `ori_canon` lowers this to
-                    // `recv.iter().method(args)`; keyed on the source receiver
-                    // `ExprId` (unique per call site).
-                    engine.record_iter_route(receiver, iter_ty);
+                    // `recv.iter().method(args)`; the exact call `ExprId`
+                    // prevents nested routes from aliasing one another.
+                    engine.record_iter_route(
+                        call_expr_id,
+                        IterMethodRoute {
+                            iter_ty,
+                            adapter_ty: None,
+                        },
+                    );
                     return ReceiverDispatch::Return {
                         ret_ty: ret,
                         receiver_ty: iter_ty,
@@ -161,6 +178,43 @@ pub(super) fn resolve_receiver_and_builtin(
     }
 
     ReceiverDispatch::Continue { resolved }
+}
+
+/// Build the canonical iterator route for Annex C's direct eager Range methods.
+///
+/// The type checker owns this projection because both the public result shape
+/// and the intermediate adapter element type are known here. Canon and LLVM
+/// consume the frozen route without rediscovering Range semantics.
+fn range_eager_iter_route(
+    engine: &mut InferEngine<'_>,
+    range_ty: Idx,
+    method: &str,
+    ret_ty: Idx,
+) -> Option<IterMethodRoute> {
+    if !matches!(method, "map" | "filter" | "fold") {
+        return None;
+    }
+
+    let range_elem = engine.pool().range_elem(range_ty);
+    let iter_ty = engine.pool_mut().double_ended_iterator(range_elem);
+    let adapter_ty = match method {
+        "map" => {
+            let resolved_ret = engine.resolve(ret_ty);
+            if engine.pool().tag(resolved_ret) != Tag::List {
+                return None;
+            }
+            let mapped_elem = engine.pool().list_elem(resolved_ret);
+            Some(engine.pool_mut().double_ended_iterator(mapped_elem))
+        }
+        "filter" => Some(iter_ty),
+        "fold" => None,
+        _ => unreachable!("method guard admits only Range map/filter/fold"),
+    };
+
+    Some(IterMethodRoute {
+        iter_ty,
+        adapter_ty,
+    })
 }
 
 /// Check if a method call on a `Range<float>` is attempting iteration.

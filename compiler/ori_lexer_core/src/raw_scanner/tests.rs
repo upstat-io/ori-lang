@@ -333,7 +333,7 @@ fn compound_operators() {
 )]
 #[test]
 fn cross_language_operator_habits_are_single_error_tokens() {
-    for source in ["===", "!==", "++", "--"] {
+    for source in ["===", "!==", "++"] {
         let tokens = scan(source);
         assert_eq!(
             tokens.len(),
@@ -347,6 +347,18 @@ fn cross_language_operator_habits_are_single_error_tokens() {
             "{source:?} error token should cover the whole operator"
         );
     }
+}
+
+#[test]
+fn adjacent_minuses_remain_independent_unary_tokens() {
+    assert_eq!(
+        scan_tags("--42"),
+        vec![RawTag::Minus, RawTag::Minus, RawTag::Int]
+    );
+    assert_eq!(
+        scan_tags("--value"),
+        vec![RawTag::Minus, RawTag::Minus, RawTag::Ident]
+    );
 }
 
 #[test]
@@ -465,6 +477,78 @@ fn int_dot_ident_is_not_float() {
     // `42.foo` should be Int, Dot, Ident — not Float
     let tags = scan_tags("42.foo");
     assert_eq!(tags, vec![RawTag::Int, RawTag::Dot, RawTag::Ident]);
+}
+
+#[test]
+fn numeric_dot_boundary_matrix() {
+    let cases: &[(&str, &[RawTag])] = &[
+        ("t.0", &[RawTag::Ident, RawTag::Dot, RawTag::Int]),
+        (
+            "(t.0).1",
+            &[
+                RawTag::LeftParen,
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Int,
+                RawTag::RightParen,
+                RawTag::Dot,
+                RawTag::Int,
+            ],
+        ),
+        (
+            "t.0.name",
+            &[
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Int,
+                RawTag::Dot,
+                RawTag::Ident,
+            ],
+        ),
+        (
+            "t.name.0",
+            &[
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Int,
+            ],
+        ),
+        ("0.1", &[RawTag::Float]),
+        ("t.0.1", &[RawTag::Ident, RawTag::Dot, RawTag::Float]),
+        ("0..1", &[RawTag::Int, RawTag::DotDot, RawTag::Int]),
+        (
+            "t.0..1",
+            &[
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Int,
+                RawTag::DotDot,
+                RawTag::Int,
+            ],
+        ),
+        (
+            "t.0..=1",
+            &[
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Int,
+                RawTag::DotDotEqual,
+                RawTag::Int,
+            ],
+        ),
+    ];
+    let mut visited = 0;
+    for &(source, expected) in cases {
+        assert_eq!(
+            scan_tags(source),
+            expected,
+            "unexpected numeric/dot token boundary for {source:?}"
+        );
+        visited += 1;
+    }
+    assert_eq!(visited, cases.len(), "every matrix cell must run");
 }
 
 #[test]

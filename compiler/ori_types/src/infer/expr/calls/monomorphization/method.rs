@@ -4,7 +4,9 @@ use ori_ir::{ExprId, Name};
 use rustc_hash::FxHashMap;
 
 use crate::pool::substitute::substitute_in_pool;
-use crate::{ConcreteMethodMono, GenericArg, Idx, MonoInstance};
+use crate::{
+    ConcreteMethodMono, ConstGenericTerm, Expected, GenericArg, Idx, MonoConstBinding, MonoInstance,
+};
 
 use crate::infer::InferEngine;
 
@@ -12,8 +14,13 @@ use super::super::impl_lookup::{ImplMethodSig, MethodMonoData};
 use super::applied::resolve_applied_type;
 use super::{build_and_register_body_type_map, collect_generic_type_params};
 
-/// `(method_args, method_named, var_subst)` triple from `resolve_method_binder_args`.
-type MethodBinderArgs = (Vec<GenericArg>, Vec<(Name, Idx)>, FxHashMap<u32, Idx>);
+/// Concrete method arguments, name-keyed type substitutions, and const body bindings.
+type MethodBinderArgs = (
+    Vec<GenericArg>,
+    Vec<(Name, Idx)>,
+    FxHashMap<u32, Idx>,
+    Vec<MonoConstBinding>,
+);
 
 /// Resolve the method's own `<T>`-style binders to concrete args.
 ///
@@ -31,17 +38,33 @@ type MethodBinderArgs = (Vec<GenericArg>, Vec<(Name, Idx)>, FxHashMap<u32, Idx>)
 fn resolve_method_binder_args(
     engine: &mut InferEngine<'_>,
     sig: &ImplMethodSig,
+    expected: Option<&Expected>,
 ) -> Option<MethodBinderArgs> {
-    let method_binder_names: Vec<Name> = sig
+    let const_param_count = sig
         .generic_param_metadata
         .iter()
-        .filter(|m| !m.is_const)
-        .map(|m| m.name)
-        .collect();
-    let mut method_args = Vec::with_capacity(sig.scheme_var_ids.len());
+        .filter(|meta| meta.is_const)
+        .count();
+    let mut const_terms = expected.into_iter().flat_map(Expected::const_terms);
+    let mut method_args = Vec::with_capacity(sig.generic_param_metadata.len());
     let mut method_named: Vec<(Name, Idx)> = Vec::with_capacity(sig.scheme_var_ids.len());
     let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
-    for (pos, &sv_id) in sig.scheme_var_ids.iter().enumerate() {
+    let mut const_bindings = Vec::with_capacity(const_param_count);
+    let mut scheme_vars = sig.scheme_var_ids.iter().copied();
+    for meta in &sig.generic_param_metadata {
+        if meta.is_const {
+            let Some(ConstGenericTerm::Value(value)) = const_terms.next() else {
+                return None;
+            };
+            method_args.push(GenericArg::Const(value.clone()));
+            const_bindings.push(MonoConstBinding {
+                name: meta.name,
+                value: value.clone(),
+            });
+            continue;
+        }
+
+        let sv_id = scheme_vars.next()?;
         let Some(&fresh) = sig.instantiation_subst.get(&sv_id) else {
             continue;
         };
@@ -51,11 +74,9 @@ fn resolve_method_binder_args(
         }
         var_subst.insert(sv_id, resolved);
         method_args.push(GenericArg::Type(resolved));
-        if let Some(&name) = method_binder_names.get(pos) {
-            method_named.push((name, resolved));
-        }
+        method_named.push((meta.name, resolved));
     }
-    Some((method_args, method_named, var_subst))
+    Some((method_args, method_named, var_subst, const_bindings))
 }
 
 /// Record a `MonoInstance` for a generic method call — either an IMPL-level
@@ -82,6 +103,7 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
     method_name: Name,
     receiver_ty: Idx,
     sig: &ImplMethodSig,
+    expected: Option<&Expected>,
 ) {
     // Entry gate keys on EITHER binder axis: `method_mono` (impl-level, set when
     // the impl is generic over the receiver — `impl<T> Box<T>`) OR
@@ -91,7 +113,7 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
     // "method needs monomorphization"; a method-level-only generic then records
     // no MonoInstance and its `Tag::RigidVar` survives to codegen (PC-2 break).
     let mono = sig.method_mono.as_ref();
-    if mono.is_none() && sig.scheme_var_ids.is_empty() {
+    if mono.is_none() && sig.generic_param_metadata.is_empty() {
         return;
     }
 
@@ -143,7 +165,8 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
 
     // The method's `<T>`-style binders, resolved to concrete args; `None` when
     // any binder arg still carries type vars (skip this pass).
-    let Some((method_args, method_named, mut var_subst)) = resolve_method_binder_args(engine, sig)
+    let Some((method_args, method_named, mut var_subst, const_bindings)) =
+        resolve_method_binder_args(engine, sig, expected)
     else {
         return;
     };
@@ -176,11 +199,12 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
     let Some(producer) = sig.producer.clone() else {
         return;
     };
-    let instance = MonoInstance::new_method(
+    let instance = MonoInstance::new_method_with_const_bindings(
         method_name,
         producer,
         impl_args,
         method_args,
+        const_bindings,
         ConcreteMethodMono {
             receiver_type: receiver,
             param_types: concrete_param_types,

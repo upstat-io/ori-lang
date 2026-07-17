@@ -3,6 +3,12 @@
 //! `IterState` is the internal enum that drives all iterator operations.
 //! Never exposed to LLVM — all interaction goes through pointer-sized handles.
 
+#[path = "state_lifecycle.rs"]
+mod lifecycle;
+
+pub(super) use lifecycle::empty_range;
+pub(crate) use lifecycle::YieldGuard;
+
 /// Maximum element size for stack scratch buffers in `next()`.
 ///
 /// Covers all current Ori types (str=24B, list=24B, practical structs <200B).
@@ -63,17 +69,25 @@ pub(crate) fn assert_elem_size(elem_size: i64, context: &str) {
     );
 }
 
-/// Trampoline signature for map: `(env, in_ptr, out_ptr) -> void`
-pub(crate) type TransformFn = extern "C" fn(*mut u8, *const u8, *mut u8);
+/// Trampoline signature for map: `(env, in_ptr, out_ptr) -> void`.
+///
+/// User closures may panic. The unwind-capable ABI is therefore part of the
+/// callback contract, not an implementation detail of any one consumer.
+pub(crate) type TransformFn = extern "C-unwind" fn(*mut u8, *const u8, *mut u8);
 
 /// Trampoline signature for filter/any/all/find: `(env, elem_ptr) -> bool`
-pub(crate) type PredicateFn = extern "C" fn(*mut u8, *const u8) -> bool;
+pub(crate) type PredicateFn = extern "C-unwind" fn(*mut u8, *const u8) -> bool;
 
 /// Trampoline signature for `for_each`: `(env, elem_ptr) -> void`
-pub(crate) type ForEachFn = extern "C" fn(*mut u8, *const u8);
+pub(crate) type ForEachFn = extern "C-unwind" fn(*mut u8, *const u8);
 
 /// Trampoline signature for fold: `(env, acc_ptr, elem_ptr, out_ptr) -> void`
-pub(crate) type FoldFn = extern "C" fn(*mut u8, *const u8, *const u8, *mut u8);
+pub(crate) type FoldFn = extern "C-unwind" fn(*mut u8, *const u8, *const u8, *mut u8);
+
+/// Releases the RC children owned by one adapter-produced element.
+///
+/// Null at the ABI boundary means the mapped result has no RC children.
+pub(crate) type ElemDecFn = extern "C" fn(*mut u8);
 
 /// Iterator state machine. Each variant corresponds to an iterator source
 /// or adapter from the evaluator's `IteratorValue` enum.
@@ -118,6 +132,9 @@ pub(crate) enum IterState {
         transform_fn: TransformFn,
         transform_env: *mut u8,
         in_size: i64,
+        /// Releases a yielded map result when a downstream adapter consumes or
+        /// discards it instead of forwarding it to the terminal consumer.
+        output_dec_fn: Option<ElemDecFn>,
     },
 
     /// Filters elements via a predicate trampoline.
@@ -259,152 +276,76 @@ pub(crate) enum IterState {
     },
 }
 
-/// Dec every owned element master in a flat `elem_size`-byte buffer exactly
-/// once via `dec`, regardless of cursor position. Shared by the `Cycled` and
-/// `Reversed` Drop arms — each OWNS its stored copies (`dec` is the V5-header
-/// `elem_dec_fn`), so the release count is `buffer.len() / elem_size`.
-fn dec_owned_buffer(buffer: &mut [u8], elem_size: i64, dec: extern "C" fn(*mut u8)) {
-    let es = elem_size.max(1) as usize;
-    let n = buffer.len() / es;
-    for i in 0..n {
-        // SAFETY: buffer holds n contiguous es-byte masters.
-        let elem = unsafe { buffer.as_mut_ptr().add(i * es) };
-        dec(elem);
-    }
-}
-
-impl Drop for IterState {
-    fn drop(&mut self) {
-        // Release RC references to data owned by source-level iterators.
-        //
-        // The ARC pipeline transfers ownership of one RC reference to the
-        // iterator when `.iter()` is called (Owned semantics). We release
-        // it here so the data is freed when the last iterator reference
-        // goes away.
-        //
-        // For adapter variants (Mapped, Filtered, etc.), Rust automatically
-        // drops the inner `Box<IterState>` AFTER this `drop()` returns,
-        // cascading the cleanup to the source iterator.
+impl IterState {
+    /// Release the ownership obligation attached to the most recent successful
+    /// yield from this iterator.
+    ///
+    /// Source iterators and replay buffers yield borrowed aliases, so their
+    /// obligation is a no-op. A mapped iterator yields a fresh value and owns a
+    /// type-matched release thunk. Identity adapters delegate to the exact
+    /// source that produced the value.
+    ///
+    /// Callers must release, transfer, or forward a successful yield before
+    /// advancing this iterator again; adapter branch state identifies only the
+    /// most recent yield.
+    ///
+    /// # Safety
+    ///
+    /// `elem_ptr` must point to the complete element produced by this
+    /// iterator's most recent successful `next` or `next_back` call.
+    pub(crate) unsafe fn release_last_yield(&mut self, elem_ptr: *mut u8) {
         match self {
-            IterState::List {
-                data,
-                len,
-                cap,
-                elem_size,
-                owns_data,
+            Self::Mapped {
+                output_dec_fn: Some(dec),
                 ..
+            } => dec(elem_ptr),
+            Self::Filtered { source, .. }
+            | Self::TakeN { source, .. }
+            | Self::SkipN { source, .. }
+            | Self::Cycled {
+                source: Some(source),
+                source_exhausted: false,
+                ..
+            } => source.release_last_yield(elem_ptr),
+            Self::Enumerated { source, .. } => {
+                source.release_last_yield(elem_ptr.add(size_of::<i64>()));
+            }
+            Self::Zipped {
+                left,
+                right,
+                left_elem_size,
             } => {
-                // owns_data gates the dec on the ARC arg-ownership: a borrowed
-                // iterator (the flatten inner sub.iter() co-owned by an outer
-                // list) drops without dec so the outer elem_dec_fn frees once.
-                // cap != 0 indicates RC-managed data (from the compiler):
-                //   cap > 0 → regular list (cap is capacity)
-                //   cap < 0 → seamless slice (SLICE_FLAG set, ori_buffer_rc_dec handles it)
-                // cap == 0 indicates test data (stack-allocated, no cleanup).
-                // elem_dec_fn is read from the V5 RC header by ori_buffer_rc_dec.
-                if *owns_data && !data.is_null() && *cap != 0 {
-                    crate::ori_buffer_rc_dec(*data, *len, *cap, *elem_size, None);
+                left.release_last_yield(elem_ptr);
+                right.release_last_yield(elem_ptr.add(*left_elem_size as usize));
+            }
+            Self::Chained {
+                first,
+                second,
+                first_done,
+            } => {
+                if *first_done {
+                    second.release_last_yield(elem_ptr);
+                } else {
+                    first.release_last_yield(elem_ptr);
                 }
             }
-            IterState::Str {
-                data,
-                cap,
-                owns_data,
+            Self::Flattened {
+                inner: Some(inner), ..
+            } => {
+                inner.release_last_yield(elem_ptr);
+            }
+            Self::List { .. }
+            | Self::Range { .. }
+            | Self::Mapped {
+                output_dec_fn: None,
                 ..
-            } => {
-                if *owns_data && !data.is_null() {
-                    if crate::slice_encoding::is_slice_cap(*cap) {
-                        // Seamless slice from str.split(): data is an interior
-                        // pointer. Compute original buffer and dec its RC.
-                        // ori_buffer_rc_dec handles free on rc=0 using
-                        // stored data_size.
-                        let original = crate::slice_encoding::slice_original_data(*data, *cap);
-                        // len=0 (no inner RC elements), cap=data_size (from
-                        // header), elem_size=1.
-                        let data_size = crate::ori_rc_data_size(original.cast_const());
-                        crate::ori_buffer_rc_dec(original, 0, data_size, 1, None);
-                    } else {
-                        // Regular heap string or SSO copy: data is the start
-                        // of an RC allocation. cap is the byte capacity.
-                        // len=0 (no inner RC elements), elem_size=1.
-                        crate::ori_buffer_rc_dec(*data, 0, *cap, 1, None);
-                    }
-                }
             }
-            IterState::Map {
-                data,
-                cap,
-                len,
-                key_size,
-                val_size,
-                owns_data,
-                key_dec_fn,
-                val_dec_fn,
-                ..
-            } => {
-                // Map data buffer uses hash table layout [metadata|keys|values].
-                // ori_map_buffer_rc_dec decs the refcount, scans metadata for
-                // OCCUPIED buckets to clean up key/value children, and frees
-                // the buffer when rc reaches 0.
-                if *owns_data && !data.is_null() {
-                    crate::ori_map_buffer_rc_dec(
-                        *data,
-                        *cap,
-                        *len,
-                        *key_size,
-                        *val_size,
-                        *key_dec_fn,
-                        *val_dec_fn,
-                    );
-                }
-            }
-            IterState::Cycled {
-                buffer,
-                elem_size,
-                elem_dec_fn: Some(dec),
-                ..
-            } => {
-                // The buffer OWNS its element copies (inc'd on store in
-                // next_cycled). The source Option<Box> auto-drops after this
-                // body (gated by its own owns_data).
-                dec_owned_buffer(buffer, *elem_size, *dec);
-            }
-            IterState::Reversed {
-                elements,
-                elem_size,
-                elem_dec_fn: Some(dec),
-                ..
-            } => {
-                // The elements buffer OWNS its copies (inc'd at collect time in
-                // ori_iter_rev).
-                dec_owned_buffer(elements, *elem_size, *dec);
-            }
-            IterState::Repeat {
-                value,
-                elem_size,
-                elem_dec_fn: Some(dec),
-            } => {
-                // The master OWNS one copy (the caller inc'd the value's RC
-                // before construction). Release it exactly once; yielded
-                // aliases are owned by the consumer's per-yield inc.
-                dec_owned_buffer(value, *elem_size, *dec);
-            }
-            _ => {}
+            | Self::Flattened { inner: None, .. }
+            | Self::Cycled { .. }
+            | Self::Reversed { .. }
+            | Self::Str { .. }
+            | Self::Map { .. }
+            | Self::Repeat { .. } => {}
         }
     }
 }
-
-/// Create an empty range iterator (yields nothing). Used as placeholder
-/// in chain adapters when one side is null.
-pub(super) fn empty_range() -> IterState {
-    IterState::Range {
-        current: 0,
-        end: 0,
-        step: 1,
-        inclusive: false,
-    }
-}
-
-// Ensure IterState is Send (function pointers and raw pointers are Send).
-// Required for the unsafe `Box::from_raw` / `Box::into_raw` dance.
-unsafe impl Send for IterState {}

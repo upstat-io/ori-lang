@@ -88,19 +88,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elements: &[Idx],
         tuple_ty: Idx,
     ) -> Option<ValueId> {
-        if elements.is_empty() {
-            return Some(self.builder.const_i64(0));
-        }
-
-        let mem_0 = self.remap_struct_field(tuple_ty, 0);
-        let first_field = self.builder.extract_value(val, mem_0, "tup.f0")?;
-        let mut result = self.emit_element_hash(first_field, elements[0])?;
+        let mut result = self.builder.const_i64(0);
 
         #[expect(
             clippy::cast_possible_truncation,
             reason = "tuple field count fits u32"
         )]
-        for (i, &elem_ty) in elements.iter().enumerate().skip(1) {
+        for (i, &elem_ty) in elements.iter().enumerate() {
             let mem_i = self.remap_struct_field(tuple_ty, i as u32);
             let field = self.builder.extract_value(val, mem_i, "tup.f")?;
             let field_hash = self.emit_element_hash(field, elem_ty)?;

@@ -201,7 +201,7 @@ fn some_never_defaulting_root_when_payload_unbound() {
 
     // Some is NOT a defaulting root — the payload var must remain Unbound.
     assert!(
-        matches!(pool.var_state(payload_var_id), VarState::Unbound { .. }),
+        matches!(pool.var_state(payload_var_id), VarState::Unbound(_)),
         "Some's payload var was incorrectly defaulted; \
          is_defaulting_root must classify Some as NotARoot"
     );
@@ -353,7 +353,7 @@ fn ok_introducer_only_walk_preserves_unrelated_payload_generic_e2005() {
     // the validator's PC-2 pass fires E2005 on it. A full-tree walk would
     // have incorrectly defaulted this var.
     assert!(
-        matches!(pool.var_state(payload_var_id), VarState::Unbound { .. }),
+        matches!(pool.var_state(payload_var_id), VarState::Unbound(_)),
         "Ok's ok-slot payload var was incorrectly defaulted by a full-tree walk; \
          introducer-only walk must restrict to the err slot"
     );

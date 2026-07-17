@@ -136,6 +136,7 @@ impl ArcLowerer<'_> {
             exit_block,
             continue_block: exit_block,
             mutable_vars: mutable_var_entries,
+            abandon_iter: None,
             yield_ctx: Some(ForYieldContext {
                 list_ptr,
                 elem_size: elem_size_var,

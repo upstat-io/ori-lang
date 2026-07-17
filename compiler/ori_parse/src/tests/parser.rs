@@ -12,7 +12,7 @@
 use crate::{parse, ParseContext, ParseOutput, Parser};
 use ori_ir::{
     BinaryOp, BindingPattern, ExprKind, FunctionExpKind, FunctionSeq, Mutability, StmtKind,
-    StringInterner,
+    StringInterner, UnaryOp,
 };
 
 fn parse_source(source: &str) -> ParseOutput {
@@ -65,6 +65,33 @@ fn test_parse_binary_expr() {
     } else {
         panic!("Expected binary add expression");
     }
+}
+
+#[test]
+fn test_parse_adjacent_unary_negation_right_associatively() {
+    let result = parse_source("@double_neg (x: int) -> int = --x;");
+
+    assert!(
+        !result.has_errors(),
+        "adjacent unary negation should parse cleanly: {:?}",
+        result.errors
+    );
+
+    let body = result.arena.get_expr(result.module.functions[0].body);
+    let ExprKind::Unary {
+        op: UnaryOp::Neg,
+        operand,
+    } = body.kind
+    else {
+        panic!("expected outer unary negation, got {:?}", body.kind);
+    };
+    assert!(matches!(
+        result.arena.get_expr(operand).kind,
+        ExprKind::Unary {
+            op: UnaryOp::Neg,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -1670,8 +1697,7 @@ fn test_tuple_field_access() {
 
 #[test]
 fn test_chained_tuple_field_access_with_parens() {
-    // Chained tuple field access requires parentheses: (t.0).1
-    // because the lexer tokenizes `0.1` as a float literal.
+    // Spec: Clause 14.1.1 requires parentheses because `0.1` is a float literal.
     let interner = StringInterner::new();
     let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = (t.0).1;", &interner);
     let result = parse(&tokens, &interner);
@@ -1702,15 +1728,66 @@ fn test_chained_tuple_field_access_with_parens() {
 }
 
 #[test]
-fn test_bare_chained_tuple_field_is_error() {
-    // `t.0.1` without parens fails because lexer tokenizes `0.1` as float.
-    // This is a known limitation — use `(t.0).1` instead.
+fn test_tuple_member_float_range_boundaries_parse() {
+    let cases = [
+        (
+            "parenthesized tuple selection",
+            "@f (t: ((int, int), int)) -> int = (t.0).1;",
+        ),
+        (
+            "tuple selection then named member",
+            "@f (t: ((int, int), int)) -> int = t.0.name;",
+        ),
+        (
+            "named member then tuple selection",
+            "@f (t: ((int, int), int)) -> int = t.name.0;",
+        ),
+        ("float literal", "@f () -> float = 0.1;"),
+        (
+            "tuple selection then exclusive range",
+            "@f (t: (int, int)) -> Range<int> = t.0..1;",
+        ),
+        (
+            "tuple selection then inclusive range",
+            "@f (t: (int, int)) -> Range<int> = t.0..=1;",
+        ),
+    ];
+    let mut visited = 0;
+    for (label, source) in cases {
+        let result = parse_source(source);
+        assert!(
+            !result.has_errors(),
+            "{label} should parse without ambiguity: {:?}",
+            result.errors
+        );
+        visited += 1;
+    }
+    assert_eq!(visited, cases.len(), "every matrix cell must run");
+}
+
+#[test]
+fn test_bare_chained_tuple_field_reports_parenthesis_fix() {
+    // Spec: Clause 14.1.1 requires `(t.0).1`; bare `t.0.1` contains float `0.1`.
     let interner = StringInterner::new();
     let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = t.0.1;", &interner);
     let result = parse(&tokens, &interner);
+    let error = result
+        .errors
+        .iter()
+        .find(|error| error.code() == ori_diagnostic::ErrorCode::E1004)
+        .unwrap_or_else(|| panic!("expected E1004, got errors: {:?}", result.errors));
     assert!(
-        result.has_errors(),
-        "bare t.0.1 should fail (lexer sees 0.1 as float)"
+        error.message().contains("float literal"),
+        "diagnostic must name the lexical cause: {error:?}"
+    );
+    let help = error.help().join("\n");
+    assert!(
+        help.contains("parenthesize") && help.contains("(value.0).1"),
+        "diagnostic must show the parenthesized fix: {error:?}"
+    );
+    assert!(
+        help.contains("Spec: Clause 14.1.1"),
+        "diagnostic must cite the governing rule: {error:?}"
     );
 }
 

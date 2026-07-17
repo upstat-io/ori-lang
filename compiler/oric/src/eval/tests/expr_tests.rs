@@ -165,21 +165,21 @@ mod index_access {
         }
 
         #[test]
-        fn negative_index_last() {
+        fn negative_one_is_out_of_bounds() {
             let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
-            assert_eq!(eval_index(list, Value::int(-1)).unwrap(), Value::int(30));
+            assert!(eval_index(list, Value::int(-1)).is_err());
         }
 
         #[test]
-        fn negative_index_first() {
+        fn negative_length_is_out_of_bounds() {
             let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
-            assert_eq!(eval_index(list, Value::int(-3)).unwrap(), Value::int(10));
+            assert!(eval_index(list, Value::int(-3)).is_err());
         }
 
         #[test]
-        fn negative_index_middle() {
+        fn negative_middle_is_out_of_bounds() {
             let list = Value::list(vec![Value::int(10), Value::int(20), Value::int(30)]);
-            assert_eq!(eval_index(list, Value::int(-2)).unwrap(), Value::int(20));
+            assert!(eval_index(list, Value::int(-2)).is_err());
         }
 
         #[test]
@@ -210,7 +210,7 @@ mod index_access {
                 eval_index(list.clone(), Value::int(0)).unwrap(),
                 Value::int(42)
             );
-            assert_eq!(eval_index(list, Value::int(-1)).unwrap(), Value::int(42));
+            assert!(eval_index(list, Value::int(-1)).is_err());
         }
     }
 
@@ -232,9 +232,9 @@ mod index_access {
         }
 
         #[test]
-        fn negative_index() {
+        fn negative_index_is_out_of_bounds() {
             let s = Value::string("hello");
-            assert_eq!(eval_index(s, Value::int(-1)).unwrap(), Value::string("o"));
+            assert!(eval_index(s, Value::int(-1)).is_err());
         }
 
         #[test]
@@ -364,7 +364,7 @@ mod boundaries {
             eval_index(list.clone(), Value::int(9999)).unwrap(),
             Value::int(9999)
         );
-        assert_eq!(eval_index(list, Value::int(-1)).unwrap(), Value::int(9999));
+        assert!(eval_index(list, Value::int(-1)).is_err());
     }
 
     #[test]
@@ -382,7 +382,7 @@ mod boundaries {
             eval_index(s.clone(), Value::int(9999)).unwrap(),
             Value::string("a")
         );
-        assert_eq!(eval_index(s, Value::int(-1)).unwrap(), Value::string("a"));
+        assert!(eval_index(s, Value::int(-1)).is_err());
     }
 
     #[test]
@@ -391,7 +391,7 @@ mod boundaries {
         // Boundary checks
         assert!(eval_index(list.clone(), Value::int(1)).is_ok());
         assert!(eval_index(list.clone(), Value::int(2)).is_err());
-        assert!(eval_index(list.clone(), Value::int(-2)).is_ok());
+        assert!(eval_index(list.clone(), Value::int(-2)).is_err());
         assert!(eval_index(list, Value::int(-3)).is_err());
     }
 }

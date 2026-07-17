@@ -9,15 +9,50 @@ fn test_expected_path_is_sibling_of_source_file() {
 
 #[test]
 fn test_actual_path_is_under_target_test_harness() {
-    let result = resolve_actual(Path::new("tests/rc/basic.ori"), "ll", None);
+    let result = resolve_actual_under(
+        Path::new("tests/rc/basic.ori"),
+        "ll",
+        None,
+        Path::new("target"),
+        None,
+    );
     assert_eq!(result, Path::new("target/test-harness/tests/rc/basic.ll"));
 }
 
 #[test]
 fn test_actual_path_preserves_parent_dir_to_prevent_collision() {
-    let a = resolve_actual(Path::new("tests/codegen/basic.ori"), "ll", None);
-    let b = resolve_actual(Path::new("tests/other/basic.ori"), "ll", None);
+    let a = resolve_actual_under(
+        Path::new("tests/codegen/basic.ori"),
+        "ll",
+        None,
+        Path::new("target"),
+        None,
+    );
+    let b = resolve_actual_under(
+        Path::new("tests/other/basic.ori"),
+        "ll",
+        None,
+        Path::new("target"),
+        None,
+    );
     assert_ne!(a, b, "same-stem files in different dirs must not collide");
+}
+
+#[test]
+fn test_absolute_source_path_is_relative_to_working_tree() {
+    let result = resolve_actual_under(
+        Path::new("/snapshot/compiler/oric/tests/aims-snapshots/smoke-test.ori"),
+        "arc",
+        None,
+        Path::new("/writable/cargo-target"),
+        Some(Path::new("/snapshot")),
+    );
+    assert_eq!(
+        result,
+        Path::new(
+            "/writable/cargo-target/test-harness/compiler/oric/tests/aims-snapshots/smoke-test.arc"
+        )
+    );
 }
 
 #[test]
@@ -41,7 +76,13 @@ fn test_revision_suffix_ordering_is_deterministic() {
 
 #[test]
 fn test_resolve_actual_with_revision_inserts_suffix_before_extension() {
-    let result = resolve_actual(Path::new("tests/rc/basic.ori"), "ll", Some("debug"));
+    let result = resolve_actual_under(
+        Path::new("tests/rc/basic.ori"),
+        "ll",
+        Some("debug"),
+        Path::new("target"),
+        None,
+    );
     assert_eq!(
         result,
         Path::new("target/test-harness/tests/rc/basic.debug.ll")

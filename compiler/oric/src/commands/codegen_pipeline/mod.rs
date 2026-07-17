@@ -35,12 +35,15 @@ use oric::parser::ParseOutput;
 use oric::{CompilerDb, Db};
 
 /// One producer export projected from the same closed artifact LLVM consumes.
+///
+/// Type indices are deliberately absent: they are local to the producer's
+/// pool. Multi-module import assembly re-interns the provider's typed
+/// signature into the consumer's merged pool before pairing it with these
+/// frozen facts.
 #[cfg(feature = "llvm")]
 pub(crate) struct RealizedCallableExport {
     pub(crate) mangled_name: String,
     pub(crate) source_name: String,
-    pub(crate) param_types: Vec<ori_types::Idx>,
-    pub(crate) return_type: ori_types::Idx,
     pub(crate) metadata: ori_repr::executable::ExternalCallableMetadata,
 }
 
@@ -484,15 +487,12 @@ fn project_callable_exports(
                 interner.lookup(function.name)
             )
         })?;
-        let body = &program.functions()[function_id.index()];
         let source_name = interner.lookup(function.name).to_string();
         let mangled_name = mangler.mangle_function(symbol_prefix, &source_name);
         let metadata = program.export_callable_metadata(function_id, &mangled_name);
         exports.push(RealizedCallableExport {
             mangled_name,
             source_name,
-            param_types: body.params.iter().map(|param| param.ty).collect(),
-            return_type: body.return_type,
             metadata,
         });
     }

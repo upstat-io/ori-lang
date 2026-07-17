@@ -3,7 +3,7 @@
 //! Verify correct `nounwind`, `noreturn`, and `noundef` attribute placement
 //! on LLVM IR function declarations and definitions.
 
-use crate::util::{compile_and_capture_ir, extract_function_ir};
+use crate::util::{compile_and_capture_ir, extract_function_ir, resolve_function_attrs};
 
 // Pre-banner ignored tests (nounwind + dead block pruning)
 
@@ -341,6 +341,48 @@ fn test_pure_derived_methods_have_nounwind() {
     assert_fn_has_attr(&ir, "_ori_Shape$hash", "nounwind");
 }
 
+/// Derived equality should test cheap scalar fields before managed fields.
+#[test]
+fn test_derived_eq_checks_scalar_fields_before_managed_fields() {
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/derived_eq_scalar_field_first.ori"
+    ));
+    let eq_ir = extract_function_ir(&ir, "\"_ori_Mixed$eq\"");
+    let scalar_projection = eq_ir
+        .find("%eq.self.key")
+        .expect("derived Eq should project the scalar field");
+
+    let managed_projection = eq_ir
+        .find("%eq.self.text")
+        .expect("derived Eq should project the managed field");
+
+    assert!(
+        scalar_projection < managed_projection,
+        "derived Eq should compare the scalar field before the managed field:\n{eq_ir}"
+    );
+
+    let shared_start = ir
+        .find("; --- eq/")
+        .expect("shared ARC-derived Eq should be present");
+    let shared_tail = &ir[shared_start..];
+    let shared_end = shared_tail[1..]
+        .find("\n; Function Attrs:")
+        .map_or(shared_tail.len(), |offset| offset + 1);
+    let shared_eq_ir = &shared_tail[..shared_end];
+    let shared_scalar_projection = shared_eq_ir
+        .find("%proj.1")
+        .expect("shared derived Eq should project the scalar field");
+
+    let shared_managed_projection = shared_eq_ir
+        .find("%proj.0")
+        .expect("shared derived Eq should project the managed field");
+
+    assert!(
+        shared_scalar_projection < shared_managed_projection,
+        "shared derived Eq should compare the scalar field before the managed field:\n{shared_eq_ir}"
+    );
+}
+
 /// Impure derived methods (`$to_str`, `$debug`) should NOT have `nounwind`.
 ///
 /// These methods allocate strings and call non-nounwind runtime functions.
@@ -548,7 +590,7 @@ fn test_direct_params_lack_nonnull() {
 /// Assert that a function declaration in the IR has a specific attribute
 /// (resolved through LLVM's `#N = { ... }` attribute groups).
 fn assert_fn_has_attr(ir: &str, func_name: &str, attr: &str) {
-    let attrs = resolve_fn_attrs(ir, func_name);
+    let attrs = resolve_function_attrs(ir, func_name);
     assert!(
         attrs.contains(attr),
         "{func_name} should have `{attr}` attribute.\n\
@@ -558,49 +600,12 @@ fn assert_fn_has_attr(ir: &str, func_name: &str, attr: &str) {
 
 /// Assert that a function declaration does NOT have a specific attribute.
 fn assert_fn_lacks_attr(ir: &str, func_name: &str, attr: &str) {
-    let attrs = resolve_fn_attrs(ir, func_name);
+    let attrs = resolve_function_attrs(ir, func_name);
     assert!(
         !attrs.contains(attr),
         "{func_name} must NOT have `{attr}` attribute.\n\
          Resolved attributes: {attrs}"
     );
-}
-
-/// Resolve a function's attributes by following its `#N` attribute group
-/// reference in the LLVM IR.
-///
-/// Searches both `declare` and `define` lines. Handles both plain names
-/// (`@main(`) and quoted names (`@"_ori_Shape$eq"(`).
-fn resolve_fn_attrs(ir: &str, func_name: &str) -> String {
-    // LLVM quotes names with special characters: @"_ori_Shape$eq"(
-    let search_plain = format!("@{func_name}(");
-    let search_quoted = format!("@\"{func_name}\"(");
-    let decl_line = ir
-        .lines()
-        .find(|l| {
-            (l.contains("declare") || l.contains("define"))
-                && (l.contains(&search_plain) || l.contains(&search_quoted))
-        })
-        .unwrap_or_else(|| panic!("{func_name} should be declared/defined in IR"));
-
-    // Extract attribute group reference (e.g., "#2" from the declaration).
-    // For `define`, strip trailing ` {` first.
-    let line = decl_line.trim_end_matches('{').trim();
-    let group_ref = line
-        .rsplit_once('#')
-        .map(|(_, num)| format!("#{}", num.trim()))
-        .unwrap_or_default();
-
-    if group_ref.is_empty() {
-        return String::new();
-    }
-
-    // Find the attribute group definition: `attributes #2 = { cold noreturn }`
-    let group_prefix = format!("attributes {group_ref} = ");
-    ir.lines()
-        .find(|l| l.starts_with(&group_prefix))
-        .map(|l| l[group_prefix.len()..].to_string())
-        .unwrap_or_default()
 }
 
 // Iterator option wrapping elimination
@@ -839,7 +844,7 @@ fn test_closure_wrapper_sret_no_noundef() {
     let after_sret = &decl[sret_pos..];
     let sret_param_end = after_sret
         .find(',')
-        .unwrap_or(after_sret.find(')').unwrap_or(after_sret.len()));
+        .unwrap_or_else(|| after_sret.find(')').unwrap_or(after_sret.len()));
     let sret_param_text = &after_sret[..sret_param_end];
     assert!(
         !sret_param_text.contains("noundef"),

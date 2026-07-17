@@ -167,7 +167,7 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
 /// declarations, for multi-file compilation.
 ///
 /// Imported functions are declared as external symbols; the module name
-/// drives symbol mangling. `imported` carries the `ImportedMonoFn` triples
+/// drives symbol mangling. `imported` carries the `ImportedMonoFn` entries
 /// plus re-interned canons for cross-module generic body specialization
 /// (both empty when the host has no imported generic instantiations).
 #[cfg(feature = "llvm")]

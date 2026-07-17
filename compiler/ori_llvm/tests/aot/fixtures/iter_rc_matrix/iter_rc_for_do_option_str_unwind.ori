@@ -4,7 +4,7 @@
         None,
         Some("third string that is also long enough to require heap allocation")
     ];
-    let result = catch(expr: () -> {
+    let result = catch(expr: {
         for opt in items do {
             if is_none(option: opt) then panic(msg: "test unwind option str");
         };

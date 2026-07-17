@@ -187,6 +187,13 @@ impl<'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'_, 'scx, 'ctx, 'tcx> {
         self.pool
     }
 
+    /// Whether a type carries no managed ownership obligation.
+    pub(crate) fn is_arc_scalar(&self, idx: Idx) -> bool {
+        use ori_arc::ArcClassification;
+
+        self.arc_classifier.is_scalar(idx)
+    }
+
     /// Access the repr plan (if present) for element narrowing queries.
     pub(crate) fn repr_plan(&self) -> Option<&ori_repr::ReprPlan> {
         self.type_resolver.repr_plan()

@@ -247,9 +247,9 @@ fn dispatch_unit_method(method: Name, args: &[Value], ctx: &DispatchCtx<'_>) -> 
 
 /// Dispatch a built-in method call by string name (test-only convenience).
 ///
-/// **Warning:** Interns all 97+ builtin method names on every call. Do not
-/// use in production paths. This exists solely for tests that construct
-/// method names as strings.
+/// **Warning:** Interns the complete builtin method-name registry on every
+/// call. Do not use in production paths. This exists solely for tests that
+/// construct method names as strings.
 ///
 /// Internally delegates to `dispatch_builtin_method` with a freshly-built
 /// `DispatchCtx`, so dispatch behavior is identical to the production path.

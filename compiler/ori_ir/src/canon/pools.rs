@@ -10,7 +10,7 @@ use crate::arena::to_u32;
 use crate::Name;
 
 use super::support::ConstValue;
-use super::tree::DecisionTree;
+use super::tree::{DecisionTree, LeafDiscardPaths};
 
 /// Index into a [`ConstantPool`]. References a compile-time-folded value.
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
@@ -172,18 +172,36 @@ pub type SharedDecisionTree = std::sync::Arc<DecisionTree>;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DecisionTreePool {
     trees: Vec<SharedDecisionTree>,
+    /// Blank-pattern cleanup carriers in static decision-tree success order.
+    ///
+    /// Entry `tree_discard_paths[t][n]` belongs to the `n`th Leaf/Guard
+    /// success in the same edge/default/on-fail preorder used by ARC emission.
+    tree_discard_paths: Vec<Vec<LeafDiscardPaths>>,
 }
 
 impl DecisionTreePool {
     /// Create an empty pool.
     pub fn new() -> Self {
-        Self { trees: Vec::new() }
+        Self {
+            trees: Vec::new(),
+            tree_discard_paths: Vec::new(),
+        }
     }
 
     /// Store a decision tree and return its ID.
     pub fn push(&mut self, tree: DecisionTree) -> DecisionTreeId {
+        self.push_with_leaf_discards(tree, Vec::new())
+    }
+
+    /// Store a decision tree with its exact blank-pattern cleanup carriers.
+    pub fn push_with_leaf_discards(
+        &mut self,
+        tree: DecisionTree,
+        leaf_discard_paths: Vec<LeafDiscardPaths>,
+    ) -> DecisionTreeId {
         let id = DecisionTreeId::new(to_u32(self.trees.len(), "decision trees"));
         self.trees.push(SharedDecisionTree::new(tree));
+        self.tree_discard_paths.push(leaf_discard_paths);
         id
     }
 
@@ -199,6 +217,11 @@ impl DecisionTreePool {
     /// is O(1) vs O(n) for deep-cloning the recursive tree structure.
     pub fn get_shared(&self, id: DecisionTreeId) -> SharedDecisionTree {
         SharedDecisionTree::clone(&self.trees[id.index()])
+    }
+
+    /// Get blank-pattern cleanup carriers in static success-node order.
+    pub fn leaf_discard_paths(&self, id: DecisionTreeId) -> &[LeafDiscardPaths] {
+        self.tree_discard_paths[id.index()].as_slice()
     }
 
     /// Number of stored trees.

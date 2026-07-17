@@ -66,7 +66,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let inner_ty = self.pool.list_elem(resolved_element);
 
         let func_id = self.builder.runtime_fn("ori_list_flatten");
-        let (outer_data, outer_len) = self.extract_list_data_and_len(receiver);
+        let (outer_data, outer_len) = self.extract_list_data_and_len(receiver)?;
         let (elem_size_val, elem_align_val) =
             self.elem_size_and_align(inner_ty, Some(resolved_element));
         let inc_fn = self.get_or_generate_elem_inc_fn(inner_ty);
@@ -105,7 +105,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem_ty: Idx,
         list_ty: Idx,
     ) -> Option<ValueId> {
-        let (data_ptr, len) = self.extract_list_data_and_len(receiver);
+        let (data_ptr, len) = self.extract_list_data_and_len(receiver)?;
 
         let elem_info = self.type_info.get(elem_ty);
 
@@ -227,7 +227,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_get");
 
-        let (data_ptr, len) = self.extract_list_data_and_len(receiver);
+        let (data_ptr, len) = self.extract_list_data_and_len(receiver)?;
 
         // Use narrowed element size/type if available.
         let collection_idx = self.pool.resolve_fully(list_ty);
@@ -293,7 +293,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_list");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let collection_idx = self.pool.resolve_fully(receiver_ty);
         let narrowed_elem_size = self.collection_elem_size(collection_idx, elem_ty);
         let elem_size_val = self.builder.const_i64(narrowed_elem_size as i64);
@@ -322,11 +322,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let sext_tramp_fn_id = self.generate_sext_widening_trampoline(narrowed_width);
                 let sext_tramp_ptr = self.builder.get_function_ptr(sext_tramp_fn_id);
                 let null_env = self.builder.const_null_ptr();
+                let null_output_dec = self.builder.const_null_ptr();
 
                 let map_fn_id = self.builder.runtime_fn("ori_iter_map");
                 return self.emit_rt_call(
                     map_fn_id,
-                    &[list_iter, sext_tramp_ptr, null_env, elem_size_val],
+                    &[
+                        list_iter,
+                        sext_tramp_ptr,
+                        null_env,
+                        elem_size_val,
+                        null_output_dec,
+                    ],
                     "list.iter.widen",
                 );
             }
@@ -349,7 +356,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_slice");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         // Use narrowed element size if available.
         let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
@@ -384,7 +391,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn(runtime_fn_name);
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         // Use narrowed element size if available.
         let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
@@ -392,15 +399,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
 
         let list_ty = self.list_struct_type();
-        let out = self.builder.create_entry_alloca(
-            self.current_function,
-            &format!("{label}.out"),
-            list_ty,
-        );
+        let out =
+            self.builder
+                .create_entry_alloca(self.current_function, "list.slice.out", list_ty);
 
         self.emit_rt_call(func_id, &[data_ptr, len, cap, n, elem_size_val, out], label);
 
-        Some(self.builder.load(list_ty, out, &format!("{label}.val")))
+        Some(self.builder.load(list_ty, out, "list.slice.val"))
     }
 
     /// Emit `list.take(n)` — zero-copy first-N elements slice.

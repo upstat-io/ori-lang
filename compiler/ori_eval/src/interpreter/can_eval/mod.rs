@@ -204,17 +204,23 @@ impl Interpreter<'_> {
 
             // Calls
             CanExpr::Call { func, args } => {
-                if let Some(id) = self.mono_instance_id_for(can_id) {
+                let const_bindings = if let Some(id) = self.mono_instance_id_for(can_id) {
                     tracing::trace!(
                         ?can_id,
                         mono_instance_id = id.raw(),
                         "eval Call mono dispatch"
                     );
-                }
+                    self.canon_ref()
+                        .mono_const_bindings(id)
+                        .unwrap_or_default()
+                        .to_vec()
+                } else {
+                    Vec::new()
+                };
                 let func_val = self.eval_can(func)?;
                 let arg_vals = self.eval_can_expr_list(args)?;
                 let span = self.can_span(can_id);
-                self.eval_call(&func_val, &arg_vals)
+                self.eval_call_with_const_bindings(&func_val, &arg_vals, &const_bindings)
                     .map_err(|e| Self::attach_span(e, span))
             }
             CanExpr::MethodCall {
@@ -222,18 +228,29 @@ impl Interpreter<'_> {
                 method,
                 args,
             } => {
-                if let Some(id) = self.mono_instance_id_for(can_id) {
+                let const_bindings = if let Some(id) = self.mono_instance_id_for(can_id) {
                     tracing::trace!(
                         ?can_id,
                         mono_instance_id = id.raw(),
                         "eval MethodCall mono dispatch"
                     );
-                }
+                    self.canon_ref()
+                        .mono_const_bindings(id)
+                        .unwrap_or_default()
+                        .to_vec()
+                } else {
+                    Vec::new()
+                };
                 let recv = self.eval_can(receiver)?;
                 let arg_vals = self.eval_can_expr_list(args)?;
                 let span = self.can_span(can_id);
-                self.dispatch_method_call(recv, method, arg_vals)
-                    .map_err(|e| Self::attach_span(e, span))
+                self.dispatch_method_call_with_const_bindings(
+                    recv,
+                    method,
+                    arg_vals,
+                    &const_bindings,
+                )
+                .map_err(|e| Self::attach_span(e, span))
             }
 
             // Access

@@ -15,6 +15,7 @@ impl Parser<'_> {
     /// Uses progress-aware parsing for improved error recovery:
     /// - If parsing fails without progress (no tokens consumed), we skip unknown tokens
     /// - If parsing fails with progress (tokens consumed), we synchronize to a recovery point
+    #[tracing::instrument(level = "debug", skip_all)]
     pub fn parse_module(mut self) -> ParseOutput {
         debug!(
             token_count = self.cursor.token_count(),
@@ -105,6 +106,7 @@ impl Parser<'_> {
     /// first declaration. Returns `None` on normal exit.
     ///
     /// Spec §25.4: imports support item-level `#target`/`#cfg` attributes.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn parse_imports(
         &mut self,
         module: &mut Module,
@@ -195,6 +197,7 @@ impl Parser<'_> {
     ///
     /// This method attempts to reuse unchanged declarations from the old AST,
     /// only re-parsing declarations that overlap with the text change.
+    #[tracing::instrument(level = "debug", skip_all)]
     pub(super) fn parse_module_incremental(
         mut self,
         mut state: crate::incremental::IncrementalState<'_>,

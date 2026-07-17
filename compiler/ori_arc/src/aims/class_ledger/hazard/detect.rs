@@ -3,10 +3,11 @@
 //! `Construct` surface.
 
 use ori_ir::Name;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, NodeIdx};
+use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, FieldPath, NodeIdx};
 use crate::aims::intraprocedural::ledger_events::EventSite;
-use crate::ir::ArcFunction;
+use crate::ir::{ArcFunction, ArcVarId};
 
 use super::{ClassHazardFacts, FieldViewHazard};
 
@@ -18,21 +19,21 @@ use super::{ClassHazardFacts, FieldViewHazard};
 /// extract-then-restore stays marked).
 fn facts_consume_marked(
     facts: &ClassHazardFacts,
-    construct_sites: &[(usize, EventSite)],
-    released_construct_union: &[(usize, EventSite)],
+    construct_sites: &FxHashSet<(usize, EventSite)>,
+    released_construct_union: &FxHashSet<(usize, EventSite)>,
 ) -> bool {
-    let extra: Vec<&(usize, EventSite)> = facts
+    let mut extra = facts
         .consume_sites
         .iter()
         .filter(|site| !construct_sites.contains(site))
-        .collect();
-    if extra.is_empty() {
+        .peekable();
+
+    if extra.peek().is_none() {
         return false;
     }
-    let all_extra_at_released_constructs = extra
-        .iter()
-        .all(|site| released_construct_union.contains(site));
-    let funded = facts.consume_sites.len() <= 1 + facts.planned_inc_count;
+    let all_extra_at_released_constructs =
+        extra.all(|site| released_construct_union.contains(site));
+    let funded = facts.consume_sites.len() <= facts.planned_inc_count.saturating_add(1);
     !(all_extra_at_released_constructs && funded)
 }
 
@@ -46,27 +47,60 @@ fn facts_consume_marked(
 /// moved INTO the container (the multi-payload match shape); nested STRUCT
 /// chains interleave fund-before-release per level and stay balanced.
 fn view_demand_endangered(
-    class_facts: &[ClassHazardFacts],
-    partition: &mut BirthSitePartition,
-    view_rep: NodeIdx,
+    class_facts: &[&ClassHazardFacts],
     sum_container: bool,
-    construct_sites: &[(usize, EventSite)],
+    construct_sites: &FxHashSet<(usize, EventSite)>,
 ) -> bool {
     class_facts.iter().any(|facts| {
-        if partition.rep_of(facts.class) != view_rep || !facts.has_demand {
+        if !facts.has_demand() {
             return false;
         }
-        if facts.borrowed_rooted_clean {
+        if facts.is_borrowed_rooted_clean() {
             return false;
         }
         let funding_moved_in = sum_container
-            && !facts.has_credit
+            && !facts.has_credit()
             && facts
                 .consume_sites
                 .iter()
                 .any(|site| construct_sites.contains(site));
-        !facts.self_funded_clean || funding_moved_in
+        !facts.is_self_funded_clean() || funding_moved_in
     })
+}
+
+struct ReleasedContainerSurface {
+    nodes: Vec<(ArcVarId, FieldPath, NodeIdx)>,
+    scans: Vec<(NodeIdx, FxHashSet<ArcVarId>, ContainerConstructScan)>,
+}
+
+fn collect_released_container_surface(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    class_facts: &[ClassHazardFacts],
+) -> ReleasedContainerSurface {
+    let nodes = partition.nodes_snapshot();
+    let mut members_by_rep: FxHashMap<NodeIdx, FxHashSet<ArcVarId>> = FxHashMap::default();
+    for &(var, ref path, node) in &nodes {
+        if path.is_whole_var() {
+            members_by_rep
+                .entry(partition.rep_of(node))
+                .or_default()
+                .insert(var);
+        }
+    }
+
+    let mut seen_released = FxHashSet::default();
+    let mut scans = Vec::new();
+    for facts in class_facts.iter().filter(|facts| facts.is_released()) {
+        let container = partition.rep_of(facts.class);
+        if !seen_released.insert(container) {
+            continue;
+        }
+        let member_vars = members_by_rep.remove(&container).unwrap_or_default();
+        let scan = container_construct_sites(func, &member_vars);
+        scans.push((container, member_vars, scan));
+    }
+    ReleasedContainerSurface { nodes, scans }
 }
 
 /// The field-path VIEW classes endangered by a locally-released container:
@@ -83,53 +117,50 @@ pub(crate) fn field_view_hazard_classes(
     full_move_construct_sites: &[(usize, EventSite)],
     user_drop_admitted: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
 ) -> Vec<FieldViewHazard> {
-    let released: Vec<NodeIdx> = class_facts
-        .iter()
-        .filter(|facts| facts.released)
-        .map(|facts| facts.class)
-        .collect();
-    if released.is_empty() {
+    let ReleasedContainerSurface { nodes, scans } =
+        collect_released_container_surface(func, partition, class_facts);
+    if scans.is_empty() {
         return Vec::new();
     }
-    let nodes = partition.nodes_snapshot();
+    let mut facts_by_rep: FxHashMap<NodeIdx, Vec<&ClassHazardFacts>> = FxHashMap::default();
+    for facts in class_facts {
+        facts_by_rep
+            .entry(partition.rep_of(facts.class))
+            .or_default()
+            .push(facts);
+    }
     // Every released container's construct surface, up front: a view's
     // Consume at ANY released container's Construct is a move-in store that
     // container's own planned release pays for (the two-wrappers-share-one-
     // inner shape: each store funded per RL-1, each wrapper's drop the
     // matched release) — never a move-out of THIS container.
-    let scans: Vec<(NodeIdx, Vec<crate::ir::ArcVarId>, ContainerConstructScan)> = released
-        .iter()
-        .map(|&container| {
-            let container_rep = partition.rep_of(container);
-            let member_vars: Vec<_> = nodes
-                .iter()
-                .filter(|(_, path, _)| path.is_whole_var())
-                .filter(|&&(_, _, node)| partition.rep_of(node) == container_rep)
-                .map(|&(var, _, _)| var)
-                .collect();
-            let scan = container_construct_sites(func, &member_vars);
-            (container, member_vars, scan)
-        })
-        .collect();
     // Full-move arm Construct sites join the funded union: the arm's
     // transfer is self-accounting — the extraction credit funds the store
     // and the receiving container's lineage carries the reference to its
     // own release (`apply_full_move_rebook` + the injected extraction
     // credits; the per-class verify re-checks the books independently).
-    let released_construct_union: Vec<(usize, EventSite)> = scans
+    let released_construct_union: FxHashSet<(usize, EventSite)> = scans
         .iter()
         .flat_map(|(_, _, scan)| scan.sites.iter().copied())
         .chain(full_move_construct_sites.iter().copied())
         .collect();
     let mut hazards: Vec<FieldViewHazard> = Vec::new();
+    let mut hazard_indices: FxHashMap<(NodeIdx, NodeIdx), usize> = FxHashMap::default();
     for (container, member_vars, scan) in &scans {
         if is_admitted_scalar_container(member_vars, user_drop_admitted) {
             continue;
         }
         let container_rep = partition.rep_of(*container);
-        let all_payloadless = scan.all_payloadless;
-        let (construct_sites, sum_container, uniform_variant) =
-            (scan.sites.clone(), scan.sum_container, scan.uniform_variant);
+        let container_transferred_out = facts_by_rep
+            .get(&container_rep)
+            .is_some_and(|facts| facts.iter().any(|facts| !facts.consume_sites.is_empty()));
+        let all_payloadless = scan.is_all_payloadless();
+        let (construct_sites, sum_container, uniform_variant) = (
+            scan.sites.clone(),
+            scan.is_sum_container(),
+            scan.uniform_variant,
+        );
+        let construct_site_set: FxHashSet<_> = construct_sites.iter().copied().collect();
         let sum_enum_name = uniform_variant.map(|(name, _)| name);
         let sum_variant = uniform_variant.map(|(_, variant)| variant);
         for (var, path, node) in &nodes {
@@ -140,9 +171,9 @@ pub(crate) fn field_view_hazard_classes(
             if view_rep == container_rep {
                 continue;
             }
-            let consume_marked = class_facts.iter().any(|facts| {
-                partition.rep_of(facts.class) == view_rep
-                    && facts_consume_marked(facts, &construct_sites, &released_construct_union)
+            let view_facts = facts_by_rep.get(&view_rep).map_or(&[][..], Vec::as_slice);
+            let consume_marked = view_facts.iter().any(|facts| {
+                facts_consume_marked(facts, &construct_site_set, &released_construct_union)
             });
             // Demand endangers ONLY a view whose floors ride the
             // container's reference; a self-funded Clean view's demand is
@@ -154,28 +185,19 @@ pub(crate) fn field_view_hazard_classes(
             // reference after all. Consume marks endanger regardless
             // (double-ownership is about the move-out, not funding).
             let endangered = consume_marked
-                || view_demand_endangered(
-                    class_facts,
-                    partition,
-                    view_rep,
-                    sum_container,
-                    &construct_sites,
-                );
+                || view_demand_endangered(view_facts, sum_container, &construct_site_set);
             if !endangered {
                 continue;
             }
-            if let Some(hazard) = hazards
-                .iter_mut()
-                .find(|hazard| hazard.view == view_rep && hazard.container == container_rep)
-            {
+            let key = (view_rep, container_rep);
+            if let Some(&hazard_index) = hazard_indices.get(&key) {
+                let hazard = &mut hazards[hazard_index];
                 if let Some(index) = path.single_index() {
-                    if !hazard.skip_fields.contains(&index) {
-                        hazard.skip_fields.push(index);
-                    }
+                    hazard.skip_fields.push(index);
                 } else {
-                    hazard.nested_path = true;
+                    hazard.mark_nested_path();
                 }
-                hazard.consume_marked |= consume_marked;
+                hazard.mark_consume(consume_marked);
                 continue;
             }
             let mut skip_fields = Vec::new();
@@ -184,19 +206,30 @@ pub(crate) fn field_view_hazard_classes(
                 Some(index) => skip_fields.push(index),
                 None => nested_path = true,
             }
+            let hazard_index = hazards.len();
             hazards.push(FieldViewHazard {
                 view: view_rep,
                 container: container_rep,
                 construct_sites: construct_sites.clone(),
                 skip_fields,
-                nested_path,
-                sum_container,
                 sum_variant,
                 sum_enum_name,
-                consume_marked,
-                all_payloadless,
+                flags: super::CompactFlags::EMPTY
+                    .with(
+                        super::FieldViewHazard::CONTAINER_TRANSFERRED_OUT,
+                        container_transferred_out,
+                    )
+                    .with(super::FieldViewHazard::NESTED_PATH, nested_path)
+                    .with(super::FieldViewHazard::SUM_CONTAINER, sum_container)
+                    .with(super::FieldViewHazard::CONSUME_MARKED, consume_marked)
+                    .with(super::FieldViewHazard::ALL_PAYLOADLESS, all_payloadless),
             });
+            hazard_indices.insert(key, hazard_index);
         }
+    }
+    for hazard in &mut hazards {
+        hazard.skip_fields.sort_unstable();
+        hazard.skip_fields.dedup();
     }
     hazards.sort_unstable_by_key(|hazard| (hazard.view, hazard.container));
     hazards
@@ -207,7 +240,7 @@ pub(crate) fn field_view_hazard_classes(
 /// nothing is freed, so a field-path view read after the release stays
 /// valid (per `AimsProof.Realization::RLDROP_user_drop_balance_neutral`).
 fn is_admitted_scalar_container(
-    member_vars: &[crate::ir::ArcVarId],
+    member_vars: &FxHashSet<crate::ir::ArcVarId>,
     user_drop_admitted: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
 ) -> bool {
     member_vars
@@ -221,17 +254,29 @@ fn is_admitted_scalar_container(
 /// SAME single-payload variant — that uniform variant's identity.
 struct ContainerConstructScan {
     sites: Vec<(usize, EventSite)>,
-    sum_container: bool,
     uniform_variant: Option<(Name, u32)>,
     /// Every construct site is a PAYLOAD-LESS variant (arity 0): no payload
     /// of ANY variant exists, so a field-path view of the container is
     /// vacuous — the whole-var release everywhere is already correct.
-    all_payloadless: bool,
+    flags: super::CompactFlags,
+}
+
+impl ContainerConstructScan {
+    const SUM_CONTAINER: u8 = 0b0000_0001;
+    const ALL_PAYLOADLESS: u8 = 0b0000_0010;
+
+    fn is_sum_container(&self) -> bool {
+        self.flags.contains(Self::SUM_CONTAINER)
+    }
+
+    fn is_all_payloadless(&self) -> bool {
+        self.flags.contains(Self::ALL_PAYLOADLESS)
+    }
 }
 
 fn container_construct_sites(
     func: &ArcFunction,
-    member_vars: &[crate::ir::ArcVarId],
+    member_vars: &FxHashSet<crate::ir::ArcVarId>,
 ) -> ContainerConstructScan {
     use crate::ir::ArcInstr;
 
@@ -257,8 +302,10 @@ fn container_construct_sites(
                     crate::ir::CtorKind::EnumVariant { enum_name, variant } if args.len() == 1 => {
                         Some((*enum_name, *variant))
                     }
+
                     _ => None,
                 };
+
                 uniform_variant = Some(match uniform_variant {
                     None => site_variant,
                     Some(prev) if prev == site_variant => prev,
@@ -270,8 +317,9 @@ fn container_construct_sites(
     let all_payloadless = all_payloadless && !construct_sites.is_empty();
     ContainerConstructScan {
         sites: construct_sites,
-        sum_container,
         uniform_variant: uniform_variant.flatten(),
-        all_payloadless,
+        flags: super::CompactFlags::EMPTY
+            .with(ContainerConstructScan::SUM_CONTAINER, sum_container)
+            .with(ContainerConstructScan::ALL_PAYLOADLESS, all_payloadless),
     }
 }

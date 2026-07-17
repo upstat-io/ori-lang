@@ -151,6 +151,34 @@ impl ArcIrBuilder {
 
     // Invoke (call that may unwind)
 
+    /// Emit the shared control-flow shape for a call that may unwind.
+    fn emit_may_unwind(
+        &mut self,
+        ty: Idx,
+        span: Option<Span>,
+        terminate: impl FnOnce(&mut Self, ArcVarId, ArcBlockId, ArcBlockId),
+    ) -> ArcVarId {
+        let dst = self.fresh_var(ty);
+        let normal = self.new_block();
+        let unwind = self.new_block();
+
+        // Invoke is a terminator, so it has no entry in the instruction-span
+        // sidecar.
+        let _ = span;
+        terminate(self, dst, normal, unwind);
+
+        // Cleanup is inserted before this terminator by the RC insertion pass.
+        self.position_at(unwind);
+        if let Some(catch_target) = self.catch_unwind_target {
+            self.terminate_jump(catch_target, vec![]);
+        } else {
+            self.terminate_resume();
+        }
+
+        self.position_at(normal);
+        dst
+    }
+
     /// Emit an `Invoke` terminator for a function call that may unwind.
     ///
     /// Creates a normal continuation block and an unwind cleanup block.
@@ -169,42 +197,19 @@ impl ArcIrBuilder {
         span: Option<Span>,
         mono_instance_id: Option<MonoInstanceId>,
     ) -> ArcVarId {
-        let dst = self.fresh_var(ty);
-        let normal = self.new_block();
-        let unwind = self.new_block();
-
-        // Track the span on the invoking block (one span per instruction,
-        // but Invoke is a terminator so we don't push to spans here —
-        // terminators don't have span slots in the current design).
-        let _ = span;
-
-        self.terminate_invoke(
-            dst,
-            ty,
-            func,
-            args,
-            InvokeTargets {
-                normal,
-                unwind,
-                mono_instance_id,
-            },
-        );
-
-        // Unwind block terminator depends on context:
-        // - Normal code: Resume (re-raise after cleanup)
-        // - Inside catch(expr:): Jump to catch handler (catch after cleanup)
-        // The RC insertion pass (Phase 3C) adds cleanup RcDec instructions
-        // before whichever terminator is present.
-        self.position_at(unwind);
-        if let Some(catch_target) = self.catch_unwind_target {
-            self.terminate_jump(catch_target, vec![]);
-        } else {
-            self.terminate_resume();
-        }
-
-        // Position at the normal continuation block for subsequent lowering.
-        self.position_at(normal);
-        dst
+        self.emit_may_unwind(ty, span, |builder, dst, normal, unwind| {
+            builder.terminate_invoke(
+                dst,
+                ty,
+                func,
+                args,
+                InvokeTargets {
+                    normal,
+                    unwind,
+                    mono_instance_id,
+                },
+            );
+        })
     }
 
     /// Emit an `InvokeIndirect` terminator for an indirect closure call that may unwind.
@@ -218,24 +223,9 @@ impl ArcIrBuilder {
         args: Vec<ArcVarId>,
         span: Option<Span>,
     ) -> ArcVarId {
-        let dst = self.fresh_var(ty);
-        let normal = self.new_block();
-        let unwind = self.new_block();
-
-        let _ = span;
-
-        self.terminate_invoke_indirect(dst, ty, closure, args, normal, unwind);
-
-        // Unwind block: same as emit_invoke — Jump to catch or Resume
-        self.position_at(unwind);
-        if let Some(catch_target) = self.catch_unwind_target {
-            self.terminate_jump(catch_target, vec![]);
-        } else {
-            self.terminate_resume();
-        }
-
-        self.position_at(normal);
-        dst
+        self.emit_may_unwind(ty, span, |builder, dst, normal, unwind| {
+            builder.terminate_invoke_indirect(dst, ty, closure, args, normal, unwind);
+        })
     }
 
     /// Set the catch unwind target for `catch(expr:)` lowering.
@@ -254,9 +244,9 @@ impl ArcIrBuilder {
 
     /// Record that a may-panic inline checked-op `PrimOp` with result `dst` was
     /// lowered. When a catch target is active (i.e. lowering lexically inside a
-    /// `catch(expr:)` body) maps `dst` to that catch's handler block so the
-    /// physical projection routes only this checked-op's panic to its handler;
-    /// LLVM currently materializes a landing pad for the edge. The active
+    /// `catch(expr:)` body), maps `dst` to that catch's initial handler block.
+    /// AIMS unwind cleanup may retarget this metadata through a cleanup-only
+    /// landing block before physical projection. The active
     /// `catch_unwind_target` is always the innermost enclosing catch. No-op
     /// outside a catch. Spec: Clause 14.3.
     pub fn note_checked_op(&mut self, dst: ArcVarId) {

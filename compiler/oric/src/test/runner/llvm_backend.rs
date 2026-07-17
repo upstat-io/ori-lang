@@ -437,12 +437,31 @@ impl TestRunner {
             );
         }
 
+        let mut imported_impl_templates = Vec::new();
+        for (module_index, module) in resolved.modules.iter().enumerate() {
+            let source_pool = std::sync::Arc::clone(&imported_pools[module_index]);
+            imported_impl_templates.extend(crate::commands::collect_imported_impl_templates(
+                crate::commands::ImportedImplTemplateSource {
+                    parse: &module.parse_output,
+                    typed: &imported_type_results[module_index].typed,
+                    source_pool: &source_pool,
+                    module_index,
+                    module_identity: &module.module_path.to_string_lossy(),
+                },
+                &mut merged_pool,
+                &mut per_module_caches[module_index],
+                &mut per_module_var_remaps[module_index],
+                interner,
+            ));
+        }
+
         // Build imported MonoFunction structs for imported generic
         // instantiations. Delegated to `imported_mono::build_imported_mono_functions`
         // to keep `run_file_llvm` under the 100-line fn-length limit.
         let imported_mono_fns = super::imported_mono::build_imported_mono_functions(
             type_result,
             &imported_generic_sigs,
+            &imported_impl_templates,
             &per_module_caches,
             &mut merged_pool,
             interner,

@@ -14,6 +14,7 @@ use super::{collect_consumed_bindings, Specialized};
 use ori_ir::canon::tree::{
     FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath, TestValue,
 };
+use rustc_hash::FxHashSet;
 
 /// Specialize the matrix for a specific test value at a given column.
 ///
@@ -146,6 +147,20 @@ fn specialize_row(
             let mut bindings = row.bindings.clone();
             bindings.extend(collect_consumed_bindings(pat, col_path));
 
+            let mut discard_paths = row.discard_paths.clone();
+            let mut seen_discard_paths: FxHashSet<_> = discard_paths.iter().cloned().collect();
+            if exposes_constructor_fields(pat, tv) {
+                for (index, sub_pattern) in sub_patterns.iter().enumerate() {
+                    if pattern_always_discards(sub_pattern) {
+                        let mut discard_path = col_path.clone();
+                        discard_path.push(sub_path_instruction(tv, index));
+                        if seen_discard_paths.insert(discard_path.clone()) {
+                            discard_paths.push(discard_path);
+                        }
+                    }
+                }
+            }
+
             let mut new_patterns = Vec::with_capacity(row.patterns.len() - 1 + sub_patterns.len());
             new_patterns.extend_from_slice(&row.patterns[..col]);
             new_patterns.extend(sub_patterns);
@@ -155,9 +170,45 @@ fn specialize_row(
                 arm_index: row.arm_index,
                 guard: row.guard,
                 bindings,
+                discard_paths,
             })
         }
         SpecResult::NoMatch => None,
+    }
+}
+
+/// Whether specialization exposes real source-pattern children.
+///
+/// Wildcard and binding rows synthesize placeholder children to keep the
+/// matrix rectangular; those placeholders are not blank-pattern cleanup
+/// obligations. Concrete variant/list children are semantic and must retain
+/// any explicit `_` paths.
+fn exposes_constructor_fields(pat: &FlatPattern, tv: &TestValue) -> bool {
+    match (pat, tv) {
+        (
+            FlatPattern::Variant { variant_index, .. },
+            TestValue::Tag {
+                variant_index: tested,
+                ..
+            },
+        ) => variant_index == tested,
+        (FlatPattern::List { .. }, TestValue::ListLen { .. }) => true,
+        (FlatPattern::Or(alternatives), _) => alternatives
+            .iter()
+            .any(|alternative| exposes_constructor_fields(alternative, tv)),
+        (FlatPattern::At { inner, .. }, _) => exposes_constructor_fields(inner, tv),
+        _ => false,
+    }
+}
+
+/// True only when every route represented by this specialized child is `_`.
+fn pattern_always_discards(pattern: &FlatPattern) -> bool {
+    match pattern {
+        FlatPattern::Wildcard => true,
+        FlatPattern::Or(alternatives) => {
+            !alternatives.is_empty() && alternatives.iter().all(pattern_always_discards)
+        }
+        _ => false,
     }
 }
 
@@ -353,6 +404,7 @@ pub(super) fn default_matrix(
                 arm_index: row.arm_index,
                 guard: row.guard,
                 bindings,
+                discard_paths: row.discard_paths.clone(),
             });
         }
     }

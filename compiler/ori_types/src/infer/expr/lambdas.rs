@@ -44,6 +44,10 @@ pub(crate) fn infer_lambda(
         param_types.push(param_ty);
     }
 
+    // `?` in a lambda returns from that lambda, not from a `try {}` enclosing
+    // the lambda expression. Nested try blocks pushed while inferring the body
+    // still collect their own propagation observations above this barrier.
+    engine.push_try_boundary_barrier();
     let body_ty = if let Some(ret_parsed) = ret_ty {
         let expected_ty = resolve_and_check_parsed_type(engine, arena, ret_parsed, span);
         let inferred = infer_expr(engine, arena, body);
@@ -59,6 +63,7 @@ pub(crate) fn infer_lambda(
     } else {
         infer_expr(engine, arena, body)
     };
+    engine.pop_try_boundary_barrier();
 
     engine.exit_scope();
 
@@ -115,13 +120,9 @@ pub(crate) fn should_generalize(
 /// which is the SSOT for making it. Generalization sites call this function
 /// to ensure policy consistency when the policy evolves.
 ///
-/// **Important**: `init` is the *original* initializer expression, NOT a
-/// derived type. In the try-block path, the caller unwraps the inferred
-/// `Result`/`Option` type with `unwrap_result_or_option` and passes the
-/// unwrapped `Idx` as `ty`, but the `init` it passes is still the user's
-/// un-unwrapped expression — the unwrap changes the type, not the
-/// expression kind, so the policy check still reads the source-level
-/// `ExprKind`.
+/// **Important**: `init` is the original initializer expression, not a
+/// derived type. Generalization policy is based on source-level expression
+/// shape even when inference has resolved or unified `ty`.
 pub(crate) fn maybe_generalize(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,

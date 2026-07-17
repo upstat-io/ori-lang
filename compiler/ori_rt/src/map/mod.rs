@@ -311,14 +311,15 @@ pub extern "C" fn ori_map_literal_alloc(
 
 /// Insert a key-value pair into a hash table during literal construction.
 ///
-/// Hashes the key, finds an empty slot via linear probing, copies the key
-/// and value into the slot, and marks it OCCUPIED.
+/// Hashes the key and probes for an equal entry before selecting an empty slot.
+/// Equal keys replace the earlier owned key and value, so later literal entries
+/// win. Returns 1 for a new entry and 0 for a replacement.
 ///
 /// # Safety
 /// - `data` must point to a valid hash table buffer allocated by `ori_map_literal_alloc`.
-/// - Caller must ensure no duplicate keys (guaranteed for map literals).
 /// - Caller must ensure load factor is not exceeded (guaranteed when `count`
 ///   passed to `ori_map_literal_alloc` matches the number of inserts).
+/// - `key` and `val` must point to initialized values that do not overlap `data`.
 #[no_mangle]
 pub extern "C" fn ori_map_literal_put(
     data: *mut u8,
@@ -327,10 +328,13 @@ pub extern "C" fn ori_map_literal_put(
     val: *const u8,
     key_size: i64,
     val_size: i64,
+    key_eq: extern "C" fn(*const u8, *const u8) -> bool,
     key_hash: extern "C" fn(*const u8) -> i64,
-) {
+    key_dec: Option<extern "C" fn(*mut u8)>,
+    val_dec: Option<extern "C" fn(*mut u8)>,
+) -> i64 {
     if data.is_null() || cap <= 0 {
-        return;
+        return 0;
     }
     let ks = key_size.max(1) as usize;
     let vs = val_size.max(1) as usize;
@@ -338,17 +342,36 @@ pub extern "C" fn ori_map_literal_put(
     let layout = HashTableLayout::for_map(c, ks, vs);
 
     let hash = key_hash(key);
-    // SAFETY: data is a valid hash table buffer; cap > 0; probe finds an EMPTY slot.
-    let bucket = unsafe { probe_find_slot(data, c, hash) };
+    // SAFETY: data is a valid hash table buffer and cap is positive.
+    let existing = unsafe { probe_find(data, c, layout.keys_offset, key, hash, ks, key_eq) };
+    let (bucket, inserted) = if let Some(bucket) = existing {
+        (bucket, false)
+    } else {
+        // SAFETY: allocation capacity is based on the total number of source
+        // entries, so a new distinct key always has an available slot.
+        (unsafe { probe_find_slot(data, c, hash) }, true)
+    };
 
     // SAFETY: bucket is within [0, c); key/val regions are non-overlapping within the buffer.
     unsafe {
         let dst_key = data.add(layout.keys_offset + bucket * ks);
-        std::ptr::copy_nonoverlapping(key, dst_key, ks);
         let dst_val = data.add(layout.vals_offset + bucket * vs);
+        if !inserted {
+            if let Some(dec) = key_dec {
+                dec(dst_key);
+            }
+            if let Some(dec) = val_dec {
+                dec(dst_val);
+            }
+        }
+        std::ptr::copy_nonoverlapping(key, dst_key, ks);
         std::ptr::copy_nonoverlapping(val, dst_val, vs);
-        set_meta(data, bucket, META_OCCUPIED);
+        if inserted {
+            set_meta(data, bucket, META_OCCUPIED);
+        }
     }
+
+    i64::from(inserted)
 }
 
 /// Write a map struct `{i64 len, i64 cap, ptr data}` to `out_ptr`.

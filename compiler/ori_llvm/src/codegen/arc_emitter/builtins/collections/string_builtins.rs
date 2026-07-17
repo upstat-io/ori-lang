@@ -144,16 +144,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let str_ptr = self.str_to_ptr(receiver, "chars.self");
 
         let data_fn = self.builder.runtime_fn("ori_str_data");
-        let data_ptr = self
-            .builder
-            .call(data_fn, &[str_ptr], "chars.data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let data_ptr = self.builder.call(data_fn, &[str_ptr], "chars.data")?;
 
         let len_fn = self.builder.runtime_fn("ori_str_len");
-        let len = self
-            .builder
-            .call(len_fn, &[str_ptr], "chars.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let len = self.builder.call(len_fn, &[str_ptr], "chars.len")?;
 
         let list_ty = self.list_struct_type();
         let out_alloca =
@@ -183,28 +177,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Self string — extract data, len, and cap
         let self_ptr = self.str_to_ptr(receiver, "split.self");
-        let data_ptr = self
-            .emit_rt_call(data_fn, &[self_ptr], "split.self.data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let str_len = self
-            .emit_rt_call(len_fn, &[self_ptr], "split.self.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let data_ptr = self.emit_rt_call(data_fn, &[self_ptr], "split.self.data")?;
+        let str_len = self.emit_rt_call(len_fn, &[self_ptr], "split.self.len")?;
         // Cap field (field 1) — needed for slice detection in the runtime.
         // For SSO strings cap is meaningless (str_len <= 23 → no slicing).
         // For heap strings cap >= 0. For slices cap has SLICE_FLAG.
         let str_cap = self
             .builder
-            .extract_value(receiver, FIELD_CAP, "split.self.cap")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+            .extract_value(receiver, FIELD_CAP, "split.self.cap")?;
 
         // Separator string
         let sep_ptr = self.str_to_ptr(separator, "split.sep");
-        let sep_data = self
-            .emit_rt_call(data_fn, &[sep_ptr], "split.sep.data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let sep_len = self
-            .emit_rt_call(len_fn, &[sep_ptr], "split.sep.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let sep_data = self.emit_rt_call(data_fn, &[sep_ptr], "split.sep.data")?;
+        let sep_len = self.emit_rt_call(len_fn, &[sep_ptr], "split.sep.len")?;
 
         // elem_dec_fn for [str] element cleanup
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(str_ty);

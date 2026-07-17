@@ -98,6 +98,7 @@ fn emit_enum_payload_cmp<'a>(
     let self_payload = fc
         .builder_mut()
         .struct_gep(enum_ty_id, self_alloca, 1, "cmp.self.payload");
+
     let other_payload =
         fc.builder_mut()
             .struct_gep(enum_ty_id, other_alloca, 1, "cmp.other.payload");
@@ -110,6 +111,7 @@ fn emit_enum_payload_cmp<'a>(
         let bb = fc
             .builder_mut()
             .append_block(func_id, &format!("cmp.v.{variant_name}"));
+
         let tag_val = fc
             .builder_mut()
             .const_int_matching(tag_self, tag_idx as u64);
@@ -131,6 +133,8 @@ fn emit_enum_payload_cmp<'a>(
             continue;
         }
 
+        // Comparable payloads retain declaration order because lexicographic
+        // field order is observable and cannot be cost-sorted like Eq.
         let mut i64_offset: u64 = 0;
         for (fi, &field_type) in field_types.iter().enumerate() {
             let (self_field, field_llvm_ty) = super::load_payload_slot_field(
@@ -142,6 +146,7 @@ fn emit_enum_payload_cmp<'a>(
                 &format!("cmp.v{tag_idx}.self.f{fi}"),
                 &format!("cmp.v{tag_idx}.self.f{fi}.val"),
             );
+
             let (other_field, _) = super::load_payload_slot_field(
                 fc,
                 i64_ty,
@@ -171,6 +176,7 @@ fn emit_enum_payload_cmp<'a>(
                 let ret_bb = fc
                     .builder_mut()
                     .append_block(func_id, &format!("cmp.v{tag_idx}.ret.f{fi}"));
+
                 let next_bb = fc
                     .builder_mut()
                     .append_block(func_id, &format!("cmp.v{tag_idx}.f{}", fi + 1));

@@ -1,0 +1,13 @@
+@main () -> int = {
+    let result = catch(expr: {
+        let _ = for n in [0, 1, 2] yield {
+            if n == 1 then panic(msg: "test unwind heap yield element");
+            "this yielded string is heap backed and must be dropped during unwind"
+        };
+        1
+    });
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0,
+    }
+}

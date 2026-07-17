@@ -74,6 +74,7 @@ impl Parser<'_> {
     ///
     /// Uses `ensure_sufficient_stack` to prevent stack overflow
     /// on deeply nested expressions.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_expr(&mut self) -> ParseOutcome<ExprId> {
         trace!(
             pos = self.cursor.position(),
@@ -87,6 +88,7 @@ impl Parser<'_> {
     ///
     /// Use this for contexts where `=` is a delimiter rather than an operator,
     /// such as guard clauses (`if condition = body`).
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_non_assign_expr(&mut self) -> ParseOutcome<ExprId> {
         ensure_sufficient_stack(|| self.parse_binary_pratt(0))
     }
@@ -95,6 +97,7 @@ impl Parser<'_> {
     ///
     /// Use this in contexts where `<` and `>` are delimiters, not operators,
     /// such as const generic default values: `<$N: int = 10>`.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_non_comparison_expr(&mut self) -> ParseOutcome<ExprId> {
         ensure_sufficient_stack(|| self.parse_binary_pratt(bp::ABOVE_COMPARISON))
     }

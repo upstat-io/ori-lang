@@ -30,12 +30,12 @@
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use crate::debug_flags;
+/// ```rust
+/// use oric::{dbg_set, debug_flags};
 ///
-/// if dbg_set!(debug_flags::ORI_DEBUG_LLVM) {
-///     eprintln!("LLVM IR dump enabled");
-/// }
+/// let expected = std::env::var(debug_flags::ORI_DEBUG_LLVM)
+///     .is_ok_and(|value| value != "0");
+/// assert_eq!(dbg_set!(debug_flags::ORI_DEBUG_LLVM), expected);
 /// ```
 #[macro_export]
 macro_rules! dbg_set {
@@ -51,13 +51,15 @@ macro_rules! dbg_set {
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use crate::debug_flags;
+/// ```rust
+/// use oric::{dbg_do, dbg_set, debug_flags};
 ///
+/// let expected = dbg_set!(debug_flags::ORI_DEBUG_LLVM);
+/// let mut ran = false;
 /// dbg_do!(debug_flags::ORI_DEBUG_LLVM, {
-///     eprintln!("=== LLVM IR ===");
-///     eprintln!("{}", module.print_to_string());
+///     ran = true;
 /// });
+/// assert_eq!(ran, expected);
 /// ```
 #[macro_export]
 macro_rules! dbg_do {

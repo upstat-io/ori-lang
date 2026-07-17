@@ -31,8 +31,8 @@ pub use re_intern::{
     re_intern_sig, re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
 };
 pub use substitute::{
-    build_mono_body_type_map, extend_var_subst_with_roots, extract_var_from_types,
-    substitute_in_pool, BodyTypeMapSink,
+    build_impl_mono_body_type_map, build_mono_body_type_map, extend_var_subst_with_roots,
+    extract_var_from_types, substitute_in_pool, BodyTypeMapSink,
 };
 
 use rustc_hash::FxHashMap;
@@ -122,18 +122,26 @@ pub struct Pool {
     next_var_id: u32,
 }
 
+/// State carried by an unbound type variable.
+#[derive(Clone, Debug)]
+pub struct UnboundVarState {
+    pub(crate) id: u32,
+    pub(crate) rank: Rank,
+    pub(crate) name: Option<ori_ir::Name>,
+}
+
+/// State carried by a generalized type variable.
+#[derive(Clone, Debug)]
+pub struct GeneralizedVarState {
+    pub(crate) id: u32,
+    pub(crate) name: Option<ori_ir::Name>,
+}
+
 /// State of a type variable.
 #[derive(Clone, Debug)]
 pub enum VarState {
     /// Unbound variable - waiting to be unified.
-    Unbound {
-        /// Unique identifier for this variable.
-        id: u32,
-        /// Rank (scope depth) for generalization.
-        rank: Rank,
-        /// Optional name for better error messages.
-        name: Option<ori_ir::Name>,
-    },
+    Unbound(UnboundVarState),
 
     /// Linked to another type - follow the link.
     Link {
@@ -148,12 +156,7 @@ pub enum VarState {
     },
 
     /// Generalized variable - must be instantiated before use.
-    Generalized {
-        /// Original variable ID.
-        id: u32,
-        /// Optional name for error messages.
-        name: Option<ori_ir::Name>,
-    },
+    Generalized(GeneralizedVarState),
 }
 
 impl Pool {

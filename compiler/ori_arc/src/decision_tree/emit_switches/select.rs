@@ -63,6 +63,7 @@ fn is_simple_body(lowerer: &crate::lower::ArcLowerer<'_>, body: ori_ir::canon::C
 /// - All edges lead to `Leaf` nodes with no pattern variable bindings
 /// - Each leaf's arm body is a simple expression (literal or variable)
 /// - No mutable variables need SSA merge at the convergence point
+/// - No leaf carries blank-pattern cleanup projections
 /// - The number of edges is within [`MAX_SELECT_EDGES`]
 pub(super) fn is_select_eligible(
     lowerer: &crate::lower::ArcLowerer<'_>,
@@ -70,7 +71,7 @@ pub(super) fn is_select_eligible(
     default: Option<&DecisionTree>,
     ctx: &EmitContext,
 ) -> bool {
-    if !ctx.mutable_var_names.is_empty() {
+    if !ctx.mutable_var_names.is_empty() || ctx.has_discard_obligations() {
         return false;
     }
     if edges.is_empty() || edges.len() > MAX_SELECT_EDGES {

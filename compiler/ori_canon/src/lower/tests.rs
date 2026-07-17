@@ -382,3 +382,85 @@ fn lower_call_positional() {
         other => panic!("expected Call, got {other:?}"),
     }
 }
+
+#[test]
+fn lower_range_eager_map_materializes_adapter_and_collect() {
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+    let range_name = interner.intern("r");
+    let transform_name = interner.intern("transform");
+    let map_name = interner.intern("map");
+    let iter_name = interner.intern("iter");
+    let collect_name = interner.intern("collect");
+
+    let receiver = arena.alloc_expr(Expr::new(ExprKind::Ident(range_name), Span::DUMMY));
+    let transform = arena.alloc_expr(Expr::new(ExprKind::Ident(transform_name), Span::DUMMY));
+    let args = arena.alloc_expr_list([transform]);
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::MethodCall {
+            receiver,
+            method: map_name,
+            args,
+        },
+        Span::DUMMY,
+    ));
+
+    let mut pool = ori_types::Pool::new();
+    let range_int = pool.range(Idx::INT);
+    let transform_ty = pool.function(&[Idx::INT], Idx::INT);
+    let iter_int = pool.double_ended_iterator(Idx::INT);
+    let list_int = pool.list(Idx::INT);
+
+    let mut typed = TypedModule::new();
+    typed.expr_types = vec![range_int, transform_ty, list_int];
+    typed.iter_route_map.insert(
+        root,
+        ori_types::IterMethodRoute {
+            iter_ty: iter_int,
+            adapter_ty: Some(iter_int),
+        },
+    );
+
+    let result = lower(&arena, &TypeCheckResult::ok(typed), &pool, root, &interner);
+    let CanExpr::MethodCall {
+        receiver: map_call,
+        method,
+        args,
+    } = *result.arena.kind(result.root)
+    else {
+        panic!("Range.map route should end in collect")
+    };
+    assert_eq!(method, collect_name);
+    assert!(result.arena.get_expr_list(args).is_empty());
+    assert_eq!(
+        result.arena.ty(result.root),
+        TypeId::from_raw(list_int.raw())
+    );
+
+    let CanExpr::MethodCall {
+        receiver: iter_call,
+        method,
+        ..
+    } = *result.arena.kind(map_call)
+    else {
+        panic!("collect receiver should be the map adapter")
+    };
+    assert_eq!(method, map_name);
+    assert_eq!(result.arena.ty(map_call), TypeId::from_raw(iter_int.raw()));
+
+    let CanExpr::MethodCall {
+        receiver: lowered_range,
+        method,
+        args,
+    } = *result.arena.kind(iter_call)
+    else {
+        panic!("map receiver should be the materialized Range iterator")
+    };
+    assert_eq!(method, iter_name);
+    assert!(result.arena.get_expr_list(args).is_empty());
+    assert_eq!(result.arena.ty(iter_call), TypeId::from_raw(iter_int.raw()));
+    assert_eq!(
+        *result.arena.kind(lowered_range),
+        CanExpr::Ident(range_name)
+    );
+}

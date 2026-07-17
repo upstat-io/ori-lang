@@ -22,7 +22,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         match value {
             ori_arc::ir::ArcValue::Var(v) => self.var(*v),
 
-            ori_arc::ir::ArcValue::Literal(lit) => self.emit_literal(lit),
+            ori_arc::ir::ArcValue::Literal(lit) => self.emit_literal(lit, ty),
 
             ori_arc::ir::ArcValue::PrimOp { op, args } => {
                 let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
@@ -32,8 +32,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit a literal value.
-    fn emit_literal(&mut self, lit: &LitValue) -> ValueId {
+    fn emit_literal(&mut self, lit: &LitValue, ty: Idx) -> ValueId {
         match lit {
+            LitValue::Int(n) if self.pool.resolve_fully(ty) == Idx::BYTE => {
+                let byte_ty = self.builder.i8_type();
+                self.builder.const_int_of_type(byte_ty, n.cast_unsigned())
+            }
             LitValue::Int(n) => self.builder.const_i64(*n),
             LitValue::Float(bits) => self.builder.const_f64(f64::from_bits(*bits)),
             LitValue::Bool(b) => self.builder.const_bool(*b),

@@ -390,6 +390,12 @@ impl<'a> Lowerer<'a> {
     pub(super) fn finish(self, root: CanId) -> CanonResult {
         let mut mono_dispatch_map_can = self.mono_dispatch_map_can;
         mono_dispatch_map_can.sort_by_key(|(cid, _)| cid.raw());
+        let mono_const_bindings = self
+            .typed
+            .mono_instances
+            .iter()
+            .map(|instance| instance.const_bindings.clone())
+            .collect();
         CanonResult {
             arena: self.arena,
             constants: self.constants,
@@ -399,6 +405,7 @@ impl<'a> Lowerer<'a> {
             method_roots: Vec::new(),
             problems: self.problems,
             mono_dispatch_map_can,
+            mono_const_bindings,
         }
     }
 

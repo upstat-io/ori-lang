@@ -307,9 +307,8 @@ impl<'src> TokenCooker<'src> {
                     .push(LexError::strict_equality_operator(err_span, op));
                 return CookResult::with_error(TokenKind::Error);
             }
-            NextContext::Operator(op @ ("++" | "--")) => {
-                self.errors
-                    .push(LexError::increment_decrement_operator(err_span, op));
+            NextContext::Operator(op @ "++") => {
+                self.errors.push(LexError::increment_operator(err_span, op));
                 return CookResult::with_error(TokenKind::Error);
             }
             NextContext::Unicode(ch) => {

@@ -49,18 +49,21 @@ pub use operator::{
 };
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
-    AcceptedDerivedImpl, AssignDesugar, ConcreteMethodMono, ConstParamInfo, ConstValue,
-    DeferredMonoCall, DeferredVarBinding, DerivedCallPlan, DerivedCallPosition,
-    DerivedCallSelection, DerivedDirectCallSelection, EffectClass, ExportedTypeMetadata,
-    FnWhereClause, FormatSpecTypes, FunctionSig, GenericArg, ImplMethodId, ImplMethodRole, ImplSig,
-    MethodProducer, MonoInstance, MonoInstanceId, RegistryMethodIdentity, RegistryPreludeIdentity,
-    TypeCheckResult, TypedModule, REGISTRY_PRODUCER_SCHEMA,
+    imported_method_producer, imported_method_signature_hash, AcceptedDerivedImpl, AssignDesugar,
+    ConcreteMethodMono, ConstGenericTerm, ConstParamInfo, ConstValue, DeferredMonoCall,
+    DeferredVarBinding, DerivedCallPlan, DerivedCallPosition, DerivedCallSelection,
+    DerivedDirectCallSelection, EffectClass, ExportedTypeMetadata, FnWhereClause, FormatSpecTypes,
+    FunctionSig, GenericArg, ImplMethodId, ImplMethodRole, ImplSig, ImportedImplSig,
+    IterMethodRoute, MethodProducer, MonoConstBinding, MonoInstance, MonoInstanceId,
+    RegistryMethodIdentity, RegistryPreludeIdentity, TypeCheckResult, TypedModule,
+    IMPORTED_METHOD_PRODUCER_SCHEMA, REGISTRY_PRODUCER_SCHEMA,
 };
 pub use pool::{
-    build_mono_body_type_map, collect_public_collection_types, extend_var_subst_with_roots,
-    extract_var_from_types, re_intern_sig, re_intern_sig_with_var_remap, re_intern_type,
-    re_intern_type_with_var_remap, substitute_in_pool, walk_collection_types, BodyTypeMapSink,
-    EnumVariant, Pool, TypeDescriptor, VarState, VariantDescriptor, DEFAULT_RANK,
+    build_impl_mono_body_type_map, build_mono_body_type_map, collect_public_collection_types,
+    extend_var_subst_with_roots, extract_var_from_types, re_intern_sig,
+    re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
+    substitute_in_pool, walk_collection_types, BodyTypeMapSink, EnumVariant, GeneralizedVarState,
+    Pool, TypeDescriptor, UnboundVarState, VarState, VariantDescriptor, DEFAULT_RANK,
 };
 pub use provenance::{
     ConsumerEdge, GenericLeafDivergence, MonoEdge, ProvenanceDag, ResolutionEdge, StructureEdge,

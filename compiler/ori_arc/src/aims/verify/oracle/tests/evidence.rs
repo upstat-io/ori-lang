@@ -1095,6 +1095,17 @@ fn only_explicit_borrowed_ownership_propagates_callee_may_share() {
     assert_eq!(borrowed_realized[0].access, AccessClass::Borrowed);
     assert!(borrowed_realized[0].may_share);
 
+    let mut inferred_param = param(AccessClass::Borrowed, Consumption::Linear);
+    inferred_param.may_share = true;
+    let inferred = make_contract(vec![inferred_param]);
+    let mismatches = verify_coherence(&borrowed, &inferred, &contracts, &interner, 0);
+    assert!(
+        !mismatches
+            .iter()
+            .any(|m| matches!(m, CoherenceMismatch::ParamMayShare { .. })),
+        "the published caller contract must match the hidden borrowed retain: {mismatches:?}"
+    );
+
     let mut owned = func_with_body(
         vec![owned_param(0, Idx::UNIT)],
         vec![owned_call(1, callee, v(0))],

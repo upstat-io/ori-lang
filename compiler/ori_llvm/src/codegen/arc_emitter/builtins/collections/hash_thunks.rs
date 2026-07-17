@@ -186,10 +186,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ParamPassing::Direct => self.builder.load(self_ty, b_ptr, "eq.b"),
             _ => b_ptr,
         };
-        let result = self
-            .builder
-            .call(eq_fid, &[a_arg, b_arg], "eq.r")
-            .unwrap_or_else(|| self.builder.const_bool(false));
+        let Some(result) = self.builder.call(eq_fid, &[a_arg, b_arg], "eq.r") else {
+            panic!("Eq implementation must return bool");
+        };
         self.builder.ret(result);
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
@@ -360,10 +359,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ParamPassing::Direct => self.builder.load(self_ty, key_ptr, "hash.self"),
             _ => key_ptr,
         };
-        let result = self
-            .builder
-            .call(hash_fid, &[arg], "hash.r")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let Some(result) = self.builder.call(hash_fid, &[arg], "hash.r") else {
+            panic!("Hashable implementation must return int");
+        };
         self.builder.ret(result);
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {

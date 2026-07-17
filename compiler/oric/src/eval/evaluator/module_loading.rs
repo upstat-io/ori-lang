@@ -24,9 +24,9 @@ impl Evaluator<'_> {
     /// This is the core module loading logic used by both the query system
     /// and test runner. It handles:
     /// 1. Auto-loading the prelude (if not already loaded)
-    /// 2. Resolving imports and registering imported functions
+    /// 2. Resolving imports and registering imported functions and methods
     /// 3. Registering all local functions
-    /// 4. Registering all impl block methods
+    /// 4. Registering all local impl block methods
     ///
     /// Import resolution uses the unified `imports::resolve_imports()` pipeline,
     /// which handles prelude discovery and `use` statement resolution via Salsa.
@@ -86,12 +86,13 @@ impl Evaluator<'_> {
             return Err(resolved.errors.clone());
         }
 
-        // Register explicitly imported functions.
+        // Register explicitly imported functions and methods.
         // Each resolved module carries its import_index so we can find
         // the corresponding UseDef for visibility/alias handling.
         // Accumulate errors across all use statements so the user sees every
         // problem at once, not just the first failing import.
         let mut import_errors = Vec::new();
+        let mut user_methods = UserMethodRegistry::new();
         for imp_module in &resolved.modules {
             let imp = &parse_result.module.imports[imp_module.import_index];
 
@@ -122,6 +123,19 @@ impl Evaluator<'_> {
             ) {
                 import_errors.extend(errs);
             }
+
+            // Method bodies retain their defining module's arena, canonical IR,
+            // and lexical captures just like imported functions do. Registering
+            // them here makes imported impl/extend/def-impl methods visible to
+            // runtime dispatch in the consuming module.
+            let config = MethodCollectionConfig {
+                module: &imp_module.parse_output.module,
+                arena: &imported_arena,
+                captures: imported_module.shared_captures(self.env()),
+                canon: imp_canon.as_ref(),
+                interner,
+            };
+            collect_module_methods(&config, &mut user_methods);
         }
 
         if !import_errors.is_empty() {
@@ -137,8 +151,8 @@ impl Evaluator<'_> {
         // this module's bindings rather than same-named prelude values.
         register_module_bindings(&parse_result.module, &shared_arena, self.env_mut(), canon);
 
-        // Build up user method registry from impl and extend blocks
-        let mut user_methods = UserMethodRegistry::new();
+        // Add this module's impl and extend blocks to the methods collected from
+        // its imported providers.
         let config = MethodCollectionConfig {
             module: &parse_result.module,
             arena: &shared_arena,
@@ -146,9 +160,7 @@ impl Evaluator<'_> {
             canon,
             interner: self.interner(),
         };
-        collect_impl_methods_with_config(&config, &mut user_methods);
-        collect_extend_methods_with_config(&config, &mut user_methods);
-        collect_def_impl_methods_with_config(&config, &mut user_methods);
+        collect_module_methods(&config, &mut user_methods);
 
         // Process derived traits (Eq, Clone, Hashable, Printable, Default)
         let mut default_ft = DefaultFieldTypeRegistry::new();
@@ -224,4 +236,10 @@ impl Evaluator<'_> {
             &pool,
         ))
     }
+}
+
+fn collect_module_methods(config: &MethodCollectionConfig<'_>, registry: &mut UserMethodRegistry) {
+    collect_impl_methods_with_config(config, registry);
+    collect_extend_methods_with_config(config, registry);
+    collect_def_impl_methods_with_config(config, registry);
 }

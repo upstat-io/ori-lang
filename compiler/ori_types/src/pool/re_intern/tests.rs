@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 use crate::pool::re_intern::{
     re_intern_sig, re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
 };
-use crate::{FunctionSig, Idx, Pool, Tag, VarState};
+use crate::{FunctionSig, GeneralizedVarState, Idx, Pool, Tag, VarState};
 
 // `re_intern_type_with_var_remap` and `re_intern_sig_with_var_remap` in
 // `pool/re_intern/mod.rs` are the remap-aware re-intern entry points; the
@@ -374,10 +374,10 @@ fn scheme_type_re_interned() {
 fn target_with_generalized_slot(var_id: u32) -> Pool {
     let mut target = Pool::new();
     target.ensure_var_capacity(var_id + 1);
-    *target.var_state_mut(var_id) = VarState::Generalized {
+    *target.var_state_mut(var_id) = VarState::Generalized(GeneralizedVarState {
         id: var_id,
         name: None,
-    };
+    });
     target
 }
 
@@ -407,7 +407,7 @@ fn re_intern_type_var_leaf_via_legacy_api_allocates_fresh_dst_id_and_does_not_al
          fresh dst_id must not alias host slot 0"
     );
     assert!(
-        matches!(target.var_state(0), VarState::Generalized { .. }),
+        matches!(target.var_state(0), VarState::Generalized(_)),
         "host-owned slot 0 must be untouched by the imported leaf"
     );
 }
@@ -429,7 +429,7 @@ fn re_intern_type_bound_var_leaf_via_legacy_api_allocates_fresh_dst_id() {
         0,
         "fresh dst_id must not alias host slot 0"
     );
-    assert!(matches!(target.var_state(0), VarState::Generalized { .. }));
+    assert!(matches!(target.var_state(0), VarState::Generalized(_)));
 }
 
 /// Regression guard — backward-compat `re_intern_type` delegation for `Tag::RigidVar`.
@@ -449,7 +449,7 @@ fn re_intern_type_rigid_var_leaf_via_legacy_api_allocates_fresh_dst_id() {
         0,
         "fresh dst_id must not alias host slot 0"
     );
-    assert!(matches!(target.var_state(0), VarState::Generalized { .. }));
+    assert!(matches!(target.var_state(0), VarState::Generalized(_)));
 }
 
 /// Matrix cell (e1, positive pin) — `Tag::Var` under remap-aware re-intern.
@@ -479,13 +479,13 @@ fn remap_aware_re_intern_var_leaf_allocates_fresh_dst_id_and_rebuilds_var_state(
     assert_eq!(var_remap.get(&0), Some(&dst_id));
 
     match target.var_state(dst_id) {
-        VarState::Unbound { id, .. } => {
-            assert_eq!(*id, dst_id, "VarState.id must be pool-local dst_id");
+        VarState::Unbound(state) => {
+            assert_eq!(state.id, dst_id, "VarState.id must be pool-local dst_id");
         }
         other => panic!("expected variant-aware Unbound rebuild, got {other:?}"),
     }
     assert!(
-        matches!(target.var_state(0), VarState::Generalized { .. }),
+        matches!(target.var_state(0), VarState::Generalized(_)),
         "host-owned slot 0 must be untouched"
     );
 }
@@ -728,9 +728,12 @@ fn remap_aware_re_intern_rebuilds_unbound_with_fresh_id_and_preserved_rank_name(
     let dst_id = target.data(result);
     assert_ne!(dst_id, 0);
     match target.var_state(dst_id) {
-        VarState::Unbound { id, name, .. } => {
-            assert_eq!(*id, dst_id, "pool-local id must be dst_id, NOT source's 0");
-            assert_eq!(*name, Some(src_name), "name clones verbatim");
+        VarState::Unbound(state) => {
+            assert_eq!(
+                state.id, dst_id,
+                "pool-local id must be dst_id, NOT source's 0"
+            );
+            assert_eq!(state.name, Some(src_name), "name clones verbatim");
         }
         other => panic!("expected Unbound rebuild, got {other:?}"),
     }
@@ -742,10 +745,10 @@ fn remap_aware_re_intern_rebuilds_generalized_with_fresh_id_and_preserved_name()
     let mut source = Pool::new();
     source.ensure_var_capacity(1);
     let src_name = ori_ir::Name::from_raw(11);
-    *source.var_state_mut(0) = VarState::Generalized {
+    *source.var_state_mut(0) = VarState::Generalized(GeneralizedVarState {
         id: 0,
         name: Some(src_name),
-    };
+    });
     let source_var = source.intern(Tag::Var, 0);
 
     let mut target = target_with_generalized_slot(0);
@@ -758,9 +761,9 @@ fn remap_aware_re_intern_rebuilds_generalized_with_fresh_id_and_preserved_name()
     let dst_id = target.data(result);
     assert_ne!(dst_id, 0);
     match target.var_state(dst_id) {
-        VarState::Generalized { id, name } => {
-            assert_eq!(*id, dst_id, "pool-local id must be dst_id");
-            assert_eq!(*name, Some(src_name));
+        VarState::Generalized(state) => {
+            assert_eq!(state.id, dst_id, "pool-local id must be dst_id");
+            assert_eq!(state.name, Some(src_name));
         }
         other => panic!(
             "expected Generalized rebuild (NOT Unbound — blank-init would flip the \

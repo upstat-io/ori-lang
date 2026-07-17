@@ -202,7 +202,7 @@ fn unify_result_closure_constraints(
 /// Compute the per-element type a higher-order closure parameter binds to for a
 /// given receiver. SSOT for the first-param bind in
 /// `unify_closure_param_with_iterator_elem` and the `fold`/`rfold` second-param
-/// (element) bind. Covers iterator / `Tag::List` / `Tag::Set` / `Tag::Map`
+/// (element) bind. Covers iterator / `Tag::Range` / `Tag::List` / `Tag::Set` / `Tag::Map`
 /// (synthetic `(K, V)` tuple) / `Tag::Str` (`Idx::CHAR`); returns `None` for a
 /// receiver with no element shape (the closure param stays an unconstrained `Tag::Var`).
 fn receiver_element_type(engine: &mut InferEngine<'_>, receiver_ty: Idx) -> Option<Idx> {
@@ -210,6 +210,8 @@ fn receiver_element_type(engine: &mut InferEngine<'_>, receiver_ty: Idx) -> Opti
     let recv_tag = engine.pool().tag(resolved_recv);
     if recv_tag.is_iterator() {
         Some(engine.pool().iterator_elem(resolved_recv))
+    } else if recv_tag == Tag::Range {
+        Some(engine.pool().range_elem(resolved_recv))
     } else if recv_tag == Tag::List {
         Some(engine.pool().list_elem(resolved_recv))
     } else if recv_tag == Tag::Set {
@@ -229,7 +231,7 @@ fn receiver_element_type(engine: &mut InferEngine<'_>, receiver_ty: Idx) -> Opti
 /// Constrain a closure's first parameter to the receiver's element type, so an
 /// adapter like `.map(r -> r.score)` resolves `r` instead of leaving it an
 /// unresolved `Tag::Var`. Delegates the per-receiver element type to
-/// `receiver_element_type`, covering iterator / `Tag::List` / `Tag::Set` /
+/// `receiver_element_type`, covering iterator / `Tag::Range` / `Tag::List` / `Tag::Set` /
 /// `Tag::Map` (projecting the `(K, V)` iteration shape as a synthetic tuple so
 /// `kvs.map(kv -> kv.0)` resolves `kv: (K, V)`) / `Tag::Str`.
 pub(super) fn unify_closure_param_with_iterator_elem(

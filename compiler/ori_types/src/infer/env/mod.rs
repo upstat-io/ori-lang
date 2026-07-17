@@ -48,7 +48,13 @@ struct TypeEnvInner {
 ///
 /// # Usage
 ///
-/// ```ignore
+/// ```rust
+/// use ori_ir::StringInterner;
+/// use ori_types::{Idx, TypeEnv};
+///
+/// let interner = StringInterner::new();
+/// let name = interner.intern("global");
+/// let local_name = interner.intern("local");
 /// let mut env = TypeEnv::new();
 ///
 /// // Bind a monomorphic type
@@ -56,7 +62,7 @@ struct TypeEnvInner {
 ///
 /// // Create child scope for let binding
 /// let mut child = env.child();
-/// child.bind(local_name, local_ty);
+/// child.bind(local_name, Idx::BOOL);
 ///
 /// // Lookup searches parent chain
 /// assert_eq!(child.lookup(name), Some(Idx::INT));
@@ -192,9 +198,17 @@ impl TypeEnv {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let similar = env.find_similar(misspelled, 3, |n| interner.lookup(n));
-    /// // Returns up to 3 names sorted by closeness
+    /// ```rust
+    /// use ori_ir::StringInterner;
+    /// use ori_types::{Idx, TypeEnv};
+    ///
+    /// let interner = StringInterner::new();
+    /// let intended = interner.intern("value");
+    /// let misspelled = interner.intern("vale");
+    /// let mut env = TypeEnv::new();
+    /// env.bind(intended, Idx::INT);
+    /// let similar = env.find_similar(misspelled, 3, |name| Some(interner.lookup(name)));
+    /// assert!(similar.contains(&intended));
     /// ```
     pub fn find_similar<'r>(
         &self,

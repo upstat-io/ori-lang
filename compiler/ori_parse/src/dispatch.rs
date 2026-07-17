@@ -22,9 +22,11 @@ impl Parser<'_> {
     /// Returns `true` if a token was consumed (used by the caller to
     /// detect infinite loops).
     #[expect(
+        clippy::cognitive_complexity,
         clippy::too_many_lines,
         reason = "exhaustive top-level declaration kind dispatch"
     )]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn dispatch_declaration(
         &mut self,
         attrs: ParsedAttrs,

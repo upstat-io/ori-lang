@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::hash::BuildHasher;
 
 use ori_ir::Name;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::borrow::BuiltinOwnershipSets;
 use crate::graph::call_graph::CallGraph;
@@ -20,7 +20,7 @@ use crate::ArcClassification;
 use super::super::contract::{FipContract, MemoryContract};
 use super::super::intraprocedural::analyze_function;
 use super::demand_propagation::tighten_uniqueness_from_callers;
-use super::extract::extract_contract;
+use super::extract::extract_contract_with_call_ownership;
 
 /// Compute [`MemoryContract`] for all functions via SCC-based fixed-point.
 ///
@@ -83,6 +83,11 @@ pub(crate) fn analyze_program_with_external_contracts_and_boundaries<S: BuildHas
 
     let func_by_name: FxHashMap<Name, &ArcFunction> =
         functions.iter().map(|f| (f.name, f)).collect();
+    let exact_callables: FxHashSet<Name> = func_by_name
+        .keys()
+        .copied()
+        .chain(external_contracts.keys().copied())
+        .collect();
 
     let mut all_sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
 
@@ -112,12 +117,21 @@ pub(crate) fn analyze_program_with_external_contracts_and_boundaries<S: BuildHas
                 classifier,
                 &all_sigs,
                 interner,
+                builtins,
+                &exact_callables,
                 callable_boundaries,
             );
             all_sigs.extend(scc_sigs);
         } else if let Some(&func) = func_by_name.get(&scc.members[0]) {
-            let contract =
-                analyze_scc_single(func, classifier, &all_sigs, interner, callable_boundaries);
+            let contract = analyze_scc_single(
+                func,
+                classifier,
+                &all_sigs,
+                interner,
+                builtins,
+                &exact_callables,
+                callable_boundaries,
+            );
             all_sigs.insert(func.name, contract);
         }
         // External/FFI functions not in `func_by_name` are skipped —
@@ -219,13 +233,15 @@ pub(super) fn analyze_scc_single(
     classifier: &dyn ArcClassification,
     all_sigs: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
+    builtins: &BuiltinOwnershipSets,
+    exact_callables: &FxHashSet<Name>,
     callable_boundaries: &ValidatedCallableBoundaryFacts<'_>,
 ) -> MemoryContract {
     let state_map = analyze_function(func, classifier, all_sigs, &[], Vec::new());
     // Non-recursive: empty SCC peer set → has_unbounded_stack = false.
     // No context regions for non-recursive (TRMC requires recursion).
     let empty_peers = rustc_hash::FxHashSet::default();
-    let mut contract = extract_contract(
+    let mut contract = extract_contract_with_call_ownership(
         func,
         &state_map,
         classifier,
@@ -233,6 +249,8 @@ pub(super) fn analyze_scc_single(
         &empty_peers,
         &[],
         interner,
+        builtins,
+        exact_callables,
     );
     callable_boundaries.constrain_contract(func.name, &mut contract);
     contract
@@ -249,6 +267,8 @@ fn analyze_scc_fixpoint(
     classifier: &dyn ArcClassification,
     external_sigs: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
+    builtins: &BuiltinOwnershipSets,
+    exact_callables: &FxHashSet<Name>,
     callable_boundaries: &ValidatedCallableBoundaryFacts<'_>,
 ) -> FxHashMap<Name, MemoryContract> {
     // Build the SCC peer set for constant-stack analysis.
@@ -275,7 +295,7 @@ fn analyze_scc_fixpoint(
     let mut combined_sigs = external_sigs.clone();
 
     let mut changed = true;
-    let mut iterations = 0u32;
+    let mut iterations = 0usize;
     while changed {
         changed = false;
 
@@ -290,7 +310,7 @@ fn analyze_scc_fixpoint(
             // interprocedural fixpoint; the rewrite runs in the per-function
             // pipeline after contracts converge).
             let context_regions = crate::aims::normalize::detect_context_regions(func);
-            let mut new_contract = extract_contract(
+            let mut new_contract = extract_contract_with_call_ownership(
                 func,
                 &state_map,
                 classifier,
@@ -298,6 +318,8 @@ fn analyze_scc_fixpoint(
                 &scc_peers,
                 &context_regions,
                 interner,
+                builtins,
+                exact_callables,
             );
             callable_boundaries.constrain_contract(func.name, &mut new_contract);
 
@@ -312,7 +334,10 @@ fn analyze_scc_fixpoint(
                 }
             }
         }
-        iterations += 1;
+        let Some(next_iteration) = iterations.checked_add(1) else {
+            panic!("AIMS fixed-point iteration count must fit usize");
+        };
+        iterations = next_iteration;
     }
 
     // Convergence bound: each iteration promotes at least one lattice step
@@ -334,7 +359,7 @@ fn analyze_scc_fixpoint(
 }
 
 /// Worst-case fixpoint convergence bound for an SCC (IC-7 height-sum).
-fn compute_convergence_bound(scc_funcs: &[&ArcFunction]) -> u32 {
+fn compute_convergence_bound(scc_funcs: &[&ArcFunction]) -> usize {
     // Each iteration promotes at least one lattice step; the height-weighted
     // sum over all SCC members is the upper bound. Per-member height:
     //   per-param height: access(1) + consumption(3) + cardinality(2)
@@ -363,18 +388,19 @@ fn compute_convergence_bound(scc_funcs: &[&ArcFunction]) -> u32 {
     // matches shipped reality at 17; it drops to 16 when may_escape is removed.
     // Height-weighted (not dimension-count) form matches the worst-case
     // fixpoint convergence proof for IC-7.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "param count per function bounded by u32::MAX in practice"
-    )]
-    scc_funcs
-        .iter()
-        .map(|f| {
-            let param_height = f.params.len() as u32 * 17;
-            let return_height = 8u32;
-            let effect_height = 5u32;
-            let context_height = 4u32;
-            param_height + return_height + effect_height + context_height
-        })
-        .sum()
+    const PARAM_HEIGHT: usize = 17;
+    const FIXED_HEIGHT: usize = 8 + 5 + 4;
+
+    let bound = scc_funcs.iter().try_fold(0usize, |total, f| {
+        let member_height = f
+            .params
+            .len()
+            .checked_mul(PARAM_HEIGHT)?
+            .checked_add(FIXED_HEIGHT)?;
+        total.checked_add(member_height)
+    });
+    let Some(bound) = bound else {
+        panic!("AIMS convergence-bound height sum must fit usize");
+    };
+    bound
 }

@@ -40,6 +40,14 @@ use crate::Name;
 /// Maranget algorithm clones paths frequently during matrix specialization.
 pub type ScrutineePath = Vec<PathInstruction>;
 
+/// Explicit blank-pattern projections executed at one decision-tree success.
+///
+/// Each path names a value discarded by `_` that is not retained through an
+/// ancestor binding. Canonicalization preserves these paths alongside the
+/// decision tree so ownership lowering can materialize their cleanup
+/// obligations without re-walking source patterns.
+pub type LeafDiscardPaths = Vec<ScrutineePath>;
+
 /// One step in a scrutinee path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PathInstruction {
@@ -368,6 +376,12 @@ pub struct PatternRow {
     /// column specialization, the binding `(name, path)` is recorded here.
     /// These are merged with pattern-derived bindings at the Leaf/Guard node.
     pub bindings: Vec<(Name, ScrutineePath)>,
+    /// Blank-pattern paths exposed while constructor columns are decomposed.
+    ///
+    /// The recursive compiler carries these to the exact Leaf/Guard occurrence
+    /// reached by this row. Paths covered by an ancestor binding are filtered
+    /// at the success node because that binding retains the aggregate.
+    pub discard_paths: LeafDiscardPaths,
 }
 
 /// The pattern matrix: rows of arms, columns of sub-patterns.

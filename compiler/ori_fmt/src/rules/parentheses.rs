@@ -14,7 +14,7 @@
 //!
 //! Spec: Annex D §Method-Style Match, §Method Chains.
 
-use ori_ir::{ExprArena, ExprId, ExprKind, UnaryOp};
+use ori_ir::{ExprArena, ExprId, ExprKind};
 
 /// Position where parentheses may be required.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -33,13 +33,6 @@ pub enum ParenPosition {
 
     /// Unary operand: -x — operand may need parens for precedence
     UnaryOperand,
-
-    /// Operand of a unary `Neg`: -x — needs parens for the same precedence
-    /// cases as [`ParenPosition::UnaryOperand`], plus when the operand is
-    /// itself a `Unary::Neg`: printing adjacent `-` `-` tokens with no
-    /// separator re-lexes as the single, rejected `--` token (Spec: PHASE-55
-    /// format-reparse-ambiguity; `--` is diagnosed as E0010).
-    UnaryNegOperand,
 }
 
 /// Check if an expression needs parentheses in a given position.
@@ -113,28 +106,5 @@ pub fn needs_parens(arena: &ExprArena, expr_id: ExprId, position: ParenPosition)
                 | ExprKind::Lambda { .. }
                 | ExprKind::Let { .. }
         ),
-
-        // Same as UnaryOperand, plus the Neg-under-Neg token-adjacency guard.
-        // Two distinct AST shapes hit that guard: an unfolded nested
-        // `Unary::Neg` (e.g. a float operand, which the parser never
-        // constant-folds), and a parser-folded negative `Int` literal (the
-        // parser folds `-42` into `Int(-42)` at parse time — see
-        // `ori_parse::grammar::expr::parse_unary` — so `-(-42)`'s outer
-        // operand is `Int(-42)`, not `Unary{Neg, Int(42)}`). Either shape
-        // prints a leading `-`, which re-lexes as the rejected `--` token
-        // (E0010) when glued directly after the outer `-`.
-        ParenPosition::UnaryNegOperand => {
-            matches!(
-                &expr.kind,
-                ExprKind::Binary { .. }
-                    | ExprKind::If { .. }
-                    | ExprKind::Lambda { .. }
-                    | ExprKind::Let { .. }
-                    | ExprKind::Unary {
-                        op: UnaryOp::Neg,
-                        ..
-                    }
-            ) || matches!(&expr.kind, ExprKind::Int(n) if *n < 0)
-        }
     }
 }

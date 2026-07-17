@@ -2,7 +2,7 @@
 
 use std::ptr;
 
-use super::state::{assert_elem_size, ElemBuf, IterState, PredicateFn, TransformFn};
+use super::state::{assert_elem_size, ElemBuf, IterState, PredicateFn, TransformFn, YieldGuard};
 
 impl IterState {
     /// Advance the iterator, writing the next element to `out_ptr`.
@@ -32,6 +32,7 @@ impl IterState {
                 transform_fn,
                 transform_env,
                 in_size,
+                ..
             } => Self::next_mapped(source, *transform_fn, *transform_env, *in_size, out_ptr),
             Self::Filtered {
                 source,
@@ -173,6 +174,7 @@ impl IterState {
         if !source.next(scratch.as_mut_ptr(), in_size) {
             return false;
         }
+        let _source_yield = YieldGuard::new(source, scratch.as_mut_ptr());
         (transform_fn)(transform_env, scratch.as_ptr(), out_ptr);
         true
     }
@@ -188,7 +190,9 @@ impl IterState {
             if !source.next(out_ptr, es) {
                 return false;
             }
+            let mut source_yield = YieldGuard::new(source, out_ptr);
             if (predicate_fn)(predicate_env, out_ptr) {
+                source_yield.disarm();
                 return true;
             }
         }
@@ -223,6 +227,7 @@ impl IterState {
                 *remaining = 0;
                 return false;
             }
+            let _discarded_yield = YieldGuard::new(source, discard.as_mut_ptr());
             *remaining -= 1;
         }
         source.next(out_ptr, elem_size)
@@ -270,11 +275,13 @@ impl IterState {
         if !left.next(out_ptr, left_elem_size) {
             return false;
         }
+        let mut left_yield = YieldGuard::new(left, out_ptr);
         // Advance right into back of output buffer
         let right_ptr = out_ptr.add(left_elem_size as usize);
         if !right.next(right_ptr, right_elem_size) {
             return false;
         }
+        left_yield.disarm();
         true
     }
 

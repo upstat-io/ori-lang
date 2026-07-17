@@ -22,6 +22,7 @@ pub(super) use crate::commands::ImportedMonoFn;
 pub(super) fn build_imported_mono_functions(
     type_result: &TypeCheckResult,
     imported_generic_sigs: &FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)>,
+    imported_impl_templates: &[crate::commands::ImportedImplTemplate],
     per_module_caches: &[FxHashMap<Idx, Idx>],
     merged_pool: &mut Pool,
     interner: &crate::ir::StringInterner,
@@ -29,6 +30,7 @@ pub(super) fn build_imported_mono_functions(
     crate::commands::build_imported_mono_functions_for_test_runner(
         type_result,
         imported_generic_sigs,
+        imported_impl_templates,
         per_module_caches,
         merged_pool,
         interner,

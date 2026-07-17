@@ -105,7 +105,6 @@ fn test_plain_skip_join_pass_through_borrowed_no_double_free() {
 /// Boundary cell: skip DISCARDS a map-produced fresh element inside the
 /// adapter — same discard class as the filter cell below.
 #[test]
-#[ignore = "BUG-05-019: adapter-internal discard leak — skip pulls and forgets a fresh element with no release; cured by the adapter yield/discard contract migration, not the join consumer fix"]
 fn test_map_skip_join_skipped_element_freed() {
     assert_cell_output(
         include_str!("../fixtures/fat_ptr_iter/join_ownership/map_skip_join.ori"),
@@ -117,7 +116,6 @@ fn test_map_skip_join_skipped_element_freed() {
 /// Boundary cell: filter DISCARDS a map-produced fresh element — the leak is
 /// inside the adapter's discard path, not the join consumer.
 #[test]
-#[ignore = "BUG-05-019: adapter-internal discard leak — filter drops a fresh element with no release; cured by the adapter yield/discard contract migration, not the join consumer fix"]
 fn test_map_filter_discard_join_rejected_element_freed() {
     assert_cell_output(
         include_str!("../fixtures/fat_ptr_iter/join_ownership/map_filter_discard_join.ori"),
@@ -129,7 +127,6 @@ fn test_map_filter_discard_join_rejected_element_freed() {
 /// Boundary cell: producer-over-producer chain — the inner map's fresh
 /// intermediates are consumed inside the outer map adapter and leak there.
 #[test]
-#[ignore = "BUG-05-019: adapter-internal intermediate leak — outer map consumes the inner map's fresh element with no release; cured by the adapter yield contract migration, not the join consumer fix"]
 fn test_map_map_join_intermediate_freed() {
     assert_cell_output(
         include_str!("../fixtures/fat_ptr_iter/join_ownership/map_map_join.ori"),

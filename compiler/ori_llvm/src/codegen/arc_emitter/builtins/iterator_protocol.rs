@@ -15,8 +15,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `<rt_fn>(iter, scratch, elem_size)` and decompose the result into a
     /// `(tag, scratch_ptr, elem_llvm_ty)` triple (tag is i64: 0=done, 1=has
     /// element; the scratch alloca holds the element data). `rt_fn` selects the
-    /// forward (`ori_iter_next`) or backward (`ori_iter_next_back`) runtime step;
-    /// `label` prefixes the emitted value names.
+    /// forward (`ori_iter_next`) or backward (`ori_iter_next_back`) runtime step.
     ///
     /// Element size/type are canonical (NR-3 — narrowing is confined to the
     /// list storage boundary `emit_list_iter`, never the iterator pipeline).
@@ -25,7 +24,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         iter_ptr: ValueId,
         elem_ty: Idx,
         rt_fn: &'static str,
-        label: &str,
     ) -> Option<(ValueId, ValueId, LLVMTypeId)> {
         let func_id = self.builder.runtime_fn(rt_fn);
         let elem_size = self.element_store_size(elem_ty);
@@ -33,19 +31,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_llvm_ty = self.resolve_type(elem_ty);
         let scratch = self.builder.create_entry_alloca(
             self.current_function,
-            &format!("{label}.scratch"),
+            "iter.step.scratch",
             elem_llvm_ty,
         );
         let has_next_i8 = self.emit_rt_call(
             func_id,
             &[iter_ptr, scratch, elem_size_val],
-            &format!("{label}.has"),
+            "iter.step.has",
         )?;
         // Zero-extend i8 → i64 for ARC IR tag (projected as Idx::INT).
         let i64_ty = self.builder.i64_type();
-        let tag = self
-            .builder
-            .zext(has_next_i8, i64_ty, &format!("{label}.tag"));
+        let tag = self.builder.zext(has_next_i8, i64_ty, "iter.step.tag");
         Some((tag, scratch, elem_llvm_ty))
     }
 
@@ -60,7 +56,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         iter_ptr: ValueId,
         elem_ty: Idx,
     ) -> Option<(ValueId, ValueId, LLVMTypeId)> {
-        self.emit_iter_step_raw(iter_ptr, elem_ty, "ori_iter_next", "iter_next")
+        self.emit_iter_step_raw(iter_ptr, elem_ty, "ori_iter_next")
     }
 
     /// Emit the backward analogue of [`emit_iter_next`].
@@ -73,7 +69,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         iter_ptr: ValueId,
         elem_ty: Idx,
     ) -> Option<(ValueId, ValueId, LLVMTypeId)> {
-        self.emit_iter_step_raw(iter_ptr, elem_ty, "ori_iter_next_back", "iter_next_back")
+        self.emit_iter_step_raw(iter_ptr, elem_ty, "ori_iter_next_back")
     }
 
     /// Emit the user-facing `iter.next()` protocol method.

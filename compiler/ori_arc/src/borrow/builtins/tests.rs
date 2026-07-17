@@ -383,9 +383,9 @@ fn consuming_receiver_methods_exist_in_registry() {
 /// on Map or Set in the registry.
 ///
 /// These are Map/Set COW methods where only the receiver is consumed. If a method
-/// is removed from the registry but left here, `compute_arg_ownership` would
-/// produce `[Owned, Borrowed]` for a method the runtime doesn't recognize — a
-/// potential RC imbalance.
+/// is removed from the registry but left here, the type-qualified authority
+/// would publish an ownership transfer for a method the runtime doesn't
+/// recognize.
 #[test]
 fn consuming_receiver_only_methods_exist_in_registry() {
     use ori_registry::TypeTag;
@@ -483,4 +483,87 @@ fn protocol_builtins_borrowing_sync() {
             in_borrowing,
         );
     }
+}
+
+#[test]
+fn type_qualified_collection_consuming_positions_are_exact() {
+    use ori_registry::TypeTag;
+
+    let interner = StringInterner::default();
+    let sets = BuiltinOwnershipSets::new(&interner);
+    let positions = |method, tags: &[Option<TypeTag>]| {
+        sets.type_qualified_consuming_positions(interner.intern(method), tags)
+    };
+
+    assert_eq!(
+        positions(
+            "insert",
+            &[Some(TypeTag::List), Some(TypeTag::Int), Some(TypeTag::Str)]
+        )
+        .as_slice(),
+        &[0, 2]
+    );
+    assert_eq!(
+        positions(
+            "insert",
+            &[Some(TypeTag::Map), Some(TypeTag::Int), Some(TypeTag::Str)]
+        )
+        .as_slice(),
+        &[0]
+    );
+    assert_eq!(
+        positions(
+            "insert",
+            &[Some(TypeTag::Set), Some(TypeTag::Str), Some(TypeTag::Str)]
+        )
+        .as_slice(),
+        &[0]
+    );
+    assert_eq!(
+        positions("concat", &[Some(TypeTag::List), Some(TypeTag::List)]).as_slice(),
+        &[0, 1]
+    );
+    assert_eq!(
+        positions("difference", &[Some(TypeTag::Set), Some(TypeTag::Set)]).as_slice(),
+        &[0]
+    );
+    assert!(positions("concat", &[Some(TypeTag::Str), Some(TypeTag::Str)]).is_empty());
+    assert!(positions("pop", &[Some(TypeTag::List)]).is_empty());
+}
+
+#[test]
+fn type_qualified_iterator_positions_require_iterator_operands() {
+    use ori_registry::TypeTag;
+
+    let interner = StringInterner::default();
+    let sets = BuiltinOwnershipSets::new(&interner);
+    let positions = |method, tags: &[Option<TypeTag>]| {
+        sets.type_qualified_consuming_positions(interner.intern(method), tags)
+    };
+
+    assert_eq!(
+        positions("map", &[Some(TypeTag::Iterator), Some(TypeTag::Function)]).as_slice(),
+        &[0]
+    );
+    assert_eq!(
+        positions(
+            "zip",
+            &[Some(TypeTag::Iterator), Some(TypeTag::DoubleEndedIterator)]
+        )
+        .as_slice(),
+        &[0, 1]
+    );
+    assert_eq!(
+        positions(
+            "chain",
+            &[Some(TypeTag::DoubleEndedIterator), Some(TypeTag::Iterator)]
+        )
+        .as_slice(),
+        &[0, 1]
+    );
+    assert_eq!(
+        positions("zip", &[Some(TypeTag::Iterator), Some(TypeTag::List)]).as_slice(),
+        &[0]
+    );
+    assert!(positions("zip", &[None, Some(TypeTag::Iterator)]).is_empty());
 }

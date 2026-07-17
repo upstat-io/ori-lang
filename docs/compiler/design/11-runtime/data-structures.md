@@ -12,9 +12,21 @@ sidebar_path: "/docs/compiler-design/11-runtime/data-structures"
 
 ## Why Memory Layout Matters
 
-A language runtime's data structures are not abstract types — they are concrete memory layouts that the compiler's code generator must understand precisely. When the LLVM backend emits code to read the length of a list, it generates a `load i64, ptr %list_ptr` at offset 0. When it emits code to check whether a string is SSO, it loads byte 23 and tests the high bit. Every field offset, every alignment constraint, and every encoding convention must be agreed upon by both the code generator and the runtime. A mismatch of even one byte means corruption.
+Runtime data structures are concrete memory layouts that code generation must understand precisely:
 
-This is the fundamental constraint that shapes runtime data structure design: the layouts must be **C-ABI compatible** (`#[repr(C)]` in Rust), meaning the compiler controls field ordering and padding. They must be **small** to minimize passing and copying overhead. And they must be **self-describing enough** that the runtime can operate on them without external metadata — the string must carry its own SSO/heap discriminator, the list must carry its own slice-vs-owned encoding, and the RC header must carry its own allocation size.
+- List length reads use `load i64, ptr %list_ptr` at offset 0.
+- String SSO checks load byte 23 and test the high bit.
+- Code generation and the runtime must agree on every field offset, alignment constraint, and encoding convention.
+- A one-byte mismatch causes memory corruption.
+
+Runtime layouts must satisfy these constraints:
+
+- **C-ABI compatible:** Use `#[repr(C)]` so the compiler controls field ordering and padding.
+- **Small:** Minimize passing and copying overhead.
+- **Self-describing:** Carry the metadata required by runtime operations.
+- Strings carry an SSO/heap discriminator.
+- Lists carry a slice-versus-owned encoding.
+- RC headers carry the allocation size.
 
 This chapter documents the memory layout of every core data type in the Ori runtime: how many bytes each occupies, what lives at each offset, and why the layout was chosen.
 
@@ -70,7 +82,9 @@ Header size is `RC_HEADER_SIZE = 32`. Minimum alignment is 8 bytes, ensuring `st
 | `cap` | 8 | 8 bytes | Capacity (negative = seamless slice) |
 | `data` | 16 | 8 bytes | Pointer to RC-managed buffer (or null) |
 
-Elements are stored contiguously at `data + index * elem_size`. The element size is **not** stored in the struct — it is always passed as a parameter to runtime functions. This keeps the struct at 24 bytes and avoids redundancy (the compiler knows the element size at every call site).
+- Store elements contiguously at `data + index * elem_size`.
+- Pass the element size to runtime functions instead of storing it in the struct.
+- Keep the struct at 24 bytes by using the element size already known at each compiler-generated call site.
 
 ### Buffer Layout
 
@@ -114,7 +128,9 @@ flowchart LR
 OriList { len: 0, cap: 0, data: null }
 ```
 
-No allocation occurs for empty lists. `ori_rc_inc(null)` and `ori_rc_dec(null)` are no-ops. The first element insertion triggers an allocation with `MIN_COLLECTION_CAPACITY = 4`.
+- Do not allocate storage for empty lists.
+- Treat `ori_rc_inc(null)` and `ori_rc_dec(null)` as no-ops.
+- Allocate `MIN_COLLECTION_CAPACITY = 4` elements on the first insertion.
 
 ### Seamless Slices
 
@@ -182,7 +198,7 @@ Properties of seamless slices:
 | `ori_list_alloc_data` | Allocate RC-managed buffer for `cap * elem_size` bytes |
 | `ori_list_box_new` | Wrap `{len, cap, data}` in an RC-managed OriList |
 | `ori_list_new` | Allocate both OriList struct and data buffer (AOT mode) |
-| `ori_list_free` | Free a heap-allocated OriList struct (from `ori_list_new`) |
+| `ori_list_free` | Abandon an `ori_list_new` builder: drop initialized elements from its V5 buffer header, release the data buffer, and free the OriList wrapper |
 | `ori_list_free_data` | Free the data buffer only (stack-struct lists) |
 
 Sets share the same memory layout and allocation functions — an `OriSet` is an `OriList` with set-specific COW operations.
@@ -267,7 +283,9 @@ OriSet (24-byte header, same struct as OriList / OriMap):
   Buffer: [ metadata (1 byte/bucket) | elements ]
 ```
 
-`len` tracks live element count; `cap` tracks bucket count. Membership testing uses `elem_eq` + `elem_hash` callbacks supplied at COW-insertion time. Set-specific operations (union, intersection, difference) are provided via dedicated runtime entry points.
+- `len` tracks the live element count; `cap` tracks the bucket count.
+- Membership tests use the `elem_eq` and `elem_hash` callbacks supplied at COW-insertion time.
+- Union, intersection, and difference use dedicated runtime entry points.
 
 ## OriStr
 
@@ -289,9 +307,13 @@ OriStr (24 bytes, union):
 | (padding) | 1 | varies | Alignment padding for `T` |
 | `value` | aligned | `sizeof(T)` | The value (valid only when `tag == 0`) |
 
-Total size is `1 + padding + sizeof(T)`, where padding brings the `value` field to `T`'s natural alignment. For `Option<int>` (where `T` = i64 with 8-byte alignment), the layout is 16 bytes: 1 byte tag + 7 bytes padding + 8 bytes value. Source of truth: `compiler/ori_rt/src/lib.rs:154` (`tag = 0: Some, tag = 1: None`).
+- Compute total size as `1 + padding + sizeof(T)`, aligning `value` to `T`'s natural alignment.
+- Lay out `Option<int>` in 16 bytes: 1 byte tag, 7 bytes padding, and 8 bytes value.
+- Use `compiler/ori_rt/src/lib.rs:154` as the tag source of truth: `0` is `Some`, and `1` is `None`.
 
-The tag is a single byte (`i8`), not a pointer-sized integer. This minimizes padding waste for small payload types. The LLVM codegen generates the correct GEP offsets based on the concrete type's alignment requirements.
+- Store the tag as one byte (`i8`), not as a pointer-sized integer.
+- Minimize padding waste for small payload types with the one-byte tag.
+- Generate concrete-type-aware GEP offsets in LLVM code generation.
 
 ## OriResult
 
@@ -303,7 +325,9 @@ The tag is a single byte (`i8`), not a pointer-sized integer. This minimizes pad
 | (padding) | 1 | varies | Alignment padding |
 | `value` | aligned | `max(sizeof(T), sizeof(E))` | Overlapping storage |
 
-The value field is sized to the larger of `T` and `E`. The storage is shared (union-like) — `Ok` values and `Err` values occupy the same bytes, distinguished by the tag. The compiler generates the correct access code based on the tag at each use site.
+- Size the value field to `max(sizeof(T), sizeof(E))`.
+- Share the value storage between `Ok` and `Err`, distinguished by the tag.
+- Generate tag-specific access code at each use site.
 
 ## OriPanic
 
@@ -315,7 +339,9 @@ pub struct OriPanic {
 }
 ```
 
-Wrapped in `std::panic::panic_any` so the Itanium EH ABI unwinds through LLVM-generated `invoke`/`landingpad` pairs. This gives cleanup handlers (generated by the ARC pass) a chance to release RC-managed resources during unwinding. The entry point wrapper (`ori_run_main`) catches the panic with `catch_unwind`.
+- Wrap the payload with `std::panic::panic_any` to unwind through LLVM-generated `invoke`/`landingpad` pairs.
+- Run ARC-generated cleanup handlers during unwinding so they can release RC-managed resources.
+- Catch the panic in the `ori_run_main` entry-point wrapper with `catch_unwind`.
 
 ## Iterator Runtime
 
@@ -414,7 +440,9 @@ Adapter variants contain a `Box<IterState>` that Rust automatically drops when t
 
 ### Scratch Buffer
 
-Adapters that produce intermediate values (e.g., `Mapped` transforms an element into a new element) use a stack-allocated scratch buffer of `MAX_ELEM_SIZE = 256` bytes. This avoids heap allocation for temporary values during iteration. If an element type exceeds 256 bytes (unlikely in practice), the scratch buffer is dynamically allocated.
+- Use a stack-allocated `MAX_ELEM_SIZE = 256` byte scratch buffer for adapter-produced intermediate values.
+- Avoid heap allocation for temporary values that fit in the scratch buffer.
+- Dynamically allocate the scratch buffer when an element type exceeds 256 bytes.
 
 ## Capacity Management
 
@@ -428,7 +456,9 @@ All collections start with capacity 4 upon first insertion. This avoids the path
 max(required, current * 2, MIN_COLLECTION_CAPACITY)
 ```
 
-Uses 2× doubling for amortized O(1) insertion. At most 50% wasted capacity. Matches Rust's `Vec`, Swift's `Array`, Java's `ArrayList`, and Go's slice growth strategy.
+- Double capacity to provide amortized O(1) insertion.
+- Limit unused capacity to at most 50%.
+- Match the growth strategy used by Rust's `Vec`, Swift's `Array`, Java's `ArrayList`, and Go slices.
 
 ### No Auto-Shrink
 

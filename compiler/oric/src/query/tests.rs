@@ -724,7 +724,6 @@ fn test_evaluated_block_expression() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: recurse pattern self() not yet supported"]
 fn test_evaluated_recurse_pattern() {
     use crate::eval::EvalOutput;
 
@@ -734,11 +733,11 @@ fn test_evaluated_recurse_pattern() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        r"@main () -> int = recurse(;
+        r"@main () -> int = recurse(
             condition: true,
             base: 42,
             step: self()
-        )"
+        );"
         .to_string(),
     );
 

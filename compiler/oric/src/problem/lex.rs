@@ -184,13 +184,11 @@ pub fn render_lex_error(err: &LexError) -> Diagnostic {
             .with_note("Ori uses double quotes for strings and single quotes for one character")
             .with_suggestion("use double quotes for string literals"),
 
-        LexErrorKind::IncrementDecrementOperator { operator } => {
-            Diagnostic::error(ErrorCode::E0010)
-                .with_message(format!("`{operator}` is not an Ori operator"))
-                .with_label(span, "increment/decrement operators are not supported")
-                .with_note("Ori uses explicit assignment for updates")
-                .with_suggestion("write the update explicitly, such as `x = x + 1`")
-        }
+        LexErrorKind::IncrementOperator { operator } => Diagnostic::error(ErrorCode::E0010)
+            .with_message(format!("`{operator}` is not an Ori operator"))
+            .with_label(span, "increment operators are not supported")
+            .with_note("Ori uses explicit assignment for updates")
+            .with_suggestion("write the update explicitly, such as `x = x + 1`"),
 
         LexErrorKind::StandaloneBackslash => Diagnostic::error(ErrorCode::E0013)
             .with_message("standalone `\\` is not a valid token")

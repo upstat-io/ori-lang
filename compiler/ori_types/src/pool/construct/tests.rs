@@ -120,7 +120,7 @@ fn fresh_var_construction() {
 
     // Check var states
     match pool.var_state(pool.data(var1)) {
-        VarState::Unbound { id, .. } => assert_eq!(*id, pool.data(var1)),
+        VarState::Unbound(state) => assert_eq!(state.id, pool.data(var1)),
         _ => panic!("Expected Unbound"),
     }
 }

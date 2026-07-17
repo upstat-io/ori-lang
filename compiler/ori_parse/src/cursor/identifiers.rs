@@ -129,6 +129,17 @@ impl Cursor<'_> {
     #[cold]
     #[inline(never)]
     fn make_expect_member_name_error(&self) -> ParseError {
+        if matches!(self.current_kind(), TokenKind::Float(_)) {
+            return ParseError::new(
+                ErrorCode::E1004,
+                "expected a member name after `.`, but adjacent numeric selections form a float literal",
+                self.current_span(),
+            )
+            .with_help(
+                "parenthesize the first tuple selection, for example `(value.0).1` \
+                 (Spec: Clause 14.1.1)",
+            );
+        }
         ParseError::new(
             ErrorCode::E1004,
             format!(

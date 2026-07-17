@@ -19,6 +19,16 @@ impl Interpreter<'_> {
         self.list_new(capacity)
     }
 
+    pub(super) fn runtime_list_free(
+        &mut self,
+        site: RuntimeSite,
+        operands: &mut impl OperandAccess,
+    ) -> Result<VmValue, ExecutionError> {
+        let [builder, _element_type] =
+            self.runtime_values::<2>(site.frame, site.operands, site.call, operands)?;
+        self.list_free(builder)
+    }
+
     pub(super) fn runtime_list_builder_push(
         &mut self,
         site: RuntimeSite,

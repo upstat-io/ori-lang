@@ -79,8 +79,7 @@ Each compiler crate registers as a distinct tracing target, allowing developers 
 | `ori_types` | Type checking phases, inference steps, unification, trait resolution, type errors |
 | `ori_eval` | Expression evaluation, method dispatch, function calls, built-in operations |
 | `ori_llvm` | LLVM code generation, ABI decisions, ARC emission, optimization passes |
-| `ori_parse` | Parser state transitions (limited instrumentation) |
-| `ori_patterns` | Pattern matching compilation (limited instrumentation) |
+| `ori_parse` | Public parse entry points, module phases, declaration dispatch, and recursive expression/type parsing |
 
 ### Levels
 

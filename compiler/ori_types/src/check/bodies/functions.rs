@@ -215,6 +215,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
                     origin: ExpectedOrigin::Annotation {
                         name: param.name,
                         span: default_span,
+                        const_terms: Vec::new(),
                     },
                 };
                 let _ = check_expr(

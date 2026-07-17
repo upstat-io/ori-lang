@@ -1,4 +1,5 @@
 use super::*;
+use crate::{GeneralizedVarState, Tag, VarState};
 
 #[test]
 fn unify_identical_primitives() {
@@ -564,10 +565,10 @@ fn instantiate_identity_scheme() {
     let scheme = pool.scheme(&[var_id], fn_ty);
 
     // Mark the var as generalized
-    *pool.var_state_mut(var_id) = VarState::Generalized {
+    *pool.var_state_mut(var_id) = VarState::Generalized(GeneralizedVarState {
         id: var_id,
         name: None,
-    };
+    });
 
     let mut engine = UnifyEngine::new(&mut pool);
 
@@ -596,10 +597,10 @@ fn instantiate_twice_gives_different_vars() {
     let var_id = pool.data(var);
     let fn_ty = pool.function(&[var], var);
     let scheme = pool.scheme(&[var_id], fn_ty);
-    *pool.var_state_mut(var_id) = VarState::Generalized {
+    *pool.var_state_mut(var_id) = VarState::Generalized(GeneralizedVarState {
         id: var_id,
         name: None,
-    };
+    });
 
     let mut engine = UnifyEngine::new(&mut pool);
 
@@ -629,10 +630,10 @@ fn let_polymorphism_example() {
 
     // Create scheme manually (since generalize needs the engine)
     let id_scheme = pool.scheme(&[x_id], id_ty);
-    *pool.var_state_mut(x_id) = VarState::Generalized {
+    *pool.var_state_mut(x_id) = VarState::Generalized(GeneralizedVarState {
         id: x_id,
         name: None,
-    };
+    });
 
     let mut engine = UnifyEngine::new(&mut pool);
 
@@ -738,10 +739,10 @@ fn substitute_through_borrowed() {
     let var_id = pool.data(var);
     let borrowed_ty = pool.borrowed(var, crate::LifetimeId::STATIC);
     let scheme = pool.scheme(&[var_id], borrowed_ty);
-    *pool.var_state_mut(var_id) = VarState::Generalized {
+    *pool.var_state_mut(var_id) = VarState::Generalized(GeneralizedVarState {
         id: var_id,
         name: None,
-    };
+    });
 
     let mut engine = UnifyEngine::new(&mut pool);
 

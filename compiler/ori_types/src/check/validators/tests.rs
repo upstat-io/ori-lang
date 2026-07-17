@@ -28,7 +28,8 @@ use crate::check::validators::{validate_body_types, ValidatorContext};
 use crate::output::FunctionSig;
 use crate::tag::Tag;
 use crate::{
-    AmbiguousTypeSite, ExprIndex, Idx, Pool, TypeCheckError, TypeErrorKind, TypeFlags, VarState,
+    AmbiguousTypeSite, ExprIndex, GeneralizedVarState, Idx, Pool, TypeCheckError, TypeErrorKind,
+    TypeFlags, VarState,
 };
 
 /// Span returned by the per-`ExprIndex` `span_of` closure in these tests.
@@ -293,10 +294,10 @@ fn generalized_var_in_expr_types_emits_e2005_as_leak_alarm() {
     let mut pool = Pool::new();
     let var = pool.fresh_var();
     let var_id = pool.data(var);
-    *pool.var_state_mut(var_id) = VarState::Generalized {
+    *pool.var_state_mut(var_id) = VarState::Generalized(GeneralizedVarState {
         id: var_id,
         name: None,
-    };
+    });
 
     let errors = run(&pool, &[(0, var)], &empty_sig(), &[]);
 
@@ -698,10 +699,10 @@ fn polylambda_return_type_with_generalized_var_emits_e2005_as_leak_alarm() {
     let mut pool = Pool::new();
     let var = pool.fresh_var();
     let var_id = pool.data(var);
-    *pool.var_state_mut(var_id) = VarState::Generalized {
+    *pool.var_state_mut(var_id) = VarState::Generalized(GeneralizedVarState {
         id: var_id,
         name: None,
-    };
+    });
     // ∀[var_id]. (Var(Generalized)) -> Var(Generalized) — post-normalization
     // this shape SHOULD NOT reach the validator: the rewrite pass lands
     // `Tag::BoundVar` at every position, and any surviving `Tag::Var`

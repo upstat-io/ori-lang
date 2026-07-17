@@ -37,6 +37,23 @@ pub fn require_int_arg(method: &str, args: &[Value], index: usize) -> Result<i64
     }
 }
 
+/// Convert an Ori integer to a host index after validating the non-negative
+/// index domain.
+#[inline]
+pub fn nonnegative_usize(
+    value: i64,
+    method: &str,
+    expected: &'static str,
+) -> Result<usize, EvalError> {
+    if value < 0 {
+        return Err(wrong_arg_type(method, expected));
+    }
+    match usize::try_from(value) {
+        Ok(index) => Ok(index),
+        Err(_) => Err(wrong_arg_type(method, expected)),
+    }
+}
+
 /// Extract a `ScalarInt` argument at the given index.
 #[inline]
 pub fn require_scalar_int_arg(
@@ -120,9 +137,10 @@ pub fn require_byte_arg(method: &str, args: &[Value], index: usize) -> Result<u8
 /// Convert a collection length to a Value, with overflow check.
 #[inline]
 pub fn len_to_value(len: usize, collection_type: &str) -> EvalResult {
-    i64::try_from(len)
-        .map(Value::int)
-        .map_err(|_| EvalError::new(format!("{collection_type} too large")).into())
+    match i64::try_from(len) {
+        Ok(length) => Ok(Value::int(length)),
+        Err(error) => Err(EvalError::new(format!("{collection_type} too large: {error}")).into()),
+    }
 }
 
 /// Escape a string for Debug output (newlines, tabs, quotes, backslashes, null).

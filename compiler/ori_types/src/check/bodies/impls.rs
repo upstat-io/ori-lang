@@ -346,6 +346,7 @@ fn check_impl_method(
                     origin: ExpectedOrigin::Annotation {
                         name: param_name,
                         span: default_span,
+                        const_terms: Vec::new(),
                     },
                 };
                 let _ = check_expr(

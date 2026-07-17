@@ -5,19 +5,22 @@
 
 use std::ptr;
 
-use super::state::{assert_elem_size, empty_range, IterState, PredicateFn, TransformFn};
+use super::state::{assert_elem_size, empty_range, ElemDecFn, IterState, PredicateFn, TransformFn};
 
 /// Create a mapped iterator adapter.
 ///
 /// `transform_fn` is a trampoline: `(env, in_ptr, out_ptr) -> void`.
 /// `transform_env` is the closure environment pointer (may be null).
 /// `in_size` is the byte size of input elements (for scratch buffer sizing).
+/// `output_dec_fn` releases one fresh mapped result when an adapter consumes
+/// or discards it internally (null for results without RC children).
 #[no_mangle]
 pub extern "C" fn ori_iter_map(
     iter: *mut u8,
     transform_fn: TransformFn,
     transform_env: *mut u8,
     in_size: i64,
+    output_dec_fn: Option<ElemDecFn>,
 ) -> *mut u8 {
     assert_elem_size(in_size, "ori_iter_map");
     if iter.is_null() {
@@ -29,6 +32,7 @@ pub extern "C" fn ori_iter_map(
         transform_fn,
         transform_env,
         in_size,
+        output_dec_fn,
     };
     Box::into_raw(Box::new(state)).cast()
 }
@@ -201,7 +205,7 @@ pub extern "C" fn ori_iter_cycle(
 ///
 /// This is an eager operation — all elements are collected into memory.
 #[no_mangle]
-pub extern "C" fn ori_iter_rev(
+pub extern "C-unwind" fn ori_iter_rev(
     iter: *mut u8,
     elem_size: i64,
     elem_inc_fn: Option<extern "C" fn(*mut u8)>,
@@ -213,7 +217,9 @@ pub extern "C" fn ori_iter_rev(
         return ptr::null_mut();
     }
     assert_elem_size(elem_size, "ori_iter_rev");
-    let state = unsafe { &mut *iter.cast::<IterState>() };
+    // Own the source immediately so a callback panic while eagerly collecting
+    // cannot strand the opaque iterator allocation.
+    let mut state = unsafe { Box::from_raw(iter.cast::<IterState>()) };
     let es = elem_size.max(1) as usize;
 
     // Collect all elements. The `elements` buffer OWNS its copies: inc each
@@ -234,7 +240,7 @@ pub extern "C" fn ori_iter_rev(
 
     // Free the source iterator (its Drop, gated by owns_data for a List source,
     // decs the originals once; the collected masters survive via their own inc).
-    drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+    drop(state);
 
     let rev_state = IterState::Reversed {
         elements,

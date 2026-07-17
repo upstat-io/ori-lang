@@ -212,12 +212,14 @@ fn substitute_named_inner(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>
         Tag::Function => substitute_named_function(pool, ty, subst),
         Tag::Tuple => substitute_named_tuple(pool, ty, subst),
         Tag::Applied => substitute_named_applied(pool, ty, subst),
+        Tag::Struct => substitute_named_struct(pool, ty, subst),
+        Tag::Enum => substitute_named_enum(pool, ty, subst),
 
         // Scheme: walk body, preserve scheme structure and var_ids.
         Tag::Scheme => substitute_named_scheme(pool, ty, subst),
 
-        // Other tags (primitives, vars, struct/enum literals, projections,
-        // self-type, infer, error) carry no Tag::Named children to substitute.
+        // Other tags (primitives, vars, projections, self-type, infer, error)
+        // carry no Tag::Named children to substitute.
         _ => ty,
     }
 }
@@ -225,25 +227,29 @@ fn substitute_named_inner(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>
 fn substitute_named_map(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>) -> Idx {
     let key = pool.map_key(ty);
     let value = pool.map_value(ty);
-    let new_key = substitute_named_inner(pool, key, subst);
-    let new_value = substitute_named_inner(pool, value, subst);
-    if new_key == key && new_value == value {
-        ty
-    } else {
-        pool.map(new_key, new_value)
-    }
+    super::substitute_pair(
+        pool,
+        ty,
+        key,
+        value,
+        subst,
+        substitute_named_inner,
+        Pool::map,
+    )
 }
 
 fn substitute_named_result(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>) -> Idx {
     let ok = pool.result_ok(ty);
     let err = pool.result_err(ty);
-    let new_ok = substitute_named_inner(pool, ok, subst);
-    let new_err = substitute_named_inner(pool, err, subst);
-    if new_ok == ok && new_err == err {
-        ty
-    } else {
-        pool.result(new_ok, new_err)
-    }
+    super::substitute_pair(
+        pool,
+        ty,
+        ok,
+        err,
+        subst,
+        substitute_named_inner,
+        Pool::result,
+    )
 }
 
 fn substitute_named_borrowed(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>) -> Idx {
@@ -302,6 +308,53 @@ fn substitute_named_tuple(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>
     }
 }
 
+fn substitute_named_struct(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>) -> Idx {
+    let name = pool.struct_name(ty);
+    let fields = pool.struct_fields(ty);
+    let mut changed = false;
+    let new_fields: Vec<(Name, Idx)> = fields
+        .iter()
+        .map(|&(field_name, field_ty)| {
+            let new_ty = substitute_named_inner(pool, field_ty, subst);
+            changed |= new_ty != field_ty;
+            (field_name, new_ty)
+        })
+        .collect();
+    if changed {
+        pool.struct_type(name, &new_fields)
+    } else {
+        ty
+    }
+}
+
+fn substitute_named_enum(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>) -> Idx {
+    let name = pool.enum_name(ty);
+    let variants = pool.enum_variants(ty);
+    let mut changed = false;
+    let new_variants: Vec<crate::pool::EnumVariant> = variants
+        .iter()
+        .map(|(variant_name, payloads)| {
+            let field_types = payloads
+                .iter()
+                .map(|&payload_ty| {
+                    let new_ty = substitute_named_inner(pool, payload_ty, subst);
+                    changed |= new_ty != payload_ty;
+                    new_ty
+                })
+                .collect();
+            crate::pool::EnumVariant {
+                name: *variant_name,
+                field_types,
+            }
+        })
+        .collect();
+    if changed {
+        pool.enum_type(name, &new_variants)
+    } else {
+        ty
+    }
+}
+
 fn substitute_named_applied(pool: &mut Pool, ty: Idx, subst: &FxHashMap<Name, Idx>) -> Idx {
     let name = pool.applied_name(ty);
     let args = pool.applied_args(ty);
@@ -341,10 +394,5 @@ fn substitute_named_single(
     ctor: fn(&mut Pool, Idx) -> Idx,
 ) -> Idx {
     let child = Idx::from_raw(pool.data(ty));
-    let new_child = substitute_named_inner(pool, child, subst);
-    if new_child == child {
-        ty
-    } else {
-        ctor(pool, new_child)
-    }
+    super::substitute_child(pool, ty, child, subst, substitute_named_inner, ctor)
 }

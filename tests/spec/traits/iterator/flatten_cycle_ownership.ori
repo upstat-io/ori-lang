@@ -1,8 +1,9 @@
 // Matrix: nested-iterator (flatten/flat_map/cycle) source-ownership double-free.
-// The inner `sub.iter()` inside a map trampoline borrows a buffer co-owned by the
-// outer list; the iterator must NOT double-free it. Cells span inner-element type
-// (int scalar / str heap / nested-int heap) x pattern (flatten / flat_map / cycle)
-// x ownership (borrowed-inner vs owned-single-level negative pin) x early-exit.
+// The inner `sub.iter()` starts at a borrowed residual-call boundary. The closure
+// adapter retains one independent credit for the lambda, the iterator consumes
+// and releases that credit, and the outer list retains its original credit. Cells
+// span inner-element type (int scalar / str heap / nested-int heap) x pattern
+// (flatten / flat_map / cycle) x ownership x early-exit.
 use std.testing { assert_eq };
 
 // ---- flatten, heap (str) inner — exercises the elem_dec_fn cascade (2nd-free site) ----
@@ -27,11 +28,10 @@ use std.testing { assert_eq };
     assert_eq(actual: flatten_nested_int(), expected: [1, 2, 3, 4, 5])
 }
 
-// ---- flatten over a list of MAPS — the map.iter() owns_data codegen gap ----
-// The inner m.iter() is borrowed-rooted (co-owned by the outer [{int: int}]); the
-// map iterator must NOT double-free the map buffer (owns_data=false threaded at
-// emit_map_iter, mirroring the list path). Single-entry maps keep the flattened
-// order deterministic. Pre-fix: SIGABRT (map-iter Drop dec + outer elem_dec_fn dec).
+// ---- flatten over a list of MAPS — the map.iter() ownership-credit path ----
+// The closure adapter retains an independent map-buffer credit for inner
+// `m.iter()`; the map iterator releases it while the outer list retains and later
+// releases its own credit. Single-entry maps keep the flattened order deterministic.
 @flatten_maps () -> [int] = {
     [{1: 10}, {2: 20}].iter()
         .map(transform: (m: {int: int}) -> Iterator<(int, int)> = m.iter())

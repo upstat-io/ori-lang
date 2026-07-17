@@ -45,16 +45,7 @@ fn bind_name_pattern() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: block,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, block);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(

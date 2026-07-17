@@ -213,10 +213,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// 1=Equal, 2=Greater) and converts to i32 (-1/0/1) via `result - 1`.
     pub(super) fn gen_str_compare(&mut self, a_ptr: ValueId, b_ptr: ValueId) -> ValueId {
         let cmp_fn = self.builder.runtime_fn("ori_str_compare");
-        let ord = self
-            .builder
-            .call(cmp_fn, &[a_ptr, b_ptr], "ord")
-            .unwrap_or_else(|| self.builder.const_i8(1)); // Equal fallback
+        let Some(ord) = self.builder.call(cmp_fn, &[a_ptr, b_ptr], "ord") else {
+            panic!("ori_str_compare must return an Ordering tag");
+        };
 
         // Convert Ordering (0,1,2) to sort convention (-1,0,1): subtract 1
         let one = self.builder.const_i8(1);

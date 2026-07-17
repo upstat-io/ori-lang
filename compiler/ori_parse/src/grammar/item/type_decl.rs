@@ -18,6 +18,7 @@ impl Parser<'_> {
     /// - With derives: `#[derive(Eq, Clone)] type Name = ...`
     ///
     /// Returns `EmptyErr` if no `type` keyword is present.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_type_decl(
         &mut self,
         attrs: ParsedAttrs,

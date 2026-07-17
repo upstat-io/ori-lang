@@ -40,7 +40,7 @@ pub(in crate::aims::interprocedural::extract) fn find_borrowed_read_only_params(
     let mut not_read_only: FxHashSet<usize> = FxHashSet::default();
     let mut used_as_call_arg: FxHashSet<usize> = FxHashSet::default();
 
-    let mut scan = |callee: Option<Name>, args: &[ArcVarId]| {
+    let mut classify_call_args = |callee: Option<Name>, args: &[ArcVarId]| {
         for (pos, &arg) in args.iter().enumerate() {
             let Some(param_indices) = alias_to_param.get(&arg) else {
                 continue;
@@ -65,16 +65,16 @@ pub(in crate::aims::interprocedural::extract) fn find_borrowed_read_only_params(
             match instr {
                 ArcInstr::Apply {
                     func: callee, args, ..
-                } => scan(Some(*callee), args),
-                ArcInstr::ApplyIndirect { args, .. } => scan(None, args),
+                } => classify_call_args(Some(*callee), args),
+                ArcInstr::ApplyIndirect { args, .. } => classify_call_args(None, args),
                 _ => {}
             }
         }
         match &block.terminator {
             ArcTerminator::Invoke {
                 func: callee, args, ..
-            } => scan(Some(*callee), args),
-            ArcTerminator::InvokeIndirect { args, .. } => scan(None, args),
+            } => classify_call_args(Some(*callee), args),
+            ArcTerminator::InvokeIndirect { args, .. } => classify_call_args(None, args),
             _ => {}
         }
     }
@@ -135,7 +135,7 @@ fn borrowed_ro_arg_forward_safe(
     sigs: &FxHashMap<Name, MemoryContract>,
     interner: &ori_ir::StringInterner,
 ) -> bool {
-    if builtins.is_builtin(callee) {
+    if builtins.contains(callee) {
         return true;
     }
     if interner
@@ -201,7 +201,7 @@ pub(in crate::aims::interprocedural::extract) fn find_borrowed_cow_consumed_para
             }
             return pos == 0 || (pos == 1 && builtins.consuming_second_arg.contains(&callee));
         }
-        if builtins.is_builtin(callee) || builtins.protocol.contains_key(&callee) {
+        if builtins.contains(callee) {
             return false;
         }
         sigs.get(&callee)
@@ -212,49 +212,50 @@ pub(in crate::aims::interprocedural::extract) fn find_borrowed_cow_consumed_para
             })
     };
     let mut reachable_cache: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
-    let mut out: FxHashSet<usize> = FxHashSet::default();
-    let check = |callee: Name,
-                 args: &[ArcVarId],
-                 block_idx: usize,
-                 site_idx: usize,
-                 reachable_cache: &mut FxHashMap<usize, FxHashSet<usize>>,
-                 out: &mut FxHashSet<usize>| {
-        for (pos, &arg) in args.iter().enumerate() {
-            if !cow_consuming_position(callee, pos) {
-                continue;
-            }
-            let Some(params) = alias_to_param.get(&arg) else {
-                continue;
-            };
-            let reachable = reachable_cache
-                .entry(block_idx)
-                .or_insert_with(|| successor_reachable(func, block_idx));
-            for &i in params {
-                let Some(uses) = param_use_sites.get(&i) else {
+    let mut consumed_params: FxHashSet<usize> = FxHashSet::default();
+    let record_consumed_params =
+        |callee: Name,
+         args: &[ArcVarId],
+         block_idx: usize,
+         site_idx: usize,
+         reachable_cache: &mut FxHashMap<usize, FxHashSet<usize>>,
+         consumed_params: &mut FxHashSet<usize>| {
+            for (pos, &arg) in args.iter().enumerate() {
+                if !cow_consuming_position(callee, pos) {
+                    continue;
+                }
+                let Some(params) = alias_to_param.get(&arg) else {
                     continue;
                 };
-                let used_after = uses
-                    .iter()
-                    .any(|&(ub, ui)| (ub == block_idx && ui > site_idx) || reachable.contains(&ub));
-                if !used_after {
-                    out.insert(i);
+                let reachable = reachable_cache
+                    .entry(block_idx)
+                    .or_insert_with(|| successor_reachable(func, block_idx));
+                for &i in params {
+                    let Some(uses) = param_use_sites.get(&i) else {
+                        continue;
+                    };
+                    let used_after = uses.iter().any(|&(ub, ui)| {
+                        (ub == block_idx && ui > site_idx) || reachable.contains(&ub)
+                    });
+                    if !used_after {
+                        consumed_params.insert(i);
+                    }
                 }
             }
-        }
-    };
+        };
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
             if let ArcInstr::Apply {
                 func: callee, args, ..
             } = instr
             {
-                check(
+                record_consumed_params(
                     *callee,
                     args,
                     block_idx,
                     instr_idx,
                     &mut reachable_cache,
-                    &mut out,
+                    &mut consumed_params,
                 );
             }
         }
@@ -265,17 +266,17 @@ pub(in crate::aims::interprocedural::extract) fn find_borrowed_cow_consumed_para
             // The terminator's own use site is `usize::MAX`; pass it as the
             // site index so the consume's own occurrence never counts as a
             // use after itself.
-            check(
+            record_consumed_params(
                 *callee,
                 args,
                 block_idx,
                 usize::MAX,
                 &mut reachable_cache,
-                &mut out,
+                &mut consumed_params,
             );
         }
     }
-    out
+    consumed_params
 }
 
 /// Per-param alias use sites (body `(block, instr)`; terminator

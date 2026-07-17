@@ -309,6 +309,23 @@ fn length_supports_constant_strings_heap_strings_and_lists() {
 }
 
 #[test]
+fn list_free_releases_builder_and_owned_heap_elements() {
+    let program = verified_aggregate_program();
+    let mut interpreter = started(&program, ExecutionConfig::default());
+    let heap_string = must_succeed(interpreter.heap.allocate(
+        HeapObject::String("yielded".to_owned()),
+        interpreter.config.max_heap_objects,
+    ));
+    let builder = must_succeed(interpreter.list_new(VmValue::int(1)));
+    must_succeed(interpreter.list_builder_push(builder, heap_string));
+    assert_eq!(interpreter.heap.metrics().live_objects, 2);
+
+    assert_eq!(must_succeed(interpreter.list_free(builder)), VmValue::UNIT);
+
+    assert_eq!(interpreter.heap.metrics().live_objects, 0);
+}
+
+#[test]
 fn owned_list_iterator_yields_exact_bool_values_and_drops_early_once() {
     let program = verified_aggregate_program();
     let mut interpreter = started(&program, ExecutionConfig::default());

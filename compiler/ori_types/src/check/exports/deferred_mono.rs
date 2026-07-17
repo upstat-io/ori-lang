@@ -103,7 +103,7 @@ pub(super) fn try_resolve_deferred_call(
         // eagerly (seeded into `seen` from the pre-existing instances) or by an
         // earlier deferred call site sharing this key. The eager path publishes
         // a dispatch entry PER call site and relies on the downstream
-        // dedup-remap (`check/mod.rs::dedup_and_remap_mono_instances`) to dedup
+        // final dedup-remap to dedup
         // instances. This path mirrors it: publish THIS call site's dispatch
         // entry against the existing instance, else `call_expr_id` receives no
         // `MonoInstanceId` and AOT mono-dispatch drops the call (interp↔LLVM

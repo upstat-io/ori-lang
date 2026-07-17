@@ -399,20 +399,31 @@ fn test_generic_str_compound() {
 }
 
 #[test]
-#[ignore = "BUG-04-105: nounwind-analysis does not distinguish may-unwind monomorphized callees; unrelated to BUG-04-090's generic-forwarder surface"]
-fn test_mono_may_unwind_callee_uses_invoke() {
-    // A generic function that calls panic should still use `invoke`.
+fn test_mono_may_unwind_callee_reaches_wrapper_invoke() {
+    // A cleanup-free call may use plain `call` and let the exception propagate,
+    // but neither the Ori entry function nor its C wrapper may be nounwind. The
+    // wrapper must retain the `invoke` that catches the propagated panic.
     let ir = crate::util::compile_and_capture_ir(include_str!(
         "fixtures/generics/mono_may_unwind_callee_uses_invoke.ori"
     ));
 
     let main_section = crate::util::extract_function_ir(&ir, "_ori_main");
+    let wrapper_section = crate::util::extract_function_ir(&ir, "main");
 
-    // _ori_main should use `invoke` for may_panic$m$int because it calls panic
     assert!(
-        main_section.contains("invoke fastcc"),
-        "expected `invoke fastcc` for may-unwind monomorphized callee in _ori_main.\n\
-         IR:\n{main_section}"
+        main_section.contains("call fastcc") && main_section.contains("_ori_may_panic"),
+        "expected cleanup-free call to the may-unwind specialization.\nIR:\n{main_section}"
+    );
+    for function in ["_ori_main", "main"] {
+        let attrs = crate::util::resolve_function_attrs(&ir, function);
+        assert!(
+            !attrs.contains("nounwind"),
+            "{function} must allow the monomorphized panic to unwind.\nAttributes: {attrs}"
+        );
+    }
+    assert!(
+        wrapper_section.contains("invoke i64 @_ori_main"),
+        "C wrapper must catch the panic propagated through _ori_main.\nIR:\n{wrapper_section}"
     );
 }
 

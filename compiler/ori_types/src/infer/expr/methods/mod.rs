@@ -43,7 +43,10 @@ pub(in crate::infer::expr) fn range_method_requires_iteration(method_name: &str)
             | ReturnTag::ListOf(_)
             | ReturnTag::ListOfTupleIntElement
             | ReturnTag::IteratorOfTupleIntElement
-    )
+    ) || method
+        .params
+        .iter()
+        .any(|param| param.ty == ReturnTag::Fresh)
 }
 
 /// Resolve a built-in method call on a known type tag.

@@ -12,6 +12,7 @@ use crate::ir::{
     ArgOwnership, CtorKind, LitValue, PrimOp, PrimitiveFact,
 };
 use crate::ownership::Ownership;
+use crate::test_helpers::{make_apply, make_block};
 use crate::ArcClass;
 
 use super::super::lattice::{AccessClass, Cardinality, Uniqueness};
@@ -21,18 +22,27 @@ use super::*;
 
 struct TestClassifier {
     scalars: Vec<bool>,
+    builtin_tags: Vec<Option<ori_registry::TypeTag>>,
 }
 
 impl TestClassifier {
     fn all_ref(count: usize) -> Self {
         Self {
             scalars: vec![false; count],
+            builtin_tags: vec![None; count],
         }
     }
 
     fn with_scalar(mut self, idx: usize) -> Self {
         if idx < self.scalars.len() {
             self.scalars[idx] = true;
+        }
+        self
+    }
+
+    fn with_builtin_tag(mut self, idx: usize, tag: ori_registry::TypeTag) -> Self {
+        if idx < self.builtin_tags.len() {
+            self.builtin_tags[idx] = Some(tag);
         }
         self
     }
@@ -50,6 +60,10 @@ impl crate::ArcClassification for TestClassifier {
         } else {
             ArcClass::DefiniteRef
         }
+    }
+
+    fn builtin_type_tag(&self, idx: Idx) -> Option<ori_registry::TypeTag> {
+        self.builtin_tags.get(idx.raw() as usize).copied().flatten()
     }
 }
 
@@ -619,6 +633,219 @@ fn borrowed_read_only_true_for_param_at_borrowed_user_call_position() {
     assert!(
         contract.params[0].borrowed_read_only,
         "a param flowing only to a borrowed read-only callee position is borrowed_read_only"
+    );
+}
+
+#[test]
+fn extract_contract_publishes_borrowed_callee_sharing_on_param() {
+    let sharing_callee = name(70);
+    let mut callee = MemoryContract::conservative(1);
+    callee.params[0].access = AccessClass::Borrowed;
+    callee.params[0].may_share = true;
+    callee.effects.may_share = true;
+    let sigs = FxHashMap::from_iter([(sharing_callee, callee)]);
+
+    let wrapper = ArcFunction {
+        name: name(71),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(1)],
+        blocks: vec![make_block(
+            block_id(0),
+            vec![make_apply(
+                var(1),
+                ty(1),
+                sharing_callee,
+                vec![var(0)],
+                vec![ArgOwnership::Borrowed],
+            )],
+            ArcTerminator::Return { value: var(1) },
+        )],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = analyze_function(&wrapper, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &wrapper,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+
+    assert!(
+        contract.params[0].may_share,
+        "a wrapper must publish a borrowed callee's retained owner"
+    );
+}
+
+#[test]
+fn extract_contract_publishes_borrowed_alias_credit_for_construct() {
+    let func = ArcFunction {
+        name: name(72),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![make_block(
+            block_id(0),
+            vec![
+                ArcInstr::Let {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(0)),
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(name(73)),
+                    args: vec![var(1)],
+                },
+            ],
+            ArcTerminator::Return { value: var(2) },
+        )],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(1);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &ori_ir::StringInterner::new(),
+    );
+
+    assert_eq!(contract.params[0].access, AccessClass::Borrowed);
+    assert!(
+        contract.params[0].may_share,
+        "a borrowed alias moved into constructed storage needs a published credit"
+    );
+}
+
+#[test]
+fn extract_contract_publishes_typed_cow_credit_for_live_borrowed_param() {
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut sigs = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let push = interner.intern("push");
+    let len = interner.intern("len");
+    let func = ArcFunction {
+        name: name(74),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(0), ty(1), ty(0), ty(1)],
+        blocks: vec![make_block(
+            block_id(0),
+            vec![
+                ArcInstr::Let {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(0)),
+                },
+                ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(1),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                make_apply(var(3), ty(0), push, vec![var(1), var(2)], Vec::new()),
+                make_apply(var(4), ty(1), len, vec![var(0)], Vec::new()),
+            ],
+            ArcTerminator::Return { value: var(4) },
+        )],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(2)
+        .with_scalar(1)
+        .with_builtin_tag(0, ori_registry::TypeTag::List)
+        .with_builtin_tag(1, ori_registry::TypeTag::Int);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &interner,
+    );
+
+    assert_eq!(contract.params[0].access, AccessClass::Borrowed);
+    assert!(
+        contract.params[0].may_share,
+        "a typed owned COW handoff must publish its borrowed-root credit"
+    );
+}
+
+#[test]
+fn exact_callable_named_like_cow_builtin_does_not_publish_credit() {
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let local_push = interner.intern("push");
+    let sigs = FxHashMap::from_iter([(
+        local_push,
+        MemoryContract::all_borrowed(1, FipContract::Never),
+    )]);
+    let func = ArcFunction {
+        name: name(75),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(1)],
+        blocks: vec![make_block(
+            block_id(0),
+            vec![make_apply(
+                var(1),
+                ty(1),
+                local_push,
+                vec![var(0)],
+                Vec::new(),
+            )],
+            ArcTerminator::Return { value: var(1) },
+        )],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(2)
+        .with_scalar(1)
+        .with_builtin_tag(0, ori_registry::TypeTag::List)
+        .with_builtin_tag(1, ori_registry::TypeTag::Int);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let exact_callables = FxHashSet::from_iter([local_push]);
+    let contract = extract_contract_with_call_ownership(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &interner,
+        &builtins,
+        &exact_callables,
+    );
+
+    assert!(
+        !contract.params[0].may_share,
+        "an exact local callable must not inherit same-spelled builtin ownership"
     );
 }
 

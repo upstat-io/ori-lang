@@ -9,6 +9,7 @@ use super::super::heap::HeapObject;
 use super::super::operands::OperandAccess;
 use super::super::value::VmValue;
 use super::super::Interpreter;
+use super::nonnegative_usize;
 
 #[derive(Clone, Copy)]
 struct ListCapacity {
@@ -456,10 +457,6 @@ impl Interpreter<'_> {
             self.discard_prepared_retains();
         }
     }
-}
-
-fn nonnegative_usize(value: i64, purpose: &'static str) -> Result<usize, ExecutionError> {
-    usize::try_from(value).map_err(|_| ExecutionError::NegativeInteger { purpose, value })
 }
 
 fn next_vector_capacity(current: usize, required: usize, limit: usize) -> usize {

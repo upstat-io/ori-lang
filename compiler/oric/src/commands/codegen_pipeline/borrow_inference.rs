@@ -63,7 +63,7 @@ pub(super) fn lower_arc_batch(
     imported: ImportedSurfaces<'_>,
     canon: &CanonResult,
     interner: &StringInterner,
-    pool: &mut Pool,
+    pool: &Pool,
     mono_instances: &[ori_types::MonoInstance],
     accepted_derives: &[ori_types::AcceptedDerivedImpl],
     derived_call_plans: &[ori_types::DerivedCallPlan],
@@ -135,7 +135,7 @@ pub(super) fn lower_arc_batch(
         mono_functions,
         imported_mono_fns
             .iter()
-            .map(|(function, _, _)| function.clone()),
+            .map(|imported| imported.function.clone()),
         interner,
     )
     .map_err(ArcBatchLoweringFailure::MonoInventory)?;
@@ -156,18 +156,37 @@ pub(super) fn lower_arc_batch(
     // Lower imported monos via body-import linkage; an out-of-bounds
     // source_module_idx falls back to the host canon.
     // Why: the generic body lives in the SOURCE module's re-interned canon.
-    for (mono_fn, source_module_idx, source_body_name) in imported_mono_fns {
-        let source_canon = re_interned_canons.get(*source_module_idx).unwrap_or(canon);
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            mono_fn.mangled_name,
-            &mono_fn.sig,
-            *source_body_name,
-            source_canon,
-            interner,
-            pool,
-            &mut arc_problems,
-            Some(&mono_fn.body_type_map),
-        );
+    for imported in imported_mono_fns {
+        let mono_fn = &imported.function;
+        let source_canon = re_interned_canons
+            .get(imported.module_index)
+            .unwrap_or(canon);
+        let (arc_fn, lambdas) = match imported.body {
+            super::imported_mono::ImportedMonoBody::Function(source_name) => {
+                crate::arc_lowering::lower_to_arc(
+                    mono_fn.mangled_name,
+                    &mono_fn.sig,
+                    source_name,
+                    source_canon,
+                    interner,
+                    pool,
+                    &mut arc_problems,
+                    Some(&mono_fn.body_type_map),
+                )
+            }
+            super::imported_mono::ImportedMonoBody::ImplMethod(source_body) => {
+                crate::arc_lowering::lower_impl_method_to_arc_by_source(
+                    mono_fn.mangled_name,
+                    &mono_fn.sig,
+                    source_body,
+                    source_canon,
+                    interner,
+                    pool,
+                    &mut arc_problems,
+                    Some(&mono_fn.body_type_map),
+                )
+            }
+        };
         super::pc2_hooks::run_pc2_hook_aot(
             pool,
             &arc_fn,

@@ -22,7 +22,7 @@ use super::{
     reason = "multi-module build pipeline — splitting would fragment the build flow"
 )]
 pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::time::Instant) {
-    use ori_llvm::aot::{build_dependency_graph, Mangler};
+    use ori_llvm::aot::build_dependency_graph;
     use oric::CompilerDb;
     use tempfile::TempDir;
 
@@ -39,7 +39,7 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
 
     // Import resolver that converts relative paths to absolute paths
     let resolve_import = |current: &Path, import: &str| -> Result<PathBuf, String> {
-        let dir = current.parent().unwrap_or(Path::new("."));
+        let dir = current.parent().unwrap_or_else(|| Path::new("."));
         let resolved = dir.join(import);
         let with_ext = if resolved.extension().is_none() {
             resolved.with_extension("ori")
@@ -98,7 +98,6 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
     let obj_dir = temp_dir.path().to_path_buf();
 
     let db = CompilerDb::new();
-    let mangler = Mangler::new();
     let opt_config = build_optimization_config(options);
 
     // Create compilation context (avoids passing many parameters to helper)
@@ -106,7 +105,6 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
         db: &db,
         target: &target,
         opt_config: &opt_config,
-        mangler: &mangler,
         graph: &dep_result.graph,
         base_dir: &dep_result.base_dir,
         obj_dir: &obj_dir,
@@ -160,7 +158,6 @@ pub(super) struct ModuleCompileContext<'a> {
     pub(super) db: &'a oric::CompilerDb,
     pub(super) target: &'a ori_llvm::aot::TargetConfig,
     pub(super) opt_config: &'a ori_llvm::aot::OptimizationConfig,
-    pub(super) mangler: &'a ori_llvm::aot::Mangler,
     pub(super) graph: &'a ori_llvm::aot::incremental::deps::DependencyGraph,
     pub(super) base_dir: &'a Path,
     pub(super) obj_dir: &'a Path,
@@ -251,7 +248,7 @@ fn compile_single_module(
 ) -> Option<(PathBuf, CompiledModuleInfo)> {
     use ori_llvm::aot::derive_module_name;
     use ori_llvm::inkwell::context::Context;
-    use oric::SourceFile;
+    use oric::{Db, SourceFile};
 
     use crate::commands::compile_common::check_source;
     use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics, CodegenProblem};
@@ -284,17 +281,23 @@ fn compile_single_module(
         check_source(ctx.db, file, &source_path_str)?;
 
     let resolved_imports = crate::imports::resolve_imports(ctx.db, &parse_result, source_path);
-    let imported_functions = {
-        use oric::Db;
-        build_import_infos(
-            source_path,
-            ctx.graph,
-            compiled_modules,
-            ctx.base_dir,
-            ctx.mangler,
-            &resolved_imports,
-            ctx.db.interner(),
-        )
+    let imported_state =
+        build_imported_mono_state(ctx.db, source_path, &parse_result, &type_result, &pool);
+    let imported_functions = match build_import_infos(
+        source_path,
+        ctx.graph,
+        compiled_modules,
+        &resolved_imports,
+        &imported_state.re_interned_function_sigs,
+        ctx.db.interner(),
+    ) {
+        Ok(imported_functions) => imported_functions,
+        Err(message) => {
+            let mut diagnostics = CodegenDiagnostics::new();
+            diagnostics.push(CodegenProblem::VerificationFailed { message });
+            emit_codegen_diagnostics(diagnostics);
+            return None;
+        }
     };
 
     // Why: imported `pub` and `#repr(...)` types must be exempted from integer
@@ -303,9 +306,6 @@ fn compile_single_module(
         collect_imported_type_metadata(source_path, ctx.graph, compiled_modules);
     let imported_collection_surfaces =
         collect_imported_collection_surfaces(source_path, ctx.graph, compiled_modules);
-
-    let imported_state =
-        build_imported_mono_state(ctx.db, source_path, &parse_result, &type_result, &pool);
 
     let context = Context::create();
     let llvm_output = lower_module_to_llvm(

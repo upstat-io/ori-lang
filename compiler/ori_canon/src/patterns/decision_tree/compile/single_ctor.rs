@@ -7,26 +7,65 @@
 use super::collect_consumed_bindings;
 use super::Specialized;
 use ori_ir::canon::tree::{FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath};
+use rustc_hash::FxHashSet;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SingleConstructorColumn {
+    Tuple { fields: usize },
+    Struct { fields: usize },
+}
+
+impl SingleConstructorColumn {
+    fn field_count(self) -> usize {
+        match self {
+            Self::Tuple { fields } | Self::Struct { fields } => fields,
+        }
+    }
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "field indices are always < u32::MAX"
+    )]
+    fn path_instruction(self, index: usize) -> PathInstruction {
+        match self {
+            Self::Tuple { .. } => PathInstruction::TupleIndex(index as u32),
+            Self::Struct { .. } => PathInstruction::StructField(index as u32),
+        }
+    }
+}
 
 /// Check if a column contains only single-constructor patterns (Tuple/Struct)
 /// plus wildcards. These types don't need a runtime test — they're always
 /// the same "shape" and just need field decomposition.
-pub(super) fn is_single_constructor_column(matrix: &PatternMatrix, col: usize) -> bool {
-    let mut has_single_ctor = false;
+pub(super) fn single_constructor_column(
+    matrix: &PatternMatrix,
+    col: usize,
+) -> Option<SingleConstructorColumn> {
+    let mut shape = None;
     for row in matrix {
         let pat = unwrap_at_or(&row.patterns[col]);
-        match pat {
-            FlatPattern::Tuple(_) | FlatPattern::Struct { .. } => {
-                has_single_ctor = true;
+        let candidate = match pat {
+            FlatPattern::Tuple(elements) => Some(SingleConstructorColumn::Tuple {
+                fields: elements.len(),
+            }),
+            FlatPattern::Struct { fields } => Some(SingleConstructorColumn::Struct {
+                fields: fields.len(),
+            }),
+            FlatPattern::Wildcard | FlatPattern::Binding(_) => None,
+            _ => return None,
+        };
+        if let Some(candidate) = candidate {
+            match shape {
+                Some(existing) if existing != candidate => return None,
+                Some(_) => {}
+                None => shape = Some(candidate),
             }
-            FlatPattern::Wildcard | FlatPattern::Binding(_) => {}
-            _ => return false,
         }
     }
-    has_single_ctor
+    shape
 }
 
-/// Unwrap At and Or patterns to get the underlying pattern.
+/// Unwrap an at-pattern to get its underlying pattern.
 fn unwrap_at_or(pat: &FlatPattern) -> &FlatPattern {
     match pat {
         FlatPattern::At { inner, .. } => unwrap_at_or(inner),
@@ -43,18 +82,16 @@ pub(super) fn decompose_single_constructor(
     col: usize,
     paths: &[ScrutineePath],
     base_path: &ScrutineePath,
+    shape: SingleConstructorColumn,
 ) -> Specialized {
-    // Find the sub-pattern count from the first concrete pattern.
-    let sub_count = find_single_ctor_sub_count(matrix, col);
+    let sub_count = shape.field_count();
 
     // Build new paths: replace column `col` with sub-pattern paths.
     let mut new_paths = Vec::with_capacity(paths.len() - 1 + sub_count);
     new_paths.extend_from_slice(&paths[..col]);
     for i in 0..sub_count {
         let mut sub_path = base_path.clone();
-        // Determine instruction based on the constructor type.
-        let instr = find_single_ctor_path_instruction(matrix, col, i);
-        sub_path.push(instr);
+        sub_path.push(shape.path_instruction(i));
         new_paths.push(sub_path);
     }
     new_paths.extend_from_slice(&paths[col + 1..]);
@@ -68,6 +105,22 @@ pub(super) fn decompose_single_constructor(
             bindings.extend(collect_consumed_bindings(&row.patterns[col], base_path));
 
             let sub_pats = decompose_single_ctor_pattern(&row.patterns[col], sub_count);
+            let mut discard_paths = row.discard_paths.clone();
+            let mut seen_discard_paths: FxHashSet<_> = discard_paths.iter().cloned().collect();
+            if matches!(
+                unwrap_at_or(&row.patterns[col]),
+                FlatPattern::Tuple(_) | FlatPattern::Struct { .. }
+            ) {
+                for (sub_pattern, sub_path) in
+                    sub_pats.iter().zip(new_paths[col..col + sub_count].iter())
+                {
+                    if matches!(sub_pattern, FlatPattern::Wildcard)
+                        && seen_discard_paths.insert(sub_path.clone())
+                    {
+                        discard_paths.push(sub_path.clone());
+                    }
+                }
+            }
             let mut new_patterns = Vec::with_capacity(row.patterns.len() - 1 + sub_pats.len());
             new_patterns.extend_from_slice(&row.patterns[..col]);
             new_patterns.extend(sub_pats);
@@ -77,6 +130,7 @@ pub(super) fn decompose_single_constructor(
                 arm_index: row.arm_index,
                 guard: row.guard,
                 bindings,
+                discard_paths,
             }
         })
         .collect();
@@ -85,48 +139,6 @@ pub(super) fn decompose_single_constructor(
         matrix: new_matrix,
         paths: new_paths,
     }
-}
-
-/// Find the sub-pattern count from the first Tuple/Struct pattern in the column.
-fn find_single_ctor_sub_count(matrix: &PatternMatrix, col: usize) -> usize {
-    for row in matrix {
-        let pat = unwrap_at_or(&row.patterns[col]);
-        match pat {
-            FlatPattern::Tuple(elements) => return elements.len(),
-            FlatPattern::Struct { fields } => return fields.len(),
-            _ => {}
-        }
-    }
-    0
-}
-
-/// Determine the path instruction for single-constructor decomposition.
-fn find_single_ctor_path_instruction(
-    matrix: &PatternMatrix,
-    col: usize,
-    index: usize,
-) -> PathInstruction {
-    for row in matrix {
-        let pat = unwrap_at_or(&row.patterns[col]);
-        match pat {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "field indices are always < u32::MAX"
-            )]
-            FlatPattern::Tuple(_) => return PathInstruction::TupleIndex(index as u32),
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "field indices are always < u32::MAX"
-            )]
-            FlatPattern::Struct { .. } => return PathInstruction::StructField(index as u32),
-            _ => {}
-        }
-    }
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "field indices are always < u32::MAX"
-    )]
-    PathInstruction::TupleIndex(index as u32) // Fallback (shouldn't happen).
 }
 
 /// Decompose a single-constructor pattern into its sub-patterns.

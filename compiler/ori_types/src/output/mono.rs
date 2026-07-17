@@ -8,24 +8,20 @@ use ori_ir::Name;
 
 use crate::{Idx, MethodProducer};
 
-/// A compile-time value used as a const generic argument.
+pub use ori_ir::canon::GenericConstValue as ConstValue;
+pub use ori_ir::canon::MonoConstBinding;
+
+/// Solved or caller-symbolic const term observed during call inference.
 ///
-/// Phase 1: unused (only [`GenericArg::Type`] variants).
-/// Phase 2+: const generics (`$N: int`, `$B: bool`).
-/// Phase 3+: any type `with Eq, Hashable` (`$C: Color`, `$S: [int]`).
-///
-/// Each variant must be `Eq + Hash`, mirroring Ori's requirement that
-/// const-eligible types implement `Eq + Hashable`.
+/// Only `Value` may enter a concrete [`MonoInstance`]. `CallerParam` is kept
+/// distinct so a generic caller can defer substitution without fabricating a
+/// value or collapsing the const axis into a type `Idx`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ConstValue {
-    /// Integer constant (`$N: int → 42`).
-    Int(i64),
-    /// Boolean constant (`$B: bool → true`).
-    Bool(bool),
-    // Future phases add variants as const generic eligibility expands:
-    // Str(Name), Char(char), Byte(u8),
-    // Enum { type_name: Name, variant: Name },
-    // List(Vec<ConstValue>), Tuple(Vec<ConstValue>),
+pub enum ConstGenericTerm {
+    /// Concrete value solved at this call site.
+    Value(ConstValue),
+    /// Const parameter owned by the enclosing generic caller.
+    CallerParam(Name),
 }
 
 /// A concrete argument to a generic parameter.
@@ -92,6 +88,12 @@ pub struct MonoInstance {
     /// parameter list (e.g. `@m<U>(self) -> U` instantiated at `U = str`
     /// produces `method_args = [str]`).
     pub method_args: Vec<GenericArg>,
+    /// Named const bindings for body evaluation/lowering.
+    ///
+    /// The values are the same `GenericArg::Const` lane used by identity and
+    /// mangling; names come from declaration metadata. Concrete instances may
+    /// not contain symbolic caller parameters.
+    pub const_bindings: Vec<MonoConstBinding>,
     /// The enclosing impl block's `Self` type, for any function inside an
     /// impl block (including associated functions without `self`).
     ///
@@ -143,6 +145,7 @@ impl MonoInstance {
             generic_args,
             impl_args: Vec::new(),
             method_args: Vec::new(),
+            const_bindings: Vec::new(),
             receiver_type: None,
             method_producer: None,
             concrete_param_types,
@@ -166,11 +169,31 @@ impl MonoInstance {
         method_args: Vec<GenericArg>,
         concrete: ConcreteMethodMono,
     ) -> Self {
+        Self::new_method_with_const_bindings(
+            fn_name,
+            method_producer,
+            impl_args,
+            method_args,
+            Vec::new(),
+            concrete,
+        )
+    }
+
+    /// Construct a method instance with named const values for body lowering.
+    pub fn new_method_with_const_bindings(
+        fn_name: Name,
+        method_producer: MethodProducer,
+        impl_args: Vec<GenericArg>,
+        method_args: Vec<GenericArg>,
+        const_bindings: Vec<MonoConstBinding>,
+        concrete: ConcreteMethodMono,
+    ) -> Self {
         let inst = Self {
             fn_name,
             generic_args: Vec::new(),
             impl_args,
             method_args,
+            const_bindings,
             receiver_type: Some(concrete.receiver_type),
             method_producer: Some(method_producer),
             concrete_param_types: concrete.param_types,

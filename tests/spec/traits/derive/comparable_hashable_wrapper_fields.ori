@@ -3,8 +3,8 @@
 // field as always-Equal (compare) or always-0 (hash). The sharp pins differ
 // ONLY in the wrapper field, so a field that fails to participate collapses the
 // struct compare to Equal and the struct hash to a constant. Each golden hash
-// value is the interpreter's derived-hash result (the parity oracle); the same
-// assert runs interp + LLVM, forcing both backends to the identical value.
+// value follows the specification's canonical field-hash algorithms; the same
+// assert runs interp + LLVM, forcing both executors to the identical value.
 
 use std.testing { assert }
 
@@ -179,9 +179,8 @@ type TupHolder = { tag: int, t: (int, str) }
 
 // ===========================================================================
 // Exact-value parity oracle (L9) — golden hash values derived from the
-// interpreter (the parity oracle). The SAME assert runs on interp + LLVM via
-// dual-exec; interp passes by construction, so LLVM is forced to the EXACT
-// interp value. Behavioral "distinct/equal" pins above can be satisfied by a
+// shared semantic algorithms. The SAME assert runs on interp + LLVM via
+// dual-exec. Behavioral "distinct/equal" pins above can be satisfied by a
 // self-consistent-but-wrong LLVM hash (XOR vs hash_combine, discriminant 0/1
 // vs 2/3); these golden pins cannot. Re-bless only if the derive hash
 // algorithm changes for BOTH backends together.
@@ -207,7 +206,7 @@ type TupHolder = { tag: int, t: (int, str) }
 
 @test_tuple_field_hash_exact tests @tup_hash_exact () -> void = {
     let t = TupHolder { tag: 0, t: (5, "a") };
-    assert(cond: t.hash() == 8186225847383947061)
+    assert(cond: t.hash() == -5808556531720787384)
 }
 @tup_hash_exact () -> int = {
     let t = TupHolder { tag: 0, t: (5, "a") };

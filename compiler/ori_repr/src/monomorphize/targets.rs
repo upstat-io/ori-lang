@@ -26,7 +26,7 @@ impl MonoTargetMaps {
         let mut mono_by_generic: FxHashMap<Name, Vec<(Vec<Idx>, Name)>> = FxHashMap::default();
         let mut mono_by_method_producer = FxHashMap::default();
         for mono_function in mono_functions {
-            for &instance_id in &mono_function.instance_ids {
+            for &instance_id in mono_function.identity.instance_ids() {
                 mono_by_id.insert(instance_id, mono_function.mangled_name);
             }
             let parameter_types = mono_function
@@ -36,15 +36,22 @@ impl MonoTargetMaps {
                 .map(|&ty| pool.resolve_fully(ty))
                 .collect();
             mono_by_generic
-                .entry(mono_function.original_name)
+                .entry(mono_function.identity.original_name())
                 .or_default()
                 .push((parameter_types, mono_function.mangled_name));
-            let producer = match mono_function.origin {
-                super::MonoFunctionOrigin::Impl(id) => Some(MethodProducer::Impl(id)),
-                super::MonoFunctionOrigin::Derived(id) => Some(MethodProducer::Derived(id)),
-                super::MonoFunctionOrigin::Source => None,
-            };
-            if let (Some(producer), Some(receiver)) = (producer, mono_function.receiver_type) {
+            let producer = mono_function.identity.method_producer().cloned();
+            if let (Some(producer), Some(receiver), true) = (
+                producer,
+                mono_function.identity.receiver_type(),
+                mono_function.identity.method_args().is_empty(),
+            ) {
+                tracing::debug!(
+                    target: "ori_repr::mono_targets",
+                    ?producer,
+                    ?receiver,
+                    target = ?mono_function.mangled_name,
+                    "registered exact method mono target",
+                );
                 mono_by_method_producer
                     .entry((producer, receiver))
                     .or_insert(mono_function.mangled_name);
@@ -209,11 +216,22 @@ impl TargetResolver<'_> {
             return Some(target);
         }
         if let Some(fact) = function.method_call_fact(destination) {
-            return fact.producer.and_then(|producer| {
+            let target = fact.producer.clone().and_then(|producer| {
                 self.mono_by_method_producer
                     .get(&(producer, fact.receiver_type))
                     .copied()
             });
+            tracing::debug!(
+                target: "ori_repr::mono_targets",
+                caller = ?function.name,
+                ?callee,
+                ?destination,
+                producer = ?fact.producer,
+                receiver = ?fact.receiver_type,
+                ?target,
+                "resolved exact method mono target",
+            );
+            return target;
         }
         let argument_types: Vec<Idx> = arguments
             .iter()
@@ -274,12 +292,65 @@ mod tests {
         ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership,
         MethodCallFact, MethodCallForm,
     };
+    use ori_ir::canon::MonoInstanceId;
     use ori_ir::{DerivedImplId, Name, StringInterner};
-    use ori_types::{FunctionSig, Idx, Pool};
+    use ori_types::{
+        ConcreteMethodMono, FunctionSig, GenericArg, Idx, MethodProducer, MonoInstance, Pool,
+    };
     use rustc_hash::FxHashMap;
 
     use super::MonoTargetMaps;
-    use crate::monomorphize::{MonoFunction, MonoFunctionOrigin};
+    use crate::monomorphize::{MonoFunction, MonoFunctionIdentity, MonoFunctionOrigin};
+
+    fn method_identity(
+        method: Name,
+        producer: MethodProducer,
+        method_args: Vec<GenericArg>,
+        receiver: Idx,
+        instance_id: Option<u32>,
+    ) -> MonoFunctionIdentity {
+        let instance = MonoInstance::new_method(
+            method,
+            producer,
+            Vec::new(),
+            method_args,
+            ConcreteMethodMono {
+                receiver_type: receiver,
+                param_types: Vec::new(),
+                return_type: receiver,
+                body_type_map: Vec::new(),
+            },
+        );
+        match instance_id {
+            Some(id) => MonoFunctionIdentity::new(&instance, MonoInstanceId::new(id)),
+            None => MonoFunctionIdentity::generated(&instance),
+        }
+    }
+
+    fn method_apply(
+        dst: ArcVarId,
+        ty: Idx,
+        method: Name,
+        mono_instance_id: Option<MonoInstanceId>,
+    ) -> ArcInstr {
+        ArcInstr::Apply {
+            dst,
+            ty,
+            func: method,
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id,
+        }
+    }
+
+    fn single_return_block(body: Vec<ArcInstr>, value: ArcVarId) -> ArcBlock {
+        ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body,
+            terminator: ArcTerminator::Return { value },
+        }
+    }
 
     #[test]
     fn generated_method_fact_is_reserved_for_exact_receiver_rewrite() {
@@ -313,15 +384,14 @@ mod tests {
             }],
             ..ArcFunction::default()
         };
+        let producer = MethodProducer::Derived(DerivedImplId::new(0));
         let mono = MonoFunction {
             mangled_name: concrete_hash,
-            original_name: hash,
             origin: MonoFunctionOrigin::Derived(DerivedImplId::new(0)),
+            identity: method_identity(hash, producer, Vec::new(), Idx::INT, None),
             sig: FunctionSig::synthetic(hash, vec![Name::from_raw(9)], vec![Idx::INT], Idx::INT),
             body_type_map: FxHashMap::default(),
-            instance_ids: Vec::new(),
             is_imported: false,
-            receiver_type: Some(Idx::INT),
             receiver_type_name: None,
         };
 
@@ -336,5 +406,78 @@ mod tests {
             panic!("test fixture must remain an apply")
         };
         assert_eq!(func, hash);
+    }
+
+    #[test]
+    fn method_generic_targets_dispatch_only_by_exact_instance_id() {
+        let interner = StringInterner::new();
+        let method = interner.intern("convert");
+        let int_target = interner.intern("convert$m$$im$3_int");
+        let str_target = interner.intern("convert$m$$im$3_str");
+        let producer = MethodProducer::Derived(DerivedImplId::new(4));
+        let mut function = ArcFunction {
+            name: interner.intern("caller"),
+            var_types: vec![Idx::INT, Idx::INT, Idx::STR, Idx::INT],
+            blocks: vec![single_return_block(
+                vec![
+                    method_apply(
+                        ArcVarId::new(1),
+                        Idx::INT,
+                        method,
+                        Some(MonoInstanceId::new(10)),
+                    ),
+                    method_apply(
+                        ArcVarId::new(2),
+                        Idx::STR,
+                        method,
+                        Some(MonoInstanceId::new(11)),
+                    ),
+                    method_apply(ArcVarId::new(3), Idx::INT, method, None),
+                ],
+                ArcVarId::new(3),
+            )],
+            method_call_facts: vec![MethodCallFact {
+                destination: ArcVarId::new(3),
+                receiver_type: Idx::INT,
+                form: MethodCallForm::Instance,
+                producer: Some(producer.clone()),
+                derived_position: None,
+            }],
+            ..ArcFunction::default()
+        };
+        let mono = |target, argument, instance_id| MonoFunction {
+            mangled_name: target,
+            origin: MonoFunctionOrigin::Derived(DerivedImplId::new(4)),
+            identity: method_identity(
+                method,
+                producer.clone(),
+                vec![GenericArg::Type(argument)],
+                Idx::INT,
+                Some(instance_id),
+            ),
+            sig: FunctionSig::synthetic(method, Vec::new(), Vec::new(), argument),
+            body_type_map: FxHashMap::default(),
+            is_imported: false,
+            receiver_type_name: None,
+        };
+        let maps = MonoTargetMaps::build(
+            &[
+                mono(int_target, Idx::INT, 10),
+                mono(str_target, Idx::STR, 11),
+            ],
+            &Pool::new(),
+        );
+
+        maps.rewrite_function(&mut function, &mut [], &Pool::new(), &interner);
+
+        let targets: Vec<_> = function.blocks[0]
+            .body
+            .iter()
+            .map(|instruction| match instruction {
+                ArcInstr::Apply { func, .. } => *func,
+                _ => panic!("test fixture must contain only apply instructions"),
+            })
+            .collect();
+        assert_eq!(targets, vec![int_target, str_target, method]);
     }
 }

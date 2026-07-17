@@ -118,6 +118,12 @@ pre-commit:
       # heuristics), gated blocking on Rust source changes.
       glob: "**/*.rs"
       run: bash diagnostics/check-debug-flags.sh
+    tracing-coverage:
+      # Direct tracing dependencies must have live production use. ori_parse
+      # additionally pins the public/module/grammar spans justified by the
+      # parser-observability ADR, including skip_all on every required boundary.
+      glob: "{compiler/*/Cargo.toml,compiler/*/src/**/*.rs}"
+      run: bash diagnostics/check-tracing-coverage.sh
     prose-lint:
       # Source-side internal-vocabulary leak detector — see
       # `../scripts/prose-lint.py --help` for the full pattern reference.

@@ -43,7 +43,7 @@ pub(crate) fn collect_borrowed_call_args(
     func_names: &FxHashSet<Name>,
 ) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
-    let mut alias_edges: Vec<Option<ArcVarId>> = vec![None; func.var_types.len()];
+    let mut alias_children: Vec<Vec<ArcVarId>> = vec![Vec::new(); func.var_types.len()];
 
     for block in &func.blocks {
         // Scan body instructions for Apply with Borrowed args.
@@ -82,7 +82,7 @@ pub(crate) fn collect_borrowed_call_args(
                     value: crate::ir::ArcValue::Var(src),
                     ..
                 } => {
-                    alias_edges[dst.index()] = Some(*src);
+                    alias_children[src.index()].push(*dst);
                 }
                 _ => {}
             }
@@ -115,26 +115,14 @@ pub(crate) fn collect_borrowed_call_args(
         }
     }
 
-    // Propagate through alias chains: if src is borrowed, dst shares the
-    // same object and should also be excluded from unique drops.
-    loop {
-        let mut changed = false;
-        for (i, alias) in alias_edges.iter().enumerate() {
-            if let Some(src) = alias {
-                if borrowed.contains(src) {
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "ARC IR var counts fit in u32"
-                    )]
-                    let dst = ArcVarId::new(i as u32);
-                    if borrowed.insert(dst) {
-                        changed = true;
-                    }
-                }
+    // Propagate through alias chains once per reachable edge. A repeated
+    // full-vector fixed-point scan is quadratic for long alias chains.
+    let mut pending: Vec<ArcVarId> = borrowed.iter().copied().collect();
+    while let Some(src) = pending.pop() {
+        for &dst in &alias_children[src.index()] {
+            if borrowed.insert(dst) {
+                pending.push(dst);
             }
-        }
-        if !changed {
-            break;
         }
     }
 
@@ -180,7 +168,7 @@ fn is_safe_non_sharing_callee(
     func_names: &FxHashSet<Name>,
 ) -> bool {
     // If the callee is a known builtin, always conservative.
-    if builtins.is_builtin(callee) {
+    if builtins.contains(callee) {
         return false;
     }
     // For user functions: trust the contract's may_share flag. A None lookup

@@ -32,6 +32,7 @@ pub extern "C" fn ori_map_updated_cow(
     key_hash: extern "C" fn(*const u8) -> i64,
     key_inc: Option<extern "C" fn(*mut u8)>,
     val_inc: Option<extern "C" fn(*mut u8)>,
+    key_dec: Option<extern "C" fn(*mut u8)>,
     val_dec: Option<extern "C" fn(*mut u8)>,
     cow_mode: i32,
     out_ptr: *mut u8,
@@ -42,7 +43,7 @@ pub extern "C" fn ori_map_updated_cow(
 
     ori_map_insert_cow(
         data, len, cap, key, value, key_size, val_size, key_eq, key_hash, key_inc, val_inc,
-        val_dec, cow_mode, out_ptr,
+        key_dec, val_dec, cow_mode, out_ptr,
     );
 
     // Move semantics: the buffer holds its own incremented reference; release

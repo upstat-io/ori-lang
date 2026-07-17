@@ -9,5 +9,8 @@
     let r1 = h1 == h2;
     // Ok(42) vs Err(42) → different hash (different seed)
     let r2 = h1 != h3;
-    if r1 && r2 then 0 else 1
+    // Spec 9.13: Result uses semantic salts 2 (Ok) and 3 (Err).
+    let r3 = h1 == 2654435937;
+    let r4 = h3 == 2654436000;
+    if r1 && r2 && r3 && r4 then 0 else 1
 }

@@ -2,7 +2,7 @@
 //!
 //! Provides ergonomic methods for creating compound types.
 
-use crate::{Idx, LifetimeId, Pool, Rank, Tag, VarState};
+use crate::{Idx, LifetimeId, Pool, Rank, Tag, UnboundVarState, VarState};
 
 /// Variant definition for creating enum types in the Pool.
 ///
@@ -186,11 +186,11 @@ impl Pool {
         let id = self.next_var_id;
         self.next_var_id += 1;
 
-        self.var_states.push(VarState::Unbound {
+        self.var_states.push(VarState::Unbound(UnboundVarState {
             id,
             rank,
             name: None,
-        });
+        }));
 
         self.intern(Tag::Var, id)
     }
@@ -204,11 +204,11 @@ impl Pool {
         while self.next_var_id < min_count {
             let id = self.next_var_id;
             self.next_var_id += 1;
-            self.var_states.push(VarState::Unbound {
+            self.var_states.push(VarState::Unbound(UnboundVarState {
                 id,
                 rank: DEFAULT_RANK,
                 name: None,
-            });
+            }));
         }
     }
 
@@ -234,11 +234,11 @@ impl Pool {
     pub fn allocate_var_id_with_rank(&mut self, rank: Rank) -> u32 {
         let id = self.next_var_id;
         self.next_var_id += 1;
-        self.var_states.push(VarState::Unbound {
+        self.var_states.push(VarState::Unbound(UnboundVarState {
             id,
             rank,
             name: None,
-        });
+        }));
         id
     }
 
@@ -252,11 +252,11 @@ impl Pool {
         let id = self.next_var_id;
         self.next_var_id += 1;
 
-        self.var_states.push(VarState::Unbound {
+        self.var_states.push(VarState::Unbound(UnboundVarState {
             id,
             rank,
             name: Some(name),
-        });
+        }));
 
         self.intern(Tag::Var, id)
     }

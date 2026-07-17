@@ -6,7 +6,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::pool::substitute::substitute_in_pool;
-use crate::{Idx, Pool, Rank, Tag, TypeFlags, VarState};
+use crate::{GeneralizedVarState, Idx, Pool, Rank, Tag, TypeFlags, UnboundVarState, VarState};
 
 use super::UnifyEngine;
 
@@ -21,13 +21,17 @@ impl UnifyEngine<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```rust
+    /// use ori_types::{Pool, Tag, UnifyEngine};
+    ///
+    /// let mut pool = Pool::new();
     /// let mut engine = UnifyEngine::new(&mut pool);
     /// engine.enter_scope();
     /// let var = engine.fresh_var();
-    /// let fn_ty = pool.function(&[var], var);  // a -> a
+    /// let fn_ty = engine.pool_mut().function(&[var], var); // a -> a
     /// let scheme = engine.generalize(fn_ty);   // ∀a. a -> a
     /// engine.exit_scope();
+    /// assert_eq!(engine.pool().tag(scheme), Tag::Scheme);
     /// ```
     pub fn generalize(&mut self, ty: Idx) -> Idx {
         // Resolve to get the current structure
@@ -49,11 +53,12 @@ impl UnifyEngine<'_> {
         // Extract id/name from the immutable borrow, then write the new state.
         for &var_id in &vars {
             let gen = match self.pool.var_state(var_id) {
-                VarState::Unbound { id, name, .. } => Some((*id, *name)),
+                VarState::Unbound(UnboundVarState { id, name, .. }) => Some((*id, *name)),
                 _ => None,
             };
             if let Some((id, name)) = gen {
-                *self.pool.var_state_mut(var_id) = VarState::Generalized { id, name };
+                *self.pool.var_state_mut(var_id) =
+                    VarState::Generalized(GeneralizedVarState { id, name });
             }
         }
 
@@ -98,7 +103,9 @@ impl UnifyEngine<'_> {
             Tag::Var => {
                 let var_id = self.pool.data(ty);
                 match self.pool.var_state(var_id) {
-                    VarState::Unbound { rank, .. } if rank.can_generalize_at(min_rank) => {
+                    VarState::Unbound(UnboundVarState { rank, .. })
+                        if rank.can_generalize_at(min_rank) =>
+                    {
                         vars.push(var_id);
                     }
                     VarState::Link { target } => {

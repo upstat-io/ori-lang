@@ -10,6 +10,7 @@
 use std::mem::ManuallyDrop;
 
 use inkwell::context::Context;
+use ori_arc::ir::VariableMetadataState;
 use ori_arc::{ArcClass, ArcClassification, DropInfo, DropKind};
 use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
@@ -703,6 +704,7 @@ fn is_shared_emits_gep_load_icmp() {
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR, Idx::BOOL],
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -827,6 +829,7 @@ fn set_emits_struct_gep_and_store() {
         entry: ArcBlockId::new(0),
         var_types: vec![struct_ty, Idx::INT],
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -978,6 +981,7 @@ fn set_on_boxed_recursive_field_boxes_value_before_store() {
         entry: ArcBlockId::new(0),
         var_types: vec![node_ty, node_ty],
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::RcPointer],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -1103,6 +1107,7 @@ fn burden_dec_field_str_field_emits_gep_load_rc_dec() {
         entry: ArcBlockId::new(0),
         var_types: vec![struct_ty, Idx::STR],
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::RcPointer],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None, None]],
         ..Default::default()
     };
@@ -1233,6 +1238,7 @@ fn burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit() {
         entry: ArcBlockId::new(0),
         var_types: vec![struct_ty, Idx::INT],
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None, None]],
         ..Default::default()
     };
@@ -1373,6 +1379,7 @@ fn burden_dec_field_aggregate_base_spills_to_alloca_before_gep() {
         var_types: vec![struct_ty, Idx::STR],
         // Base var (0) is a BY-VALUE aggregate (the bug shape), NOT RcPointer.
         var_reprs: vec![ValueRepr::Aggregate, ValueRepr::RcPointer],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None, None]],
         ..Default::default()
     };
@@ -1544,6 +1551,7 @@ fn burden_dec_variant_explicit_tag_enum_emits_switch_and_rc_dec() {
         entry: ArcBlockId::new(0),
         var_types: vec![enum_ty],
         var_reprs: vec![ValueRepr::RcPointer],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -1661,6 +1669,7 @@ fn burden_dec_variant_option_str_emits_typed_payload_rc_dec() {
         entry: ArcBlockId::new(0),
         var_types: vec![option_str_ty],
         var_reprs: vec![ValueRepr::RcPointer],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -1785,6 +1794,7 @@ fn burden_dec_variant_scalar_enum_emits_no_codegen_via_re_2_short_circuit() {
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::ORDERING],
         var_reprs: vec![ValueRepr::Scalar],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -3490,6 +3500,7 @@ fn resolve_callee_threads_receiver_type_into_fallback_gate() {
         entry: ArcBlockId::new(0),
         var_types: vec![struct_ty, Idx::UNIT],
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -3530,6 +3541,7 @@ fn resolve_callee_threads_receiver_type_into_fallback_gate() {
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR, Idx::UNIT],
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };

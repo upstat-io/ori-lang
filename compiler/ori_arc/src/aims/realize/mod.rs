@@ -149,9 +149,13 @@ pub fn realize_rc_reuse(
                 "FIP gate records captured during realization"
             );
         }
-        let ops = reuse_result.static_reuses
-            + reuse_result.dynamic_reuses
-            + reuse_result.cross_block_reuses;
+        let ops = reuse_result
+            .static_reuses
+            .checked_add(reuse_result.dynamic_reuses)
+            .and_then(|count| count.checked_add(reuse_result.cross_block_reuses));
+        let Some(ops) = ops else {
+            panic!("AIMS reuse-operation count must fit usize");
+        };
         let evidence = FipEvidence {
             fip_gates: reuse_result.fip_gates,
             missed_reuses: reuse_result.missed_reuses,
@@ -215,7 +219,8 @@ pub fn realize_annotations(
     let cow_names = crate::borrow::all_cow_method_names(env.interner);
     let param_vars: rustc_hash::FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
     let param_borrowed_vars = collect_param_borrowed_vars(func);
-    let rc_incremented = collect_rc_incremented_vars(func);
+    let rc_incremented =
+        collect_rc_incremented_vars(func, env.state_map.birth_site_partition(), env.contracts);
     let borrowed_call_args =
         collect_borrowed_call_args(func, env.contracts, env.builtins, env.func_names);
 

@@ -1541,6 +1541,43 @@ fn list_ensure_capacity_grows_buffer() {
     ori_list_free_data(list.data, list.cap, 8);
 }
 
+#[test]
+fn list_free_drops_initialized_elements_from_buffer_header() {
+    let _g = lock_rc();
+    static ELEMENT_DROPS: AtomicUsize = AtomicUsize::new(0);
+
+    extern "C" fn count_element_drop(_element: *mut u8) {
+        ELEMENT_DROPS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    ELEMENT_DROPS.store(0, Ordering::SeqCst);
+    let list = ori_list_new(2, 8);
+    assert!(!list.is_null());
+
+    let first = 11_i64;
+    let second = 22_i64;
+    ori_list_push(list.cast(), std::ptr::from_ref(&first).cast(), 8);
+    ori_list_push(list.cast(), std::ptr::from_ref(&second).cast(), 8);
+
+    // For-yield codegen records the element drop function in the scratch
+    // buffer header as elements are pushed. Cleanup receives only the opaque
+    // list handle and element size, so it must consume that stored metadata.
+    unsafe {
+        crate::rc::store_elem_dec_fn((*list).data, Some(count_element_drop));
+        crate::rc::store_elem_count((*list).data, (*list).len);
+        // Distinguish the header count from the wrapper field: unwind cleanup
+        // must consume the initialization boundary paired with elem_dec_fn.
+        (*list).len = 1;
+    }
+
+    ori_list_free(list, 8);
+    assert_eq!(
+        ELEMENT_DROPS.load(Ordering::SeqCst),
+        2,
+        "list cleanup must run the stored destructor for every initialized element"
+    );
+}
+
 // Empty collection sentinels (COW foundation)
 
 #[test]
@@ -4590,6 +4627,34 @@ extern "C" fn i64_key_hash(a: *const u8) -> i64 {
     unsafe { *a.cast::<i64>() }
 }
 
+static COW_MAP_KEY_INC_CALLS: AtomicUsize = AtomicUsize::new(0);
+static COW_MAP_VAL_INC_CALLS: AtomicUsize = AtomicUsize::new(0);
+static COW_MAP_KEY_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+static COW_MAP_VAL_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+extern "C" fn count_cow_map_key_inc(_ptr: *mut u8) {
+    COW_MAP_KEY_INC_CALLS.fetch_add(1, Ordering::SeqCst);
+}
+
+extern "C" fn count_cow_map_val_inc(_ptr: *mut u8) {
+    COW_MAP_VAL_INC_CALLS.fetch_add(1, Ordering::SeqCst);
+}
+
+extern "C" fn count_cow_map_key_dec(_ptr: *mut u8) {
+    COW_MAP_KEY_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+}
+
+extern "C" fn count_cow_map_val_dec(_ptr: *mut u8) {
+    COW_MAP_VAL_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+}
+
+fn reset_cow_map_element_call_counts() {
+    COW_MAP_KEY_INC_CALLS.store(0, Ordering::SeqCst);
+    COW_MAP_VAL_INC_CALLS.store(0, Ordering::SeqCst);
+    COW_MAP_KEY_DEC_CALLS.store(0, Ordering::SeqCst);
+    COW_MAP_VAL_DEC_CALLS.store(0, Ordering::SeqCst);
+}
+
 /// Helper: allocate an RC'd hash table map buffer with i64 keys and i64 values.
 ///
 /// Returns `(data, actual_cap)`. The capacity is a power-of-two from the hash
@@ -4668,6 +4733,92 @@ fn free_i64_map(data: *mut u8, cap: usize) {
 }
 
 #[test]
+fn map_literal_duplicate_key_replaces_owned_entry_and_reports_unique_count() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let ks = std::mem::size_of::<i64>() as i64;
+    let vs = std::mem::size_of::<i64>() as i64;
+    let mut cap = 0;
+    let data = map::ori_map_literal_alloc(3, ks, vs, &mut cap);
+
+    static KEY_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static VAL_DEC_CALLS: AtomicUsize = AtomicUsize::new(0);
+    KEY_DEC_CALLS.store(0, Ordering::SeqCst);
+    VAL_DEC_CALLS.store(0, Ordering::SeqCst);
+    extern "C" fn count_key_dec(_ptr: *mut u8) {
+        KEY_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+    extern "C" fn count_val_dec(_ptr: *mut u8) {
+        VAL_DEC_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+
+    let key = 7_i64;
+    let first_value = 11_i64;
+    let colliding_key = key + cap;
+    let colliding_value = 33_i64;
+    let later_value = 22_i64;
+    let first_inserted = map::ori_map_literal_put(
+        data,
+        cap,
+        std::ptr::from_ref(&key).cast(),
+        std::ptr::from_ref(&first_value).cast(),
+        ks,
+        vs,
+        i64_key_eq,
+        i64_key_hash,
+        Some(count_key_dec),
+        Some(count_val_dec),
+    );
+    let collision_inserted = map::ori_map_literal_put(
+        data,
+        cap,
+        std::ptr::from_ref(&colliding_key).cast(),
+        std::ptr::from_ref(&colliding_value).cast(),
+        ks,
+        vs,
+        i64_key_eq,
+        i64_key_hash,
+        Some(count_key_dec),
+        Some(count_val_dec),
+    );
+    let later_inserted = map::ori_map_literal_put(
+        data,
+        cap,
+        std::ptr::from_ref(&key).cast(),
+        std::ptr::from_ref(&later_value).cast(),
+        ks,
+        vs,
+        i64_key_eq,
+        i64_key_hash,
+        Some(count_key_dec),
+        Some(count_val_dec),
+    );
+
+    assert_eq!(first_inserted, 1, "first key contributes to map length");
+    assert_eq!(
+        collision_inserted, 1,
+        "a hash collision without equality remains a distinct key"
+    );
+    assert_eq!(later_inserted, 0, "equal later key replaces in place");
+    assert_eq!(KEY_DEC_CALLS.load(Ordering::SeqCst), 1);
+    assert_eq!(VAL_DEC_CALLS.load(Ordering::SeqCst), 1);
+    unsafe {
+        assert_eq!(map_lookup_val(data, cap as usize, key), Some(later_value));
+        assert_eq!(
+            map_lookup_val(data, cap as usize, colliding_key),
+            Some(colliding_value)
+        );
+        let entries = map_collect_entries(data, cap as usize);
+        assert_eq!(entries.len(), 2);
+        assert!(entries.contains(&(key, later_value)));
+        assert!(entries.contains(&(colliding_key, colliding_value)));
+    }
+
+    free_i64_map(data, cap as usize);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+#[test]
 fn cow_map_insert_into_empty() {
     let _g = lock_rc();
     let before = ori_rc_live_count();
@@ -4688,6 +4839,7 @@ fn cow_map_insert_into_empty() {
         vs,
         i64_key_eq,
         i64_key_hash,
+        None,
         None,
         None,
         None,
@@ -4750,6 +4902,7 @@ fn cow_map_insert_unique_new_key_with_capacity() {
         None,
         None,
         None,
+        None,
         0,
         out.as_mut_ptr(),
     );
@@ -4804,6 +4957,7 @@ fn cow_map_insert_unique_existing_key_overwrites() {
         vs,
         i64_key_eq,
         i64_key_hash,
+        None,
         None,
         None,
         None,
@@ -4868,6 +5022,7 @@ fn cow_map_insert_shared_copies() {
         None,
         None,
         None,
+        None,
         0,
         out.as_mut_ptr(),
     );
@@ -4907,6 +5062,113 @@ fn cow_map_insert_shared_copies() {
 }
 
 #[test]
+fn cow_map_insert_static_shared_new_key_releases_old_children() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    reset_cow_map_element_call_counts();
+    let ks = std::mem::size_of::<i64>() as i64;
+    let vs = std::mem::size_of::<i64>() as i64;
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20], &[100, 200], 4);
+    let key = 30_i64;
+    let value = 300_i64;
+    let mut out = [0_u8; 24];
+
+    map::cow::ori_map_insert_cow(
+        data,
+        2,
+        alloc_cap as i64,
+        std::ptr::from_ref(&key).cast(),
+        std::ptr::from_ref(&value).cast(),
+        ks,
+        vs,
+        i64_key_eq,
+        i64_key_hash,
+        Some(count_cow_map_key_inc),
+        Some(count_cow_map_val_inc),
+        Some(count_cow_map_key_dec),
+        Some(count_cow_map_val_dec),
+        2,
+        out.as_mut_ptr(),
+    );
+
+    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 3);
+    assert_ne!(result_data, data, "static-shared insert must copy");
+    assert_eq!(COW_MAP_KEY_INC_CALLS.load(Ordering::SeqCst), 3);
+    assert_eq!(COW_MAP_VAL_INC_CALLS.load(Ordering::SeqCst), 3);
+    assert_eq!(COW_MAP_KEY_DEC_CALLS.load(Ordering::SeqCst), 2);
+    assert_eq!(COW_MAP_VAL_DEC_CALLS.load(Ordering::SeqCst), 2);
+
+    ori_map_buffer_rc_dec(
+        result_data,
+        cap,
+        len,
+        ks,
+        vs,
+        Some(count_cow_map_key_dec),
+        Some(count_cow_map_val_dec),
+    );
+    assert_eq!(COW_MAP_KEY_DEC_CALLS.load(Ordering::SeqCst), 5);
+    assert_eq!(COW_MAP_VAL_DEC_CALLS.load(Ordering::SeqCst), 5);
+    assert_eq!(ori_rc_live_count(), before, "old and result buffers freed");
+}
+
+#[test]
+fn cow_map_insert_static_shared_overwrite_releases_old_children() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    reset_cow_map_element_call_counts();
+    let ks = std::mem::size_of::<i64>() as i64;
+    let vs = std::mem::size_of::<i64>() as i64;
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20], &[100, 200], 4);
+    let key = 20_i64;
+    let value = 999_i64;
+    let mut out = [0_u8; 24];
+
+    map::cow::ori_map_insert_cow(
+        data,
+        2,
+        alloc_cap as i64,
+        std::ptr::from_ref(&key).cast(),
+        std::ptr::from_ref(&value).cast(),
+        ks,
+        vs,
+        i64_key_eq,
+        i64_key_hash,
+        Some(count_cow_map_key_inc),
+        Some(count_cow_map_val_inc),
+        Some(count_cow_map_key_dec),
+        Some(count_cow_map_val_dec),
+        2,
+        out.as_mut_ptr(),
+    );
+
+    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 2);
+    assert_ne!(result_data, data, "static-shared overwrite must copy");
+    unsafe {
+        assert_eq!(map_lookup_val(result_data, cap as usize, 20), Some(999));
+    }
+    assert_eq!(COW_MAP_KEY_INC_CALLS.load(Ordering::SeqCst), 2);
+    assert_eq!(COW_MAP_VAL_INC_CALLS.load(Ordering::SeqCst), 2);
+    assert_eq!(COW_MAP_KEY_DEC_CALLS.load(Ordering::SeqCst), 2);
+    assert_eq!(COW_MAP_VAL_DEC_CALLS.load(Ordering::SeqCst), 2);
+
+    ori_map_buffer_rc_dec(
+        result_data,
+        cap,
+        len,
+        ks,
+        vs,
+        Some(count_cow_map_key_dec),
+        Some(count_cow_map_val_dec),
+    );
+    assert_eq!(COW_MAP_KEY_DEC_CALLS.load(Ordering::SeqCst), 4);
+    assert_eq!(COW_MAP_VAL_DEC_CALLS.load(Ordering::SeqCst), 4);
+    assert_eq!(ori_rc_live_count(), before, "old and result buffers freed");
+}
+
+#[test]
 fn cow_map_insert_unique_needs_growth() {
     let _g = lock_rc();
     let before = ori_rc_live_count();
@@ -4931,6 +5193,7 @@ fn cow_map_insert_unique_needs_growth() {
         vs,
         i64_key_eq,
         i64_key_hash,
+        None,
         None,
         None,
         None,
@@ -4991,6 +5254,7 @@ fn cow_map_insert_1000_sequential_amortized() {
             vs,
             i64_key_eq,
             i64_key_hash,
+            None,
             None,
             None,
             None,
@@ -5484,6 +5748,7 @@ fn cow_map_update_key_not_found() {
         None,
         None,
         None,
+        None,
         0,
         out.as_mut_ptr(),
     );
@@ -5533,6 +5798,7 @@ fn cow_map_update_unique_overwrites_in_place() {
         vs,
         i64_key_eq,
         i64_key_hash,
+        None,
         None,
         None,
         None,
@@ -5591,6 +5857,7 @@ fn cow_map_update_shared_copies() {
         vs,
         i64_key_eq,
         i64_key_hash,
+        None,
         None,
         None,
         None,
@@ -5657,6 +5924,7 @@ fn cow_map_update_on_empty() {
         vs,
         i64_key_eq,
         i64_key_hash,
+        None,
         None,
         None,
         None,
@@ -7381,6 +7649,7 @@ fn cow_map_updated_releases_caller_value_reference() {
         i64_key_hash,
         None,
         Some(track_val_inc),
+        None,
         Some(track_val_dec),
         0,
         out.as_mut_ptr(),
@@ -7430,6 +7699,7 @@ fn cow_map_updated_replaces_existing_key_value() {
         vs,
         i64_key_eq,
         i64_key_hash,
+        None,
         None,
         None,
         None,

@@ -29,6 +29,7 @@ impl Parser<'_> {
         clippy::too_many_lines,
         reason = "exhaustive primary expression token dispatch — one branch per token kind"
     )]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_primary(&mut self) -> ParseOutcome<ExprId> {
         debug!(
             pos = self.cursor.position(),

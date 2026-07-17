@@ -1,9 +1,9 @@
 //! Block and let inference.
 
-use ori_ir::{BindingPatternId, ExprArena, ExprId, ExprKind, Name, ParsedTypeId, Span};
+use ori_ir::{BindingPatternId, ExprArena, ExprId, ExprKind, Name, ParsedType, ParsedTypeId, Span};
 
 use crate::type_error::TypeCheckError;
-use crate::{Expected, Idx};
+use crate::{ConstGenericTerm, ConstValue, Expected, Idx};
 
 use super::super::InferEngine;
 use super::lambdas::maybe_generalize;
@@ -11,19 +11,6 @@ use super::{
     bind_pattern, check_expr, infer_expr, infer_optional_or_unit, pattern_is_irrefutable,
     resolve_and_check_parsed_type,
 };
-
-/// Distinguishes a plain let-binding from a try-block let-binding.
-///
-/// A try-block binding auto-unwraps `Result`/`Option` initializers (Spec
-/// Clause 17); a plain binding checks the initializer directly. Selects
-/// between the two paths in [`infer_let_binding_impl`] and, one level up,
-/// between [`infer_block`]'s and [`super::sequences::infer_try_stmt`]'s
-/// statement-loop dispatch in [`infer_stmt`].
-#[derive(Clone, Copy)]
-pub(crate) enum LetInitUnwrap {
-    Direct,
-    ResultOrOption,
-}
 
 /// Infer the type of a block expression.
 pub(crate) fn infer_block(
@@ -36,7 +23,7 @@ pub(crate) fn infer_block(
     engine.enter_scope();
 
     for stmt in arena.get_stmt_range(stmts) {
-        infer_stmt(engine, arena, stmt, LetInitUnwrap::Direct);
+        infer_stmt(engine, arena, stmt);
     }
 
     let block_ty = infer_optional_or_unit(engine, arena, result);
@@ -57,31 +44,13 @@ pub(crate) fn infer_let(
     _mutable: ori_ir::Mutability,
     span: Span,
 ) -> Idx {
-    let _ = infer_let_binding_impl(
-        engine,
-        arena,
-        pattern,
-        ty,
-        init,
-        span,
-        LetInitUnwrap::Direct,
-    );
+    let _ = infer_let_binding_impl(engine, arena, pattern, ty, init, span);
     Idx::UNIT
 }
 
-/// Process one statement — infer an expression statement for its side
-/// effects, or run a let-binding under `unwrap`'s mode.
-///
-/// Shared skeleton for [`infer_block`]'s statement loop and
-/// [`super::sequences::infer_try_stmt`]'s try-block statement loop — both
-/// dispatch on the same `StmtKind` shape, differing only in which
-/// [`LetInitUnwrap`] mode the let-binding checks against.
-pub(crate) fn infer_stmt(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    stmt: &ori_ir::Stmt,
-    unwrap: LetInitUnwrap,
-) {
+/// Process one statement: infer an expression statement for its side
+/// effects, or infer and bind a let initializer at its actual type.
+pub(crate) fn infer_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, stmt: &ori_ir::Stmt) {
     match &stmt.kind {
         ori_ir::StmtKind::Expr(expr_id) => {
             let _ = infer_expr(engine, arena, *expr_id);
@@ -90,15 +59,14 @@ pub(crate) fn infer_stmt(
         ori_ir::StmtKind::Let {
             pattern, ty, init, ..
         } => {
-            let _ = infer_let_binding_impl(engine, arena, *pattern, *ty, *init, stmt.span, unwrap);
+            let _ = infer_let_binding_impl(engine, arena, *pattern, *ty, *init, stmt.span);
         }
     }
 }
 
-/// Shared skeleton for [`infer_let`] and the try-block let path
-/// (invoked by [`infer_stmt`] with `unwrap: LetInitUnwrap::ResultOrOption`) —
-/// the two binding shapes differ only in whether the initializer's type is
-/// unwrapped from `Result`/`Option` before checking (`unwrap`).
+/// Shared skeleton for expression-position and statement-position let
+/// bindings. The initializer's source type is always the binding's type;
+/// only an explicit `?` expression unwraps `Result` or `Option`.
 fn infer_let_binding_impl(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -106,7 +74,6 @@ fn infer_let_binding_impl(
     ty_id: ParsedTypeId,
     init: ExprId,
     span: Span,
-    unwrap: LetInitUnwrap,
 ) -> Idx {
     let pat = arena.get_binding_pattern(pattern_id);
 
@@ -119,33 +86,25 @@ fn infer_let_binding_impl(
     let final_ty = if ty_id.is_valid() {
         let parsed_ty = arena.get_parsed_type(ty_id);
         let expected_ty = resolve_and_check_parsed_type(engine, arena, parsed_ty, span);
-        let expected =
-            Expected::from_annotation(expected_ty, binding_name.unwrap_or(Name::EMPTY), span);
-        match unwrap {
-            // Direct bidirectional Check(T) propagates the annotation into `init`.
-            LetInitUnwrap::Direct => {
-                let _init_ty = check_expr(engine, arena, init, &expected, span);
-            }
-
-            // The raw initializer type is Result<T, E>/Option<T>, not T, so it
-            // must be inferred bottom-up and unwrapped before unifying with T.
-            LetInitUnwrap::ResultOrOption => {
-                let init_ty = infer_expr(engine, arena, init);
-                let unwrapped = engine.unwrap_result_or_option(init_ty);
-                let _ = engine.check_type(unwrapped, &expected, span);
-            }
-        }
+        let expected = fixed_list_literal_capacity(arena, parsed_ty).map_or_else(
+            || Expected::from_annotation(expected_ty, binding_name.unwrap_or(Name::EMPTY), span),
+            |capacity| {
+                Expected::from_fixed_list_annotation(
+                    expected_ty,
+                    binding_name.unwrap_or(Name::EMPTY),
+                    span,
+                    capacity,
+                )
+            },
+        );
+        // Direct bidirectional Check(T) propagates the annotation into `init`.
+        let _init_ty = check_expr(engine, arena, init, &expected, span);
         expected_ty
     } else {
         let init_ty = infer_expr(engine, arena, init);
 
-        let bound_ty = match unwrap {
-            LetInitUnwrap::Direct => init_ty,
-            LetInitUnwrap::ResultOrOption => engine.unwrap_result_or_option(init_ty),
-        };
-
         // Spec: Clause 14 Value Restriction: only non-capturing lambdas are generalized.
-        maybe_generalize(engine, arena, init, bound_ty)
+        maybe_generalize(engine, arena, init, init_ty)
     };
 
     rewrite_lambda_self_capture(engine, arena, init, binding_name, errors_before);
@@ -159,6 +118,22 @@ fn infer_let_binding_impl(
     bind_pattern(engine, arena, pat, final_ty);
 
     final_ty
+}
+
+/// Preserve a direct fixed-list capacity literal as a value-domain constraint.
+///
+/// The ordinary type representation currently erases fixed-list capacity to
+/// the list carrier. This side constraint prevents a call such as
+/// `let xs: [int, max 3] = value.first_n()` from losing `N = 3` before the
+/// shared method-monomorphization producer runs.
+fn fixed_list_literal_capacity(arena: &ExprArena, parsed: &ParsedType) -> Option<ConstGenericTerm> {
+    let ParsedType::FixedList { capacity, .. } = parsed else {
+        return None;
+    };
+    match arena.get_expr(*capacity).kind {
+        ExprKind::Int(value) => Some(ConstGenericTerm::Value(ConstValue::Int(value))),
+        _ => None,
+    }
 }
 
 /// Rewrite a self-referencing lambda initializer's `UnknownIdent` error (for

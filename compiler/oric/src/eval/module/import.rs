@@ -111,6 +111,20 @@ impl<'a> ImportedModule<'a> {
 
         module_functions
     }
+
+    /// Capture the importing environment together with every function owned by
+    /// this module.
+    ///
+    /// Imported methods need the same lexical view as imported functions: they
+    /// may call bindings already visible to the consumer as well as private
+    /// helpers from their defining module.
+    pub(crate) fn shared_captures(&self, env: &Environment) -> Arc<FxHashMap<Name, Value>> {
+        let mut captures = env.capture();
+        for (name, value) in &self.functions {
+            captures.insert(*name, value.clone());
+        }
+        Arc::new(captures)
+    }
 }
 
 /// Build a map of all functions in a module.
@@ -174,13 +188,7 @@ pub(crate) fn register_imports(
 
     // Build enriched captures once (current environment + all module functions)
     // and share via Arc, rather than cloning the environment per imported item.
-    let shared_captures: Arc<FxHashMap<Name, Value>> = {
-        let mut captures = env.capture();
-        for (name, value) in &imported.functions {
-            captures.insert(*name, value.clone());
-        }
-        Arc::new(captures)
-    };
+    let shared_captures = imported.shared_captures(env);
 
     let mut errors = Vec::new();
 

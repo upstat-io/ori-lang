@@ -95,6 +95,33 @@ fn seed_sharing_methods_return_maybe_shared() {
 }
 
 #[test]
+fn fixed_capacity_conversions_are_direct_identity_transfers() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    for name in ["to_dynamic", "to_fixed"] {
+        let contract = &sigs[&interner.intern(name)];
+        assert_eq!(contract.params.len(), 1, "List.{name} receiver arity");
+        assert_eq!(
+            contract.params[0].access,
+            AccessClass::Owned,
+            "List.{name} transfers its receiver credit"
+        );
+        assert_eq!(contract.params[0].consumption, Consumption::Linear);
+        assert!(contract.params[0].transfers_through_return);
+        assert_eq!(
+            contract.params[0].return_alias,
+            Some(ReturnAliasShape::Direct)
+        );
+        assert!(
+            !contract.return_info.returns_sharing_view,
+            "List.{name} moves one credit; it does not mint a sharing-view credit"
+        );
+    }
+}
+
+#[test]
 fn seed_does_not_overwrite_existing() {
     let (interner, builtins) = setup();
     let mut sigs = FxHashMap::default();
@@ -108,6 +135,20 @@ fn seed_does_not_overwrite_existing() {
 
     // Should not overwrite the existing entry.
     assert_eq!(sigs[&len_name].params.len(), 3);
+}
+
+#[test]
+fn iter_map_contract_matches_five_argument_runtime_abi() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    let contract = &sigs[&interner.intern("ori_iter_map")];
+    assert_eq!(contract.params.len(), 5);
+    assert_eq!(contract.params[0].access, AccessClass::Owned);
+    assert!(contract.params[1..]
+        .iter()
+        .all(|param| param.access == AccessClass::Borrowed));
 }
 
 #[test]
@@ -456,7 +497,8 @@ fn seed_ori_inject_trace_forwarder_identity_transfer() {
 
 /// Positive pin: every seamless-slice view producer carries the typed
 /// sharing-view CREDIT on its return contract, with a borrowed (non-consuming)
-/// receiver — the READ + CREDIT boundary pair.
+/// receiver and a sharing effect that invalidates the receiver's pre-call
+/// uniqueness — the READ + CREDIT boundary pair.
 #[test]
 fn sharing_view_builtins_carry_returns_sharing_view_credit() {
     let (interner, builtins) = setup();
@@ -486,6 +528,14 @@ fn sharing_view_builtins_carry_returns_sharing_view_credit() {
             contract.params[0].access,
             AccessClass::Borrowed,
             "{name} receiver is borrowed (READ), the CREDIT rides the return"
+        );
+        assert!(
+            contract.params[0].may_share,
+            "{name} receiver contract must publish the retained backing owner"
+        );
+        assert!(
+            contract.effects.may_share,
+            "{name} must invalidate Unique on its borrowed receiver"
         );
     }
 }

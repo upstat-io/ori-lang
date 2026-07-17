@@ -34,16 +34,7 @@ fn lower_call_expr(
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: call,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, call);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
@@ -192,16 +183,7 @@ fn lower_method_call_user_defined() {
         TypeId::from_raw(Idx::STR.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: method_call,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, method_call);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(

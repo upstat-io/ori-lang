@@ -171,6 +171,48 @@ pub fn build_impl_rigid_var_subst(
     out
 }
 
+/// Build the concrete body-type map for a method owned by a generic impl.
+///
+/// Named bindings cover declaration-level type parameters while the derived
+/// rigid substitution covers canonical body types. When the caller supplies a
+/// generic receiver body, the helper materializes and registers its concrete
+/// layout before ARC lowering resolves field projections.
+pub fn build_impl_mono_body_type_map(
+    pool: &mut Pool,
+    named_bindings: &[(ori_ir::Name, Idx)],
+    receiver: Idx,
+    receiver_body: Option<Idx>,
+    concrete_receiver: Option<Idx>,
+) -> FxHashMap<Idx, Idx> {
+    let named: FxHashMap<_, _> = named_bindings.iter().copied().collect();
+    let rigid_subst = build_impl_rigid_var_subst(pool, &named);
+    let generic_body = receiver_body.or_else(|| pool.resolve(receiver));
+    let concrete_receiver_body =
+        if let (Some(concrete_receiver), Some(generic_body)) = (concrete_receiver, generic_body) {
+            let named_body = substitute_named_in_pool(pool, generic_body, &named);
+            let concrete_body = substitute_in_pool(pool, named_body, &rigid_subst);
+            pool.set_resolution(concrete_receiver, concrete_body);
+            Some((generic_body, concrete_body))
+        } else {
+            None
+        };
+    let named_entries: Vec<_> = named
+        .iter()
+        .map(|(&name, &concrete)| (pool.named(name), concrete))
+        .collect();
+    let mut body_type_map: FxHashMap<_, _> =
+        build_finalized_body_type_map(pool, &rigid_subst, &named_entries)
+            .into_iter()
+            .collect();
+    if let Some(concrete_receiver) = concrete_receiver {
+        body_type_map.insert(receiver, concrete_receiver);
+    }
+    if let Some((generic_body, concrete_body)) = concrete_receiver_body {
+        body_type_map.insert(generic_body, concrete_body);
+    }
+    body_type_map
+}
+
 /// Substitute in a single-child container (List, Option, Set, etc.).
 fn substitute_single_child(
     pool: &mut Pool,
@@ -179,7 +221,48 @@ fn substitute_single_child(
     ctor: fn(&mut Pool, Idx) -> Idx,
 ) -> Idx {
     let child = Idx::from_raw(pool.data(ty));
-    let new_child = substitute_in_pool(pool, child, var_subst);
+    substitute_child(pool, ty, child, var_subst, substitute_in_pool, ctor)
+}
+
+/// Substitute in a Map type (key + value).
+fn substitute_map(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
+    let key = pool.map_key(ty);
+    let value = pool.map_value(ty);
+    substitute_pair(
+        pool,
+        ty,
+        key,
+        value,
+        var_subst,
+        substitute_in_pool,
+        Pool::map,
+    )
+}
+
+/// Substitute in a Result type (ok + err).
+fn substitute_result(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
+    let ok = pool.result_ok(ty);
+    let err = pool.result_err(ty);
+    substitute_pair(
+        pool,
+        ty,
+        ok,
+        err,
+        var_subst,
+        substitute_in_pool,
+        Pool::result,
+    )
+}
+
+fn substitute_child<C>(
+    pool: &mut Pool,
+    ty: Idx,
+    child: Idx,
+    context: &C,
+    recurse: fn(&mut Pool, Idx, &C) -> Idx,
+    ctor: fn(&mut Pool, Idx) -> Idx,
+) -> Idx {
+    let new_child = recurse(pool, child, context);
     if new_child == child {
         ty
     } else {
@@ -187,29 +270,21 @@ fn substitute_single_child(
     }
 }
 
-/// Substitute in a Map type (key + value).
-fn substitute_map(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let key = pool.map_key(ty);
-    let value = pool.map_value(ty);
-    let new_key = substitute_in_pool(pool, key, var_subst);
-    let new_value = substitute_in_pool(pool, value, var_subst);
-    if new_key == key && new_value == value {
+fn substitute_pair<C>(
+    pool: &mut Pool,
+    ty: Idx,
+    first: Idx,
+    second: Idx,
+    context: &C,
+    recurse: fn(&mut Pool, Idx, &C) -> Idx,
+    ctor: fn(&mut Pool, Idx, Idx) -> Idx,
+) -> Idx {
+    let new_first = recurse(pool, first, context);
+    let new_second = recurse(pool, second, context);
+    if new_first == first && new_second == second {
         ty
     } else {
-        pool.map(new_key, new_value)
-    }
-}
-
-/// Substitute in a Result type (ok + err).
-fn substitute_result(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let ok = pool.result_ok(ty);
-    let err = pool.result_err(ty);
-    let new_ok = substitute_in_pool(pool, ok, var_subst);
-    let new_err = substitute_in_pool(pool, err, var_subst);
-    if new_ok == ok && new_err == err {
-        ty
-    } else {
-        pool.result(new_ok, new_err)
+        ctor(pool, new_first, new_second)
     }
 }
 

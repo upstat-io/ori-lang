@@ -15,7 +15,7 @@
 
 use std::ptr;
 
-use super::state::{ElemBuf, IterState, PredicateFn, TransformFn};
+use super::state::{ElemBuf, IterState, PredicateFn, TransformFn, YieldGuard};
 
 impl IterState {
     /// Advance the iterator from the back, writing the element to `out_ptr`.
@@ -46,6 +46,7 @@ impl IterState {
                 transform_fn,
                 transform_env,
                 in_size,
+                ..
             } => Self::next_back_mapped(source, *transform_fn, *transform_env, *in_size, out_ptr),
             Self::Filtered {
                 source,
@@ -140,6 +141,7 @@ impl IterState {
         if !source.next_back(scratch.as_mut_ptr(), in_size) {
             return false;
         }
+        let _source_yield = YieldGuard::new(source, scratch.as_mut_ptr());
         (transform_fn)(transform_env, scratch.as_ptr(), out_ptr);
         true
     }
@@ -156,7 +158,9 @@ impl IterState {
             if !source.next_back(out_ptr, es) {
                 return false;
             }
+            let mut source_yield = YieldGuard::new(source, out_ptr);
             if (predicate_fn)(predicate_env, out_ptr) {
+                source_yield.disarm();
                 return true;
             }
         }

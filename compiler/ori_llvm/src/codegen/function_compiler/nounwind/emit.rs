@@ -142,6 +142,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.debug_context,
         );
         emitter.set_verify_arc(self.verify_arc);
+        emitter.set_func_contract(self.aims_contracts.get(&lambda.arc_func.name));
         emitter.emit_function(&lambda.arc_func, &lambda.abi);
 
         // Post-emission CFG simplification

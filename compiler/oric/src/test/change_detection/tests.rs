@@ -1,6 +1,4 @@
-use ori_ir::canon::{
-    CanArena, CanExpr, CanNode, CanonResult, CanonRoot, ConstantPool, DecisionTreePool,
-};
+use ori_ir::canon::{CanArena, CanExpr, CanNode, CanonResult, CanonRoot};
 use ori_ir::{ExprId, Name, Span, TypeId};
 
 use super::*;
@@ -26,13 +24,8 @@ fn make_canon(roots: &[(u32, i64)]) -> CanonResult {
 
     CanonResult {
         arena,
-        constants: ConstantPool::default(),
-        decision_trees: DecisionTreePool::default(),
-        root: ori_ir::canon::CanId::INVALID,
         roots: canon_roots,
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
+        ..CanonResult::empty()
     }
 }
 

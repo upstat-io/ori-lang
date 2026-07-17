@@ -63,16 +63,7 @@ fn lower_block_with_let() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: block,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, block);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
@@ -124,16 +115,7 @@ fn lower_if_else_produces_four_blocks() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: if_expr,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, if_expr);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
@@ -188,16 +170,7 @@ fn lower_loop_produces_header_and_exit() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: loop_expr,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, loop_expr);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
@@ -369,16 +342,7 @@ fn for_range_with_mutable_vars_ssa_well_formed() {
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: block,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, block);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
@@ -439,16 +403,7 @@ fn lower_index_assignment_reports_internal_error_instead_of_panicking() {
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: assign,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, assign);
 
     let mut problems = Vec::new();
     let _ = super::super::super::lower_function_can(
@@ -506,16 +461,7 @@ fn lower_field_assignment_reports_internal_error_instead_of_panicking() {
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: assign,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, assign);
 
     let mut problems = Vec::new();
     let _ = super::super::super::lower_function_can(
@@ -1128,6 +1074,93 @@ fn type_store_size_all_unit_enum_in_aggregate() {
     );
 }
 
+#[test]
+fn match_wildcard_discard_materializes_field_project() {
+    use ori_ir::canon::{DecisionTree, PathInstruction};
+
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let tuple_ty = pool.tuple(&[Idx::INT, Idx::STR]);
+    let mut arena = CanArena::with_capacity(8);
+
+    let first = arena.push(CanNode::new(
+        CanExpr::Int(1),
+        Span::new(0, 1),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let text = interner.intern("owned");
+    let second = arena.push(CanNode::new(
+        CanExpr::Str(text),
+        Span::new(3, 10),
+        TypeId::from_raw(Idx::STR.raw()),
+    ));
+    let elements = arena.push_expr_list(&[first, second]);
+    let scrutinee = arena.push(CanNode::new(
+        CanExpr::Tuple(elements),
+        Span::new(0, 11),
+        TypeId::from_raw(tuple_ty.raw()),
+    ));
+    let arm = arena.push(CanNode::new(
+        CanExpr::Int(7),
+        Span::new(20, 21),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let arms = arena.push_expr_list(&[arm]);
+
+    let mut decision_trees = ori_ir::canon::DecisionTreePool::new();
+    let tree_id = decision_trees.push_with_leaf_discards(
+        DecisionTree::Leaf {
+            arm_index: 0,
+            bindings: vec![],
+        },
+        vec![vec![vec![PathInstruction::TupleIndex(1)]]],
+    );
+    let match_expr = arena.push(CanNode::new(
+        CanExpr::Match {
+            scrutinee,
+            decision_tree: tree_id,
+            arms,
+        },
+        Span::new(0, 21),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+
+    let canon = CanonResult {
+        decision_trees,
+        ..CanonResult::new(arena, match_expr)
+    };
+    let mut problems = Vec::new();
+    let (func, _) = super::super::super::lower_function_can(
+        Name::from_raw(1),
+        &[],
+        Idx::INT,
+        match_expr,
+        &canon,
+        &interner,
+        &pool,
+        &mut problems,
+        false,
+        None,
+    );
+
+    assert!(problems.is_empty(), "problems: {problems:?}");
+    assert!(func
+        .blocks
+        .iter()
+        .flat_map(|block| &block.body)
+        .any(|instr| {
+            matches!(
+                instr,
+                crate::ir::ArcInstr::Project {
+                    ty,
+                    field: 1,
+                    ..
+                } if *ty == Idx::STR
+            )
+        }));
+    assert_jump_args_match_params(&func);
+}
+
 // Match merge-param divergence pruning (Cure B for the dead-merge-param leak)
 
 /// Shared scaffold for the merge-param pruning pins: lowers
@@ -1201,14 +1234,8 @@ fn lower_bool_match_with_mutable_binding(
     ));
 
     let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
         decision_trees,
-        root: body,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
+        ..CanonResult::new(arena, body)
     };
 
     let mut problems = Vec::new();

@@ -189,6 +189,17 @@ else
 fi
 echo ""
 
+# Tracing dependency coverage (blocking - abort on failure)
+echo "=== Checking tracing dependency coverage ==="
+if diagnostics/check-tracing-coverage.sh --no-color > /dev/null 2>&1; then
+    echo "  [ok] Tracing dependency coverage check passed"
+else
+    echo -e "${RED}  [fail] Tracing dependency coverage check FAILED${NC}"
+    echo "    Run 'diagnostics/check-tracing-coverage.sh' for details."
+    exit 1
+fi
+echo ""
+
 # Crate-DAG + canon-consumer registration lint (--warn-only): surfaces
 # unregistered-consumer source-scan findings without gating the suite.
 echo "=== Checking crate-DAG + canon-consumer registration ==="

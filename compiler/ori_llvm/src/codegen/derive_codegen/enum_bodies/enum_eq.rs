@@ -3,7 +3,7 @@
 //! Compares tags first, then per-variant payload comparison for payload enums.
 
 use ori_ir::FieldOp;
-use ori_types::VariantDef;
+use ori_types::{Idx, VariantDef};
 
 use super::super::super::function_compiler::FunctionCompiler;
 use super::super::super::type_info::TypeLayoutResolver;
@@ -12,6 +12,23 @@ use super::super::field_ops::emit_field_operation;
 use super::super::DeriveSetup;
 
 use super::{variant_field_types, variant_non_void_field_types};
+
+/// Pair each declaration field with its packed payload offset, then put cheap
+/// scalar comparisons before managed comparisons without changing layout.
+fn scalar_first_payload_fields<'a>(
+    fc: &FunctionCompiler<'_, 'a, 'a, '_>,
+    field_types: &[Idx],
+) -> Vec<(usize, Idx, u64)> {
+    let mut i64_offset = 0;
+    let mut fields = Vec::with_capacity(field_types.len());
+    for (field_index, &field_type) in field_types.iter().enumerate() {
+        fields.push((field_index, field_type, i64_offset));
+        let field_bytes = TypeLayoutResolver::type_store_size(fc.resolve_type(field_type));
+        i64_offset += field_bytes.div_ceil(8).max(1);
+    }
+    fields.sort_by_key(|(_, field_type, _)| !fc.is_arc_scalar(*field_type));
+    fields
+}
 
 /// Enum Eq: compare tags first, then per-variant payload comparison.
 ///
@@ -104,6 +121,7 @@ fn emit_enum_payload_eq<'a>(
         let bb = fc
             .builder_mut()
             .append_block(func_id, &format!("eq.v.{variant_name}"));
+
         let tag_val = fc
             .builder_mut()
             .const_int_matching(tag_self, tag_idx as u64);
@@ -117,6 +135,7 @@ fn emit_enum_payload_eq<'a>(
             .builder_mut()
             .extract_value(self_val, 1, "eq.self.payload")
             .expect("self should be struct");
+
         let other_payload = fc
             .builder_mut()
             .extract_value(other_val, 1, "eq.other.payload")
@@ -133,17 +152,22 @@ fn emit_enum_payload_eq<'a>(
                 continue;
             }
 
-            let mut i64_offset: u32 = 0;
-            for (fi, &field_type) in field_types.iter().enumerate() {
+            let comparison_order = scalar_first_payload_fields(fc, &field_types);
+            for (comparison_index, (field_index, field_type, i64_offset)) in
+                comparison_order.into_iter().enumerate()
+            {
+                let i64_offset =
+                    u32::try_from(i64_offset).expect("enum payload field offset should fit in u32");
                 let self_raw = fc.builder_mut().extract_value_any(
                     self_payload,
                     i64_offset,
-                    &format!("eq.v{tag_idx}.self.f{fi}"),
+                    &format!("eq.v{tag_idx}.self.f{field_index}"),
                 );
+
                 let other_raw = fc.builder_mut().extract_value_any(
                     other_payload,
                     i64_offset,
-                    &format!("eq.v{tag_idx}.other.f{fi}"),
+                    &format!("eq.v{tag_idx}.other.f{field_index}"),
                 );
 
                 let field_llvm_ty = fc.resolve_type(field_type);
@@ -151,12 +175,13 @@ fn emit_enum_payload_eq<'a>(
                 let self_field = fc.builder_mut().reinterpret_from_i64(
                     self_raw,
                     field_ty_id,
-                    &format!("eq.v{tag_idx}.self.f{fi}.val"),
+                    &format!("eq.v{tag_idx}.self.f{field_index}.val"),
                 );
+
                 let other_field = fc.builder_mut().reinterpret_from_i64(
                     other_raw,
                     field_ty_id,
-                    &format!("eq.v{tag_idx}.other.f{fi}.val"),
+                    &format!("eq.v{tag_idx}.other.f{field_index}.val"),
                 );
 
                 let cmp = emit_field_operation(
@@ -165,22 +190,19 @@ fn emit_enum_payload_eq<'a>(
                     self_field,
                     Some(other_field),
                     field_type,
-                    &format!("eq.v{tag_idx}.f{fi}"),
+                    &format!("eq.v{tag_idx}.f{field_index}"),
                     str_ty_id,
                 );
 
-                if fi + 1 < field_types.len() {
+                if comparison_index + 1 < field_types.len() {
                     let next_bb = fc
                         .builder_mut()
-                        .append_block(func_id, &format!("eq.v{tag_idx}.f{}", fi + 1));
+                        .append_block(func_id, &format!("eq.v{tag_idx}.f{}", comparison_index + 1));
                     fc.builder_mut().cond_br(cmp, next_bb, false_bb);
                     fc.builder_mut().position_at_end(next_bb);
                 } else {
                     fc.builder_mut().cond_br(cmp, true_bb, false_bb);
                 }
-
-                let field_bytes = TypeLayoutResolver::type_store_size(field_llvm_ty);
-                i64_offset += u32::try_from(field_bytes.div_ceil(8).max(1)).unwrap_or(1);
             }
         }
     } else {
@@ -195,6 +217,7 @@ fn emit_enum_payload_eq<'a>(
         let self_payload =
             fc.builder_mut()
                 .struct_gep(enum_ty_id, self_alloca, 1, "eq.self.payload");
+
         let other_payload =
             fc.builder_mut()
                 .struct_gep(enum_ty_id, other_alloca, 1, "eq.other.payload");
@@ -211,25 +234,28 @@ fn emit_enum_payload_eq<'a>(
                 continue;
             }
 
-            let mut i64_offset: u64 = 0;
-            for (fi, &field_type) in field_types.iter().enumerate() {
-                let (self_field, field_llvm_ty) = super::load_payload_slot_field(
+            let comparison_order = scalar_first_payload_fields(fc, &field_types);
+            for (comparison_index, (field_index, field_type, i64_offset)) in
+                comparison_order.into_iter().enumerate()
+            {
+                let (self_field, _) = super::load_payload_slot_field(
                     fc,
                     i64_ty,
                     self_payload,
                     i64_offset,
                     field_type,
-                    &format!("eq.v{tag_idx}.self.f{fi}"),
-                    &format!("eq.v{tag_idx}.self.f{fi}.val"),
+                    &format!("eq.v{tag_idx}.self.f{field_index}"),
+                    &format!("eq.v{tag_idx}.self.f{field_index}.val"),
                 );
+
                 let (other_field, _) = super::load_payload_slot_field(
                     fc,
                     i64_ty,
                     other_payload,
                     i64_offset,
                     field_type,
-                    &format!("eq.v{tag_idx}.other.f{fi}"),
-                    &format!("eq.v{tag_idx}.other.f{fi}.val"),
+                    &format!("eq.v{tag_idx}.other.f{field_index}"),
+                    &format!("eq.v{tag_idx}.other.f{field_index}.val"),
                 );
 
                 let cmp = emit_field_operation(
@@ -238,22 +264,19 @@ fn emit_enum_payload_eq<'a>(
                     self_field,
                     Some(other_field),
                     field_type,
-                    &format!("eq.v{tag_idx}.f{fi}"),
+                    &format!("eq.v{tag_idx}.f{field_index}"),
                     str_ty_id,
                 );
 
-                if fi + 1 < field_types.len() {
+                if comparison_index + 1 < field_types.len() {
                     let next_bb = fc
                         .builder_mut()
-                        .append_block(func_id, &format!("eq.v{tag_idx}.f{}", fi + 1));
+                        .append_block(func_id, &format!("eq.v{tag_idx}.f{}", comparison_index + 1));
                     fc.builder_mut().cond_br(cmp, next_bb, false_bb);
                     fc.builder_mut().position_at_end(next_bb);
                 } else {
                     fc.builder_mut().cond_br(cmp, true_bb, false_bb);
                 }
-
-                let field_bytes = TypeLayoutResolver::type_store_size(field_llvm_ty);
-                i64_offset += field_bytes.div_ceil(8).max(1);
             }
         }
     }

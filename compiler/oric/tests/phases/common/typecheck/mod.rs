@@ -14,7 +14,7 @@ use ori_types::{TypeCheckError, TypeCheckResult};
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// let result = typecheck_source("@add(a: int, b: int) -> int = a + b;");
 /// assert!(!result.has_errors());
 /// ```
@@ -37,7 +37,7 @@ pub fn typecheck_source(source: &str) -> TypeCheckResult {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// let typed = typecheck_ok("@main () -> int = 42;");
 /// ```
 pub fn typecheck_ok(source: &str) -> TypeCheckResult {
@@ -73,7 +73,7 @@ pub fn typecheck_ok(source: &str) -> TypeCheckResult {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// typecheck_err("let x: int = \"hello\"", "type mismatch");
 /// ```
 pub fn typecheck_err(source: &str, expected_error: &str) {

@@ -30,7 +30,9 @@ mod compile_common;
 #[cfg(feature = "llvm")]
 pub(crate) use codegen_pipeline::imported_mono::{
     build_imported_mono_functions as build_imported_mono_functions_for_test_runner,
-    register_prelude_generic_sigs as register_prelude_generic_sigs_for_test_runner, ImportedMonoFn,
+    collect_imported_impl_templates,
+    register_prelude_generic_sigs as register_prelude_generic_sigs_for_test_runner,
+    ImportedImplTemplate, ImportedImplTemplateSource, ImportedMonoBody, ImportedMonoFn,
     ImportedSurfaces,
 };
 mod debug;

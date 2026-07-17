@@ -6,6 +6,7 @@ use crate::exec::call::{
     bind_captures, bind_parameters_with_defaults, check_arg_count, eval_function_val_call,
 };
 use crate::{Environment, EvalResult, FunctionValue, Mutability, Value};
+use ori_ir::canon::MonoConstBinding;
 use ori_patterns::ControlAction;
 
 /// Catch `ControlAction::Propagate` at function call boundaries.
@@ -25,6 +26,16 @@ impl Interpreter<'_> {
     /// Evaluate a function call.
     #[tracing::instrument(level = "debug", skip_all)]
     pub(super) fn eval_call(&mut self, func: &Value, args: &[Value]) -> EvalResult {
+        self.eval_call_with_const_bindings(func, args, &[])
+    }
+
+    /// Evaluate an exact monomorphic function call with solved const bindings.
+    pub(super) fn eval_call_with_const_bindings(
+        &mut self,
+        func: &Value,
+        args: &[Value],
+        const_bindings: &[MonoConstBinding],
+    ) -> EvalResult {
         self.mode_state.count_function_call();
 
         // Enforce ConstEval call budget (no-op for other modes).
@@ -36,7 +47,8 @@ impl Interpreter<'_> {
             Value::Function(f) => {
                 self.check_recursion_limit()?;
                 let self_name = self.self_name;
-                let call_env = self.prepare_call_env(f, args)?;
+                let mut call_env = self.prepare_call_env(f, args)?;
+                bind_const_bindings(&mut call_env, const_bindings);
                 let mut call_interpreter = self.create_function_interpreter(
                     f.shared_arena(),
                     call_env,
@@ -64,7 +76,8 @@ impl Interpreter<'_> {
                 self.check_recursion_limit()?;
                 let self_name = self.self_name;
                 let f = &mf.func;
-                let call_env = self.prepare_call_env(f, args)?;
+                let mut call_env = self.prepare_call_env(f, args)?;
+                bind_const_bindings(&mut call_env, const_bindings);
                 let mut call_interpreter = self.create_function_interpreter(
                     f.shared_arena(),
                     call_env,
@@ -162,5 +175,15 @@ impl Interpreter<'_> {
     /// This is a public wrapper around `eval_call` for use in queries.
     pub fn eval_call_value(&mut self, func: &Value, args: &[Value]) -> EvalResult {
         self.eval_call(func, args)
+    }
+}
+
+fn bind_const_bindings(env: &mut Environment, bindings: &[MonoConstBinding]) {
+    for binding in bindings {
+        env.define(
+            binding.name,
+            super::mono_const_value_to_value(&binding.value),
+            Mutability::Immutable,
+        );
     }
 }

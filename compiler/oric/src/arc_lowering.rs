@@ -6,7 +6,7 @@
 //! `ori_arc::lower_function_can`. This module eliminates that duplication.
 
 use ori_arc::ArcFunction;
-use ori_ir::canon::CanonResult;
+use ori_ir::canon::{CanonResult, MonoConstBinding};
 use ori_ir::{Name, StringInterner};
 use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::FxHashMap;
@@ -50,6 +50,46 @@ pub fn lower_to_arc(
         pool,
         arc_problems,
         type_subst,
+        None,
+    )
+}
+
+/// Lower one exact monomorphized source body with its solved const environment.
+///
+/// `type_name` selects an impl-method canonical root when present. Ordinary
+/// source functions pass `None`. The const bindings are producer-issued mono
+/// metadata; this wrapper never infers them from the body or mangled name.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mono lowering adds exact const bindings to the shared ARC coordinates"
+)]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "downstream lowering consumes the concrete FxHashMap body substitution"
+)]
+pub fn lower_mono_to_arc(
+    name: Name,
+    sig: &FunctionSig,
+    body_name: Name,
+    type_name: Option<Name>,
+    canon: &CanonResult,
+    interner: &StringInterner,
+    pool: &Pool,
+    arc_problems: &mut Vec<ori_arc::ArcProblem>,
+    type_subst: &FxHashMap<Idx, Idx>,
+    const_bindings: &[MonoConstBinding],
+) -> (ArcFunction, Vec<ArcFunction>) {
+    lower_to_arc_impl(
+        name,
+        sig,
+        body_name,
+        type_name,
+        canon,
+        interner,
+        pool,
+        arc_problems,
+        Some(type_subst),
+        Some(const_bindings),
     )
 }
 
@@ -136,6 +176,7 @@ pub fn lower_impl_method_to_arc(
         pool,
         arc_problems,
         type_subst,
+        None,
     )
 }
 
@@ -157,6 +198,67 @@ pub fn lower_impl_method_to_arc_by_source(
     pool: &Pool,
     arc_problems: &mut Vec<ori_arc::ArcProblem>,
     type_subst: Option<&FxHashMap<Idx, Idx>>,
+) -> (ArcFunction, Vec<ArcFunction>) {
+    lower_impl_method_to_arc_by_source_impl(
+        name,
+        sig,
+        source_body,
+        canon,
+        interner,
+        pool,
+        arc_problems,
+        type_subst,
+        None,
+    )
+}
+
+/// Lower one exact monomorphized impl body with solved type and const bindings.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mono impl lowering adds exact const bindings to the shared ARC coordinates"
+)]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "downstream lowering consumes the concrete FxHashMap body substitution"
+)]
+pub fn lower_mono_impl_method_to_arc_by_source(
+    name: Name,
+    sig: &FunctionSig,
+    source_body: ori_ir::ExprId,
+    canon: &CanonResult,
+    interner: &StringInterner,
+    pool: &Pool,
+    arc_problems: &mut Vec<ori_arc::ArcProblem>,
+    type_subst: &FxHashMap<Idx, Idx>,
+    const_bindings: &[MonoConstBinding],
+) -> (ArcFunction, Vec<ArcFunction>) {
+    lower_impl_method_to_arc_by_source_impl(
+        name,
+        sig,
+        source_body,
+        canon,
+        interner,
+        pool,
+        arc_problems,
+        Some(type_subst),
+        Some(const_bindings),
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "shared exact-source lowering coordinates include optional mono substitutions"
+)]
+fn lower_impl_method_to_arc_by_source_impl(
+    name: Name,
+    sig: &FunctionSig,
+    source_body: ori_ir::ExprId,
+    canon: &CanonResult,
+    interner: &StringInterner,
+    pool: &Pool,
+    arc_problems: &mut Vec<ori_arc::ArcProblem>,
+    type_subst: Option<&FxHashMap<Idx, Idx>>,
+    const_bindings: Option<&[MonoConstBinding]>,
 ) -> (ArcFunction, Vec<ArcFunction>) {
     let params: Vec<(Name, Idx)> = sig
         .param_names
@@ -180,7 +282,7 @@ pub fn lower_impl_method_to_arc_by_source(
             Vec::new(),
         );
     };
-    ori_arc::lower_function_can(
+    ori_arc::lower_function_can_with_const_bindings(
         name,
         &params,
         sig.return_type,
@@ -191,6 +293,7 @@ pub fn lower_impl_method_to_arc_by_source(
         arc_problems,
         sig.is_fbip,
         type_subst,
+        const_bindings,
     )
 }
 
@@ -208,6 +311,7 @@ fn lower_to_arc_impl(
     pool: &Pool,
     arc_problems: &mut Vec<ori_arc::ArcProblem>,
     type_subst: Option<&FxHashMap<Idx, Idx>>,
+    const_bindings: Option<&[MonoConstBinding]>,
 ) -> (ArcFunction, Vec<ArcFunction>) {
     let params: Vec<(Name, Idx)> = sig
         .param_names
@@ -225,7 +329,7 @@ fn lower_to_arc_impl(
     } else {
         canon.root_for(body_name).unwrap_or(canon.root)
     };
-    ori_arc::lower_function_can(
+    ori_arc::lower_function_can_with_const_bindings(
         name,
         &params,
         sig.return_type,
@@ -236,5 +340,6 @@ fn lower_to_arc_impl(
         arc_problems,
         sig.is_fbip,
         type_subst,
+        const_bindings,
     )
 }

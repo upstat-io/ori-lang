@@ -1,0 +1,116 @@
+//! Forward fold and last-element consumers.
+
+use std::ptr;
+
+use super::super::state::assert_elem_size;
+use super::super::{ElemBuf, FoldFn};
+use super::take_iter;
+use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
+
+// Fold
+
+/// Fold (reduce) the iterator with an accumulator, consuming it.
+///
+/// `init_ptr` points to the initial accumulator value (`acc_size` bytes).
+/// `fold_fn` is a trampoline: `(env, acc_ptr, elem_ptr, out_ptr) -> void`.
+/// The final accumulator is written to `out_ptr` (`acc_size` bytes).
+#[no_mangle]
+pub extern "C-unwind" fn ori_iter_fold(
+    iter: *mut u8,
+    init_ptr: *const u8,
+    fold_fn: FoldFn,
+    fold_env: *mut u8,
+    elem_size: i64,
+    acc_size: i64,
+    out_ptr: *mut u8,
+) {
+    assert_elem_size(elem_size, "ori_iter_fold");
+    assert_elem_size(acc_size, "ori_iter_fold(acc)");
+    if out_ptr.is_null() {
+        drop(take_iter(iter));
+        return;
+    }
+
+    let as_ = acc_size.max(1) as usize;
+
+    if iter.is_null() {
+        // No elements — copy init to output
+        if !init_ptr.is_null() {
+            unsafe { ptr::copy_nonoverlapping(init_ptr, out_ptr, as_) };
+        }
+        return;
+    }
+
+    let Some(mut state) = take_iter(iter) else {
+        return;
+    };
+
+    // Two accumulator buffers: current and next (double-buffered)
+    let mut acc_a = ElemBuf::new();
+    let mut acc_b = ElemBuf::new();
+    let mut elem_buf = ElemBuf::new();
+
+    // Initialize acc_a with init value
+    if !init_ptr.is_null() {
+        unsafe { ptr::copy_nonoverlapping(init_ptr, acc_a.as_mut_ptr(), as_) };
+    }
+
+    let mut current = &mut acc_a;
+    let mut next = &mut acc_b;
+
+    while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
+        // fold_fn(env, current_acc, elem, next_acc)
+        (fold_fn)(
+            fold_env,
+            current.as_ptr(),
+            elem_buf.as_ptr(),
+            next.as_mut_ptr(),
+        );
+        std::mem::swap(&mut current, &mut next);
+    }
+
+    // Copy final accumulator to output
+    unsafe { ptr::copy_nonoverlapping(current.as_ptr(), out_ptr, as_) };
+}
+
+// Last
+
+/// Return the last element of the iterator, consuming it.
+///
+/// Writes `Option<T>` to `out_ptr`: `{ i64 tag, T payload }`.
+/// Tag convention: Some=0, None=1. Iterates forward keeping the last element.
+#[no_mangle]
+pub extern "C-unwind" fn ori_iter_last(iter: *mut u8, elem_size: i64, out_ptr: *mut u8) {
+    assert_elem_size(elem_size, "ori_iter_last");
+    if out_ptr.is_null() {
+        drop(take_iter(iter));
+        return;
+    }
+
+    if iter.is_null() {
+        unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
+        return;
+    }
+
+    let Some(mut state) = take_iter(iter) else {
+        return;
+    };
+    let payload_ptr = unsafe { out_ptr.add(8) };
+    let mut elem_buf = ElemBuf::new();
+    let mut found = false;
+
+    while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
+        unsafe {
+            ptr::copy_nonoverlapping(elem_buf.as_ptr(), payload_ptr, elem_size as usize);
+        }
+        found = true;
+    }
+
+    unsafe {
+        out_ptr.cast::<i64>().write(if found {
+            OPTION_TAG_SOME
+        } else {
+            OPTION_TAG_NONE
+        });
+    }
+}

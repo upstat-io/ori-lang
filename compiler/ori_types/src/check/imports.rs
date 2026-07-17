@@ -146,9 +146,9 @@ impl ModuleChecker<'_> {
 
     /// Accumulate one body pass's Iterable->Iterator route entries
     /// into the module-wide store drained at `finish` into
-    /// `TypedModule::iter_route_map`. Keys are module-wide AST receiver
+    /// `TypedModule::iter_route_map`. Keys are module-wide AST call
     /// `ExprId`s, so entries extend without re-anchoring.
-    pub fn accumulate_iter_routes(&mut self, routes: Vec<(ExprId, crate::Idx)>) {
+    pub fn accumulate_iter_routes(&mut self, routes: Vec<(ExprId, crate::IterMethodRoute)>) {
         self.iter_route_desugars.extend(routes);
     }
 
@@ -359,6 +359,21 @@ impl ModuleChecker<'_> {
     /// signatures. Only public traits are registered.
     pub fn register_imported_traits(&mut self, module: &ori_ir::Module, foreign_arena: &ExprArena) {
         super::registration::register_imported_traits(self, module, foreign_arena);
+    }
+
+    /// Register implementation templates exported by a foreign module.
+    ///
+    /// `module_identity` must be the same resolver-owned identity later used by
+    /// codegen to locate the producer body. Foreign arena indices are retained
+    /// only inside the registry entry; executable demands carry the stable
+    /// [`crate::MethodProducer::Imported`] identity instead.
+    pub fn register_imported_impls(
+        &mut self,
+        module: &ori_ir::Module,
+        foreign_arena: &ExprArena,
+        module_identity: &str,
+    ) {
+        super::registration::register_imported_impls(self, module, foreign_arena, module_identity);
     }
 
     /// Register a built-in function directly by type signature.

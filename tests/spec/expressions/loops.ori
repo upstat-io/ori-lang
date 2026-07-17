@@ -34,12 +34,12 @@ use std.testing { assert, assert_eq }
     called
 }
 
-@test_for_do_returns_void tests @for_do_returns_void () -> void = {
-    for x in [1, 2, 3] do ();
-    assert(cond: true) // Just verify it compiles as void
+@test_for_do_returns_void tests _ () -> void = {
+    let sum = 0;
+    let result: void = for x in [1, 2, 3] do sum = sum + x;
+    assert_eq(actual: sum, expected: 6);
+    result
 }
-
-@for_do_returns_void () -> void = for x in [1] do ();
 
 // =============================================================================
 // For-Do with Guard
@@ -418,14 +418,10 @@ type Point = { x: int, y: int }
 }
 
 // Regression: nested labeled `break:outer` from an inner `for` propagates to
-// the outer labeled `loop` (Spec: Clause 16.3.3) — VALUE-correct on both
-// backends (interp + LLVM AOT both yield 8). The label is threaded through
-// ControlAction (eval) + the LoopContext stack (ARC). The LLVM abandon-path
-// inner-iterator RC cleanup (the inner `for` iterator is not `ori_iter_drop`'d
-// when `break:outer` skips its exit) is aims-burden drop-placement domain per
-// arc.md §STOP — routed there, not hand-patched. The bare-loop pin above
-// guards the same value-routing leak-free on both backends.
-#skip("BUG-04-194: labeled-break abandon-path inner-loop RC cleanup is aims-burden drop-placement; BUG-03-008 value-correctness verified both backends + pinned leak-free by test_nested_loop_labeled_break")
+// the outer labeled `loop` (Spec: Clause 16.3.3). The label is threaded through
+// evaluator control actions and the compiled loop-context stack. The compiled
+// abandon path must also clean up the inner iterator when the labeled break
+// skips its normal exit.
 @test_find_first tests @find_first () -> void = {
     assert_eq(actual: find_first(), expected: 8)
 }
@@ -437,6 +433,23 @@ type Point = { x: int, y: int }
             if x % 2 == 0 then break:outer x
         };
         break 0
+    }
+}
+
+// Regression: a labeled continue that abandons an inner iterator must run the
+// same iterator cleanup as a labeled break before resuming the outer loop.
+@test_labeled_continue_cleanup tests @labeled_continue_cleanup () -> void = {
+    assert_eq(actual: labeled_continue_cleanup(), expected: 3)
+}
+
+@labeled_continue_cleanup () -> int = {
+    let rounds = 0;
+    loop:outer {
+        rounds += 1;
+        if rounds >= 3 then break rounds;
+        for _ in [1, 2] do {
+            continue:outer
+        }
     }
 }
 

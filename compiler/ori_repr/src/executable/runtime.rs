@@ -89,6 +89,8 @@ pub enum RuntimeCall {
     Iter(IteratorSource),
     /// Allocate a list builder.
     ListNew,
+    /// Release a list builder that did not reach normal finalization.
+    ListFree,
     /// Advance an iterator.
     IterNext,
     /// Append a value to a list builder.
@@ -164,6 +166,7 @@ impl RuntimeCall {
             | Self::Print
             | Self::Panic => 1,
             Self::ListNew
+            | Self::ListFree
             | Self::IterNext
             | Self::Index
             | Self::ListPush
@@ -205,7 +208,7 @@ impl RuntimeCall {
         let method = ori_registry::find_method(receiver, symbol)?;
         method
             .runtime
-            .and_then(|runtime| Self::from_method_runtime(runtime, receiver))
+            .and_then(|operation| Self::from_method_operation(operation, receiver))
     }
 
     fn resolve_registry_method(
@@ -215,11 +218,11 @@ impl RuntimeCall {
         ori_registry::find_method_id(receiver?, symbol).map(Self::RegistryMethod)
     }
 
-    fn from_method_runtime(
-        runtime: ori_registry::MethodRuntime,
+    fn from_method_operation(
+        operation: ori_registry::MethodRuntime,
         receiver: ori_registry::TypeTag,
     ) -> Option<Self> {
-        Some(match runtime {
+        Some(match operation {
             ori_registry::MethodRuntime::Length => Self::Length,
             ori_registry::MethodRuntime::ListPush => Self::ListPush,
             ori_registry::MethodRuntime::ListSet => Self::ListSet,
@@ -249,6 +252,7 @@ impl RuntimeCall {
     fn from_symbol(symbol: &str) -> Option<Self> {
         match symbol {
             "ori_list_new" => Some(Self::ListNew),
+            "ori_list_free" => Some(Self::ListFree),
             "__iter_next" => Some(Self::IterNext),
             "ori_list_push" => Some(Self::ListBuilderPush),
             "ori_iter_drop" => Some(Self::IterDrop),

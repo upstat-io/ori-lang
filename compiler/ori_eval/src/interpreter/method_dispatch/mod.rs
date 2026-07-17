@@ -1,5 +1,6 @@
 //! Method dispatch methods for the Interpreter.
 
+use ori_ir::canon::MonoConstBinding;
 use ori_ir::Name;
 
 mod collection_ops;
@@ -31,6 +32,17 @@ impl Interpreter<'_> {
         method: Name,
         args: Vec<Value>,
     ) -> EvalResult {
+        self.eval_method_call_with_const_bindings(receiver, method, args, &[])
+    }
+
+    /// Evaluate a method call under one exact mono instance's const bindings.
+    pub(super) fn eval_method_call_with_const_bindings(
+        &mut self,
+        receiver: Value,
+        method: Name,
+        args: Vec<Value>,
+        const_bindings: &[MonoConstBinding],
+    ) -> EvalResult {
         self.mode_state.count_method_call();
 
         // Handle print methods (invoked via PatternExecutor for the Print capability).
@@ -56,7 +68,12 @@ impl Interpreter<'_> {
                 .cloned();
 
             if let Some(ref method_def) = user_method {
-                return self.eval_associated_function(method_def, &args, method);
+                return self.eval_associated_function_with_const_bindings(
+                    method_def,
+                    &args,
+                    method,
+                    const_bindings,
+                );
             }
 
             // Check derived methods (e.g., Default.default() is a static method)
@@ -91,7 +108,11 @@ impl Interpreter<'_> {
                 // Check if the field is callable
                 match &field_value {
                     Value::Function(_) | Value::MemoizedFunction(_) | Value::FunctionVal(_, _) => {
-                        return self.eval_call(field_value, &args);
+                        return self.eval_call_with_const_bindings(
+                            field_value,
+                            &args,
+                            const_bindings,
+                        );
                     }
                     _ => {
                         // Field exists but isn't callable - fall through to method dispatch
@@ -107,9 +128,13 @@ impl Interpreter<'_> {
 
         // Execute based on resolution type
         match resolution {
-            MethodResolution::User(user_method) => {
-                self.eval_user_method(receiver, &user_method, &args, method)
-            }
+            MethodResolution::User(user_method) => self.eval_user_method_with_const_bindings(
+                receiver,
+                &user_method,
+                &args,
+                method,
+                const_bindings,
+            ),
             MethodResolution::Derived(derived_info) => {
                 self.eval_derived_method(receiver, &derived_info, &args)
             }
@@ -223,10 +248,6 @@ impl Interpreter<'_> {
     }
 
     /// Evaluate a user-defined method from an impl block.
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "method params always include self, so len >= 1"
-    )]
     pub(super) fn eval_user_method(
         &mut self,
         receiver: Value,
@@ -234,11 +255,25 @@ impl Interpreter<'_> {
         args: &[Value],
         method_name: Name,
     ) -> EvalResult {
-        // Method params include 'self' as first parameter
-        if method.params.len() != args.len() + 1 {
-            return Err(wrong_function_args(method.params.len() - 1, args.len()).into());
+        self.eval_user_method_with_const_bindings(receiver, method, args, method_name, &[])
+    }
+
+    fn eval_user_method_with_const_bindings(
+        &mut self,
+        receiver: Value,
+        method: &UserMethod,
+        args: &[Value],
+        method_name: Name,
+        const_bindings: &[MonoConstBinding],
+    ) -> EvalResult {
+        // Method params include `self` as the first parameter.
+        let Some((_, explicit_params)) = method.params.split_first() else {
+            return Err(wrong_function_args(0, args.len()).into());
+        };
+        if explicit_params.len() != args.len() {
+            return Err(wrong_function_args(explicit_params.len(), args.len()).into());
         }
-        self.eval_method_body(Some(receiver), method, args, method_name)
+        self.eval_method_body(Some(receiver), method, args, method_name, const_bindings)
     }
 
     /// Dispatch an Index trait method call on a user-defined type.
@@ -282,17 +317,18 @@ impl Interpreter<'_> {
     ///
     /// Associated functions are called on types rather than instances:
     /// `Point.origin()` instead of `point.method()`.
-    pub(super) fn eval_associated_function(
+    fn eval_associated_function_with_const_bindings(
         &mut self,
         method: &UserMethod,
         args: &[Value],
         method_name: Name,
+        const_bindings: &[MonoConstBinding],
     ) -> EvalResult {
         // Associated functions don't have 'self', so params == args
         if method.params.len() != args.len() {
             return Err(wrong_function_args(method.params.len(), args.len()).into());
         }
-        self.eval_method_body(None, method, args, method_name)
+        self.eval_method_body(None, method, args, method_name, const_bindings)
     }
 
     /// Shared helper for evaluating a method/associated function body.
@@ -305,6 +341,7 @@ impl Interpreter<'_> {
         method: &UserMethod,
         args: &[Value],
         method_name: Name,
+        const_bindings: &[MonoConstBinding],
     ) -> EvalResult {
         self.check_recursion_limit()?;
 
@@ -312,6 +349,14 @@ impl Interpreter<'_> {
         call_env.push_scope();
 
         bind_captures_iter(&mut call_env, method.captures.iter());
+
+        for binding in const_bindings {
+            call_env.define(
+                binding.name,
+                super::mono_const_value_to_value(&binding.value),
+                Mutability::Immutable,
+            );
+        }
 
         // Bind self + remaining params, or all params directly
         let param_args: &[Name] = if let Some(recv) = receiver {

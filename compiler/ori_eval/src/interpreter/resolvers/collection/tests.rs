@@ -1,4 +1,4 @@
-use ori_patterns::IteratorValue;
+use ori_patterns::{IteratorValue, RangeValue};
 
 use super::*;
 
@@ -37,6 +37,26 @@ fn test_list_filter_resolves() {
         result,
         MethodResolution::Collection(CollectionMethod::Filter)
     ));
+}
+
+#[test]
+fn direct_range_higher_order_methods_resolve_eagerly() {
+    let interner = StringInterner::new();
+    let resolver = CollectionMethodResolver::new(&interner);
+    let range = Value::Range(RangeValue::exclusive(0, 5));
+    let range_type = interner.intern("Range<int>");
+
+    for (name, expected) in [
+        ("map", CollectionMethod::Map),
+        ("filter", CollectionMethod::Filter),
+        ("fold", CollectionMethod::Fold),
+    ] {
+        let result = resolver.resolve(&range, range_type, interner.intern(name));
+        assert!(
+            matches!(result, MethodResolution::Collection(method) if method == expected),
+            "Range.{name} should resolve directly to eager {expected:?}, got {result:?}"
+        );
+    }
 }
 
 #[test]

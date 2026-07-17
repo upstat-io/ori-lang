@@ -5,9 +5,10 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalResult, IteratorValue, Value};
 
-use super::super::compare::ordering_to_value;
+use super::super::compare::{fnv1a_hash, ordering_to_value};
 use super::super::helpers::{
-    escape_debug_str, len_to_value, require_args, require_int_arg, require_str_arg,
+    escape_debug_str, len_to_value, nonnegative_usize, require_args, require_int_arg,
+    require_str_arg,
 };
 use super::super::DispatchCtx;
 
@@ -94,12 +95,8 @@ pub fn dispatch_string_method(
         Ok(Value::string(format!("\"{}\"", escape_debug_str(&s))))
     // Hashable trait
     } else if method == n.hash {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
         require_args("hash", 0, args.len())?;
-        let mut hasher = DefaultHasher::new();
-        s.hash(&mut hasher);
-        Ok(Value::int(hasher.finish().cast_signed()))
+        Ok(Value::int(fnv1a_hash(s.as_bytes())))
     // replace(pattern, replacement) -> str
     } else if method == n.replace {
         require_args("replace", 2, args.len())?;
@@ -121,8 +118,7 @@ pub fn dispatch_string_method(
     } else if method == n.repeat {
         require_args("repeat", 1, args.len())?;
         let count = require_int_arg("repeat", &args, 0)?;
-        let n_usize = usize::try_from(count)
-            .map_err(|_| ori_patterns::wrong_arg_type("repeat", "non-negative int"))?;
+        let n_usize = nonnegative_usize(count, "repeat", "non-negative int")?;
         Ok(Value::string(s.repeat(n_usize)))
     // Into trait: str -> Error (wraps string as error message)
     } else if method == n.into {
@@ -264,10 +260,8 @@ fn eval_str_slice(s: &str, name: &str, args: &[Value]) -> EvalResult {
     require_args(name, 2, args.len())?;
     let start = require_int_arg(name, args, 0)?;
     let end = require_int_arg(name, args, 1)?;
-    let ustart = usize::try_from(start)
-        .map_err(|_| ori_patterns::wrong_arg_type(name, "non-negative int"))?;
-    let uend =
-        usize::try_from(end).map_err(|_| ori_patterns::wrong_arg_type(name, "non-negative int"))?;
+    let ustart = nonnegative_usize(start, name, "non-negative int")?;
+    let uend = nonnegative_usize(end, name, "non-negative int")?;
     let chars: Vec<char> = s.chars().collect();
     let uend = uend.min(chars.len());
     let ustart = ustart.min(uend);
@@ -373,5 +367,29 @@ fn dispatch_range_method_str(
             Err(ori_patterns::wrong_arg_type(method, "function").into())
         }
         _ => Err(no_such_method(method, "range").into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ori_ir::StringInterner;
+
+    use super::*;
+    use crate::methods::BuiltinMethodNames;
+
+    #[test]
+    fn string_hash_dispatch_uses_canonical_fnv1a() {
+        let interner = StringInterner::new();
+        let names = BuiltinMethodNames::new(&interner);
+        let ctx = DispatchCtx {
+            names: &names,
+            interner: &interner,
+        };
+
+        let Ok(actual) = dispatch_string_method(Value::string("a"), names.hash, vec![], &ctx)
+        else {
+            panic!("str.hash should succeed");
+        };
+        assert_eq!(actual, Value::int(fnv1a_hash(b"a")));
     }
 }

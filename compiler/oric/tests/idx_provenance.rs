@@ -1,12 +1,10 @@
 //! L12 production-path pin for the `ori explain idx <n> <file>` provenance verb.
 //!
 //! Drives the REAL `ori` binary through the new CLI verb — the same tracer entry
-//! the `ORI_TRACE_IDX` env knob funnels into. The north-star
-//! `nested_generic_divergence` pin asserts the diagnostic DISCRIMINATES a true
-//! nested-generic divergence (struct `Wrap<Wrap<int>>` AND enum
-//! `Holder<Holder<int>>`) from a clean monomorphic type (`Pair`) that yields a
-//! consistent concrete chain with NO divergent node — proving it does not flag
-//! everything.
+//! the `ORI_TRACE_IDX` env knob funnels into. The nested-generic convergence
+//! pin asserts that struct `Wrap<Wrap<int>>` and enum `Holder<Holder<int>>`
+//! retain their structure and resolution provenance after type checking while
+//! carrying no stale generic leaf or scalar drop plan.
 
 use std::path::Path;
 use std::process::Command;
@@ -96,30 +94,9 @@ mod idx_provenance {
             .unwrap_or_else(|e| panic!("could not parse idx after `{marker}` from `{digits}`: {e}"))
     }
 
-    /// Parse the generic-leaf raw `Idx` from the divergence line
-    /// (`  generic T#NNN <> concrete ...`).
-    fn divergence_generic_idx(trace: &str) -> u32 {
-        let line = trace
-            .lines()
-            .find(|l| l.trim_start().starts_with("generic "))
-            .unwrap_or_else(|| panic!("trace missing a divergence line:\n{trace}"));
-        let seg = line.split(" <> ").next().unwrap_or(line);
-        let hash = seg
-            .find('#')
-            .unwrap_or_else(|| panic!("divergence generic has no #idx: {line}"))
-            + 1;
-        let digits: String = seg[hash..]
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .collect();
-        digits
-            .parse::<u32>()
-            .unwrap_or_else(|e| panic!("could not parse generic leaf idx from `{digits}`: {e}"))
-    }
-
-    /// Positive leg: the traced root surfaces ONE DAG carrying the generic-vs-concrete
-    /// divergence and the generic leaf's logical drop-plan attribution.
-    fn assert_divergent_dag(trace: &str, root: u32) {
+    /// The traced root carries concrete structure and resolution provenance,
+    /// with no stale generic leaf or scalar-only drop plan.
+    fn assert_converged_dag(trace: &str) {
         assert!(
             trace.contains("Provenance DAG"),
             "verb must emit a provenance DAG:\n{trace}"
@@ -132,72 +109,40 @@ mod idx_provenance {
             trace.contains("~resolves~>"),
             "DAG must carry a real resolution edge (Named -> concrete):\n{trace}"
         );
-        // The generic-leaf divergence FIRES (non-zero) — the diagnostic's core deliverable.
         assert!(
-            trace.contains("divergence(s)") && !trace.contains("0 divergence(s)"),
-            "DAG must SURFACE the generic-leaf divergence (non-zero):\n{trace}"
+            trace.contains("0 divergence(s)"),
+            "a fully materialized nested generic must have no stale generic leaf:\n{trace}"
         );
         assert!(
-            trace.contains(" <> concrete "),
-            "DAG must carry a `generic ... <> concrete ...` divergence line:\n{trace}"
+            !trace.contains(" <> concrete "),
+            "a fully materialized nested generic must have no divergence line:\n{trace}"
         );
 
         // Consumer attribution is currently built with the ARC-enabled feature.
+        // These fixtures contain only scalar leaves, so no structural drop plan
+        // exists at any level.
         #[cfg(feature = "llvm")]
-        {
-            assert!(
-                trace.contains("consumer edge(s)") && !trace.contains("0 consumer edge(s)"),
-                "DAG must carry at least one drop-plan consumer edge:\n{trace}"
-            );
-            let leaf = divergence_generic_idx(trace);
-            let edge_line = trace
-                .lines()
-                .find(|line| {
-                    line.contains("drop-plan")
-                        && line.contains(&format!("#{leaf}"))
-                        && line.contains("<=consumes=")
-                })
-                .unwrap_or_else(|| {
-                    panic!(
-                        "no consumer edge attributes the generic-leaf drop plan #{leaf}:\n{trace}"
-                    )
-                });
-            // The leaf plan descends from a parent body rooted at the trace.
-            assert!(
-                edge_line.contains(" -> "),
-                "the generic-leaf drop plan must have a multi-hop walked chain:\n{edge_line}"
-            );
-            assert!(
-                edge_line.contains(&format!("#{leaf}")),
-                "the walked chain must reach the generic leaf #{leaf}:\n{edge_line}"
-            );
-            assert!(
-                edge_line.contains(&format!("#{root}")),
-                "the walked chain must root at the traced outer body #{root}:\n{edge_line}"
-            );
-        }
+        assert!(
+            trace.contains("0 consumer edge(s)"),
+            "scalar-only nested generics must not invent a drop-plan consumer:\n{trace}"
+        );
     }
 
-    /// North-star pin (= plan-wide functional criterion probe). Positive legs:
-    /// the struct `Wrap<Wrap<int>>` AND enum `Holder<Holder<int>>` nested-generic
-    /// fixtures each surface the generic-vs-concrete divergence (+ llvm-gated
-    /// drop-glue consumer attribution) as ONE legible DAG. Negative control: a
-    /// clean monomorphic `Pair` yields a single consistent concrete chain with NO
-    /// divergent node — proving the diagnostic DISCRIMINATES true divergence from
-    /// clean monomorphization rather than flagging everything.
+    /// Struct and enum nested-generic fixtures converge to concrete provenance
+    /// chains, matching the monomorphic control.
     #[test]
-    fn nested_generic_divergence() {
+    fn nested_generic_instantiations_converge() {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
 
         // Positive leg 1: struct nesting (Wrap<Wrap<int>>).
         let wrap = write_fixture(&dir, "wrap_nested.ori", WRAP_FIXTURE);
         let wrap_root = discover_body_idx(&wrap, "Wrap<Wrap<int>>#");
-        assert_divergent_dag(&run_explain_idx(wrap_root, &wrap), wrap_root);
+        assert_converged_dag(&run_explain_idx(wrap_root, &wrap));
 
         // Positive leg 2: enum-in-enum nesting (Holder<Holder<int>>).
         let holder = write_fixture(&dir, "holder_nested.ori", HOLDER_FIXTURE);
         let holder_root = discover_body_idx(&holder, "Holder<Holder<int>>#");
-        assert_divergent_dag(&run_explain_idx(holder_root, &holder), holder_root);
+        assert_converged_dag(&run_explain_idx(holder_root, &holder));
 
         // Negative control: clean monomorphic struct (Pair) — concrete chain, NO divergence.
         let mono = write_fixture(&dir, "mono_clean.ori", MONO_FIXTURE);

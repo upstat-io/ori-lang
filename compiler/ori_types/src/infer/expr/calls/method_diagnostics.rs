@@ -6,7 +6,7 @@ use ori_ir::{Name, Span};
 
 use super::super::super::InferEngine;
 use crate::infer::tag_to_type_tag;
-use crate::{Idx, Tag, TypeCheckError};
+use crate::{Idx, Tag, TypeCheckError, UnboundVarState};
 
 /// True iff `receiver_ty` (already union-find-resolved) is an unbound NAMED
 /// `Tag::Var` that denotes a generic type parameter (`@f<T>(x: T)`).
@@ -29,7 +29,7 @@ pub(super) fn is_named_generic_var(engine: &InferEngine<'_>, receiver_ty: Idx) -
     // Extract the optional name (Copy) before borrowing the trait registry
     // (borrow-dance per `calls.rs:resolve_impl_method`).
     let var_name = match engine.pool().var_state_checked(var_id) {
-        Some(crate::pool::VarState::Unbound { name: Some(n), .. }) => *n,
+        Some(crate::pool::VarState::Unbound(UnboundVarState { name: Some(n), .. })) => *n,
         _ => return false,
     };
     !engine

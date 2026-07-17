@@ -40,8 +40,8 @@ pub use pools::*;
 pub use result::*;
 pub use support::*;
 pub use tree::{
-    DecisionTree, FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath, TestKind,
-    TestValue,
+    DecisionTree, FlatPattern, LeafDiscardPaths, PathInstruction, PatternMatrix, PatternRow,
+    ScrutineePath, TestKind, TestValue,
 };
 
 #[cfg(test)]

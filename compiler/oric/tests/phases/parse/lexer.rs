@@ -1024,7 +1024,6 @@ fn test_cross_language_operator_habits_render_specific_codes() {
         ("a === b", ori_diagnostic::ErrorCode::E0008),
         ("a !== b", ori_diagnostic::ErrorCode::E0008),
         ("i++", ori_diagnostic::ErrorCode::E0010),
-        ("i--", ori_diagnostic::ErrorCode::E0010),
     ];
 
     for (source, expected) in cases {
@@ -1040,6 +1039,20 @@ fn test_cross_language_operator_habits_render_specific_codes() {
             diag.code
         );
     }
+}
+
+#[test]
+fn test_adjacent_unary_minuses_lex_independently() {
+    let output = lex_full("--42", &test_interner());
+
+    assert!(
+        output.errors.is_empty(),
+        "adjacent unary minuses must not produce lexer errors: {:?}",
+        output.errors
+    );
+    assert!(matches!(output.tokens[0].kind, TokenKind::Minus));
+    assert!(matches!(output.tokens[1].kind, TokenKind::Minus));
+    assert!(matches!(output.tokens[2].kind, TokenKind::Int(42)));
 }
 
 #[test]

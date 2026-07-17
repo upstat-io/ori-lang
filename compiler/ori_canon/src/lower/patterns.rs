@@ -53,13 +53,14 @@ impl Lowerer<'_> {
                 (pat, can_guard)
             })
             .collect();
-        let tree = crate::patterns::compile_patterns(self, &pattern_data, arms.start, scrutinee_ty);
+        let compiled =
+            crate::patterns::compile_patterns(self, &pattern_data, arms.start, scrutinee_ty);
 
         // Exhaustiveness check: capture arm spans from the source arms (still
         // accessible since src_arms borrows the read-only source arena).
         let arm_spans: Vec<Span> = src_arms.iter().map(|arm| arm.span).collect();
         let check = crate::exhaustiveness::check_exhaustiveness(
-            &tree,
+            &compiled.tree,
             src_arms.len(),
             span,
             &arm_spans,
@@ -69,7 +70,9 @@ impl Lowerer<'_> {
         );
         self.problems.extend(check.problems);
 
-        let dt_id = self.decision_trees.push(tree);
+        let dt_id = self
+            .decision_trees
+            .push_with_leaf_discards(compiled.tree, compiled.leaf_discard_paths);
 
         // Lower arm bodies BEFORE building the expr list. lower_expr may
         // recursively lower nested match expressions, which would push their
@@ -184,12 +187,12 @@ impl Lowerer<'_> {
         }
 
         // Compile the multi-column pattern matrix into a decision tree.
-        let tree = crate::patterns::compile_multi_clause_patterns(&flat_rows, &guards);
+        let compiled = crate::patterns::compile_multi_clause_patterns(&flat_rows, &guards);
 
         // Exhaustiveness check: use clause spans as "arm" spans.
         let clause_spans: Vec<Span> = clauses.iter().map(|c| c.span).collect();
         let check = crate::exhaustiveness::check_exhaustiveness(
-            &tree,
+            &compiled.tree,
             clauses.len(),
             span,
             &clause_spans,
@@ -199,7 +202,9 @@ impl Lowerer<'_> {
         );
         self.problems.extend(check.problems);
 
-        let dt_id = self.decision_trees.push(tree);
+        let dt_id = self
+            .decision_trees
+            .push_with_leaf_discards(compiled.tree, compiled.leaf_discard_paths);
 
         // Lower each clause body BEFORE building the expr list (nested lowering
         // would otherwise corrupt the in-flight range).

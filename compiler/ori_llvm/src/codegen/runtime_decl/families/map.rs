@@ -14,7 +14,7 @@ pub(in crate::codegen::runtime_decl) static MAP: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_literal_put",
-        // (data, cap, key, val, key_size, val_size, key_hash)
+        // (data, cap, key, val, key_size, val_size, key_eq, key_hash, key_dec, val_dec) -> inserted
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -23,8 +23,11 @@ pub(in crate::codegen::runtime_decl) static MAP: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
         ],
-        ret: None,
+        ret: Some(Ty::I64),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
@@ -98,7 +101,7 @@ pub(in crate::codegen::runtime_decl) static MAP: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_insert_cow",
-        // (data, len, cap, key, value, key_size, val_size, key_eq, key_hash, key_inc, val_inc, val_dec, cow_mode, out_ptr)
+        // (data, len, cap, key, value, key_size, val_size, key_eq, key_hash, key_inc, val_inc, key_dec, val_dec, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -107,6 +110,7 @@ pub(in crate::codegen::runtime_decl) static MAP: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
@@ -121,7 +125,7 @@ pub(in crate::codegen::runtime_decl) static MAP: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_updated_cow",
-        // (data, len, cap, key, value, key_size, val_size, key_eq, key_hash, key_inc, val_inc, val_dec, cow_mode, out_ptr)
+        // (data, len, cap, key, value, key_size, val_size, key_eq, key_hash, key_inc, val_inc, key_dec, val_dec, cow_mode, out_ptr)
         // Same shape as ori_map_insert_cow; value is MOVED (caller ref released).
         params: &[
             Ty::Ptr,
@@ -131,6 +135,7 @@ pub(in crate::codegen::runtime_decl) static MAP: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,

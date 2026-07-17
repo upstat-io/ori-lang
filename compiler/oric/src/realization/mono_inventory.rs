@@ -148,15 +148,21 @@ fn validate_cross_producer_identity(
     local: &MonoFunction,
     interner: &StringInterner,
 ) -> Result<(), MonoFunctionInventoryError> {
-    let differing_field = if imported.original_name != local.original_name {
+    let differing_field = if imported.identity.original_name() != local.identity.original_name() {
         Some("source callable identity")
     } else if imported.origin != local.origin {
         Some("semantic body origin")
+    } else if imported.identity.method_producer() != local.identity.method_producer() {
+        Some("method producer identity")
+    } else if imported.identity.method_args() != local.identity.method_args() {
+        Some("method generic arguments")
+    } else if imported.identity.const_bindings() != local.identity.const_bindings() {
+        Some("method const bindings")
     } else if imported.sig != local.sig {
         Some("concrete signature")
     } else if imported.body_type_map != local.body_type_map {
         Some("body substitution map")
-    } else if imported.receiver_type != local.receiver_type {
+    } else if imported.identity.receiver_type() != local.identity.receiver_type() {
         Some("concrete receiver identity")
     } else if imported.receiver_type_name != local.receiver_type_name {
         Some("receiver identity")
@@ -183,9 +189,9 @@ fn validate_cross_producer_identity(
 }
 
 fn merge_instance_ids(survivor: &mut MonoFunction, redundant: &MonoFunction) {
-    for &instance_id in &redundant.instance_ids {
-        if !survivor.instance_ids.contains(&instance_id) {
-            survivor.instance_ids.push(instance_id);
+    for &instance_id in redundant.identity.instance_ids() {
+        if !survivor.identity.instance_ids().contains(&instance_id) {
+            survivor.identity.push_instance_id(instance_id);
         }
     }
 }
@@ -194,8 +200,8 @@ fn merge_instance_ids(survivor: &mut MonoFunction, redundant: &MonoFunction) {
 mod tests {
     use ori_ir::canon::MonoInstanceId;
     use ori_ir::StringInterner;
-    use ori_repr::monomorphize::MonoFunction;
-    use ori_types::{FunctionSig, Idx};
+    use ori_repr::monomorphize::{MonoFunction, MonoFunctionIdentity};
+    use ori_types::{FunctionSig, Idx, MonoInstance};
     use rustc_hash::FxHashMap;
 
     use super::{MonoFunctionInventory, MonoFunctionInventoryError};
@@ -230,15 +236,20 @@ mod tests {
         is_imported: bool,
     ) -> MonoFunction {
         let name = interner.intern(callable);
+        let instance = MonoInstance::new_top_level(
+            interner.intern("identity"),
+            Vec::new(),
+            vec![Idx::INT],
+            return_type,
+            Vec::new(),
+        );
         MonoFunction {
             mangled_name: name,
-            original_name: interner.intern("identity"),
             origin: ori_repr::monomorphize::MonoFunctionOrigin::Source,
+            identity: MonoFunctionIdentity::new(&instance, MonoInstanceId::new(instance_id)),
             sig: FunctionSig::simple(name, vec![Idx::INT], return_type),
             body_type_map: FxHashMap::default(),
-            instance_ids: vec![MonoInstanceId::new(instance_id)],
             is_imported,
-            receiver_type: None,
             receiver_type_name: None,
         }
     }
@@ -257,7 +268,7 @@ mod tests {
         assert_eq!(inventory.all().len(), 1);
         assert!(inventory.all()[0].is_imported);
         assert_eq!(
-            inventory.all()[0].instance_ids,
+            inventory.all()[0].identity.instance_ids(),
             vec![MonoInstanceId::new(1), MonoInstanceId::new(0)],
             "dispatch ids from both metadata paths remain bound to the survivor"
         );

@@ -131,15 +131,14 @@ impl InferEngine<'_> {
 
     /// Record an Iterable->Iterator routed method call.
     ///
-    /// `key` is the call's source RECEIVER `ExprId`; `iter_ty` is the
-    /// materialized iterator type (the receiver's `iter()` return). `ori_canon`
-    /// reads this to desugar `recv.method(args)` -> `recv.iter().method(args)`.
-    pub fn record_iter_route(&mut self, key: ExprId, iter_ty: Idx) {
-        self.iter_route_desugars.push((key, iter_ty));
+    /// `key` is the exact source call `ExprId`; `route` owns every type
+    /// needed to materialize the iterator path in `ori_canon`.
+    pub fn record_iter_route(&mut self, key: ExprId, route: crate::IterMethodRoute) {
+        self.iter_route_desugars.push((key, route));
     }
 
     /// Take Iterable->Iterator route entries, leaving an empty vector.
-    pub fn take_iter_routes(&mut self) -> Vec<(ExprId, Idx)> {
+    pub fn take_iter_routes(&mut self) -> Vec<(ExprId, crate::IterMethodRoute)> {
         std::mem::take(&mut self.iter_route_desugars)
     }
 

@@ -60,7 +60,6 @@ pub(crate) fn what_is_next(source: &[u8], pos: u32) -> NextContext {
             NextContext::Operator("!==")
         }
         b'+' if matches!(peek(source, pos + 1), Some(b'+')) => NextContext::Operator("++"),
-        b'-' if matches!(peek(source, pos + 1), Some(b'-')) => NextContext::Operator("--"),
         // Single punctuation
         b';' | b'(' | b')' | b'{' | b'}' | b'[' | b']' | b',' | b'.' | b':' | b'@' | b'#'
         | b'\\' | b'\'' | b'"' | b'`' | b'?' | b'!' | b'~' | b'^' | b'&' | b'|' | b'+' | b'-'

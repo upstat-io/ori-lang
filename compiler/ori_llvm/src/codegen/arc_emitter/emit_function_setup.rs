@@ -3,7 +3,7 @@
 //! Called during the function emission prologue.
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
-use ori_arc::Ownership;
+use ori_arc::{CalleeOwnerDemand, Ownership};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::context::EmittedValue;
@@ -125,21 +125,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// and `Jump` block-parameter passing.
     pub(super) fn compute_borrowed_rooted_vars(&mut self, func: &ArcFunction) {
         self.borrowed_rooted_vars.clear();
-        self.iter_consume_owns_rooted_vars.clear();
+        self.iter_owns_rooted_vars.clear();
         for param in &func.params {
             if param.ownership == Ownership::Borrowed {
                 self.borrowed_rooted_vars.insert(param.var);
             }
         }
-        // Seed the iter-consume-owns set from the interprocedural contract: a
-        // param proven iter-consume transferred (RL-2 inward transfer) AND NOT
-        // transferred through the function's own Return owns its iterator's
-        // buffer. `func.params[i]` is parallel to `contract.params[i]`.
+        // Seed the iterator-owner set from the same final owner demand used by
+        // closure adapters. A borrowed ABI parameter can still arrive with an
+        // independent ownership credit when its callee contract demands the
+        // whole value; `.iter()` must transfer that credit to the iterator.
+        // `func.params[i]` is parallel to `contract.params[i]`.
         if let Some(contract) = self.func_contract {
             for (i, param) in func.params.iter().enumerate() {
                 if let Some(pc) = contract.params.get(i) {
-                    if pc.iter_consumes && !pc.transfers_through_return {
-                        self.iter_consume_owns_rooted_vars.insert(param.var);
+                    match pc.callee_owner_demand() {
+                        Ok(CalleeOwnerDemand::WholeValue) => {
+                            self.iter_owns_rooted_vars.insert(param.var);
+                        }
+                        Ok(CalleeOwnerDemand::Borrow | CalleeOwnerDemand::ProjectedField(_)) => {}
+                        Err(conflict) => {
+                            self.builder.record_codegen_error_with_msg(format!(
+                                "invalid owner demand for {} parameter {i}: whole-value and projected-field({}) credits conflict",
+                                self.interner.lookup(func.name),
+                                conflict.field,
+                            ));
+                        }
                     }
                 }
             }
@@ -162,8 +173,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         {
                             changed = true;
                         }
-                        if self.iter_consume_owns_rooted_vars.contains(src)
-                            && self.iter_consume_owns_rooted_vars.insert(*dst)
+                        if self.iter_owns_rooted_vars.contains(src)
+                            && self.iter_owns_rooted_vars.insert(*dst)
                         {
                             changed = true;
                         }
@@ -178,8 +189,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         {
                             changed = true;
                         }
-                        if self.iter_consume_owns_rooted_vars.contains(arg)
-                            && self.iter_consume_owns_rooted_vars.insert(param_var)
+                        if self.iter_owns_rooted_vars.contains(arg)
+                            && self.iter_owns_rooted_vars.insert(param_var)
                         {
                             changed = true;
                         }

@@ -98,9 +98,9 @@ pub(super) struct BodyOutputs {
     /// [`crate::TypedModule::module_alias_call_map`].
     pub module_alias_calls: Vec<(ExprId, ori_ir::Name)>,
     /// Iterable->Iterator routed method calls resolved in this body.
-    /// Keys are source RECEIVER `ExprId`s; values the materialized iterator type
-    /// `Idx`. Consumed by `ori_canon` via [`crate::TypedModule::iter_route_map`].
-    pub iter_route_desugars: Vec<(ExprId, crate::Idx)>,
+    /// Keys are exact source call `ExprId`s; values carry the iterator type and
+    /// optional eager-adapter type consumed by `ori_canon`.
+    pub iter_route_desugars: Vec<(ExprId, crate::IterMethodRoute)>,
 }
 
 /// Shared post-inference spine for every body-checking pass.

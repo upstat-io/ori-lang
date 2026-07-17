@@ -59,41 +59,42 @@ pub(crate) fn infer_method_call(
         }
     }
 
-    let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
-        ReceiverDispatch::Return {
-            ret_ty,
-            receiver_ty,
-        } => {
-            let arg_ids = arena.get_expr_list(args);
-            let arg_types: Vec<Idx> = arg_ids
-                .iter()
-                .map(|&arg_id| infer_expr(engine, arena, arg_id))
-                .collect();
-            let arg_spans: Vec<Span> = arg_ids
-                .iter()
-                .map(|&arg_id| arena.get_expr(arg_id).span)
-                .collect();
-            unify_higher_order_constraints(
-                engine,
-                method,
+    let resolved =
+        match resolve_receiver_and_builtin(engine, arena, call_expr_id, receiver, method, span) {
+            ReceiverDispatch::Return {
                 ret_ty,
                 receiver_ty,
-                &arg_types,
-                &arg_spans,
-                span,
-            );
-            // BD-2: propagate outer expected into builtin ret_ty so a
-            // generic-return builtin (e.g. collect's default [T]) unifies
-            // with the LHS annotation at the call site.
-            if let Some(exp) = expected {
-                let _ = engine.check_type(ret_ty, exp, span);
+            } => {
+                let arg_ids = arena.get_expr_list(args);
+                let arg_types: Vec<Idx> = arg_ids
+                    .iter()
+                    .map(|&arg_id| infer_expr(engine, arena, arg_id))
+                    .collect();
+                let arg_spans: Vec<Span> = arg_ids
+                    .iter()
+                    .map(|&arg_id| arena.get_expr(arg_id).span)
+                    .collect();
+                unify_higher_order_constraints(
+                    engine,
+                    method,
+                    ret_ty,
+                    receiver_ty,
+                    &arg_types,
+                    &arg_spans,
+                    span,
+                );
+                // BD-2: propagate outer expected into builtin ret_ty so a
+                // generic-return builtin (e.g. collect's default [T]) unifies
+                // with the LHS annotation at the call site.
+                if let Some(exp) = expected {
+                    let _ = engine.check_type(ret_ty, exp, span);
+                }
+                return ret_ty;
             }
-            return ret_ty;
-        }
-        ReceiverDispatch::Continue { resolved } => {
-            apply_receiver_type_args(engine, arena, resolved, receiver, span)
-        }
-    };
+            ReceiverDispatch::Continue { resolved } => {
+                apply_receiver_type_args(engine, arena, resolved, receiver, span)
+            }
+        };
 
     let arg_ids = arena.get_expr_list(args);
     let outcome = lookup_impl_method(engine, resolved, method);
@@ -125,7 +126,14 @@ pub(crate) fn infer_method_call(
         // Record a receiver-bearing MonoInstance for an inherent generic-impl
         // method (`Box<int>.unwrap()`). Runs AFTER arg-checking so the method's
         // instantiation vars are unified; inert for every other dispatch kind.
-        maybe_record_method_mono_instance(engine, Some(call_expr_id), method, resolved, &sig);
+        maybe_record_method_mono_instance(
+            engine,
+            Some(call_expr_id),
+            method,
+            resolved,
+            &sig,
+            expected,
+        );
         return ret_ty;
     }
 
@@ -188,43 +196,44 @@ pub(crate) fn infer_method_call_named(
         }
     }
 
-    let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
-        ReceiverDispatch::Return {
-            ret_ty,
-            receiver_ty,
-        } => {
-            let call_args = arena.get_call_args(args);
-            let arg_types: Vec<Idx> = call_args
-                .iter()
-                .map(|arg| infer_expr(engine, arena, arg.value))
-                .collect();
-            // Use arena.get_expr(arg.value).span (value-only span) instead of
-            // arg.span (whole `name: value` range) so diagnostics anchor at the
-            // closure body, not the keyword.
-            let arg_spans: Vec<Span> = call_args
-                .iter()
-                .map(|arg| arena.get_expr(arg.value).span)
-                .collect();
-            unify_higher_order_constraints(
-                engine,
-                method,
+    let resolved =
+        match resolve_receiver_and_builtin(engine, arena, call_expr_id, receiver, method, span) {
+            ReceiverDispatch::Return {
                 ret_ty,
                 receiver_ty,
-                &arg_types,
-                &arg_spans,
-                span,
-            );
-            // BD-2: propagate outer expected into builtin ret_ty
-            // (mirrors infer_method_call positional path).
-            if let Some(exp) = expected {
-                let _ = engine.check_type(ret_ty, exp, span);
+            } => {
+                let call_args = arena.get_call_args(args);
+                let arg_types: Vec<Idx> = call_args
+                    .iter()
+                    .map(|arg| infer_expr(engine, arena, arg.value))
+                    .collect();
+                // Use arena.get_expr(arg.value).span (value-only span) instead of
+                // arg.span (whole `name: value` range) so diagnostics anchor at the
+                // closure body, not the keyword.
+                let arg_spans: Vec<Span> = call_args
+                    .iter()
+                    .map(|arg| arena.get_expr(arg.value).span)
+                    .collect();
+                unify_higher_order_constraints(
+                    engine,
+                    method,
+                    ret_ty,
+                    receiver_ty,
+                    &arg_types,
+                    &arg_spans,
+                    span,
+                );
+                // BD-2: propagate outer expected into builtin ret_ty
+                // (mirrors infer_method_call positional path).
+                if let Some(exp) = expected {
+                    let _ = engine.check_type(ret_ty, exp, span);
+                }
+                return ret_ty;
             }
-            return ret_ty;
-        }
-        ReceiverDispatch::Continue { resolved } => {
-            apply_receiver_type_args(engine, arena, resolved, receiver, span)
-        }
-    };
+            ReceiverDispatch::Continue { resolved } => {
+                apply_receiver_type_args(engine, arena, resolved, receiver, span)
+            }
+        };
 
     let call_args = arena.get_call_args(args);
     let outcome = lookup_impl_method(engine, resolved, method);
@@ -234,21 +243,7 @@ pub(crate) fn infer_method_call_named(
         if let Some(exp) = expected {
             let _ = engine.check_type(sig.ret, exp, span);
         }
-        for (i, (arg, &param_ty)) in call_args.iter().zip(sig.params.iter()).enumerate() {
-            let expected = Expected {
-                ty: param_ty,
-                origin: ExpectedOrigin::Context {
-                    span,
-                    kind: ContextKind::FunctionArgument {
-                        func_name: None,
-                        arg_index: i,
-                        param_name: arg.name,
-                    },
-                },
-            };
-            let arg_ty = infer_expr(engine, arena, arg.value);
-            let _ = engine.check_type(arg_ty, &expected, arg.span);
-        }
+        check_named_args(engine, arena, args, &sig, span);
         check_method_where_clauses(
             engine,
             &sig.where_clause_metadata,
@@ -264,7 +259,14 @@ pub(crate) fn infer_method_call_named(
         );
         // Mirror the positional path: record a receiver-bearing MonoInstance for
         // an inherent generic-impl method after named-arg checking.
-        maybe_record_method_mono_instance(engine, Some(call_expr_id), method, resolved, &sig);
+        maybe_record_method_mono_instance(
+            engine,
+            Some(call_expr_id),
+            method,
+            resolved,
+            &sig,
+            expected,
+        );
         return sig.ret;
     }
 
@@ -293,6 +295,35 @@ pub(crate) fn infer_method_call_named(
     }
 
     Idx::ERROR
+}
+
+fn check_named_args(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    args: ori_ir::CallArgRange,
+    sig: &ImplMethodSig,
+    span: Span,
+) {
+    for (i, (arg, &param_ty)) in arena
+        .get_call_args(args)
+        .iter()
+        .zip(sig.params.iter())
+        .enumerate()
+    {
+        let expected = Expected {
+            ty: param_ty,
+            origin: ExpectedOrigin::Context {
+                span,
+                kind: ContextKind::FunctionArgument {
+                    func_name: None,
+                    arg_index: i,
+                    param_name: arg.name,
+                },
+            },
+        };
+        let arg_ty = infer_expr(engine, arena, arg.value);
+        let _ = engine.check_type(arg_ty, &expected, arg.span);
+    }
 }
 
 /// If `receiver_ty` is a struct carrying a field named `method` whose type is a

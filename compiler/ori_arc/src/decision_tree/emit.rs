@@ -7,6 +7,7 @@
 //! The emission is performed by [`emit_decision_tree`], called from
 //! `lower_match` in `lower/control_flow.rs`.
 
+use ori_ir::canon::LeafDiscardPaths;
 use ori_ir::{Name, Span};
 use ori_types::{Idx, Tag};
 
@@ -38,6 +39,10 @@ pub(crate) struct EmitContext {
     /// Mutable variable names to pass as merge block params (in order).
     /// These serve as SSA phi inputs at the match convergence point.
     pub(crate) mutable_var_names: Vec<Name>,
+    /// Blank-pattern cleanup carriers in static Leaf/Guard success order.
+    leaf_discard_paths: Vec<LeafDiscardPaths>,
+    /// Next success node in the canonical preorder side table.
+    next_success_index: usize,
     /// Variant context stack for type-aware path resolution.
     ///
     /// Each entry is `(enum_type, variant_index)` pushed by `emit_tag_switch`
@@ -47,25 +52,30 @@ pub(crate) struct EmitContext {
     variant_stack: Vec<(Idx, u32)>,
 }
 
+pub(crate) struct EmitContextInit {
+    pub(crate) root_scrutinee: ArcVarId,
+    pub(crate) root_scrutinee_ty: Idx,
+    pub(crate) merge_block: crate::ir::ArcBlockId,
+    pub(crate) arm_bodies: Vec<ori_ir::canon::CanId>,
+    pub(crate) span: Span,
+    pub(crate) pre_scope: ArcScope,
+    pub(crate) mutable_var_names: Vec<Name>,
+    pub(crate) leaf_discard_paths: Vec<LeafDiscardPaths>,
+}
+
 impl EmitContext {
     /// Create a new emit context for decision tree emission.
-    pub(crate) fn new(
-        root_scrutinee: ArcVarId,
-        root_scrutinee_ty: Idx,
-        merge_block: crate::ir::ArcBlockId,
-        arm_bodies: Vec<ori_ir::canon::CanId>,
-        span: Span,
-        pre_scope: ArcScope,
-        mutable_var_names: Vec<Name>,
-    ) -> Self {
+    pub(crate) fn new(init: EmitContextInit) -> Self {
         Self {
-            root_scrutinee,
-            root_scrutinee_ty,
-            merge_block,
-            arm_bodies,
-            span,
-            pre_scope,
-            mutable_var_names,
+            root_scrutinee: init.root_scrutinee,
+            root_scrutinee_ty: init.root_scrutinee_ty,
+            merge_block: init.merge_block,
+            arm_bodies: init.arm_bodies,
+            span: init.span,
+            pre_scope: init.pre_scope,
+            mutable_var_names: init.mutable_var_names,
+            leaf_discard_paths: init.leaf_discard_paths,
+            next_success_index: 0,
             variant_stack: Vec::new(),
         }
     }
@@ -83,6 +93,24 @@ impl EmitContext {
     /// Get the current variant stack (for path resolution).
     pub(crate) fn variant_stack(&self) -> &[(Idx, u32)] {
         &self.variant_stack
+    }
+
+    /// Whether any success node carries an explicit blank-pattern discard.
+    pub(crate) fn has_discard_obligations(&self) -> bool {
+        self.leaf_discard_paths
+            .iter()
+            .any(|paths| !paths.is_empty())
+    }
+
+    /// Advance to the cleanup carriers for the next static success node.
+    fn take_next_discard_paths(&mut self) -> LeafDiscardPaths {
+        let paths = self
+            .leaf_discard_paths
+            .get(self.next_success_index)
+            .cloned()
+            .unwrap_or_default();
+        self.next_success_index += 1;
+        paths
     }
 }
 
@@ -128,14 +156,28 @@ pub(crate) fn emit_tree(
         DecisionTree::Leaf {
             arm_index,
             bindings,
-        } => emit_leaf(lowerer, *arm_index, bindings, ctx),
+        } => {
+            let discard_paths = ctx.take_next_discard_paths();
+            emit_leaf(lowerer, *arm_index, bindings, &discard_paths, ctx);
+        }
 
         DecisionTree::Guard {
             arm_index,
             bindings,
             guard,
             on_fail,
-        } => emit_guard(lowerer, *arm_index, bindings, *guard, on_fail, ctx),
+        } => {
+            let discard_paths = ctx.take_next_discard_paths();
+            emit_guard(
+                lowerer,
+                *arm_index,
+                bindings,
+                &discard_paths,
+                *guard,
+                on_fail,
+                ctx,
+            );
+        }
 
         DecisionTree::Fail => {
             lowerer.builder.terminate_unreachable();
@@ -154,6 +196,7 @@ fn emit_leaf(
     lowerer: &mut crate::lower::ArcLowerer<'_>,
     arm_index: usize,
     bindings: &[(Name, ScrutineePath)],
+    discard_paths: &[ScrutineePath],
     ctx: &mut EmitContext,
 ) {
     // Reset scope to pre-match snapshot for arm isolation.
@@ -161,6 +204,7 @@ fn emit_leaf(
 
     // Bind pattern variables by resolving paths from root scrutinee.
     bind_pattern_variables(lowerer, bindings, ctx);
+    emit_discard_paths(lowerer, discard_paths, ctx);
 
     // Lower the arm body and jump to merge block.
     let body_expr = ctx.arm_bodies[arm_index];
@@ -186,6 +230,7 @@ fn emit_guard(
     lowerer: &mut crate::lower::ArcLowerer<'_>,
     arm_index: usize,
     bindings: &[(Name, ScrutineePath)],
+    discard_paths: &[ScrutineePath],
     guard: ori_ir::canon::CanId,
     on_fail: &DecisionTree,
     ctx: &mut EmitContext,
@@ -207,6 +252,7 @@ fn emit_guard(
 
     // Guard passed: execute arm body, jump to merge.
     lowerer.builder.position_at(body_block);
+    emit_discard_paths(lowerer, discard_paths, ctx);
     let body_expr = ctx.arm_bodies[arm_index];
     let body_val = lowerer.lower_expr(body_expr);
     if !lowerer.builder.is_terminated() {
@@ -391,5 +437,27 @@ fn bind_pattern_variables(
             ctx.variant_stack(),
         );
         lowerer.scope.bind(*name, var);
+    }
+}
+
+/// Materialize blank-pattern field paths as dead projections.
+///
+/// A dead `Project` is the backend-neutral carrier that lets AIMS attach the
+/// discarded field's cleanup identity. LLVM consumes the resulting ARC IR; it
+/// does not rediscover wildcard ownership from types or source patterns.
+fn emit_discard_paths(
+    lowerer: &mut crate::lower::ArcLowerer<'_>,
+    paths: &[ScrutineePath],
+    ctx: &EmitContext,
+) {
+    for path in paths {
+        resolve_path(
+            lowerer,
+            ctx.root_scrutinee,
+            ctx.root_scrutinee_ty,
+            path,
+            ctx.span,
+            ctx.variant_stack(),
+        );
     }
 }

@@ -5,12 +5,12 @@
 //! carries a mangled name and a fully-concrete [`FunctionSig`] — existing
 //! `declare_function()` / `define_function_body()` work unchanged.
 
-use rustc_hash::{FxBuildHasher, FxHashMap};
+use rustc_hash::FxHashMap;
 
 use ori_ir::canon::{CanId, CanonResult, MonoInstanceId};
-use ori_ir::{DerivedImplId, Name, StringInterner};
+use ori_ir::{DerivedImplId, Name};
 use ori_types::{
-    AcceptedDerivedImpl, FunctionSig, Idx, ImplMethodId, ImplSig, MethodProducer, MonoInstance,
+    FunctionSig, GenericArg, Idx, ImplMethodId, MethodProducer, MonoConstBinding, MonoInstance,
     Pool, Tag,
 };
 
@@ -18,9 +18,11 @@ use crate::executable::{
     validate_external_callables, ExternalCallable, ExternalCallableMetadata, RealizationError,
 };
 
+mod collect;
 mod derived_mono;
 mod mangle;
 mod targets;
+pub use collect::collect_mono_functions;
 pub use derived_mono::{materialize_derived_mono_for_receiver, DerivedMonoMaterializationError};
 pub use mangle::mangle_mono_name;
 pub use targets::{callee_shadows_builtin_method, rewrite_apply_targets_for_monos, MonoTargetMaps};
@@ -91,6 +93,99 @@ pub enum MonoFunctionOrigin {
     Derived(DerivedImplId),
 }
 
+/// Checker-issued identity coordinates retained by a realized mono function.
+///
+/// [`MonoInstance`] is the canonical owner of these facts. This projection
+/// keeps only the coordinates needed after representation selection and can
+/// be constructed only from a validated instance.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MonoFunctionIdentity {
+    original_name: Name,
+    method_producer: Option<MethodProducer>,
+    method_args: Vec<GenericArg>,
+    const_bindings: Vec<MonoConstBinding>,
+    instance_ids: Vec<MonoInstanceId>,
+    receiver_type: Option<Idx>,
+}
+
+impl MonoFunctionIdentity {
+    /// Project one exact checker-issued instance into representation identity.
+    #[must_use]
+    pub fn new(instance: &MonoInstance, instance_id: MonoInstanceId) -> Self {
+        Self::from((instance, instance_id))
+    }
+
+    /// Project a compiler-generated instance that has no source call-site id.
+    #[must_use]
+    pub fn generated(instance: &MonoInstance) -> Self {
+        Self::from(instance)
+    }
+
+    fn from_instance(instance: &MonoInstance, instance_ids: Vec<MonoInstanceId>) -> Self {
+        Self {
+            original_name: instance.fn_name,
+            method_producer: instance.method_producer.clone(),
+            method_args: instance.method_args.clone(),
+            const_bindings: instance.const_bindings.clone(),
+            instance_ids,
+            receiver_type: instance.receiver_type,
+        }
+    }
+
+    /// Original generic callable name used for body and fallback lookup.
+    #[must_use]
+    pub fn original_name(&self) -> Name {
+        self.original_name
+    }
+
+    /// Exact checker-selected producer for a method specialization.
+    #[must_use]
+    pub fn method_producer(&self) -> Option<&MethodProducer> {
+        self.method_producer.as_ref()
+    }
+
+    /// Concrete method-binder arguments that distinguish this specialization.
+    #[must_use]
+    pub fn method_args(&self) -> &[GenericArg] {
+        &self.method_args
+    }
+
+    /// Named const values injected while lowering the specialized body.
+    #[must_use]
+    pub fn const_bindings(&self) -> &[MonoConstBinding] {
+        &self.const_bindings
+    }
+
+    /// Checker instance ids deduplicated to this realized function.
+    #[must_use]
+    pub fn instance_ids(&self) -> &[MonoInstanceId] {
+        &self.instance_ids
+    }
+
+    /// Concrete receiver selected for a method specialization.
+    #[must_use]
+    pub fn receiver_type(&self) -> Option<Idx> {
+        self.receiver_type
+    }
+
+    /// Record another checker instance deduplicated to the same mono function.
+    pub fn push_instance_id(&mut self, instance_id: MonoInstanceId) {
+        self.instance_ids.push(instance_id);
+    }
+}
+
+impl From<&MonoInstance> for MonoFunctionIdentity {
+    fn from(instance: &MonoInstance) -> Self {
+        Self::from_instance(instance, Vec::new())
+    }
+}
+
+impl From<(&MonoInstance, MonoInstanceId)> for MonoFunctionIdentity {
+    fn from((instance, instance_id): (&MonoInstance, MonoInstanceId)) -> Self {
+        Self::from_instance(instance, vec![instance_id])
+    }
+}
+
 /// A monomorphized function ready for LLVM codegen.
 ///
 /// Produced by [`collect_mono_functions`] from type-checker `MonoInstance` records.
@@ -99,23 +194,14 @@ pub enum MonoFunctionOrigin {
 pub struct MonoFunction {
     /// Mangled name for the specialization (e.g., `identity$m$int`).
     pub mangled_name: Name,
-    /// Original generic function name (for canonical IR body lookup).
-    pub original_name: Name,
     /// Semantic body provenance used to resolve the canonical body owner.
     pub origin: MonoFunctionOrigin,
+    /// Checker-owned callable, producer, argument, binding, and receiver facts.
+    pub identity: MonoFunctionIdentity,
     /// Concrete function signature (non-generic: empty `type_params`).
     pub sig: FunctionSig,
     /// Generic `Idx` → concrete `Idx` map for ARC lowering.
     pub body_type_map: FxHashMap<Idx, Idx>,
-    /// Source `MonoInstance` indices that dedup to this entry.
-    ///
-    /// Multiple `MonoInstance` records may collapse to one `MonoFunction` when
-    /// they share the same mangled name (e.g., two call sites instantiating
-    /// `identity` at `int`). Each id is the position of a `MonoInstance` in
-    /// the slice passed to [`collect_mono_functions`]. Consumed by
-    /// `declare_mono_functions` to populate `CodegenContext.mono_dispatch_by_id`
-    /// for the abstract-index dispatch path.
-    pub instance_ids: Vec<MonoInstanceId>,
     /// True when this instance was resolved via the `import_sigs` lookup chain
     /// (i.e., the generic function is defined in another module).
     ///
@@ -124,12 +210,6 @@ pub struct MonoFunction {
     /// imported mono functions flow through identical `declare_mono_functions`
     /// + `prepare_mono_cached` plumbing.
     pub is_imported: bool,
-    /// Exact concrete receiver selected by type checking for a method or
-    /// associated-function specialization.
-    ///
-    /// This is semantic dispatch identity. It remains distinct from
-    /// `receiver_type_name`, which selects only the canonical body namespace.
-    pub receiver_type: Option<Idx>,
     /// Nominal type name of the receiver for an inherent-method specialization
     /// (`Some("Box")` for `impl<T> Box<T> { @unwrap }`), else `None` for a
     /// free-function specialization. Selects the canon-body namespace: method
@@ -147,10 +227,12 @@ impl MonoFunction {
     pub fn body_root(&self, canon: &CanonResult) -> CanId {
         match self.receiver_type_name {
             Some(type_name) => canon
-                .method_root_for(type_name, self.original_name)
-                .or_else(|| canon.root_for(self.original_name))
+                .method_root_for(type_name, self.identity.original_name())
+                .or_else(|| canon.root_for(self.identity.original_name()))
                 .unwrap_or(canon.root),
-            None => canon.root_for(self.original_name).unwrap_or(canon.root),
+            None => canon
+                .root_for(self.identity.original_name())
+                .unwrap_or(canon.root),
         }
     }
 }
@@ -166,248 +248,6 @@ fn nominal_type_name(pool: &Pool, idx: Idx) -> Option<Name> {
         Tag::Named => Some(pool.named_name(resolved)),
         _ => None,
     }
-}
-
-// Collection
-
-#[derive(Clone, Copy)]
-struct ResolvedMonoSignature<'a> {
-    signature: &'a FunctionSig,
-    is_imported: bool,
-    origin: MonoFunctionOrigin,
-}
-
-struct MonoSignatureLookup<'a> {
-    functions: FxHashMap<Name, &'a FunctionSig>,
-    methods: FxHashMap<ImplMethodId, &'a ImplSig>,
-    derived_methods: FxHashMap<DerivedImplId, &'a AcceptedDerivedImpl>,
-    imports: FxHashMap<Name, &'a FunctionSig>,
-}
-
-impl<'a> MonoSignatureLookup<'a> {
-    fn new(
-        function_sigs: &'a [FunctionSig],
-        impl_sigs: &'a [ImplSig],
-        accepted_derives: &'a [AcceptedDerivedImpl],
-        import_sigs: &'a [ImportSig],
-        _pool: &Pool,
-    ) -> Self {
-        let functions = function_sigs.iter().map(|sig| (sig.name, sig)).collect();
-        let mut methods = FxHashMap::with_capacity_and_hasher(impl_sigs.len(), FxBuildHasher);
-        for signature in impl_sigs {
-            methods.entry(signature.id).or_insert(signature);
-        }
-        let mut derived_methods =
-            FxHashMap::with_capacity_and_hasher(accepted_derives.len(), FxBuildHasher);
-        for accepted in accepted_derives {
-            derived_methods.entry(accepted.id).or_insert(accepted);
-        }
-        let mut imports = FxHashMap::with_capacity_and_hasher(import_sigs.len(), FxBuildHasher);
-        for ImportSig { name, sig, .. } in import_sigs {
-            imports.entry(*name).or_insert(sig);
-        }
-        Self {
-            functions,
-            methods,
-            derived_methods,
-            imports,
-        }
-    }
-
-    fn resolve(&self, instance: &MonoInstance, _pool: &Pool) -> Option<ResolvedMonoSignature<'a>> {
-        if let Some(producer) = &instance.method_producer {
-            match producer {
-                MethodProducer::Impl(id) => {
-                    self.methods
-                        .get(id)
-                        .map(|implementation| ResolvedMonoSignature {
-                            signature: &implementation.sig,
-                            is_imported: false,
-                            origin: MonoFunctionOrigin::Impl(*id),
-                        })
-                }
-                MethodProducer::Derived(id) => {
-                    self.derived_methods
-                        .get(id)
-                        .map(|accepted| ResolvedMonoSignature {
-                            signature: &accepted.signature,
-                            is_imported: false,
-                            origin: MonoFunctionOrigin::Derived(*id),
-                        })
-                }
-                MethodProducer::Registry(_)
-                | MethodProducer::Prelude(_)
-                | MethodProducer::Imported { .. } => None,
-            }
-        } else if let Some(&signature) = self.functions.get(&instance.fn_name) {
-            Some(ResolvedMonoSignature {
-                signature,
-                is_imported: false,
-                origin: MonoFunctionOrigin::Source,
-            })
-        } else {
-            self.imports
-                .get(&instance.fn_name)
-                .copied()
-                .map(|signature| ResolvedMonoSignature {
-                    signature,
-                    is_imported: true,
-                    origin: MonoFunctionOrigin::Source,
-                })
-        }
-    }
-}
-
-fn log_unknown_mono_instance(
-    signatures: &MonoSignatureLookup<'_>,
-    instance: &MonoInstance,
-    interner: &StringInterner,
-) {
-    let name_str = interner.lookup(instance.fn_name);
-    tracing::debug!(
-        target: "ori_llvm::mono",
-        fn_name = ?instance.fn_name,
-        name = name_str,
-        is_method = instance.receiver_type.is_some(),
-        impl_sig_keys = signatures.methods.len(),
-        method_producer = ?instance.method_producer,
-        "mono instance for unknown function — skipping"
-    );
-}
-
-fn build_mono_function(
-    instance: &MonoInstance,
-    instance_id: MonoInstanceId,
-    resolved: ResolvedMonoSignature<'_>,
-    mangled_name: Name,
-    pool: &Pool,
-) -> MonoFunction {
-    let concrete_sig = concrete_sig_for_instance(instance, resolved.signature, pool, mangled_name);
-
-    let receiver_type_name = instance
-        .receiver_type
-        .and_then(|receiver| nominal_type_name(pool, receiver));
-    let mut body_type_map: FxHashMap<Idx, Idx> = instance.body_type_map.iter().copied().collect();
-    // For a method WITH `self`, the body references the generic receiver
-    // type (`Box<T>`) via `self`-projections; map it to the concrete
-    // receiver (`Box<int>`) so those projections resolve to the
-    // monomorphized layout. The generic sig keeps `self` as `param_types[0]`
-    // exactly when it has one MORE param than the instance's non-`self`
-    // concrete params (the same signal `concrete_sig_for_instance` uses for
-    // `receiver_self`). A no-`self` associated function has NO self
-    // projection — `param_types.first()` is a VALUE param, not the receiver —
-    // so this mapping is skipped (its body types come from
-    // `instance.body_type_map` alone).
-    let has_self_receiver =
-        instance.concrete_param_types.len() + 1 == resolved.signature.param_types.len();
-    if let (Some(receiver), true, Some(&self_generic)) = (
-        instance.receiver_type,
-        has_self_receiver,
-        resolved.signature.param_types.first(),
-    ) {
-        body_type_map.entry(self_generic).or_insert(receiver);
-    }
-
-    MonoFunction {
-        mangled_name,
-        original_name: instance.fn_name,
-        origin: resolved.origin,
-        sig: concrete_sig,
-        body_type_map,
-        instance_ids: vec![instance_id],
-        is_imported: resolved.is_imported,
-        receiver_type: instance.receiver_type,
-        receiver_type_name,
-    }
-}
-
-/// Collect monomorphized functions from type-checker `MonoInstance` records.
-///
-/// Builds one deduped `MonoFunction` (mangled name + concrete sig) per
-/// unique instance. Lookup chain by instance shape: top-level instances
-/// (`receiver_type = None`) consult `function_sigs`, then `import_sigs`;
-/// method instances consult ordinary `impl_sigs`, then type-checker accepted
-/// derived signatures (imported methods are out of scope for this chain).
-/// Instances whose generic function is in no list are silently skipped (it may
-/// live in an uncompiled module).
-pub fn collect_mono_functions(
-    mono_instances: &[MonoInstance],
-    function_sigs: &[FunctionSig],
-    impl_sigs: &[ImplSig],
-    accepted_derives: &[AcceptedDerivedImpl],
-    import_sigs: &[ImportSig],
-    interner: &StringInterner,
-    pool: &Pool,
-) -> Vec<MonoFunction> {
-    // INVARIANT: receiver-type discrimination is enforced upstream by MonoInstance dedup.
-    // Inherent-method sigs are keyed by (method_name, receiver generic shell).
-    // The shell (`Box<_>`) discriminates per-receiver impl blocks so
-    // `Box<int>.unwrap` and `Box<str>.unwrap` resolve to distinct mono
-    // functions instead of colliding on a name-only first-match.
-    //
-    // `shell_pool` is a dedicated interning context: shells are content-
-    // addressed there, leaving the shared read-only `pool` untouched. The
-    // owning impl receiver type (`Box<T>`, `ImplSig::receiver`) carries the
-    // impl block's receiver pattern; its shell matches every concrete
-    // receiver's shell at lookup. Keying on the receiver — NOT
-    // `sig.param_types.first()` — is load-bearing for a no-`self` associated
-    // function, whose first param is a VALUE param, not the receiver.
-    let signatures = MonoSignatureLookup::new(
-        function_sigs,
-        impl_sigs,
-        accepted_derives,
-        import_sigs,
-        pool,
-    );
-
-    let mut result: Vec<MonoFunction> = Vec::with_capacity(mono_instances.len());
-    let mut name_to_index: FxHashMap<Name, usize> = FxHashMap::default();
-
-    tracing::debug!(
-        target: "ori_llvm::mono",
-        instance_count = mono_instances.len(),
-        names = ?mono_instances
-            .iter()
-            .map(|i| (interner.lookup(i.fn_name), i.receiver_type.is_some()))
-            .collect::<Vec<_>>(),
-        "collect_mono_functions: instances received"
-    );
-
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
-    )]
-    for (idx, instance) in mono_instances.iter().enumerate() {
-        let instance_id = MonoInstanceId::new(idx as u32);
-        let Some(resolved) = signatures.resolve(instance, pool) else {
-            log_unknown_mono_instance(&signatures, instance, interner);
-            continue;
-        };
-
-        let mangled_name = mangle_mono_name(
-            instance.fn_name,
-            &instance.generic_args,
-            &instance.impl_args,
-            &instance.method_args,
-            instance.receiver_type,
-            interner,
-            pool,
-        );
-
-        // Why: colliding instances append their id so the abstract-index
-        // dispatch table maps every contributing instance to the survivor.
-        if let Some(&existing) = name_to_index.get(&mangled_name) {
-            result[existing].instance_ids.push(instance_id);
-            continue;
-        }
-
-        let mono_function =
-            build_mono_function(instance, instance_id, resolved, mangled_name, pool);
-        name_to_index.insert(mangled_name, result.len());
-        result.push(mono_function);
-    }
-
-    result
 }
 
 /// Build the concrete (non-generic) [`FunctionSig`] for one mono instance.

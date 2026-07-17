@@ -119,7 +119,10 @@ fn derive_constructless_positional_skip(
     use crate::lower::burden::BurdenRef;
     use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
 
-    if !hazard.construct_sites.is_empty() || hazard.nested_path || hazard.skip_fields.is_empty() {
+    if !hazard.construct_sites.is_empty()
+        || hazard.is_nested_path()
+        || hazard.skip_fields.is_empty()
+    {
         return None;
     }
     let (var, _) = partition.node_key(hazard.container)?;
@@ -247,7 +250,7 @@ pub(super) fn derive_sum_skip(
     let niche_family = hazard
         .sum_enum_name
         .is_some_and(|name| name == interner.intern("Option") || name == interner.intern("Result"));
-    match (hazard.sum_container, hazard.sum_variant) {
+    match (hazard.is_sum_container(), hazard.sum_variant) {
         (false, _) => Ok(
             derive_constructless_enum_variant(func, partition, type_registry, hazard)
                 .map(SkipAuthority::Variant)

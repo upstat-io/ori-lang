@@ -139,6 +139,7 @@ fn apply_container_skip_conversion(
     else {
         return false;
     };
+
     let ClassOutcome::Planned(container_ops) = &mut container_entry.outcome else {
         return false;
     };
@@ -155,12 +156,9 @@ fn apply_container_skip_conversion(
                 };
             }
             emit::PlannedOpKind::DecPartial { skip_fields } => {
-                for &field in dec_skip {
-                    if !skip_fields.contains(&field) {
-                        skip_fields.push(field);
-                    }
-                }
+                skip_fields.extend_from_slice(dec_skip);
                 skip_fields.sort_unstable();
+                skip_fields.dedup();
             }
             emit::PlannedOpKind::Inc => {}
         }
@@ -197,8 +195,15 @@ pub(super) fn cure_view_with_field_decomposition(
     let Ok(authority) = derive_sum_skip(func, partition, type_registry, interner, hazard) else {
         return false;
     };
-    if !hazard.consume_marked
-        || hazard.nested_path
+
+    if !hazard.is_consume_marked()
+        || hazard.is_nested_path()
+        // Re-booking the field's move-in as non-consuming is valid only when
+        // the container dies through its locally converted release sites.
+        // If another path transfers the whole container out, that transferee
+        // still owns the field; extraction therefore needs its own funded
+        // credit instead of globally removing the container's ownership.
+        || hazard.is_container_transferred_out()
         // Constructless is admitted ONLY with a type-derived variant skip
         // (`derive_constructless_enum_variant`); a constructless struct
         // container has no skip authority and declines.
@@ -208,9 +213,10 @@ pub(super) fn cure_view_with_field_decomposition(
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
             view = ?partition.node_key(hazard.view),
-            consume_marked = hazard.consume_marked,
-            nested_path = hazard.nested_path,
-            sum_container = hazard.sum_container,
+            consume_marked = hazard.is_consume_marked(),
+            nested_path = hazard.is_nested_path(),
+            container_transferred_out = hazard.is_container_transferred_out(),
+            sum_container = hazard.is_sum_container(),
             constructless = hazard.construct_sites.is_empty(),
             skip_fields = ?hazard.skip_fields,
             "field-decomposition cure declined: view not skip-derivable"

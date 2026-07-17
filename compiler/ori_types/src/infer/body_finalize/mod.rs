@@ -387,7 +387,7 @@ fn collect_unbound_reachable_vars(
     match pool.tag(resolved) {
         Tag::Var => {
             let var_id = pool.data(resolved);
-            if let VarState::Unbound { .. } = pool.var_state(var_id) {
+            if let VarState::Unbound(_) = pool.var_state(var_id) {
                 if !exempt.contains(&var_id) {
                     var_subst.insert(var_id, Idx::NEVER);
                 }

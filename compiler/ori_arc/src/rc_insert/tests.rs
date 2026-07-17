@@ -10,7 +10,7 @@ use rustc_hash::FxHashMap;
 
 use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ArgOwnership};
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
-use crate::test_helpers::make_func_named;
+use crate::test_helpers::{make_apply, make_block, make_func_named};
 use crate::BuiltinOwnershipSets;
 
 /// Helper to create an `AnnotatedSig` with the given ownership per param.
@@ -31,6 +31,75 @@ fn make_sig(ownerships: &[Ownership]) -> AnnotatedSig {
             .collect(),
         return_type: Idx::NONE,
     }
+}
+
+fn annotate_insert_call(receiver_ty: Idx, pool: &Pool) -> Vec<ArgOwnership> {
+    let interner = StringInterner::new();
+    let insert = interner.intern("insert");
+    let caller = interner.intern("caller");
+    let builtins = BuiltinOwnershipSets::new(&interner);
+
+    let blocks = vec![make_block(
+        ArcBlockId::new(0),
+        vec![make_apply(
+            ArcVarId::new(3),
+            receiver_ty,
+            insert,
+            vec![ArcVarId::new(0), ArcVarId::new(1), ArcVarId::new(2)],
+            Vec::new(),
+        )],
+        ArcTerminator::Return {
+            value: ArcVarId::new(3),
+        },
+    )];
+    let mut func = make_func_named(
+        caller,
+        vec![],
+        receiver_ty,
+        blocks,
+        vec![receiver_ty, Idx::INT, Idx::STR, receiver_ty],
+    );
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        insert,
+        make_sig(&[Ownership::Borrowed, Ownership::Borrowed, Ownership::Owned]),
+    );
+
+    super::annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, pool);
+    let ArcInstr::Apply { arg_ownership, .. } = &func.blocks[0].body[0] else {
+        panic!("expected Apply");
+    };
+    arg_ownership.clone()
+}
+
+#[test]
+fn map_insert_borrows_key_and_value_despite_list_contract_name_collision() {
+    let mut pool = Pool::new();
+    let map_ty = pool.map(Idx::INT, Idx::STR);
+
+    assert_eq!(
+        annotate_insert_call(map_ty, &pool),
+        [
+            ArgOwnership::Owned,
+            ArgOwnership::Borrowed,
+            ArgOwnership::Borrowed,
+        ]
+    );
+}
+
+#[test]
+fn list_insert_still_consumes_value_after_map_insert_disambiguation() {
+    let mut pool = Pool::new();
+    let list_ty = pool.list(Idx::STR);
+
+    assert_eq!(
+        annotate_insert_call(list_ty, &pool),
+        [
+            ArgOwnership::Owned,
+            ArgOwnership::Borrowed,
+            ArgOwnership::Owned,
+        ]
+    );
 }
 
 // Residual indirect-call ABI tests
@@ -655,13 +724,13 @@ fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
     let func_name = interner.intern("caller");
 
     // Register concat as consuming_receiver + consuming_second_arg
-    // so apply_consuming_overrides actually fires for List but not str.
+    // so the type-qualified authority fires for List but not str.
     let mut builtins = BuiltinOwnershipSets::empty();
     builtins.consuming_receiver.insert(target);
     builtins.consuming_second_arg.insert(target);
 
     // v0: List<int>, v1: str — different types for the capture position.
-    // `apply_consuming_overrides` fires for List (marks receiver+second Owned)
+    // The type-qualified authority fires for List (marks receiver+second Owned)
     // but not str (no override), so effective ownership diverges → must fall back.
     let list_int = pool.list(Idx::INT);
 
@@ -1170,7 +1239,7 @@ fn annotate_protocol_collect_set_produces_owned() {
 ///
 /// The protocol definition says `Iter.arg_ownership() = [Borrowed]` — this is the base case
 /// for generic/primitive receivers. Collection receivers get overridden to Owned by
-/// `apply_consuming_overrides()` — see `annotate_iter_on_collection_overrides_to_owned`.
+/// the typed authority — see `annotate_iter_on_collection_overrides_to_owned`.
 #[test]
 fn annotate_protocol_iter_produces_borrowed() {
     let interner = StringInterner::new();
@@ -1218,7 +1287,7 @@ fn annotate_protocol_iter_produces_borrowed() {
 /// Verify `annotate_arg_ownership` overrides `iter` to [Owned] for collection receivers.
 ///
 /// The protocol defines `Iter.arg_ownership() = [Borrowed]` as the base case, but
-/// `apply_consuming_overrides()` promotes collection receivers (List/Map/Set) to Owned
+/// the typed authority promotes collection receivers (List/Map/Set) to Owned
 /// because the runtime transfers buffer ownership to the iterator. This test verifies
 /// the full `annotate_arg_ownership` flow — protocol base + type-qualified override.
 ///

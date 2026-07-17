@@ -1,8 +1,10 @@
 use std::collections::BTreeSet;
 
 use super::*;
+use crate::aot::TargetConfig;
 use crate::context::SimpleCx;
 use inkwell::context::Context;
+use inkwell::targets::{TargetData, TargetTriple};
 
 #[test]
 fn runtime_functions_declared() {
@@ -53,6 +55,62 @@ fn lazy_declares_only_requested_function() {
     assert_eq!(n, 1, "should have exactly 1 declaration, got {n}");
     assert!(scx.llmod.get_function("ori_print").is_some());
     assert!(scx.llmod.get_function("ori_rc_alloc").is_none());
+}
+
+#[test]
+fn iter_map_declaration_includes_output_release_thunk() {
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_iter_map_abi");
+    let mut builder = IrBuilder::new(&scx);
+
+    builder.runtime_fn("ori_iter_map");
+
+    let map = scx.llmod.get_function("ori_iter_map").unwrap();
+    assert_eq!(map.count_params(), 5);
+    assert!(
+        matches!(map.get_nth_param(4), Some(param) if param.is_pointer_value()),
+        "ori_iter_map's fifth ABI slot must carry the output release thunk"
+    );
+}
+
+#[test]
+fn iterator_callback_abi_is_stable_on_non_host_targets() {
+    for triple in ["aarch64-apple-darwin", "wasm32-unknown-unknown"] {
+        let target = TargetConfig::from_triple(triple)
+            .unwrap_or_else(|error| panic!("{triple} must be an initialized LLVM target: {error}"));
+        let layout = target
+            .data_layout()
+            .unwrap_or_else(|error| panic!("{triple} must expose a data layout: {error}"));
+
+        let ctx = Context::create();
+        let scx = SimpleCx::new(&ctx, "test_iterator_callback_cross_target_abi");
+        scx.llmod.set_triple(&TargetTriple::create(target.triple()));
+        let target_data = TargetData::create(&layout);
+        scx.llmod.set_data_layout(&target_data.get_data_layout());
+        let mut builder = IrBuilder::new(&scx);
+
+        for name in ["ori_iter_map", "ori_iter_collect", "ori_iter_collect_set"] {
+            builder.runtime_fn(name);
+        }
+
+        let ir = scx.llmod.print_to_string().to_string();
+        assert!(
+            ir.contains("declare ptr @ori_iter_map(ptr, ptr, ptr, i64, ptr)"),
+            "{triple} must preserve the map output-release-thunk slot:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_collect(ptr, i64, ptr, ptr, ptr)"),
+            "{triple} must preserve the collect element-release-thunk slot:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_collect_set(ptr, i64, ptr, ptr, ptr, ptr, ptr)"),
+            "{triple} must preserve the set-collect element-release-thunk slot:\n{ir}"
+        );
+        assert!(
+            scx.llmod.verify().is_ok(),
+            "iterator callback declarations must verify for {triple}:\n{ir}"
+        );
+    }
 }
 
 #[test]
@@ -356,9 +414,9 @@ fn jit_symbols_include_elem_header_helpers() {
 /// Validates that every runtime function has either `Nounwind` or documented
 /// justification for omitting it.
 ///
-/// After the audit, only `extern "C-unwind"` functions (assertions,
-/// `list_get`, and panic functions) should lack `Nounwind`. All `extern "C"`
-/// functions cannot unwind by ABI contract and must have `Nounwind`.
+/// After the audit, only `extern "C-unwind"` functions should lack
+/// `Nounwind`. All `extern "C"` functions cannot unwind by ABI contract and
+/// must have `Nounwind`.
 #[test]
 fn all_non_unwinding_functions_have_nounwind() {
     // These functions are extern "C-unwind" and intentionally lack nounwind
@@ -382,6 +440,25 @@ fn all_non_unwinding_functions_have_nounwind() {
         // extern "C-unwind": drop fn called directly so a user-@drop foreign
         // exception unwinds through to the caller's cleanup pad.
         "ori_rc_dec_unwind",
+        // Iterator advancement crosses user closure trampolines. Every eager
+        // adapter/consumer is therefore an extern-C-unwind boundary even when
+        // it has no callback parameter of its own: its source state may be a
+        // mapped or filtered adapter.
+        "ori_iter_next",
+        "ori_iter_next_back",
+        "ori_iter_rev",
+        "ori_iter_collect",
+        "ori_iter_collect_set",
+        "ori_iter_count",
+        "ori_iter_any",
+        "ori_iter_all",
+        "ori_iter_find",
+        "ori_iter_for_each",
+        "ori_iter_fold",
+        "ori_iter_last",
+        "ori_iter_rfind",
+        "ori_iter_rfold",
+        "ori_iter_join",
     ];
 
     let mut missing_nounwind = Vec::new();

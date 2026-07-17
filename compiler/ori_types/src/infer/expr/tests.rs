@@ -1,5 +1,5 @@
 use super::*;
-use crate::{Idx, Pool};
+use crate::{Expected, Idx, Pool, Tag};
 use ori_ir::{
     ast::{Expr, ExprKind, FieldInit, MapEntry, MatchArm, MatchPattern, Param, Stmt, StmtKind},
     BindingPattern, ExprArena, ExprId, Mutability, Name, Span, StmtRange, StringInterner,
@@ -1708,8 +1708,8 @@ fn test_infer_block_let_annotation_type_mismatch() {
     assert!(engine.has_errors(), "Type mismatch should produce an error");
 }
 
-/// Matrix cell for `infer_stmt`'s `StmtKind::Expr` arm (shared by
-/// `infer_block` and `infer_try_stmt`), previously untested: a leading
+/// Matrix cell for `infer_stmt`'s `StmtKind::Expr` arm (shared by ordinary
+/// blocks and try blocks), previously untested: a leading
 /// expression-statement's value is discarded (evaluated for side effects),
 /// so the block's type comes from the trailing result, unaffected by the
 /// statement's own type.
@@ -3957,13 +3957,10 @@ fn test_let_expr_non_lambda_does_not_generalize() {
     );
 }
 
-/// Semantic pin: a let statement inside a try block with a non-lambda initializer
-/// must NOT generalize. The try-block let path (`infer_try_stmt`) is a third
-/// generalization site distinct from `infer_block` and `infer_let`. We call
-/// `infer_try_stmt` directly to exercise the code path without the try-block
-/// scope enter/exit that would hide the binding.
+/// Semantic pin: a statement-position let with a non-lambda initializer must
+/// NOT generalize. Blocks and try blocks share this exact statement path.
 #[test]
-fn test_try_block_let_non_lambda_does_not_generalize() {
+fn test_stmt_let_non_lambda_does_not_generalize() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
@@ -3985,19 +3982,20 @@ fn test_try_block_let_non_lambda_does_not_generalize() {
         span: span(),
     });
 
-    // Call infer_try_stmt directly — this is the try-block let path
+    // Call the shared block/try-block statement path directly so the binding
+    // remains visible for inspection.
     let stmt_ref = arena.get_stmt(stmt);
-    infer_try_stmt(&mut engine, &arena, stmt_ref);
+    infer_stmt(&mut engine, &arena, stmt_ref);
 
     // The binding should be visible in the engine's environment
     let bound_ty = engine
         .env()
         .lookup(name(1))
-        .expect("name(1) should be bound after infer_try_stmt");
+        .expect("name(1) should be bound after infer_stmt");
     assert_ne!(
         engine.pool().tag(bound_ty),
         Tag::Scheme,
-        "try-block let with non-lambda init must NOT generalize"
+        "statement-position let with non-lambda init must NOT generalize"
     );
 }
 
@@ -4057,11 +4055,10 @@ fn test_let_expr_lambda_generalizes() {
     );
 }
 
-/// Positive pin: `let id = x -> x` inside a try block via `infer_try_stmt` must still
-/// produce a `Tag::Scheme` binding. This verifies generalization is preserved for
-/// non-capturing lambdas through the try-block let path.
+/// Positive pin: `let id = x -> x` through the statement path must still
+/// produce a `Tag::Scheme` binding. Blocks and try blocks share this path.
 #[test]
-fn test_try_block_let_lambda_generalizes() {
+fn test_stmt_let_lambda_generalizes() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
@@ -4099,34 +4096,33 @@ fn test_try_block_let_lambda_generalizes() {
         span: span(),
     });
 
-    // Call infer_try_stmt directly — exercises the try-block let path
+    // Call the shared block/try-block statement path directly.
     let stmt_ref = arena.get_stmt(stmt);
-    infer_try_stmt(&mut engine, &arena, stmt_ref);
+    infer_stmt(&mut engine, &arena, stmt_ref);
 
     let bound_ty = engine
         .env()
         .lookup(name(1))
-        .expect("name(1) should be bound after infer_try_stmt");
+        .expect("name(1) should be bound after infer_stmt");
     assert_eq!(
         engine.pool().tag(bound_ty),
         Tag::Scheme,
-        "try-block let with non-capturing lambda must generalize to Scheme"
+        "statement-position let with non-capturing lambda must generalize to Scheme"
     );
 }
 
-/// `try { let x: int = Ok(42); ... }` exercises `infer_let_binding_impl`'s
-/// annotated (`ty_id.is_valid()`) branch combined with
-/// `LetInitUnwrap::ResultOrOption` (Spec Clause 17): the initializer's
-/// `Result<int, _>` is unwrapped to `int` before checking against the `int`
-/// annotation, and `x` binds to the unwrapped `int`, not `Result<int, _>`.
+/// `let x: int = Ok(42)?` unwraps only because the initializer
+/// contains an explicit `?` (Spec Clause 16.5). The annotated binding receives
+/// `int`, not `Result<int, _>`.
 #[test]
-fn test_try_block_annotated_let_unwraps_result_type() {
+fn test_stmt_annotated_let_explicit_question_unwraps_result_type() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
-    // try { let x: int = Ok(42); ... }
+    // let x: int = Ok(42)?
     let inner = alloc(&mut arena, ExprKind::Int(42));
     let ok = alloc(&mut arena, ExprKind::Ok(inner));
+    let propagated = alloc(&mut arena, ExprKind::Try(ok));
 
     let int_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
@@ -4137,42 +4133,43 @@ fn test_try_block_annotated_let_unwraps_result_type() {
         kind: StmtKind::Let {
             pattern,
             ty: int_ty,
-            init: ok,
+            init: propagated,
             mutable: Mutability::Immutable,
         },
         span: span(),
     });
 
-    // Call infer_try_stmt directly — exercises the annotated + ResultOrOption
-    // branch of infer_let_binding_impl via the try-block let path.
+    // Call the shared statement path directly so the binding remains visible.
     let stmt_ref = arena.get_stmt(stmt);
-    infer_try_stmt(&mut engine, &arena, stmt_ref);
+    infer_stmt(&mut engine, &arena, stmt_ref);
 
     let bound_ty = engine
         .env()
         .lookup(name(1))
-        .expect("name(1) should be bound after infer_try_stmt");
+        .expect("name(1) should be bound after infer_stmt");
     assert_eq!(
         bound_ty,
         Idx::INT,
-        "annotated try-block let must bind to the unwrapped Result payload type, \
+        "explicit `?` must bind the unwrapped Result payload type, \
          not Result<int, _>"
     );
     assert!(!engine.has_errors());
 }
 
-/// Negative pin clamping the positive test above: `try { let x: str = Ok(42); ... }` —
-/// the initializer unwraps to `int`, which does NOT match the `str` annotation.
+/// Negative pin clamping the positive test above:
+/// `let x: str = Ok(42)?` unwraps to `int`, which does NOT match
+/// the `str` annotation.
 /// `infer_let_binding_impl` must report the mismatch against the unwrapped payload
 /// type, not silently accept it.
 #[test]
-fn test_try_block_annotated_let_result_mismatch_reports_error() {
+fn test_stmt_annotated_let_explicit_question_mismatch_reports_error() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
-    // try { let x: str = Ok(42); ... }
+    // let x: str = Ok(42)?
     let inner = alloc(&mut arena, ExprKind::Int(42));
     let ok = alloc(&mut arena, ExprKind::Ok(inner));
+    let propagated = alloc(&mut arena, ExprKind::Try(ok));
 
     let str_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::STR));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
@@ -4183,18 +4180,18 @@ fn test_try_block_annotated_let_result_mismatch_reports_error() {
         kind: StmtKind::Let {
             pattern,
             ty: str_ty,
-            init: ok,
+            init: propagated,
             mutable: Mutability::Immutable,
         },
         span: span(),
     });
 
     let stmt_ref = arena.get_stmt(stmt);
-    infer_try_stmt(&mut engine, &arena, stmt_ref);
+    infer_stmt(&mut engine, &arena, stmt_ref);
 
     assert!(
         engine.has_errors(),
-        "annotated try-block let must report a mismatch when the unwrapped Result \
+        "annotated statement let must report a mismatch when the unwrapped Result \
          payload type disagrees with the declared annotation"
     );
 }
@@ -4497,22 +4494,21 @@ fn test_try_block_propagates_expected_result_type() {
     assert!(!engine.has_errors());
 }
 
-/// Propagation-branch `error_ty` check: a single Result-typed try-block let
-/// (`let $a = Ok(1)`, auto-unwrapped) leaves a fresh error-type variable that
-/// MUST be checked against the outer annotation's declared Err slot — pins
-/// the `if let Some(et) = error_ty` branch inside `infer_try_seq`'s
-/// propagation arm, which requires a non-empty `stmts` range to reach.
+/// A single explicit Result propagation (`let $a = Ok(1)?`) leaves a fresh
+/// error-type variable that MUST reconcile with the outer annotation's
+/// declared Err slot.
 #[test]
-fn test_try_block_propagation_checks_let_error_type_against_outer_annotation() {
+fn test_try_block_propagation_checks_error_type_against_outer_annotation() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
-    // try { let $a = Ok(1); a } checked against Result<int, str> — the tail
+    // try { let $a = Ok(1)?; a } checked against Result<int, str> — the tail
     // is the bare payload (no explicit Ok wrap; per
     // `test_try_block_propagates_expected_result_type` the propagation
     // branch implicitly wraps a bare tail in the outer Result).
     let one = alloc(&mut arena, ExprKind::Int(1));
     let ok_init = alloc(&mut arena, ExprKind::Ok(one));
+    let propagated_init = alloc(&mut arena, ExprKind::Try(ok_init));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
         mutable: Mutability::Mutable,
@@ -4521,7 +4517,7 @@ fn test_try_block_propagation_checks_let_error_type_against_outer_annotation() {
         kind: StmtKind::Let {
             pattern,
             ty: ori_ir::ParsedTypeId::INVALID,
-            init: ok_init,
+            init: propagated_init,
             mutable: Mutability::Immutable,
         },
         span: span(),
@@ -4549,20 +4545,19 @@ fn test_try_block_propagation_checks_let_error_type_against_outer_annotation() {
     );
     assert!(
         !engine.has_errors(),
-        "the let-binding's fresh error type must unify with the outer Err slot, not error"
+        "the propagated fresh error type must unify with the outer Err slot, not error"
     );
 }
 
-/// Negative pin clamping the test above: when the try-block let's Result
-/// error type is already bound to a CONCRETE type incompatible with the
-/// outer annotation's declared Err slot, `infer_try_seq`'s propagation-branch
-/// `error_ty` check MUST report a mismatch instead of silently accepting it.
+/// Negative pin clamping the test above: when an explicit Result
+/// propagation's error type is concrete and incompatible with the outer
+/// annotation's Err slot, inference MUST report a mismatch.
 #[test]
-fn test_try_block_propagation_let_error_type_mismatch_reports_error() {
+fn test_try_block_propagation_error_type_mismatch_reports_error() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
-    // try { let $a = pre_bound; a } checked against Result<int, str>, where
+    // try { let $a = pre_bound?; a } checked against Result<int, str>, where
     // `pre_bound` already has type Result<int, bool> — the let's Err slot
     // (bool) conflicts with the outer annotation's Err slot (str). The tail
     // is the bare payload (see the positive test above for why an explicit
@@ -4570,6 +4565,7 @@ fn test_try_block_propagation_let_error_type_mismatch_reports_error() {
     let result_int_bool = engine.pool_mut().result(Idx::INT, Idx::BOOL);
     engine.env_mut().bind(name(50), result_int_bool);
     let ok_init = alloc(&mut arena, ExprKind::Ident(name(50)));
+    let propagated_init = alloc(&mut arena, ExprKind::Try(ok_init));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
         mutable: Mutability::Mutable,
@@ -4578,7 +4574,7 @@ fn test_try_block_propagation_let_error_type_mismatch_reports_error() {
         kind: StmtKind::Let {
             pattern,
             ty: ori_ir::ParsedTypeId::INVALID,
-            init: ok_init,
+            init: propagated_init,
             mutable: Mutability::Immutable,
         },
         span: span(),
@@ -4667,8 +4663,7 @@ fn test_try_block_with_wrong_outer_type_reports_mismatch_not_double_wrap() {
     );
 }
 
-/// Fallback `(_, None)` match arm: no outer annotation, no fallible
-/// let-bindings (`error_ty` stays `None`), and a tail whose synthesized type
+/// With no outer annotation, no explicit propagation, and a tail whose type
 /// is NOT itself `Result`/`Option` (a bare `int`) — `infer_try_seq` must wrap
 /// the tail in a fresh-error `Result<T, _>` rather than leaving it bare.
 /// Distinct from `test_try_block_without_outer_annotation_falls_back_to_synthesis`,
@@ -4700,23 +4695,18 @@ fn test_try_block_bare_non_result_tail_wraps_in_fresh_error_result() {
     assert!(!engine.has_errors());
 }
 
-/// Fallback `(_, Some(et))` match arm: no outer annotation, a fallible
-/// let-binding leaves `error_ty = Some(et)`, and a tail whose synthesized
-/// type is NOT itself `Result`/`Option` (a bare `int` unrelated to the
-/// let-bound name) — `infer_try_seq` must wrap the bare tail in
-/// `Result<T, et>` using the let-binding's concrete error type, instead of
-/// allocating a fresh (disconnected) error variable.
+/// With no outer annotation, an explicit Result propagation and a bare tail
+/// produce `Result<T, E>` using the propagated concrete error type.
 #[test]
-fn test_try_block_bare_tail_with_fallible_let_wraps_using_let_error_type() {
+fn test_try_block_bare_tail_with_result_propagation_uses_error_type() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
-    // try { let $a = pre_bound; 100 } — `pre_bound: Result<int, bool>`, tail
-    // is the bare literal `100` (unrelated to `a`) — hits the `(_, Some(et))`
-    // match arm with `et = bool`.
+    // try { let $a = pre_bound?; 100 } — `pre_bound: Result<int, bool>`.
     let result_int_bool = engine.pool_mut().result(Idx::INT, Idx::BOOL);
     engine.env_mut().bind(name(60), result_int_bool);
     let init = alloc(&mut arena, ExprKind::Ident(name(60)));
+    let propagated_init = alloc(&mut arena, ExprKind::Try(init));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(2),
         mutable: Mutability::Mutable,
@@ -4725,7 +4715,7 @@ fn test_try_block_bare_tail_with_fallible_let_wraps_using_let_error_type() {
         kind: StmtKind::Let {
             pattern,
             ty: ori_ir::ParsedTypeId::INVALID,
-            init,
+            init: propagated_init,
             mutable: Mutability::Immutable,
         },
         span: span(),
@@ -4787,26 +4777,25 @@ fn test_try_block_bare_option_tail_returns_option_unchanged() {
     assert!(!engine.has_errors());
 }
 
-/// Synthesis-path `(Tag::Result, Some(et))` match arm: no outer annotation,
-/// a fallible let-binding leaves `error_ty = Some(et)`, and the tail ITSELF
-/// synthesizes to `Result<T, _>` (`Ok(a)`) — `infer_try_seq` must unify the
-/// tail's own Err slot against the let-derived error type `et`, not silently
-/// carry two disconnected error types. Distinct from
-/// `test_try_block_propagation_checks_let_error_type_against_outer_annotation`,
+/// With no outer annotation, an explicit Result propagation and an already
+/// Result-wrapped tail (`Ok(a)`) must unify their Err slots rather than carry
+/// two disconnected error types. Distinct from
+/// `test_try_block_propagation_checks_error_type_against_outer_annotation`,
 /// which exercises the analogous unification inside the propagation branch
 /// (an outer `Result` annotation present); this test has NO outer annotation,
 /// reaching the same-shaped check in the fallback match instead.
 #[test]
-fn test_try_block_result_tail_with_fallible_let_unifies_err_without_outer_annotation() {
+fn test_try_block_result_tail_with_propagation_unifies_err_without_outer_annotation() {
     test_engine!(pool, engine);
     let mut arena = ExprArena::new();
 
-    // try { let $a = pre_bound; Ok(a) } — `pre_bound: Result<int, bool>`
-    // leaves `error_ty = Some(bool)`; the tail `Ok(a)` synthesizes to
+    // try { let $a = pre_bound?; Ok(a) } — `pre_bound: Result<int, bool>`;
+    // the tail `Ok(a)` synthesizes to
     // `Result<int, fresh_var>` — the fresh Err var must unify with `bool`.
     let result_int_bool = engine.pool_mut().result(Idx::INT, Idx::BOOL);
     engine.env_mut().bind(name(80), result_int_bool);
     let init = alloc(&mut arena, ExprKind::Ident(name(80)));
+    let propagated_init = alloc(&mut arena, ExprKind::Try(init));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
         mutable: Mutability::Mutable,
@@ -4815,7 +4804,7 @@ fn test_try_block_result_tail_with_fallible_let_unifies_err_without_outer_annota
         kind: StmtKind::Let {
             pattern,
             ty: ori_ir::ParsedTypeId::INVALID,
-            init,
+            init: propagated_init,
             mutable: Mutability::Immutable,
         },
         span: span(),
@@ -4841,8 +4830,271 @@ fn test_try_block_result_tail_with_fallible_let_unifies_err_without_outer_annota
     assert_eq!(
         engine.resolve(engine.pool().result_err(resolved)),
         Idx::BOOL,
-        "tail's own fresh Err var must unify with the let-derived error type, not diverge"
+        "tail's own fresh Err var must unify with the propagated error type, not diverge"
     );
+    assert!(!engine.has_errors());
+}
+
+/// A bare Result initializer inside `try {}` remains Result-typed. Only the
+/// explicit `?` expression changes a binding to the carrier's payload type.
+#[test]
+fn test_try_block_bare_result_let_retains_wrapper_type() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let result_int_bool = engine.pool_mut().result(Idx::INT, Idx::BOOL);
+    engine.env_mut().bind(name(90), result_int_bool);
+    let init = alloc(&mut arena, ExprKind::Ident(name(90)));
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+    let stmts = arena.alloc_stmt_range(0, 1);
+
+    let bound = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let tail = alloc(&mut arena, ExprKind::Ok(bound));
+    let seq_id = arena.alloc_function_seq(ori_ir::FunctionSeq::Try {
+        stmts,
+        result: tail,
+        span: span(),
+    });
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let ty = infer_expr(&mut engine, &arena, try_expr);
+    let resolved = engine.resolve(ty);
+    let payload = engine.resolve(engine.pool().result_ok(resolved));
+    assert_eq!(engine.pool().tag(payload), Tag::Result);
+    assert_eq!(engine.pool().result_ok(payload), Idx::INT);
+    assert_eq!(engine.pool().result_err(payload), Idx::BOOL);
+    assert!(!engine.has_errors());
+}
+
+/// A bare Option initializer inside `try {}` remains Option-typed. This is
+/// the unit-level counterpart to the `control_flow.ori` regression fixture.
+#[test]
+fn test_try_block_bare_option_let_retains_wrapper_type() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let option_int = engine.pool_mut().option(Idx::INT);
+    engine.env_mut().bind(name(91), option_int);
+    let init = alloc(&mut arena, ExprKind::Ident(name(91)));
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+    let stmts = arena.alloc_stmt_range(0, 1);
+
+    let bound = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let tail = alloc(&mut arena, ExprKind::Ok(bound));
+    let seq_id = arena.alloc_function_seq(ori_ir::FunctionSeq::Try {
+        stmts,
+        result: tail,
+        span: span(),
+    });
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let ty = infer_expr(&mut engine, &arena, try_expr);
+    let resolved = engine.resolve(ty);
+    let payload = engine.resolve(engine.pool().result_ok(resolved));
+    assert_eq!(engine.pool().tag(payload), Tag::Option);
+    assert_eq!(engine.pool().option_inner(payload), Idx::INT);
+    assert!(!engine.has_errors());
+}
+
+/// An explicit `?` over Option selects an Option boundary and binds the
+/// payload type inside the try block.
+#[test]
+fn test_try_block_explicit_option_propagation_infers_option_boundary() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let option_int = engine.pool_mut().option(Idx::INT);
+    engine.env_mut().bind(name(92), option_int);
+    let source = alloc(&mut arena, ExprKind::Ident(name(92)));
+    let init = alloc(&mut arena, ExprKind::Try(source));
+    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+    let stmts = arena.alloc_stmt_range(0, 1);
+
+    let tail = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let seq_id = arena.alloc_function_seq(ori_ir::FunctionSeq::Try {
+        stmts,
+        result: tail,
+        span: span(),
+    });
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let ty = infer_expr(&mut engine, &arena, try_expr);
+    let resolved = engine.resolve(ty);
+    assert_eq!(engine.pool().tag(resolved), Tag::Option);
+    assert_eq!(engine.pool().option_inner(resolved), Idx::INT);
+    assert!(!engine.has_errors());
+}
+
+/// Multiple explicit Result propagations in one boundary must share one
+/// error type. Concrete `bool` and `str` carriers therefore conflict.
+#[test]
+fn test_try_block_multiple_result_propagations_unify_error_types() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let result_int_bool = engine.pool_mut().result(Idx::INT, Idx::BOOL);
+    let result_int_str = engine.pool_mut().result(Idx::INT, Idx::STR);
+    engine.env_mut().bind(name(93), result_int_bool);
+    engine.env_mut().bind(name(94), result_int_str);
+
+    for (source_name, binding_name) in [(name(93), name(1)), (name(94), name(2))] {
+        let source = alloc(&mut arena, ExprKind::Ident(source_name));
+        let init = alloc(&mut arena, ExprKind::Try(source));
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+            name: binding_name,
+            mutable: Mutability::Mutable,
+        });
+        let _stmt = arena.alloc_stmt(Stmt {
+            kind: StmtKind::Let {
+                pattern,
+                ty: ori_ir::ParsedTypeId::INVALID,
+                init,
+                mutable: Mutability::Immutable,
+            },
+            span: span(),
+        });
+    }
+    let stmts = arena.alloc_stmt_range(0, 2);
+    let tail = alloc(&mut arena, ExprKind::Int(1));
+    let seq_id = arena.alloc_function_seq(ori_ir::FunctionSeq::Try {
+        stmts,
+        result: tail,
+        span: span(),
+    });
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let _ty = infer_expr(&mut engine, &arena, try_expr);
+    assert_eq!(engine.errors().len(), 1);
+}
+
+/// Result and Option propagation cannot target the same try boundary without
+/// an explicit carrier conversion.
+#[test]
+fn test_try_block_mixed_result_and_option_propagation_reports_error() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let result_int_bool = engine.pool_mut().result(Idx::INT, Idx::BOOL);
+    let option_int = engine.pool_mut().option(Idx::INT);
+    engine.env_mut().bind(name(95), result_int_bool);
+    engine.env_mut().bind(name(96), option_int);
+
+    for (source_name, binding_name) in [(name(95), name(1)), (name(96), name(2))] {
+        let source = alloc(&mut arena, ExprKind::Ident(source_name));
+        let init = alloc(&mut arena, ExprKind::Try(source));
+        let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+            name: binding_name,
+            mutable: Mutability::Mutable,
+        });
+        let _stmt = arena.alloc_stmt(Stmt {
+            kind: StmtKind::Let {
+                pattern,
+                ty: ori_ir::ParsedTypeId::INVALID,
+                init,
+                mutable: Mutability::Immutable,
+            },
+            span: span(),
+        });
+    }
+    let stmts = arena.alloc_stmt_range(0, 2);
+    let tail = alloc(&mut arena, ExprKind::Int(1));
+    let seq_id = arena.alloc_function_seq(ori_ir::FunctionSeq::Try {
+        stmts,
+        result: tail,
+        span: span(),
+    });
+    let try_expr = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
+
+    let _ty = infer_expr(&mut engine, &arena, try_expr);
+    assert_eq!(engine.errors().len(), 1);
+}
+
+/// A nested try block owns its internal `?` observations. The inner `bool`
+/// error type must not conflict with the outer boundary's declared `str`.
+#[test]
+fn test_nested_try_boundary_isolates_propagated_error_type() {
+    test_engine!(pool, engine);
+    let mut arena = ExprArena::new();
+
+    let result_int_bool = engine.pool_mut().result(Idx::INT, Idx::BOOL);
+    engine.env_mut().bind(name(97), result_int_bool);
+    let inner_source = alloc(&mut arena, ExprKind::Ident(name(97)));
+    let inner_init = alloc(&mut arena, ExprKind::Try(inner_source));
+    let inner_pattern = arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(1),
+        mutable: Mutability::Mutable,
+    });
+    let _inner_stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Let {
+            pattern: inner_pattern,
+            ty: ori_ir::ParsedTypeId::INVALID,
+            init: inner_init,
+            mutable: Mutability::Immutable,
+        },
+        span: span(),
+    });
+    let inner_stmts = arena.alloc_stmt_range(0, 1);
+    let inner_tail = alloc(&mut arena, ExprKind::Ident(name(1)));
+    let inner_seq_id = arena.alloc_function_seq(ori_ir::FunctionSeq::Try {
+        stmts: inner_stmts,
+        result: inner_tail,
+        span: span(),
+    });
+    let inner_try = alloc(&mut arena, ExprKind::FunctionSeq(inner_seq_id));
+
+    let _outer_stmt = arena.alloc_stmt(Stmt {
+        kind: StmtKind::Expr(inner_try),
+        span: span(),
+    });
+    let outer_stmts = arena.alloc_stmt_range(1, 1);
+    let outer_tail = alloc(&mut arena, ExprKind::Int(1));
+    let outer_seq_id = arena.alloc_function_seq(ori_ir::FunctionSeq::Try {
+        stmts: outer_stmts,
+        result: outer_tail,
+        span: span(),
+    });
+    let outer_try = alloc(&mut arena, ExprKind::FunctionSeq(outer_seq_id));
+    let expected_ty = engine.pool_mut().result(Idx::INT, Idx::STR);
+    let expected = Expected::from_annotation(expected_ty, name(98), span());
+
+    let ty = check_expr(&mut engine, &arena, outer_try, &expected, span());
+    assert_eq!(ty, expected_ty);
     assert!(!engine.has_errors());
 }
 

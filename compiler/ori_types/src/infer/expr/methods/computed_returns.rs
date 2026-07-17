@@ -5,6 +5,7 @@
 //! argument). A handful need specific type construction for better inference:
 //!
 //! - `list.zip` — returns `[(_elem_, U)]`, not bare `fresh`
+//! - `range.map` — returns `[U]`, not the lazy iterator adapter shape
 //! - `iter.map` — DEI-aware: returns `DEI<U>` or `Iterator<U>`
 //! - `iter.zip` — returns `Iterator<(_elem_, U)>`
 //! - `iter.flatten`/`flat_map` — returns `Iterator<U>`
@@ -29,6 +30,7 @@ pub(super) fn resolve_computed_return(
 ) -> Idx {
     match tag {
         Tag::List => computed_list_return(engine, receiver_ty, method_name),
+        Tag::Range => computed_range_return(engine, method_name),
         Tag::Iterator | Tag::DoubleEndedIterator => {
             computed_iterator_return(engine, receiver_ty, method_name)
         }
@@ -43,6 +45,20 @@ pub(super) fn resolve_computed_return(
             }
             _ => engine.fresh_var(),
         },
+        _ => engine.fresh_var(),
+    }
+}
+
+/// Range methods with Annex C eager return shapes.
+fn computed_range_return(engine: &mut InferEngine<'_>, method: &str) -> Idx {
+    match method {
+        // The element variable is pinned to the transform closure's return by
+        // `unify_higher_order_constraints` after argument inference.
+        "map" => {
+            let elem = engine.fresh_var();
+            engine.pool_mut().list(elem)
+        }
+        // `fold`'s accumulator is constrained by both `initial` and `op`.
         _ => engine.fresh_var(),
     }
 }

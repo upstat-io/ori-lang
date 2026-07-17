@@ -1,7 +1,7 @@
 //! Runtime iterator support for AOT-compiled Ori programs.
 //!
-//! Provides an opaque iterator handle that LLVM code manipulates via
-//! `extern "C"` functions. The internal `IterState` enum is never exposed
+//! Provides an opaque iterator handle that LLVM code manipulates via C ABI
+//! functions. The internal `IterState` enum is never exposed
 //! to LLVM — all interaction goes through pointer-sized handles.
 //!
 //! # Architecture
@@ -27,7 +27,7 @@ mod next_back;
 mod sources;
 pub(crate) mod state;
 
-// Re-export all `#[no_mangle] extern "C"` functions at module level.
+// Re-export all `#[no_mangle]` C-ABI functions at module level.
 pub use adapters::{
     ori_iter_chain, ori_iter_cycle, ori_iter_enumerate, ori_iter_filter, ori_iter_flatten,
     ori_iter_map, ori_iter_rev, ori_iter_skip, ori_iter_take, ori_iter_zip,
@@ -52,7 +52,7 @@ pub(crate) use state::{ElemBuf, FoldFn, ForEachFn, IterState, PredicateFn};
 /// Returns 1 if an element was produced, 0 if the iterator is exhausted.
 /// `elem_size` must match the element size of the iterator's output type.
 #[no_mangle]
-pub extern "C" fn ori_iter_next(iter: *mut u8, out_ptr: *mut u8, elem_size: i64) -> i8 {
+pub extern "C-unwind" fn ori_iter_next(iter: *mut u8, out_ptr: *mut u8, elem_size: i64) -> i8 {
     if iter.is_null() || out_ptr.is_null() {
         return 0;
     }
@@ -68,7 +68,7 @@ pub extern "C" fn ori_iter_next(iter: *mut u8, out_ptr: *mut u8, elem_size: i64)
 /// `DoubleEndedIterator.next_back()` protocol method. `elem_size` must match the
 /// element size of the iterator's output type.
 #[no_mangle]
-pub extern "C" fn ori_iter_next_back(iter: *mut u8, out_ptr: *mut u8, elem_size: i64) -> i8 {
+pub extern "C-unwind" fn ori_iter_next_back(iter: *mut u8, out_ptr: *mut u8, elem_size: i64) -> i8 {
     if iter.is_null() || out_ptr.is_null() {
         return 0;
     }

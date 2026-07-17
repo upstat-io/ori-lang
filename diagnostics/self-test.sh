@@ -332,6 +332,12 @@ run_test "all debug flags consistent" \
     "$SCRIPT_DIR/check-debug-flags.sh"
 echo ""
 
+# ─── check-tracing-coverage.sh ────────────────────────────────────
+printf "${C_BOLD}check-tracing-coverage.sh${C_NC}\n"
+run_test "all tracing dependencies have production coverage" \
+    "$SCRIPT_DIR/check-tracing-coverage.sh"
+echo ""
+
 # ─── valgrind-aot.sh ──────────────────────────────────────────────
 printf "${C_BOLD}valgrind-aot.sh${C_NC}\n"
 run_test_output_contains "valgrind-aot.sh --help shows usage" "Usage:" \

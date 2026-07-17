@@ -2,9 +2,9 @@
 //!
 //! Builds the merged-pool re-interning state consumed by
 //! `compile_to_llvm_with_imports` for cross-module mono dispatch: clones the
-//! host pool, re-interns each imported module's canon arena + generic
+//! host pool, re-interns each imported module's canon arena + callable
 //! signatures into it, and resolves the host's `MonoInstance` list into
-//! `ImportedMonoFn` triples via the same SSOT builder the JIT test runner uses.
+//! `ImportedMonoFn` entries via the same SSOT builder the JIT test runner uses.
 
 use std::path::Path;
 
@@ -24,13 +24,17 @@ use rustc_hash::FxHashMap;
 pub(crate) struct ImportedMonoState {
     /// Merged pool — host pool with imported types re-interned alongside.
     pub(crate) merged_pool: ori_types::Pool,
+    /// Non-generic imported function signatures in merged-pool coordinates,
+    /// indexed first by `resolved_imports.modules` position and then by the
+    /// provider's source-level function name.
+    pub(crate) re_interned_function_sigs: Vec<FxHashMap<ori_ir::Name, ori_types::FunctionSig>>,
     /// Per-imported-module re-interned canons, indexed by entry index in
-    /// `resolved_imports.modules`. `imported_mono_fns[i].1` indexes this
-    /// vector so `arc_lowering` can fetch the SOURCE canon for body
+    /// `resolved_imports.modules`. `imported_mono_fns[i].module_index` indexes
+    /// this vector so `arc_lowering` can fetch the source canon for body
     /// specialization.
     pub(crate) re_interned_canons: Vec<ori_ir::canon::CanonResult>,
-    /// `(MonoFunction, source_module_idx, source_body_name)` triples — one
-    /// entry per unique imported mono instance reachable from the host's
+    /// Exact function, source-module, and source-body entries. One entry per
+    /// unique imported mono instance reachable from the host's
     /// `MonoInstance` list. Empty when the host has no imported generic
     /// instantiations.
     pub(crate) imported_mono_fns: Vec<crate::commands::ImportedMonoFn>,
@@ -110,14 +114,130 @@ fn type_check_and_canonicalize_imports(
     )
 }
 
+fn re_intern_public_function_sigs(
+    imported_type_results: &[ori_types::TypeCheckResult],
+    imported_pools: &[std::sync::Arc<ori_types::Pool>],
+    merged_pool: &mut ori_types::Pool,
+    per_module_caches: &mut [FxHashMap<ori_types::Idx, ori_types::Idx>],
+    per_module_var_remaps: &mut [FxHashMap<u32, u32>],
+) -> Vec<FxHashMap<ori_ir::Name, ori_types::FunctionSig>> {
+    imported_type_results
+        .iter()
+        .enumerate()
+        .map(|(module_index, result)| {
+            result
+                .typed
+                .functions
+                .iter()
+                .filter(|signature| signature.is_public && !signature.is_generic())
+                .map(|signature| {
+                    let re_interned = ori_types::re_intern_sig_with_var_remap(
+                        signature,
+                        &imported_pools[module_index],
+                        merged_pool,
+                        &mut per_module_caches[module_index],
+                        &mut per_module_var_remaps[module_index],
+                    );
+                    (signature.name, re_interned)
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn collect_imported_impl_templates(
+    resolved_imports: &crate::imports::ResolvedImports,
+    imported_type_results: &[ori_types::TypeCheckResult],
+    imported_pools: &[std::sync::Arc<ori_types::Pool>],
+    merged_pool: &mut ori_types::Pool,
+    per_module_caches: &mut [FxHashMap<ori_types::Idx, ori_types::Idx>],
+    per_module_var_remaps: &mut [FxHashMap<u32, u32>],
+    interner: &ori_ir::StringInterner,
+) -> Vec<crate::commands::ImportedImplTemplate> {
+    let mut templates = Vec::new();
+    for (module_index, module) in resolved_imports.modules.iter().enumerate() {
+        let source_pool = std::sync::Arc::clone(&imported_pools[module_index]);
+        templates.extend(crate::commands::collect_imported_impl_templates(
+            crate::commands::ImportedImplTemplateSource {
+                parse: &module.parse_output,
+                typed: &imported_type_results[module_index].typed,
+                source_pool: &source_pool,
+                module_index,
+                module_identity: &module.module_path.to_string_lossy(),
+            },
+            merged_pool,
+            &mut per_module_caches[module_index],
+            &mut per_module_var_remaps[module_index],
+            interner,
+        ));
+    }
+    templates
+}
+
+type ImportedGenericSigs = FxHashMap<ori_ir::Name, (ori_types::FunctionSig, usize, ori_ir::Name)>;
+
+fn re_intern_generic_function_sigs(
+    resolved_imports: &crate::imports::ResolvedImports,
+    imported_type_results: &[ori_types::TypeCheckResult],
+    imported_pools: &[std::sync::Arc<ori_types::Pool>],
+    merged_pool: &mut ori_types::Pool,
+    per_module_caches: &mut [FxHashMap<ori_types::Idx, ori_types::Idx>],
+    per_module_var_remaps: &mut [FxHashMap<u32, u32>],
+) -> ImportedGenericSigs {
+    let mut signatures = ImportedGenericSigs::default();
+    for func_ref in &resolved_imports.imported_functions {
+        if func_ref.is_module_alias {
+            continue;
+        }
+        let Some(signature) = imported_type_results[func_ref.module_index]
+            .typed
+            .functions
+            .iter()
+            .find(|signature| signature.name == func_ref.original_name)
+        else {
+            continue;
+        };
+        if !signature.is_generic() {
+            continue;
+        }
+        let module_index = func_ref.module_index;
+        let re_interned = ori_types::re_intern_sig_with_var_remap(
+            signature,
+            &imported_pools[module_index],
+            merged_pool,
+            &mut per_module_caches[module_index],
+            &mut per_module_var_remaps[module_index],
+        );
+        signatures.insert(
+            func_ref.local_name,
+            (re_interned, module_index, func_ref.original_name),
+        );
+    }
+
+    if let Some(prelude_module) = resolved_imports.prelude.as_ref() {
+        let prelude_index = resolved_imports.modules.len();
+        crate::commands::register_prelude_generic_sigs_for_test_runner(
+            &mut signatures,
+            &prelude_module.parse_output,
+            &imported_type_results[prelude_index].typed,
+            &imported_pools[prelude_index],
+            prelude_index,
+            merged_pool,
+            &mut per_module_caches[prelude_index],
+            &mut per_module_var_remaps[prelude_index],
+        );
+    }
+    signatures
+}
+
 /// Build the merged-pool re-interning state for cross-module imported
 /// generic body specialization via body-import linkage.
 ///
 /// Clones the host pool (host `Idx` values stay valid), re-interns each
-/// imported module's canon arena + generic sigs into the merged pool, and
-/// resolves the host's `MonoInstance` list into `ImportedMonoFn` triples.
+/// imported module's canon arena + callable sigs into the merged pool, and
+/// resolves the host's `MonoInstance` list into `ImportedMonoFn` entries.
 /// Short-circuits to a host-pool clone + empty vectors when the host has no
-/// imports or no imported generic refs — zero-cost for single-file builds.
+/// imports — zero-cost for single-file builds.
 pub(crate) fn build_imported_mono_state(
     db: &oric::CompilerDb,
     source_path: &Path,
@@ -142,6 +262,7 @@ pub(crate) fn build_imported_mono_state(
     if resolved_imports.modules.is_empty() && resolved_imports.prelude.is_none() {
         return ImportedMonoState {
             merged_pool,
+            re_interned_function_sigs: Vec::new(),
             re_interned_canons: Vec::new(),
             imported_mono_fns: Vec::new(),
         };
@@ -167,68 +288,44 @@ pub(crate) fn build_imported_mono_state(
         &mut merged_pool,
     );
 
-    // Why: imported_generic_sigs is keyed by LOCAL name — MonoInstance.fn_name
-    // is the call-site identifier (the local/aliased name from the use statement).
-    let mut imported_generic_sigs: FxHashMap<
-        ori_ir::Name,
-        (ori_types::FunctionSig, usize, ori_ir::Name),
-    > = FxHashMap::default();
-    for func_ref in &resolved_imports.imported_functions {
-        if func_ref.is_module_alias {
-            continue;
-        }
-        let Some(sig) = imported_type_results[func_ref.module_index]
-            .typed
-            .functions
-            .iter()
-            .find(|s| s.name == func_ref.original_name)
-        else {
-            continue;
-        };
-        if !sig.is_generic() {
-            continue;
-        }
-        let source_pool = &imported_pools[func_ref.module_index];
-        let cache = &mut per_module_caches[func_ref.module_index];
-        let var_remap = &mut per_module_var_remaps[func_ref.module_index];
-        let re_interned = ori_types::re_intern_sig_with_var_remap(
-            sig,
-            source_pool,
-            &mut merged_pool,
-            cache,
-            var_remap,
-        );
-        imported_generic_sigs.insert(
-            func_ref.local_name,
-            (re_interned, func_ref.module_index, func_ref.original_name),
-        );
-    }
+    // Physical imports carry producer-authored facts, but their semantic Idx
+    // coordinates are pool-local. Rebuild every exported, non-generic
+    // signature into the same merged pool that will validate those facts.
+    let re_interned_function_sigs = re_intern_public_function_sigs(
+        &imported_type_results,
+        &imported_pools,
+        &mut merged_pool,
+        &mut per_module_caches,
+        &mut per_module_var_remaps,
+    );
 
-    // Register the prelude's `pub` generic free functions (min/max/…) — they
-    // are implicit (not ImportedFunctionRef entries) so the loop above never
-    // sees them. The prelude slot is the LAST module index.
-    if let Some(prelude_module) = resolved_imports.prelude.as_ref() {
-        let prelude_idx = resolved_imports.modules.len();
-        let source_pool = std::sync::Arc::clone(&imported_pools[prelude_idx]);
-        let cache = &mut per_module_caches[prelude_idx];
-        let var_remap = &mut per_module_var_remaps[prelude_idx];
-        crate::commands::register_prelude_generic_sigs_for_test_runner(
-            &mut imported_generic_sigs,
-            &prelude_module.parse_output,
-            &imported_type_results[prelude_idx].typed,
-            &source_pool,
-            prelude_idx,
-            &mut merged_pool,
-            cache,
-            var_remap,
-        );
-    }
+    // Key explicit imports by their local/aliased names; implicit prelude
+    // functions use their source names in the trailing module slot.
+    let imported_generic_sigs = re_intern_generic_function_sigs(
+        &resolved_imports,
+        &imported_type_results,
+        &imported_pools,
+        &mut merged_pool,
+        &mut per_module_caches,
+        &mut per_module_var_remaps,
+    );
+
+    let imported_impl_templates = collect_imported_impl_templates(
+        &resolved_imports,
+        &imported_type_results,
+        &imported_pools,
+        &mut merged_pool,
+        &mut per_module_caches,
+        &mut per_module_var_remaps,
+        interner,
+    );
 
     // Why: delegates to the SSOT builder shared with the JIT test runner —
     // one monomorphization mechanism for JIT + AOT.
     let imported_mono_fns = crate::commands::build_imported_mono_functions_for_test_runner(
         type_result,
         &imported_generic_sigs,
+        &imported_impl_templates,
         &per_module_caches,
         &mut merged_pool,
         interner,
@@ -236,6 +333,7 @@ pub(crate) fn build_imported_mono_state(
 
     ImportedMonoState {
         merged_pool,
+        re_interned_function_sigs,
         re_interned_canons,
         imported_mono_fns,
     }

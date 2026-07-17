@@ -179,6 +179,22 @@ fn list_push_takes_owned_element() {
 }
 
 #[test]
+fn fixed_capacity_conversions_transfer_the_receiver() {
+    for name in ["to_dynamic", "to_fixed"] {
+        let method = LIST
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .unwrap_or_else(|| panic!("List.{name} should exist"));
+        assert_eq!(
+            method.receiver,
+            Ownership::Owned,
+            "List.{name} returns the receiver's allocation identity"
+        );
+    }
+}
+
+#[test]
 fn list_set_takes_index_and_element() {
     let m = LIST
         .methods

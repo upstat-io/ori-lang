@@ -59,7 +59,14 @@ pub(crate) fn resolve_operator_method(
         },
     };
     let _ = engine.check_type(argument_ty, &expected, argument_span);
-    monomorphization::maybe_record_method_mono_instance(engine, None, method, receiver_ty, &sig);
+    monomorphization::maybe_record_method_mono_instance(
+        engine,
+        None,
+        method,
+        receiver_ty,
+        &sig,
+        None,
+    );
     Some(sig.ret)
 }
 

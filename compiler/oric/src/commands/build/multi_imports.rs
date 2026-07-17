@@ -39,27 +39,13 @@ fn imported_module_infos<'a>(
         .collect()
 }
 
-/// Build import information for a module based on its dependencies.
-///
-/// Uses actual type information from already-compiled modules rather than
-/// defaulting to INT. This ensures correct calling conventions for cross-module calls.
-pub(super) fn build_import_infos(
-    source_path: &Path,
-    graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
-    compiled_modules: &[CompiledModuleInfo],
-    _base_dir: &Path,
-    _mangler: &ori_llvm::aot::Mangler,
+type LocalFunctionNames = rustc_hash::FxHashMap<(PathBuf, String), Vec<String>>;
+
+fn collect_local_function_names(
     resolved_imports: &crate::imports::ResolvedImports,
     interner: &ori_ir::StringInterner,
-) -> Vec<crate::commands::compile_common::ImportedFunctionInfo> {
-    // Call-site local/aliased names keyed by (imported module path, exported
-    // fn name). Only functions the host names in a `use` get local keys;
-    // module-alias imports expand to qualified `alias.fn` entries upstream.
-    // ONE exported fn can carry SEVERAL local names (`use { f as g, f as h }`,
-    // or a named import plus a module-alias qualified entry) - every alias
-    // needs its own registration or its call sites miss callee resolution.
-    let mut local_names: rustc_hash::FxHashMap<(PathBuf, String), Vec<String>> =
-        rustc_hash::FxHashMap::default();
+) -> LocalFunctionNames {
+    let mut local_names = LocalFunctionNames::default();
     for func_ref in &resolved_imports.imported_functions {
         if func_ref.is_module_alias {
             continue;
@@ -67,9 +53,9 @@ pub(super) fn build_import_infos(
         let Some(module) = resolved_imports.modules.get(func_ref.module_index) else {
             continue;
         };
-        let key_path = module.module_path.canonicalize().unwrap_or_else(|e| {
+        let key_path = module.module_path.canonicalize().unwrap_or_else(|error| {
             eprintln!(
-                "warning: cannot canonicalize import '{}' for local-name resolution: {e}",
+                "warning: cannot canonicalize import '{}' for local-name resolution: {error}",
                 module.module_path.display()
             );
             module.module_path.clone()
@@ -85,8 +71,51 @@ pub(super) fn build_import_infos(
             entry.push(local);
         }
     }
+    local_names
+}
+
+fn collect_resolved_module_indices(
+    resolved_imports: &crate::imports::ResolvedImports,
+) -> rustc_hash::FxHashMap<PathBuf, usize> {
+    resolved_imports
+        .modules
+        .iter()
+        .enumerate()
+        .map(|(index, module)| {
+            let path = module.module_path.canonicalize().unwrap_or_else(|error| {
+                eprintln!(
+                    "warning: cannot canonicalize resolved module '{}': {error}",
+                    module.module_path.display()
+                );
+                module.module_path.clone()
+            });
+            (path, index)
+        })
+        .collect()
+}
+
+/// Build import information for a module based on its dependencies.
+///
+/// Uses actual type information from already-compiled modules rather than
+/// defaulting to INT. This ensures correct calling conventions for cross-module calls.
+pub(super) fn build_import_infos(
+    source_path: &Path,
+    graph: &ori_llvm::aot::incremental::deps::DependencyGraph,
+    compiled_modules: &[CompiledModuleInfo],
+    resolved_imports: &crate::imports::ResolvedImports,
+    re_interned_function_sigs: &[rustc_hash::FxHashMap<ori_ir::Name, ori_types::FunctionSig>],
+    interner: &ori_ir::StringInterner,
+) -> Result<Vec<crate::commands::compile_common::ImportedFunctionInfo>, String> {
+    // Call-site local/aliased names keyed by (imported module path, exported
+    // fn name). Only functions the host names in a `use` get local keys;
+    // module-alias imports expand to qualified `alias.fn` entries upstream.
+    // ONE exported fn can carry SEVERAL local names (`use { f as g, f as h }`,
+    // or a named import plus a module-alias qualified entry) - every alias
+    // needs its own registration or its call sites miss callee resolution.
+    let local_names = collect_local_function_names(resolved_imports, interner);
 
     let mut imported_functions = Vec::new();
+    let module_indices = collect_resolved_module_indices(resolved_imports);
 
     for (import_path, info) in imported_module_infos(source_path, graph, compiled_modules) {
         let Some(module_info) = info else {
@@ -105,15 +134,34 @@ pub(super) fn build_import_infos(
             );
             import_path.to_path_buf()
         });
+        let module_index = module_indices.get(&key_path).copied().ok_or_else(|| {
+            format!(
+                "compiled import '{}' has no matching resolved-module identity",
+                import_path.display()
+            )
+        })?;
+        let module_sigs = re_interned_function_sigs.get(module_index).ok_or_else(|| {
+            format!(
+                "compiled import '{}' has no merged-pool signature table",
+                import_path.display()
+            )
+        })?;
         imported_functions.reserve(module_info.public_functions.len());
         for ExportedFunctionInfo {
             mangled_name,
             source_name,
-            param_types,
-            return_type,
             metadata,
+            ..
         } in &module_info.public_functions
         {
+            let source_name_id = interner.intern(source_name);
+            let signature = module_sigs.get(&source_name_id).ok_or_else(|| {
+                format!(
+                    "compiled import '{}' exports '{}' without a merged-pool signature",
+                    import_path.display(),
+                    source_name
+                )
+            })?;
             match local_names.get(&(key_path.clone(), source_name.clone())) {
                 Some(locals) => {
                     // One entry PER local alias - each call-site name resolves
@@ -123,8 +171,8 @@ pub(super) fn build_import_infos(
                             crate::commands::compile_common::ImportedFunctionInfo {
                                 mangled_name: mangled_name.clone(),
                                 local_name: Some(local.clone()),
-                                param_types: param_types.clone(),
-                                return_type: *return_type,
+                                param_types: signature.param_types.clone(),
+                                return_type: signature.return_type,
                                 metadata: metadata.clone(),
                             },
                         );
@@ -135,8 +183,8 @@ pub(super) fn build_import_infos(
                         crate::commands::compile_common::ImportedFunctionInfo {
                             mangled_name: mangled_name.clone(),
                             local_name: None,
-                            param_types: param_types.clone(),
-                            return_type: *return_type,
+                            param_types: signature.param_types.clone(),
+                            return_type: signature.return_type,
                             metadata: metadata.clone(),
                         },
                     );
@@ -145,7 +193,7 @@ pub(super) fn build_import_infos(
         }
     }
 
-    imported_functions
+    Ok(imported_functions)
 }
 
 /// Collect exported type metadata from all modules this module imports.

@@ -117,17 +117,24 @@ fn emit_all_true_body<'a>(
     let true_bb = fc.builder_mut().append_block(func_id, "eq.true");
     let false_bb = fc.builder_mut().append_block(func_id, "eq.false");
 
-    for (i, field) in fields.iter().enumerate() {
+    // Equality is commutative across fields. Compare scalar fields first so a
+    // cheap mismatch avoids managed equality calls on later heap fields.
+    // Stable sorting preserves declaration order within each cost class.
+    let mut field_order: Vec<_> = fields.iter().enumerate().collect();
+    field_order.sort_by_key(|(_, field)| !fc.is_arc_scalar(field.ty));
+
+    for (comparison_index, (declaration_index, field)) in field_order.into_iter().enumerate() {
         let field_name = fc.lookup_name(field.name).to_owned();
         // Remap declaration-order index to memory-order for LLVM extract.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "struct fields always < u32::MAX"
         )]
-        let mem_i = remap_derive_field(fc, setup.type_idx, i as u32);
+        let mem_i = remap_derive_field(fc, setup.type_idx, declaration_index as u32);
         let self_field =
             fc.builder_mut()
                 .extract_value(self_val, mem_i, &format!("eq.self.{field_name}"));
+
         let other_field =
             fc.builder_mut()
                 .extract_value(other_val, mem_i, &format!("eq.other.{field_name}"));
@@ -148,10 +155,10 @@ fn emit_all_true_body<'a>(
             str_ty_id,
         );
 
-        if i + 1 < fields.len() {
+        if comparison_index + 1 < fields.len() {
             let next_bb = fc
                 .builder_mut()
-                .append_block(func_id, &format!("eq.field.{}", i + 1));
+                .append_block(func_id, &format!("eq.field.{}", comparison_index + 1));
             fc.builder_mut().cond_br(cmp, next_bb, false_bb);
             fc.builder_mut().position_at_end(next_bb);
         } else {
@@ -187,6 +194,8 @@ fn emit_lexicographic_body<'a>(
         return;
     }
 
+    // Comparable is specified as declaration-order lexicographic; unlike Eq,
+    // its field order cannot be cost-sorted without changing semantics.
     for (i, field) in fields.iter().enumerate() {
         let field_name = fc.lookup_name(field.name).to_owned();
         // Remap declaration-order index to memory-order for LLVM extract.

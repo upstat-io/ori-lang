@@ -55,6 +55,8 @@ fn fresh_return_methods_are_documented() {
         "List.window",
         "List.zip",
         "Set.fold",
+        "Range.fold",
+        "Range.map",
         "Option.and_then",
         "Option.filter",
         "Option.flat_map",
@@ -124,6 +126,12 @@ fn range_iteration_methods_derived_from_registry() {
         super::range_method_requires_iteration("to_list"),
         "to_list should require iteration"
     );
+    for method in ["map", "filter", "fold"] {
+        assert!(
+            super::range_method_requires_iteration(method),
+            "{method} should require iteration"
+        );
+    }
 
     // These methods should NOT require iteration
     assert!(
@@ -282,6 +290,23 @@ fn computed_returns_produce_structured_types() {
         engine.pool().tag(dei_map_ret),
         Tag::DoubleEndedIterator,
         "DEI.map should return a DoubleEndedIterator"
+    );
+
+    // Annex C Range.map is eager and returns List<U>, never an iterator.
+    let range_int = engine.pool_mut().range(Idx::INT);
+    let range_map_ret = resolve_computed_return(&mut engine, range_int, Tag::Range, "map");
+    assert_eq!(
+        engine.pool().tag(range_map_ret),
+        Tag::List,
+        "Range.map should return a List"
+    );
+
+    // Range.fold remains a fresh accumulator constrained by its arguments.
+    let range_fold_ret = resolve_computed_return(&mut engine, range_int, Tag::Range, "fold");
+    assert_eq!(
+        engine.pool().tag(range_fold_ret),
+        Tag::Var,
+        "Range.fold should return its inferred accumulator type"
     );
 
     // Iterator.zip should return Iterator<(T, U)>

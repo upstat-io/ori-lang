@@ -269,15 +269,15 @@ impl LexError {
         )
     }
 
-    /// Create an increment/decrement operator error.
+    /// Create an increment operator error.
     #[cold]
-    pub fn increment_decrement_operator(span: Span, operator: &'static str) -> Self {
+    pub fn increment_operator(span: Span, operator: &'static str) -> Self {
         Self {
             span,
-            kind: LexErrorKind::IncrementDecrementOperator { operator },
+            kind: LexErrorKind::IncrementOperator { operator },
             context: LexErrorContext::TopLevel,
             suggestions: vec![LexSuggestion::text(
-                "use an explicit assignment such as `x = x + 1` or `x = x - 1`",
+                "use an explicit assignment such as `x = x + 1`",
                 0,
             )],
         }

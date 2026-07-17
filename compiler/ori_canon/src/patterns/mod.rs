@@ -42,15 +42,18 @@ use crate::lower::Lowerer;
 ///
 /// # Returns
 ///
-/// A compiled `DecisionTree` ready for storage in the `DecisionTreePool`.
+/// A compiled tree plus blank-pattern cleanup carriers for `DecisionTreePool`.
 pub(crate) fn compile_patterns(
     lowerer: &Lowerer<'_>,
     arms: &[(MatchPattern, Option<ori_ir::canon::CanId>)],
     arm_range_start: u32,
     scrutinee_ty: ori_types::Idx,
-) -> DecisionTree {
+) -> decision_tree::compile::CompiledDecisionTree {
     if arms.is_empty() {
-        return DecisionTree::Fail;
+        return decision_tree::compile::CompiledDecisionTree {
+            tree: DecisionTree::Fail,
+            leaf_discard_paths: Vec::new(),
+        };
     }
 
     // Build the pattern matrix: one row per arm, one column (the scrutinee).
@@ -67,6 +70,7 @@ pub(crate) fn compile_patterns(
                 arm_index,
                 guard: *guard,
                 bindings: vec![],
+                discard_paths: vec![],
             }
         })
         .collect();
@@ -137,13 +141,16 @@ fn flatten_arm_pattern(
 ///
 /// # Returns
 ///
-/// A compiled `DecisionTree` ready for storage in the `DecisionTreePool`.
+/// A compiled tree plus blank-pattern cleanup carriers for `DecisionTreePool`.
 pub(crate) fn compile_multi_clause_patterns(
     clauses: &[Vec<FlatPattern>],
     guards: &[Option<ori_ir::canon::CanId>],
-) -> DecisionTree {
+) -> decision_tree::compile::CompiledDecisionTree {
     if clauses.is_empty() {
-        return DecisionTree::Fail;
+        return decision_tree::compile::CompiledDecisionTree {
+            tree: DecisionTree::Fail,
+            leaf_discard_paths: Vec::new(),
+        };
     }
 
     let col_count = clauses[0].len();
@@ -157,6 +164,7 @@ pub(crate) fn compile_multi_clause_patterns(
             arm_index,
             guard: *guard,
             bindings: vec![],
+            discard_paths: vec![],
         })
         .collect();
 

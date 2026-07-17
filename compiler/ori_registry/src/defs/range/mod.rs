@@ -2,7 +2,8 @@
 //!
 //! Range is a Copy generic type (`Range<T>`) representing integer ranges
 //! with start, end, step, and inclusive flag. It supports iteration
-//! (producing a `DoubleEndedIterator`) and conversion to lists.
+//! (producing a `DoubleEndedIterator`), eager higher-order operations, and
+//! conversion to lists.
 //!
 //! Range has no operator support — arithmetic on ranges is not defined.
 //! Float ranges exist but cannot iterate (`iter`, `to_list`, `collect`
@@ -29,6 +30,34 @@ static STEP_PARAM: [ParamDef; 1] = [ParamDef {
     ownership: Ownership::Copy,
 }];
 
+/// `(predicate: (T) -> bool)` — closure param for eager `filter`.
+static PREDICATE_PARAM: [ParamDef; 1] = [ParamDef {
+    name: "predicate",
+    ty: ReturnTag::Fresh,
+    ownership: Ownership::Owned,
+}];
+
+/// `(transform: (T) -> U)` — closure param for eager `map`.
+static TRANSFORM_PARAM: [ParamDef; 1] = [ParamDef {
+    name: "transform",
+    ty: ReturnTag::Fresh,
+    ownership: Ownership::Owned,
+}];
+
+/// `(initial: U, op: (U, T) -> U)` — accumulator and closure for eager `fold`.
+static FOLD_PARAMS: [ParamDef; 2] = [
+    ParamDef {
+        name: "initial",
+        ty: ReturnTag::Fresh,
+        ownership: Ownership::Owned,
+    },
+    ParamDef {
+        name: "op",
+        ty: ReturnTag::Fresh,
+        ownership: Ownership::Owned,
+    },
+];
+
 // Helper aliases
 const BOOL: ReturnTag = ReturnTag::Concrete(TypeTag::Bool);
 const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
@@ -54,6 +83,22 @@ static RANGE_METHODS: &[MethodDef] = &[
     ),
     MethodDef::compound("count", &[], INT, None, Ownership::Borrow, false),
     MethodDef::compound(
+        "filter",
+        &PREDICATE_PARAM,
+        ReturnTag::ListOf(TypeProjection::Element),
+        None,
+        Ownership::Borrow,
+        false,
+    ),
+    MethodDef::compound(
+        "fold",
+        &FOLD_PARAMS,
+        ReturnTag::Fresh,
+        None,
+        Ownership::Borrow,
+        false,
+    ),
+    MethodDef::compound(
         "is_empty",
         &[],
         BOOL,
@@ -71,6 +116,14 @@ static RANGE_METHODS: &[MethodDef] = &[
     ),
     MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false)
         .with_runtime(MethodRuntime::Length),
+    MethodDef::compound(
+        "map",
+        &TRANSFORM_PARAM,
+        ReturnTag::Fresh,
+        None,
+        Ownership::Borrow,
+        false,
+    ),
     MethodDef::compound(
         "step_by",
         &STEP_PARAM,

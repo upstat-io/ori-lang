@@ -15,7 +15,6 @@ use std.testing { assert, assert_eq }
     }
 }
 
-#skip("BUG-04-219: next_back (Option<T>, Self) match-wildcard iterator-field leak — aims-burden RC domain (arc.md §STOP); let-destructure is leak-clean, covered by raw_protocol_method_mono.ori")
 @test_list_next_back_first tests @list_next_back_first () -> void = {
     assert_eq(actual: list_next_back_first(), expected: 30)
 }
@@ -36,7 +35,6 @@ use std.testing { assert, assert_eq }
     }
 }
 
-#skip("BUG-04-219: next_back (Option<T>, Self) match-wildcard iterator-field leak — aims-burden RC domain (arc.md §STOP); let-destructure is leak-clean, covered by raw_protocol_method_mono.ori")
 @test_list_next_back_all tests @list_next_back_all () -> void = {
     assert_eq(actual: list_next_back_all(), expected: [3, 2, 1])
 }
@@ -56,7 +54,6 @@ use std.testing { assert, assert_eq }
     }
 }
 
-#skip("BUG-04-219: next_back (Option<T>, Self) match-wildcard iterator-field leak — aims-burden RC domain (arc.md §STOP); let-destructure is leak-clean, covered by raw_protocol_method_mono.ori")
 @test_list_interleaved tests @list_interleaved () -> void = {
     let (front, back) = list_interleaved();
     assert_eq(actual: front, expected: 1);
@@ -86,7 +83,6 @@ use std.testing { assert, assert_eq }
     }
 }
 
-#skip("BUG-04-219: next_back (Option<T>, Self) match-wildcard iterator-field leak — aims-burden RC domain (arc.md §STOP); let-destructure is leak-clean, covered by raw_protocol_method_mono.ori")
 @test_list_interleaved_full tests @list_interleaved_full () -> void = {
     assert_eq(actual: list_interleaved_full(), expected: [1, 5, 2, 4, 3])
 }
@@ -141,7 +137,6 @@ use std.testing { assert, assert_eq }
     }
 }
 
-#skip("BUG-04-219: next_back (Option<T>, Self) match-wildcard iterator-field leak — aims-burden RC domain (arc.md §STOP); let-destructure is leak-clean, covered by raw_protocol_method_mono.ori")
 @test_str_next_back tests @str_next_back () -> void = {
     assert_eq(actual: str_next_back(), expected: 'o')
 }
@@ -158,7 +153,6 @@ use std.testing { assert, assert_eq }
     }
 }
 
-#skip("BUG-04-219: next_back (Option<T>, Self) match-wildcard iterator-field leak — aims-burden RC domain (arc.md §STOP); let-destructure is leak-clean, covered by raw_protocol_method_mono.ori")
 @test_str_interleaved tests @str_interleaved () -> void = {
     let (front, back) = str_interleaved();
     assert_eq(actual: front, expected: 'h');
@@ -193,7 +187,6 @@ use std.testing { assert, assert_eq }
     }
 }
 
-#skip("BUG-04-219: next_back (Option<T>, Self) match-wildcard iterator-field leak — aims-burden RC domain (arc.md §STOP); let-destructure is leak-clean, covered by raw_protocol_method_mono.ori")
 @test_mapped_next_back tests @mapped_next_back () -> void = {
     assert_eq(actual: mapped_next_back(), expected: 30)
 }
@@ -210,7 +203,6 @@ use std.testing { assert, assert_eq }
     }
 }
 
-#skip("BUG-04-219: next_back (Option<T>, Self) match-wildcard iterator-field leak — aims-burden RC domain (arc.md §STOP); let-destructure is leak-clean, covered by raw_protocol_method_mono.ori")
 @test_mapped_interleaved tests @mapped_interleaved () -> void = {
     let (front, back) = mapped_interleaved();
     assert_eq(actual: front, expected: 10);
@@ -230,7 +222,6 @@ use std.testing { assert, assert_eq }
     }
 }
 
-#skip("BUG-04-219: next_back (Option<T>, Self) match-wildcard iterator-field leak — aims-burden RC domain (arc.md §STOP); let-destructure is leak-clean, covered by raw_protocol_method_mono.ori")
 @test_filtered_next_back tests @filtered_next_back () -> void = {
     assert_eq(actual: filtered_next_back(), expected: 6)
 }
@@ -247,9 +238,42 @@ use std.testing { assert, assert_eq }
     }
 }
 
-#skip("BUG-04-219: next_back (Option<T>, Self) match-wildcard iterator-field leak — aims-burden RC domain (arc.md §STOP); let-destructure is leak-clean, covered by raw_protocol_method_mono.ori")
 @test_filtered_interleaved tests @filtered_interleaved () -> void = {
     let (front, back) = filtered_interleaved();
     assert_eq(actual: front, expected: 2);
     assert_eq(actual: back, expected: 6)
+}
+
+@test_next_back_result_types tests _ () -> void = {
+    let (list_back_raw, _) = [1].iter().next_back();
+    let list_back: Option<int> = list_back_raw;
+    assert_eq(actual: list_back, expected: Some(1));
+    let (list_front_raw, _) = [1].iter().next();
+    let list_front: Option<int> = list_front_raw;
+    assert_eq(actual: list_front, expected: Some(1));
+    let empty_values: [int] = [];
+    let (empty_back_raw, _) = empty_values.iter().next_back();
+    let empty_back: Option<int> = empty_back_raw;
+    assert_eq(actual: empty_back, expected: None);
+    let (range_back_raw, _) = (0..2).iter().next_back();
+    let range_back: Option<int> = range_back_raw;
+    assert_eq(actual: range_back, expected: Some(1));
+    let (range_front_raw, _) = (0..2).iter().next();
+    let range_front: Option<int> = range_front_raw;
+    assert_eq(actual: range_front, expected: Some(0));
+    let (str_back_raw, _) = "ab".iter().next_back();
+    let str_back: Option<char> = str_back_raw;
+    assert_eq(actual: str_back, expected: Some('b'));
+    let (str_front_raw, _) = "ab".iter().next();
+    let str_front: Option<char> = str_front_raw;
+    assert_eq(actual: str_front, expected: Some('a'));
+    let (mapped_back_raw, _) = [1, 2].iter().map(x -> x * 10).next_back();
+    let mapped_back: Option<int> = mapped_back_raw;
+    assert_eq(actual: mapped_back, expected: Some(20));
+    let (filtered_back_raw, _) = [1, 2].iter().filter(x -> x % 2 == 0).next_back();
+    let filtered_back: Option<int> = filtered_back_raw;
+    assert_eq(actual: filtered_back, expected: Some(2));
+    let (filtered_front_raw, _) = [1, 2].iter().filter(x -> x % 2 == 0).next();
+    let filtered_front: Option<int> = filtered_front_raw;
+    assert_eq(actual: filtered_front, expected: Some(2))
 }

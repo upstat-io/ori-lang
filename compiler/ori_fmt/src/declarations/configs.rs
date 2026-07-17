@@ -7,6 +7,7 @@ use crate::formatter::Formatter;
 use ori_ir::ast::items::ConstDef;
 use ori_ir::{CommentList, StringLookup, Visibility};
 
+use super::parsed_types::format_parsed_type;
 use super::ModuleFormatter;
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
@@ -43,8 +44,12 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         if const_def.visibility == Visibility::Public {
             self.ctx.emit("pub ");
         }
-        self.ctx.emit("$");
+        self.ctx.emit("let $");
         self.ctx.emit(self.interner.lookup(const_def.name));
+        if let Some(ref ty) = const_def.ty {
+            self.ctx.emit(": ");
+            format_parsed_type(ty, self.arena, self.interner, &mut self.ctx);
+        }
         self.ctx.emit(" = ");
 
         // Format the value expression
@@ -57,5 +62,6 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         // Get the output without trailing newline
         let expr_output = expr_formatter.ctx.as_str().trim_end();
         self.ctx.emit(expr_output);
+        self.ctx.emit(";");
     }
 }

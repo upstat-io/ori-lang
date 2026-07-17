@@ -22,11 +22,23 @@ mod specialize;
 use rustc_hash::FxHashSet;
 
 use ori_ir::canon::tree::{
-    DecisionTree, FlatPattern, PatternMatrix, PatternRow, ScrutineePath, TestValue,
+    DecisionTree, FlatPattern, LeafDiscardPaths, PatternMatrix, PatternRow, ScrutineePath,
+    TestValue,
 };
 
-use self::single_ctor::{decompose_single_constructor, is_single_constructor_column};
+use self::single_ctor::{decompose_single_constructor, single_constructor_column};
 use self::specialize::{collect_test_values, default_matrix, infer_test_kind, specialize_matrix};
+
+/// A behavioral decision tree plus exact blank-pattern cleanup carriers.
+///
+/// `leaf_discard_paths` follows the same static success-node preorder used by
+/// ARC emission: switch edges in order, then default; Guard success, then its
+/// `on_fail` subtree. Keeping the carrier parallel avoids teaching behavioral
+/// consumers such as exhaustiveness and evaluation about ownership mechanics.
+pub struct CompiledDecisionTree {
+    pub tree: DecisionTree,
+    pub leaf_discard_paths: Vec<LeafDiscardPaths>,
+}
 
 /// Compile a pattern matrix into a decision tree.
 ///
@@ -42,67 +54,47 @@ use self::specialize::{collect_test_values, default_matrix, infer_test_kind, spe
     clippy::needless_pass_by_value,
     reason = "recursive — sub-calls pass owned specialized matrices"
 )]
-pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> DecisionTree {
-    if cfg!(debug_assertions) {
-        for (i, row) in matrix.iter().enumerate() {
-            if row.patterns.len() != paths.len() {
-                tracing::error!("DECISION TREE BUG");
-                tracing::error!(
-                    "Row {i}: paths={}, patterns={}, arm_index={}",
-                    paths.len(),
-                    row.patterns.len(),
-                    row.arm_index
-                );
-                for (j, p) in row.patterns.iter().enumerate() {
-                    tracing::error!("  pattern[{j}]: {p:?}");
-                }
-                tracing::error!("All rows:");
-                for (ri, r) in matrix.iter().enumerate() {
-                    tracing::error!(
-                        "  row[{ri}] (arm {}): {} patterns",
-                        r.arm_index,
-                        r.patterns.len()
-                    );
-                    for (j, p) in r.patterns.iter().enumerate() {
-                        tracing::error!("    [{j}]: {p:?}");
-                    }
-                }
-                tracing::error!("Paths: {paths:?}");
-                panic!(
-                    "column count mismatch at row {i}: paths={}, patterns={}, arm_index={}",
-                    paths.len(),
-                    row.patterns.len(),
-                    row.arm_index,
-                );
-            }
-        }
-    }
+pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> CompiledDecisionTree {
+    #[cfg(debug_assertions)]
+    assert_matrix_path_alignment(&matrix, &paths);
 
     // 1. EMPTY MATRIX: no arms left → Fail (unreachable by exhaustiveness).
     if matrix.is_empty() {
-        return DecisionTree::Fail;
+        return CompiledDecisionTree {
+            tree: DecisionTree::Fail,
+            leaf_discard_paths: Vec::new(),
+        };
     }
 
     // 2. FIRST ROW ALL WILDCARDS: match found → Leaf or Guard.
     if matrix[0].patterns.iter().all(FlatPattern::is_wildcard_like) {
         let bindings = extract_all_bindings(&matrix[0], &paths);
+        let discard_paths = uncovered_discard_paths(&matrix[0], &bindings);
 
         if let Some(guard) = matrix[0].guard {
             // Guard present: if guard fails, continue matching with
             // remaining compatible rows.
             let remaining = matrix[1..].to_vec();
             let on_fail = compile(remaining, paths);
-            return DecisionTree::Guard {
-                arm_index: matrix[0].arm_index,
-                bindings,
-                guard,
-                on_fail: Box::new(on_fail),
+            let mut leaf_discard_paths = vec![discard_paths];
+            leaf_discard_paths.extend(on_fail.leaf_discard_paths);
+            return CompiledDecisionTree {
+                tree: DecisionTree::Guard {
+                    arm_index: matrix[0].arm_index,
+                    bindings,
+                    guard,
+                    on_fail: Box::new(on_fail.tree),
+                },
+                leaf_discard_paths,
             };
         }
 
-        return DecisionTree::Leaf {
-            arm_index: matrix[0].arm_index,
-            bindings,
+        return CompiledDecisionTree {
+            tree: DecisionTree::Leaf {
+                arm_index: matrix[0].arm_index,
+                bindings,
+            },
+            leaf_discard_paths: vec![discard_paths],
         };
     }
 
@@ -114,8 +106,8 @@ pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> DecisionTree
     // "single-constructor" types — there's only one shape they can be.
     // They don't need a runtime test (no Switch), just decomposition into
     // their sub-patterns. We handle this by directly decomposing.
-    if is_single_constructor_column(&matrix, col) {
-        let decomposed = decompose_single_constructor(&matrix, col, &paths, &path);
+    if let Some(shape) = single_constructor_column(&matrix, col) {
+        let decomposed = decompose_single_constructor(&matrix, col, &paths, &path, shape);
         return compile(decomposed.matrix, decomposed.paths);
     }
 
@@ -124,31 +116,73 @@ pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> DecisionTree
     let test_kind = infer_test_kind(&test_values);
 
     // 5. BUILD EDGES: for each test value, specialize the matrix and recurse.
-    let edges: Vec<(TestValue, DecisionTree)> = test_values
-        .into_iter()
-        .map(|tv| {
-            let Specialized {
-                matrix: sub_matrix,
-                paths: sub_paths,
-            } = specialize_matrix(&matrix, col, &tv, &paths, &path);
-            let subtree = compile(sub_matrix, sub_paths);
-            (tv, subtree)
-        })
-        .collect();
+    let mut edges: Vec<(TestValue, DecisionTree)> = Vec::with_capacity(test_values.len());
+    let mut leaf_discard_paths = Vec::new();
+    for tv in test_values {
+        let Specialized {
+            matrix: sub_matrix,
+            paths: sub_paths,
+        } = specialize_matrix(&matrix, col, &tv, &paths, &path);
+        let subtree = compile(sub_matrix, sub_paths);
+        leaf_discard_paths.extend(subtree.leaf_discard_paths);
+        edges.push((tv, subtree.tree));
+    }
 
     // 6. DEFAULT: rows with wildcards at the chosen column form the default.
     let default_spec = default_matrix(&matrix, col, &paths);
     let default = if default_spec.matrix.is_empty() {
         None
     } else {
-        Some(Box::new(compile(default_spec.matrix, default_spec.paths)))
+        let subtree = compile(default_spec.matrix, default_spec.paths);
+        leaf_discard_paths.extend(subtree.leaf_discard_paths);
+        Some(Box::new(subtree.tree))
     };
 
-    DecisionTree::Switch {
-        path,
-        test_kind,
-        edges,
-        default,
+    CompiledDecisionTree {
+        tree: DecisionTree::Switch {
+            path,
+            test_kind,
+            edges,
+            default,
+        },
+        leaf_discard_paths,
+    }
+}
+
+#[cfg(debug_assertions)]
+fn assert_matrix_path_alignment(matrix: &PatternMatrix, paths: &[ScrutineePath]) {
+    for (i, row) in matrix.iter().enumerate() {
+        if row.patterns.len() == paths.len() {
+            continue;
+        }
+        tracing::error!("DECISION TREE BUG");
+        tracing::error!(
+            "Row {i}: paths={}, patterns={}, arm_index={}",
+            paths.len(),
+            row.patterns.len(),
+            row.arm_index
+        );
+        for (j, pattern) in row.patterns.iter().enumerate() {
+            tracing::error!("  pattern[{j}]: {pattern:?}");
+        }
+        tracing::error!("All rows:");
+        for (row_index, candidate) in matrix.iter().enumerate() {
+            tracing::error!(
+                "  row[{row_index}] (arm {}): {} patterns",
+                candidate.arm_index,
+                candidate.patterns.len()
+            );
+            for (j, pattern) in candidate.patterns.iter().enumerate() {
+                tracing::error!("    [{j}]: {pattern:?}");
+            }
+        }
+        tracing::error!("Paths: {paths:?}");
+        panic!(
+            "column count mismatch at row {i}: paths={}, patterns={}, arm_index={}",
+            paths.len(),
+            row.patterns.len(),
+            row.arm_index,
+        );
     }
 }
 
@@ -277,6 +311,30 @@ fn extract_all_bindings(
     bindings
 }
 
+/// Keep only blank paths not retained by a whole-value ancestor binding.
+///
+/// An at-pattern such as `whole @ (x, _)` binds the root at the empty path;
+/// its eventual cleanup owns every descendant, so separately discarding the
+/// wildcard field would double-release it. Ordinary `(x, _)` has no covering
+/// binding and preserves the field cleanup carrier.
+fn uncovered_discard_paths(
+    row: &PatternRow,
+    bindings: &[(ori_ir::Name, ScrutineePath)],
+) -> LeafDiscardPaths {
+    let binding_paths: FxHashSet<_> = bindings
+        .iter()
+        .map(|(_, binding)| binding.as_slice())
+        .collect();
+
+    row.discard_paths
+        .iter()
+        .filter(|discard| {
+            !(0..=discard.len()).any(|length| binding_paths.contains(&discard[..length]))
+        })
+        .cloned()
+        .collect()
+}
+
 /// Collect variable bindings from a pattern being consumed at a given path.
 ///
 /// When a pattern is removed from a row during specialization or decomposition,
@@ -311,3 +369,6 @@ pub(super) fn collect_consumed_bindings(
         _ => vec![],
     }
 }
+
+#[cfg(test)]
+mod tests;

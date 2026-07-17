@@ -88,6 +88,16 @@ mod tests {
             .unwrap_or_else(|| panic!("missing {name} declaration:\n{ir}"))
     }
 
+    fn llvm_return_has_attribute(ir: &str, name: &str, attribute: &str) -> bool {
+        let declaration = llvm_declaration(ir, name);
+        let return_prefix = declaration
+            .split_once('@')
+            .map_or(declaration, |(prefix, _)| prefix);
+        return_prefix
+            .split_ascii_whitespace()
+            .any(|token| token == attribute)
+    }
+
     #[test]
     fn neutral_fact_requires_fresh_self_allocation_and_pointer_abi() {
         let mut fresh = MemoryContract::conservative(0);
@@ -264,9 +274,17 @@ mod tests {
         let fixture = return_projection_fixture();
         let ir = emit_return_projection_ir(&fixture);
 
-        assert!(llvm_declaration(&ir, "fresh_return").contains("noalias ptr"));
-        assert!(!llvm_declaration(&ir, "passthrough_return").contains("noalias"));
-        assert!(!llvm_declaration(&ir, "consumed_storage_return").contains("noalias"));
-        assert!(!llvm_declaration(&ir, "legacy_return").contains("noalias"));
+        assert!(llvm_return_has_attribute(&ir, "fresh_return", "noalias"));
+        assert!(!llvm_return_has_attribute(
+            &ir,
+            "passthrough_return",
+            "noalias"
+        ));
+        assert!(!llvm_return_has_attribute(
+            &ir,
+            "consumed_storage_return",
+            "noalias"
+        ));
+        assert!(!llvm_return_has_attribute(&ir, "legacy_return", "noalias"));
     }
 }

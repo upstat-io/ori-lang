@@ -87,8 +87,8 @@ pub enum LexErrorKind {
     StrictEqualityOperator { operator: &'static str },
     /// A multi-character single-quoted literal looks like a string written with `'`.
     SingleQuoteString,
-    /// C-style increment/decrement (`++` or `--`) is not Ori syntax.
-    IncrementDecrementOperator { operator: &'static str },
+    /// C-style increment (`++`) is not Ori syntax.
+    IncrementOperator { operator: &'static str },
     /// Standalone `\` outside of escape context.
     StandaloneBackslash,
     /// Unicode character visually similar to an ASCII character.
@@ -143,7 +143,7 @@ impl LexErrorKind {
             | Self::Utf16BeBom => "E0002",
             Self::StrictEqualityOperator { .. } => "E0008",
             Self::SingleQuoteString => "E0009",
-            Self::IncrementDecrementOperator { .. } => "E0010",
+            Self::IncrementOperator { .. } => "E0010",
             Self::StandaloneBackslash => "E0013",
             Self::UnicodeConfusable { .. } => "E0011",
             Self::DecimalNotRepresentable => "E0014",

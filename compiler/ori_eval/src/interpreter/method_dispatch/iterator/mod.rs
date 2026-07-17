@@ -283,7 +283,8 @@ impl Interpreter<'_> {
         match val {
             Value::Int(n) => {
                 let n = n.raw();
-                usize::try_from(n).map_err(|_| wrong_arg_type(method, "non-negative int").into())
+                crate::methods::helpers::nonnegative_usize(n, method, "non-negative int")
+                    .map_err(Into::into)
             }
             _ => Err(wrong_arg_type(method, "int").into()),
         }

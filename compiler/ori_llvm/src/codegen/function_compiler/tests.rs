@@ -10,7 +10,6 @@ use inkwell::context::Context;
 use ori_arc::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
 use ori_arc::verify::VerifyError;
 use ori_arc::{AnnotatedSig, ArcClassifier, ArcFunction};
-use ori_ir::canon::CanId;
 use ori_ir::Name;
 use ori_types::{Idx, ImplSig, Pool};
 use rustc_hash::FxHashMap;
@@ -486,16 +485,7 @@ fn compile_impls_populates_method_functions_map() {
 
     // Create a minimal CanonResult for testing (methods have INVALID bodies,
     // which is fine since we're only testing declaration/dispatch, not lowering)
-    let canon = ori_ir::canon::CanonResult {
-        arena: Default::default(),
-        constants: Default::default(),
-        decision_trees: ori_ir::canon::DecisionTreePool::new(),
-        root: CanId::INVALID,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = ori_ir::canon::CanonResult::empty();
 
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();

@@ -510,6 +510,7 @@ fn pattern_row_construction() {
         arm_index: 0,
         guard: None,
         bindings: vec![],
+        discard_paths: vec![],
     };
     assert_eq!(row.patterns.len(), 2);
     assert_eq!(row.arm_index, 0);
@@ -523,6 +524,7 @@ fn pattern_row_with_guard() {
         arm_index: 1,
         guard: Some(CanId::new(50)),
         bindings: vec![],
+        discard_paths: vec![],
     };
     assert!(row.guard.is_some());
 }

@@ -37,7 +37,7 @@ pub use burden::{
 };
 pub use burden_lookup::{idx_to_type_ref, lookup_burden, type_has_user_drop};
 
-use ori_ir::canon::{CanId, CanonResult};
+use ori_ir::canon::{CanId, CanonResult, MonoConstBinding};
 use ori_ir::{Name, Span, StringInterner};
 use ori_types::{Idx, Pool, Tag};
 use rustc_hash::FxHashMap;
@@ -134,6 +134,43 @@ pub fn lower_function_can(
     is_fbip: bool,
     type_subst: Option<&rustc_hash::FxHashMap<Idx, Idx>>,
 ) -> (ArcFunction, Vec<ArcFunction>) {
+    lower_function_can_with_const_bindings(
+        name,
+        params,
+        return_type,
+        body,
+        canon,
+        interner,
+        pool,
+        problems,
+        is_fbip,
+        type_subst,
+        None,
+    )
+}
+
+/// Lower a canonical body under an exact mono instance's const environment.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mono lowering extends the public canonical lowering coordinates"
+)]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "always called with FxHashMap internally"
+)]
+pub fn lower_function_can_with_const_bindings(
+    name: Name,
+    params: &[(Name, Idx)],
+    return_type: Idx,
+    body: CanId,
+    canon: &CanonResult,
+    interner: &StringInterner,
+    pool: &Pool,
+    problems: &mut Vec<ArcProblem>,
+    is_fbip: bool,
+    type_subst: Option<&rustc_hash::FxHashMap<Idx, Idx>>,
+    const_bindings: Option<&[MonoConstBinding]>,
+) -> (ArcFunction, Vec<ArcFunction>) {
     let fn_name = interner.lookup(name);
     tracing::debug!(
         name = fn_name,
@@ -181,6 +218,7 @@ pub fn lower_function_can(
         func_name: name,
         variant_ctors: &variant_ctors,
         type_subst,
+        const_bindings,
         return_type,
     };
 

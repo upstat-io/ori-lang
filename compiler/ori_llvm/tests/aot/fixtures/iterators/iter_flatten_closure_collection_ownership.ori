@@ -1,0 +1,30 @@
+// A closure adapter retains each borrowed residual collection argument because
+// the lambda consumes it through `.iter()`. The inner iterator must own and
+// balance that independent credit while the outer collection keeps its own.
+@main () -> int = {
+    let result = [[true, false], [true]].iter()
+        .map(transform: (sub: [bool]) -> Iterator<bool> = sub.iter())
+        .flatten()
+        .collect();
+    let prefix = [[false, true], [true]].iter()
+        .map(transform: (sub: [bool]) -> Iterator<bool> = sub.iter())
+        .flatten()
+        .take(count: 1)
+        .collect();
+    let map_keys = [{1: true}, {2: false}].iter()
+        .map(transform: (m: {int: bool}) -> Iterator<(int, bool)> = m.iter())
+        .flatten()
+        .map(transform: (entry: (int, bool)) -> int = entry.0)
+        .collect();
+    let first_set: Set<int> = [7].iter().collect();
+    let second_set: Set<int> = [8].iter().collect();
+    let set_values = [first_set, second_set].iter()
+        .map(transform: (s: Set<int>) -> Iterator<int> = s.iter())
+        .flatten()
+        .collect();
+    if result == [true, false, true]
+        && prefix == [false]
+        && map_keys == [1, 2]
+        && set_values == [7, 8]
+    then 0 else 1
+}

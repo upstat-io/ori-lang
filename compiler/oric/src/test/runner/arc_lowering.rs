@@ -64,7 +64,7 @@ pub(crate) fn lower_jit_arc_program(
     pool: &mut ori_types::Pool,
     import_sigs: &[ori_repr::monomorphize::ImportSig],
     imported_functions: &[ori_llvm::evaluator::ImportedFunctionForCodegen<'_>],
-    imported_mono_fns: &[(ori_repr::monomorphize::MonoFunction, usize, Name)],
+    imported_mono_fns: &[crate::commands::ImportedMonoFn],
     re_interned_canons: &[ori_ir::canon::CanonResult],
 ) -> Result<JitArcLowering, JitArcLoweringError> {
     let module = &parse_result.module;
@@ -115,17 +115,35 @@ pub(crate) fn lower_jit_arc_program(
     }
 
     // Lower imported monomorphized generic functions with their module's canon.
-    for (mono_fn, canon_idx, source_body_name) in imported_mono_fns {
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            mono_fn.mangled_name,
-            &mono_fn.sig,
-            *source_body_name, // Use SOURCE name for canon.root_for() lookup
-            &re_interned_canons[*canon_idx],
-            interner,
-            pool,
-            &mut arc_problems,
-            Some(&mono_fn.body_type_map),
-        );
+    for imported in imported_mono_fns {
+        let mono_fn = &imported.function;
+        let source_canon = &re_interned_canons[imported.module_index];
+        let (arc_fn, lambdas) = match imported.body {
+            crate::commands::ImportedMonoBody::Function(source_name) => {
+                crate::arc_lowering::lower_to_arc(
+                    mono_fn.mangled_name,
+                    &mono_fn.sig,
+                    source_name,
+                    source_canon,
+                    interner,
+                    pool,
+                    &mut arc_problems,
+                    Some(&mono_fn.body_type_map),
+                )
+            }
+            crate::commands::ImportedMonoBody::ImplMethod(source_body) => {
+                crate::arc_lowering::lower_impl_method_to_arc_by_source(
+                    mono_fn.mangled_name,
+                    &mono_fn.sig,
+                    source_body,
+                    source_canon,
+                    interner,
+                    pool,
+                    &mut arc_problems,
+                    Some(&mono_fn.body_type_map),
+                )
+            }
+        };
         imported_lowered.push((arc_fn, lambdas));
     }
 
@@ -195,7 +213,7 @@ pub(crate) fn lower_jit_arc_program(
         mono_functions,
         imported_mono_fns
             .iter()
-            .map(|(function, _, _)| function.clone()),
+            .map(|imported| imported.function.clone()),
         interner,
     )?;
     if let Err(problems) = crate::realization::extend_mono_method_targets(

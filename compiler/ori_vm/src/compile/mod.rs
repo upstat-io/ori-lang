@@ -344,6 +344,7 @@ fn validate_vm_call_target(
         CallableTarget::Runtime(
             RuntimeCall::Iter(IteratorSource::Range | IteratorSource::List)
             | RuntimeCall::ListNew
+            | RuntimeCall::ListFree
             | RuntimeCall::IterNext
             | RuntimeCall::ListBuilderPush
             | RuntimeCall::ListPush

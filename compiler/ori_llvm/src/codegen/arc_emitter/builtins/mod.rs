@@ -79,8 +79,10 @@ mod debug_helpers;
 mod debug_map_set;
 mod dispatch;
 mod iterator;
+mod iterator_adapters;
 mod iterator_consumers;
 mod iterator_protocol;
+mod iterator_reverse_consumers;
 mod iterators_guard;
 mod list_traits;
 mod option_result;
@@ -181,7 +183,6 @@ impl BuiltinTable {
     fn build() -> Self {
         let sources: &[&[BuiltinRegistration]] = &[
             primitives::REGISTERED,
-            collections::REGISTERED,
             iterator::REGISTERED,
             option_result::REGISTERED,
             traits::REGISTERED,
@@ -194,8 +195,12 @@ impl BuiltinTable {
             FxHashMap<&'static str, &'static BuiltinRegistration>,
         > = FxHashMap::default();
 
-        for source in sources {
-            for reg in *source {
+        for source in sources
+            .iter()
+            .copied()
+            .chain(collections::REGISTRATION_GROUPS.iter().copied())
+        {
+            for reg in source {
                 let methods = entries.entry(reg.type_name).or_default();
                 debug_assert!(
                     !methods.contains_key(reg.method_name),

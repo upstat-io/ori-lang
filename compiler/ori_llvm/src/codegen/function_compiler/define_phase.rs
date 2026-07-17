@@ -53,7 +53,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             // (legacy arg-type-matching fallback for `mono_instance_id: None`)
             self.codegen_ctx
                 .mono_dispatch
-                .entry(mono_fn.original_name)
+                .entry(mono_fn.identity.original_name())
                 .or_default()
                 .push((mono_fn.sig.param_types.clone(), mono_fn.mangled_name));
 
@@ -61,7 +61,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             // `MonoInstanceId` points at this function's mangled name.
             // Multiple ids may map to the same mangled name when distinct
             // instances dedup to one specialization (sub-step 1e).
-            for &instance_id in &mono_fn.instance_ids {
+            for &instance_id in mono_fn.identity.instance_ids() {
                 self.codegen_ctx
                     .mono_dispatch_by_id
                     .insert(instance_id, mono_fn.mangled_name);
@@ -305,6 +305,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.debug_context,
         );
         emitter.set_verify_arc(self.verify_arc);
+        emitter.set_func_contract(self.aims_contracts.get(&lambda.name));
         emitter.emit_function(lambda, &abi);
 
         // Post-emission CFG simplification

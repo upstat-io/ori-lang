@@ -190,8 +190,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// `Result<Ok, Err>.hash() -> int`
     ///
-    /// `hash_combine(tag, payload.hash())` — branches on tag to select
-    /// `ok_ty` vs `err_ty` for the payload hash.
+    /// `Ok(x)` uses `hash_combine(2, x.hash())`; `Err(x)` uses
+    /// `hash_combine(3, x.hash())`. The runtime tag only selects the arm.
     pub(in super::super) fn emit_result_hash(
         &mut self,
         val: ValueId,
@@ -239,8 +239,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             &[(ok_hash, ok_exit_bb), (err_hash, err_exit_bb)],
         );
 
-        // Zero-extend narrowed tag to i64 for hash_combine which expects i64
-        let tag_i64 = self.builder.zext(tag, i64_ty, "res.tag.ext");
-        Some(self.emit_hash_combine(tag_i64, payload_hash))
+        let ok_salt = self.builder.const_i64(2);
+        let err_salt = self.builder.const_i64(3);
+        let salt = self
+            .builder
+            .select(is_ok, ok_salt, err_salt, "res.hash.salt");
+        Some(self.emit_hash_combine(salt, payload_hash))
     }
 }

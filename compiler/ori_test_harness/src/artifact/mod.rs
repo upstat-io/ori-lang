@@ -26,7 +26,7 @@ pub struct ArtifactPaths {
 /// - `resolve_expected("tests/rc/basic.ori", "ll", Some("release"))` → `tests/rc/basic.release.ll`
 pub fn resolve_expected(test_path: &Path, suffix: &str, revision: Option<&str>) -> PathBuf {
     let stem = test_path.file_stem().unwrap_or_default();
-    let parent = test_path.parent().unwrap_or(Path::new(""));
+    let parent = test_path.parent().unwrap_or_else(|| Path::new(""));
 
     match revision {
         Some(rev) if !rev.is_empty() => {
@@ -38,12 +38,30 @@ pub fn resolve_expected(test_path: &Path, suffix: &str, revision: Option<&str>) 
 
 /// Resolve the actual output path for a test artifact.
 ///
-/// Actual outputs go under `target/test-harness/` (deterministic, survives
-/// for debugging — not `$TMPDIR`). Preserves the parent directory structure
-/// relative to the test root to prevent same-stem collisions.
+/// Actual outputs go under `$CARGO_TARGET_DIR/test-harness/`, falling back to
+/// `target/test-harness/` when Cargo has no explicit target directory. This is
+/// deterministic and survives for debugging without writing into a read-only
+/// source snapshot. The source path remains relative to the working tree so
+/// same-stem files in different directories cannot collide.
 pub fn resolve_actual(test_path: &Path, suffix: &str, revision: Option<&str>) -> PathBuf {
+    let target_dir =
+        std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| PathBuf::from("target"), PathBuf::from);
+    let cwd = std::env::current_dir().ok();
+    resolve_actual_under(test_path, suffix, revision, &target_dir, cwd.as_deref())
+}
+
+fn resolve_actual_under(
+    test_path: &Path,
+    suffix: &str,
+    revision: Option<&str>,
+    target_dir: &Path,
+    working_dir: Option<&Path>,
+) -> PathBuf {
     let stem = test_path.file_stem().unwrap_or_default();
-    let parent = test_path.parent().unwrap_or(Path::new(""));
+    let relative_test_path = working_dir
+        .and_then(|root| test_path.strip_prefix(root).ok())
+        .unwrap_or(test_path);
+    let parent = relative_test_path.parent().unwrap_or_else(|| Path::new(""));
     // Extract only normal components — strips roots, prefixes (C:\, /), and
     // parent refs (..) so Path::join never discards the base. Cross-platform.
     let relative_parent: PathBuf = parent
@@ -58,7 +76,8 @@ pub fn resolve_actual(test_path: &Path, suffix: &str, revision: Option<&str>) ->
         _ => format!("{}.{suffix}", stem.to_string_lossy()),
     };
 
-    Path::new("target/test-harness")
+    target_dir
+        .join("test-harness")
         .join(relative_parent)
         .join(filename)
 }

@@ -70,10 +70,6 @@ pub(crate) enum RegisteredImplOrigin {
     /// Compiler-generated accepted derive.
     Derived(ori_ir::DerivedImplId),
     /// Method templates imported from another producer module.
-    #[expect(
-        dead_code,
-        reason = "the exported imported-impl registration seam is completed in the next closure step"
-    )]
     Imported(FxHashMap<ExprId, ImportedMethodOrigin>),
 }
 

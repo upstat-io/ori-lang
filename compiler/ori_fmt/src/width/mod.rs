@@ -52,7 +52,7 @@ use control::{
 };
 use literals::{bool_width, char_width, float_width, int_width, string_width};
 use operators::{binary_op_width, unary_op_width};
-use ori_ir::{ExprArena, ExprId, ExprKind, FunctionExpKind, FunctionSeq, StringLookup, UnaryOp};
+use ori_ir::{ExprArena, ExprId, ExprKind, FunctionExpKind, FunctionSeq, StringLookup};
 use patterns::{binding_pattern_width, for_binding_pattern_width};
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use wrappers::{
@@ -172,12 +172,7 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 if operand_w == ALWAYS_STACKED {
                     return ALWAYS_STACKED;
                 }
-                let position = if *op == UnaryOp::Neg {
-                    ParenPosition::UnaryNegOperand
-                } else {
-                    ParenPosition::UnaryOperand
-                };
-                let parens_w = if needs_parens(self.arena, *operand, position) {
+                let parens_w = if needs_parens(self.arena, *operand, ParenPosition::UnaryOperand) {
                     2 // "(" + ")"
                 } else {
                     0

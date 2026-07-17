@@ -4,7 +4,7 @@
 //! `extract_list_fields`), the `first`/`last` shared implementation, and
 //! the `elem_size_and_align` helper used by COW mutation methods.
 
-use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN, OPTION_TAG_SOME};
+use ori_ir::OPTION_TAG_SOME;
 use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
@@ -15,16 +15,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Extract list data pointer (field 2) and len (field 0) from receiver.
     ///
     /// Used by read-only methods that don't need capacity.
-    pub(super) fn extract_list_data_and_len(&mut self, receiver: ValueId) -> (ValueId, ValueId) {
-        let data_ptr = self
-            .builder
-            .extract_value(receiver, FIELD_DATA, "list.data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let len = self
-            .builder
-            .extract_value(receiver, FIELD_LEN, "list.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        (data_ptr, len)
+    pub(super) fn extract_list_data_and_len(
+        &mut self,
+        receiver: ValueId,
+    ) -> Option<(ValueId, ValueId)> {
+        self.extract_collection_data_and_len(receiver, "list.data", "list.len")
     }
 
     /// Extract all three list fields: data (field 2), len (field 0), cap (field 1).
@@ -33,22 +28,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(in crate::codegen::arc_emitter) fn extract_list_fields(
         &mut self,
         receiver: ValueId,
-    ) -> (ValueId, ValueId, ValueId) {
+    ) -> Option<(ValueId, ValueId, ValueId)> {
         // FastISel-safe field extraction for the 24-byte fat pointer is handled
         // centrally in IrBuilder::extract_value (AB-5) under JIT.
-        let data_ptr = self
-            .builder
-            .extract_value(receiver, FIELD_DATA, "list.data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let len = self
-            .builder
-            .extract_value(receiver, FIELD_LEN, "list.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        let cap = self
-            .builder
-            .extract_value(receiver, FIELD_CAP, "list.cap")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        (data_ptr, len, cap)
+        self.extract_collection_fields(receiver, "list.data", "list.len", "list.cap")
     }
 
     /// Shared implementation for `first()` and `last()`.
@@ -62,7 +45,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn(func_name);
 
-        let (data_ptr, len) = self.extract_list_data_and_len(receiver);
+        let (data_ptr, len) = self.extract_list_data_and_len(receiver)?;
         // Use narrowed element size/type if available.
         let collection_idx = self.pool.resolve_fully(list_ty);
         let elem_size_val = self
@@ -82,7 +65,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         );
         let out_alloca = self.builder.create_entry_alloca(
             self.current_function,
-            &format!("{label}.out"),
+            "list.first_last.out",
             option_ty,
         );
 
@@ -91,7 +74,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let opt_val = self
             .builder
-            .load(option_ty, out_alloca, &format!("{label}.val"));
+            .load(option_ty, out_alloca, "list.first_last.val");
 
         // Sign-extend the narrowed value field back to canonical
         // i64 so downstream code (unwrap, comparison) sees the expected type.
@@ -101,14 +84,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         {
             let tag = self
                 .builder
-                .extract_value(opt_val, 0, &format!("{label}.tag"))?;
+                .extract_value(opt_val, 0, "list.first_last.tag")?;
             let narrow_val = self
                 .builder
-                .extract_value(opt_val, 1, &format!("{label}.narrow"))?;
+                .extract_value(opt_val, 1, "list.first_last.narrow")?;
             let wide_val = self.sext_narrowed_collection_element(
                 narrow_val,
                 collection_idx,
-                &format!("{label}.sext"),
+                "list.first_last.sext",
             );
             // Rebuild Option with canonical element type: {i64 tag, i64 value}
             let canonical_elem_ty = self.resolve_type(elem_ty);
@@ -125,10 +108,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let mut result = self.builder.const_zero_ty(canonical_opt_ty);
             result = self
                 .builder
-                .insert_value(result, tag, 0, &format!("{label}.opt.tag"));
+                .insert_value(result, tag, 0, "list.first_last.opt.tag");
             result = self
                 .builder
-                .insert_value(result, wide_val, 1, &format!("{label}.opt.val"));
+                .insert_value(result, wide_val, 1, "list.first_last.opt.val");
             Some(result)
         } else if crate::codegen::type_info::repr_box_oracle::payload_type_is_rc_boxed(
             self.pool, elem_ty,
@@ -138,25 +121,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // the Some payload to `{ i64, ptr }`. On the Some path, RC-alloc a
             // box, copy the inline element in, and build the boxed Option; on
             // the None path, build `{ tag, null }`.
-            self.rebuild_recursive_first_option(opt_val, elem_ty, label)
+            self.rebuild_recursive_first_option(opt_val, elem_ty)
         } else {
             // RC-retain the element payload when Some — the runtime memcpy
             // duplicates payload bytes without incrementing RC on inner fields.
             let tag = self
                 .builder
-                .extract_value(opt_val, 0, &format!("{label}.tag"))?;
+                .extract_value(opt_val, 0, "list.first_last.tag")?;
             let some = self.builder.const_int_matching(tag, OPTION_TAG_SOME as u64);
-            let is_some = self.builder.icmp_eq(tag, some, &format!("{label}.is_some"));
+            let is_some = self.builder.icmp_eq(tag, some, "list.first_last.is_some");
             let payload = self
                 .builder
-                .extract_value(opt_val, 1, &format!("{label}.payload"))?;
+                .extract_value(opt_val, 1, "list.first_last.payload")?;
 
             let inc_bb = self
                 .builder
-                .append_block(self.current_function, &format!("{label}.rc_inc"));
+                .append_block(self.current_function, "list.first_last.rc_inc");
             let merge_bb = self
                 .builder
-                .append_block(self.current_function, &format!("{label}.rc_merge"));
+                .append_block(self.current_function, "list.first_last.rc_merge");
             self.builder.cond_br(is_some, inc_bb, merge_bb);
             self.builder.position_at_end(inc_bb);
             self.inc_value_rc(payload, elem_ty, 1);
@@ -176,16 +159,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         inline_opt: ValueId,
         elem_ty: Idx,
-        label: &str,
     ) -> Option<ValueId> {
         let tag = self
             .builder
-            .extract_value(inline_opt, 0, &format!("{label}.tag"))?;
-        let inline_payload =
-            self.builder
-                .extract_value(inline_opt, 1, &format!("{label}.inline"))?;
+            .extract_value(inline_opt, 0, "list.first_last.tag")?;
+        let inline_payload = self
+            .builder
+            .extract_value(inline_opt, 1, "list.first_last.inline")?;
         let some = self.builder.const_int_matching(tag, OPTION_TAG_SOME as u64);
-        let is_some = self.builder.icmp_eq(tag, some, &format!("{label}.is_some"));
+        let is_some = self.builder.icmp_eq(tag, some, "list.first_last.is_some");
 
         // Boxed-layout Option<T> = { i64, ptr } (recursive Some payload boxed).
         let boxed_opt_ty = self.builder.register_type(
@@ -205,17 +187,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let mut v = self.builder.const_zero_ty(boxed_opt_ty);
             v = self
                 .builder
-                .insert_value(v, tag, 0, &format!("{label}.none.tag"));
+                .insert_value(v, tag, 0, "list.first_last.none.tag");
             self.builder
-                .insert_value(v, null_ptr, 1, &format!("{label}.none.ptr"))
+                .insert_value(v, null_ptr, 1, "list.first_last.none.ptr")
         };
 
         let some_bb = self
             .builder
-            .append_block(self.current_function, &format!("{label}.box.some"));
+            .append_block(self.current_function, "list.first_last.box.some");
         let join_bb = self
             .builder
-            .append_block(self.current_function, &format!("{label}.box.join"));
+            .append_block(self.current_function, "list.first_last.box.join");
         let entry_bb = self.builder.current_block();
         self.builder.cond_br(is_some, some_bb, join_bb);
 
@@ -229,10 +211,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mut some_opt = self.builder.const_zero_ty(boxed_opt_ty);
         some_opt = self
             .builder
-            .insert_value(some_opt, tag, 0, &format!("{label}.some.tag"));
+            .insert_value(some_opt, tag, 0, "list.first_last.some.tag");
         some_opt = self
             .builder
-            .insert_value(some_opt, box_ptr, 1, &format!("{label}.some.ptr"));
+            .insert_value(some_opt, box_ptr, 1, "list.first_last.some.ptr");
         let some_end_bb = self.builder.current_block();
         self.builder.br(join_bb);
 
@@ -244,11 +226,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if let Some(s) = some_end_bb {
             incoming.push((some_opt, s));
         }
-        Some(
-            self.builder
-                .phi_from_incoming(boxed_opt_ty, &incoming, &format!("{label}.opt"))
-                .unwrap_or(none_opt),
-        )
+        self.builder
+            .phi_from_incoming(boxed_opt_ty, &incoming, "list.first_last.opt")
     }
 
     /// Build `(elem_size, elem_align)` constant pair for COW runtime calls.

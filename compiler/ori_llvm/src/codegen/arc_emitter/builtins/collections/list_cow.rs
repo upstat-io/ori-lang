@@ -24,17 +24,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         mut args: Vec<ValueId>,
     ) -> Option<ValueId> {
         let list_struct_ty = self.list_struct_type();
-        let out = self.builder.create_entry_alloca(
-            self.current_function,
-            &format!("{label}.out"),
-            list_struct_ty,
-        );
+        let out =
+            self.builder
+                .create_entry_alloca(self.current_function, "list.cow.out", list_struct_ty);
         args.push(out);
         self.emit_rt_call(func_id, &args, label);
-        Some(
-            self.builder
-                .load(list_struct_ty, out, &format!("{label}.val")),
-        )
+        Some(self.builder.load(list_struct_ty, out, "list.cow.val"))
     }
 
     /// Emit `list.push(x)` — COW push returning the (possibly mutated) list.
@@ -52,7 +47,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_push_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "push.elem");
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
@@ -88,12 +83,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let result_data = self
             .builder
-            .extract_value(result, FIELD_DATA, "push.data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let result_len = self
-            .builder
-            .extract_value(result, FIELD_LEN, "push.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+            .extract_value(result, FIELD_DATA, "push.data")?;
+        let result_len = self.builder.extract_value(result, FIELD_LEN, "push.len")?;
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
         let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
         self.builder
@@ -118,7 +109,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_pop_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
@@ -152,7 +143,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_set_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "set.elem");
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
@@ -194,7 +185,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_updated_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "updated.elem");
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
@@ -233,7 +224,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_insert_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "insert.elem");
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
@@ -282,7 +273,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_remove_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
@@ -317,8 +308,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_concat_cow");
 
-        let (data1, len1, cap1) = self.extract_list_fields(receiver);
-        let (data2, len2, cap2) = self.extract_list_fields(other);
+        let (data1, len1, cap1) = self.extract_list_fields(receiver)?;
+        let (data2, len2, cap2) = self.extract_list_fields(other)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
@@ -353,7 +344,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_reverse_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
@@ -394,7 +385,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let func_id = self.builder.runtime_fn("ori_list_sort_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
@@ -430,7 +421,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let func_id = self.builder.runtime_fn("ori_list_sort_stable_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 

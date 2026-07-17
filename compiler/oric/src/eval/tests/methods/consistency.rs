@@ -371,15 +371,19 @@ fn backend_required_methods_in_eval() {
     );
 }
 
-/// Methods marked `pure: true` should not consume their receiver
-/// (`Ownership::Owned` implies mutation/consumption, contradicting purity).
+/// Pure methods should normally borrow their receiver. This guard catches
+/// accidental consuming entries while admitting methods whose value semantics
+/// require ownership transfer.
 ///
-/// **Exception: iterator methods.** Every method on `Iterator` and
-/// `DoubleEndedIterator` is pure (same inputs → same outputs, no
-/// observable side effects) but also **consumes** the receiver via
-/// `Box::from_raw(iter.cast::<IterState>())`. Purity (referential
-/// transparency) and linear consumption (move-only ownership) are
-/// independent concepts — iterators are both `Owned + pure`.
+/// Spec Clause 20.12 defines purity only in terms of observable effects and
+/// suspension; Clause 21.2 independently permits argument ownership transfer.
+/// The exception set below therefore records the intentional intersection of
+/// those two properties rather than weakening either invariant.
+///
+/// **Exceptions: consuming pure methods.** Iterator methods consume their
+/// move-only state, while the fixed-capacity list conversions transfer the
+/// receiver's allocation identity. Neither operation has observable side
+/// effects, so purity and linear receiver consumption remain independent.
 ///
 /// Also verifies that at least 30% of methods are marked pure (catches
 /// the failure mode of someone defaulting everything to `pure: false`).
@@ -391,8 +395,7 @@ fn pure_method_sanity() {
     let mut pure_count = 0;
 
     for type_def in BUILTIN_TYPES {
-        // Iterator methods are pure + Owned (see doc comment above).
-        let is_iterator = matches!(
+        let has_consuming_pure_methods = matches!(
             type_def.tag,
             TypeTag::Iterator | TypeTag::DoubleEndedIterator
         );
@@ -400,12 +403,15 @@ fn pure_method_sanity() {
             total_methods += 1;
             if method.pure {
                 pure_count += 1;
-                if !is_iterator {
+                let transfers_list_allocation = type_def.tag == TypeTag::List
+                    && matches!(method.name, "to_dynamic" | "to_fixed");
+                if !has_consuming_pure_methods && !transfers_list_allocation {
                     assert_ne!(
                         method.receiver,
                         Ownership::Owned,
                         "Method `{}.{}` is marked pure but has Ownership::Owned receiver. \
-                         Pure methods should borrow, not consume (except iterator methods).",
+                         Pure methods should borrow unless receiver consumption is part of their \
+                         value semantics.",
                         type_def.name,
                         method.name,
                     );

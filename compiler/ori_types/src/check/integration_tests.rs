@@ -109,7 +109,8 @@ impl CheckResult {
     /// `Pool.resolutions` materialization.
     fn find_applied(&self, name: &str, args: &[Idx]) -> Option<Idx> {
         let name_id = self.interner.intern(name);
-        let len = u32::try_from(self.pool.len()).unwrap_or(u32::MAX);
+        let len =
+            u32::try_from(self.pool.len()).expect("type pool length must fit the Idx u32 domain");
         (Idx::FIRST_DYNAMIC..len).map(Idx::from_raw).find(|&idx| {
             self.pool.tag(idx) == Tag::Applied
                 && self.pool.applied_name(idx) == name_id
@@ -2823,6 +2824,60 @@ fn generic_derived_methods_share_exact_applied_self_identity() {
             assert_eq!(accepted.signature.return_type, accepted.owner_type);
         }
     }
+}
+
+#[test]
+fn concrete_generic_bound_seeds_exact_derived_method_body() {
+    let source = r"
+trait Debug { @debug (self) -> str; }
+#derive(Debug) type BoundBox<T> = { value: T }
+@render_bound<T: Debug> (value: T) -> str = value.debug();
+@render_box () -> str = render_bound(value: BoundBox { value: 7 });
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "bound-method generic program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+
+    let receiver = result
+        .find_applied("BoundBox", &[Idx::INT])
+        .expect("concrete BoundBox<int> must exist");
+    let accepted = result
+        .result
+        .typed
+        .accepted_derives
+        .iter()
+        .find(|accepted| accepted.trait_kind == ori_ir::DerivedTrait::Debug)
+        .expect("Debug derive must be accepted");
+    let producer = crate::MethodProducer::Derived(accepted.id);
+    let instances: Vec<_> = result
+        .result
+        .typed
+        .mono_instances
+        .iter()
+        .filter(|instance| {
+            instance.method_producer.as_ref() == Some(&producer)
+                && instance.receiver_type == Some(receiver)
+        })
+        .collect();
+
+    assert_eq!(
+        instances.len(),
+        1,
+        "the concrete bound must publish one exact derived Debug body: {instances:?}"
+    );
+    assert_eq!(
+        instances[0].impl_args,
+        vec![crate::GenericArg::Type(Idx::INT)]
+    );
+    assert!(result
+        .result
+        .typed
+        .derived_call_plans
+        .iter()
+        .any(|plan| plan.derived == accepted.id && plan.binder_substitutions == [Idx::INT]));
 }
 
 // Pin 4 — builtin Duration ctor (`Duration.from_seconds`). The factory family

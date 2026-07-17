@@ -26,6 +26,38 @@ fn parse_and_check_with_pool(source: &str) -> (TypeCheckResult, Pool, StringInte
 }
 
 #[test]
+fn catch_direct_loop_block_infers_result_value() {
+    let (result, _interner) = parse_and_check(
+        "@f () -> Result<int, str> = catch(expr: {\
+         for n in [1, 2] do { let _ = n; };\
+         7\
+         });",
+    );
+
+    assert!(
+        result.typed.errors.is_empty(),
+        "catch must infer its successful value from the direct expression: {:?}",
+        result.typed.errors
+    );
+}
+
+#[test]
+fn catch_lambda_expression_rejects_result_value_annotation() {
+    let (result, _interner) =
+        parse_and_check("@f () -> Result<int, str> = catch(expr: () -> { 7 });");
+
+    assert!(
+        result
+            .typed
+            .errors
+            .iter()
+            .any(|error| matches!(error.kind, TypeErrorKind::Mismatch { .. })),
+        "catch must preserve a lambda expression as the Result payload: {:?}",
+        result.typed.errors
+    );
+}
+
+#[test]
 fn check_module_with_no_function_bodies_produces_no_errors() {
     let arena = ExprArena::new();
     let interner = StringInterner::new();
@@ -692,7 +724,7 @@ fn scan_for_generalized_var_leaves(pool: &Pool, ty: Idx, report: &mut dyn FnMut(
     match pool.tag(resolved) {
         Tag::Var => {
             let var_id = pool.data(resolved);
-            if let VarState::Generalized { .. } = pool.var_state(var_id) {
+            if let VarState::Generalized(_) = pool.var_state(var_id) {
                 report(resolved);
             }
         }

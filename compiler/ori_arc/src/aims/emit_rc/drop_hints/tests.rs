@@ -268,7 +268,7 @@ fn is_safe_non_sharing_callee_returns_false_for_builtin() {
     let builtins = BuiltinOwnershipSets::new(&interner);
     let callee = interner.intern("len");
     assert!(
-        builtins.is_builtin(callee),
+        builtins.contains(callee),
         "test precondition: len is builtin"
     );
 

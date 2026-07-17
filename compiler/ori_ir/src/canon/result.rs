@@ -13,6 +13,30 @@ use super::ids::CanId;
 use super::pools::{ConstantPool, DecisionTreePool};
 use super::support::PatternProblem;
 
+/// Concrete value admitted for a generic const parameter.
+///
+/// Spec: Clause 8.3.1 restricts const-generic parameters to `int` and `bool`.
+/// This carrier is deliberately narrower than [`super::ConstValue`], whose
+/// constant-pool domain also contains strings, units, durations, and sizes.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub enum GenericConstValue {
+    /// Integer const argument.
+    Int(i64),
+    /// Boolean const argument.
+    Bool(bool),
+}
+
+/// One declaration-name to concrete-value binding for a mono instance.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub struct MonoConstBinding {
+    /// Const parameter name at the generic declaration.
+    pub name: Name,
+    /// Concrete call-site value.
+    pub value: GenericConstValue,
+}
+
 /// A canonicalized function root — body + canonical default expressions.
 ///
 /// Carries canonical default expressions so the evaluator resolves default
@@ -130,9 +154,26 @@ pub struct CanonResult {
     ///
     /// Empty for non-generic call sites.
     pub mono_dispatch_map_can: Vec<(CanId, MonoInstanceId)>,
+    /// Exact const-parameter bindings indexed by [`MonoInstanceId`].
+    ///
+    /// Type checking owns solving. Canon copies the already-solved table so
+    /// consumers without a `TypedModule` (notably evaluation) can enter a
+    /// specialized body with the same value arguments used for identity and
+    /// mangling. Position `i` is the binding set for `MonoInstanceId(i)`;
+    /// empty entries are ordinary type-only or non-method instances.
+    pub mono_const_bindings: Vec<Vec<MonoConstBinding>>,
 }
 
 impl CanonResult {
+    /// Create a result around one canonical expression root.
+    pub fn new(arena: CanArena, root: CanId) -> Self {
+        Self {
+            arena,
+            root,
+            ..Self::empty()
+        }
+    }
+
     /// Create an empty result (for error recovery).
     pub fn empty() -> Self {
         Self {
@@ -144,7 +185,14 @@ impl CanonResult {
             method_roots: Vec::new(),
             problems: Vec::new(),
             mono_dispatch_map_can: Vec::new(),
+            mono_const_bindings: Vec::new(),
         }
+    }
+
+    /// Look up the named const bindings for one exact mono instance.
+    #[inline]
+    pub fn mono_const_bindings(&self, id: MonoInstanceId) -> Option<&[MonoConstBinding]> {
+        self.mono_const_bindings.get(id.index()).map(Vec::as_slice)
     }
 
     /// Look up a named root by function name.

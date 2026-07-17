@@ -152,7 +152,7 @@ fn skip_from_list() {
 
 // Map adapter
 
-extern "C" fn double_i64(env: *mut u8, in_ptr: *const u8, out_ptr: *mut u8) {
+extern "C-unwind" fn double_i64(env: *mut u8, in_ptr: *const u8, out_ptr: *mut u8) {
     let _ = env;
     unsafe {
         let val = in_ptr.cast::<i64>().read();
@@ -164,7 +164,7 @@ extern "C" fn double_i64(env: *mut u8, in_ptr: *const u8, out_ptr: *mut u8) {
 fn map_doubles() {
     let data: [i64; 3] = [1, 2, 3];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
-    let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), 8);
+    let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), 8, None);
 
     let mut out: i64 = 0;
     assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
@@ -178,9 +178,97 @@ fn map_doubles() {
     ori_iter_drop(iter);
 }
 
+static MAPPED_OUTPUT_DEC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+extern "C" fn count_mapped_output_dec(_elem: *mut u8) {
+    MAPPED_OUTPUT_DEC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+extern "C-unwind" fn reject_all(_env: *mut u8, _elem_ptr: *const u8) -> bool {
+    false
+}
+
+#[test]
+fn nested_map_releases_each_consumed_intermediate() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_helpers::lock_rc();
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let source = ori_iter_from_range(0, 3, 1, false);
+    let inner = ori_iter_map(
+        source,
+        double_i64,
+        ptr::null_mut(),
+        8,
+        Some(count_mapped_output_dec),
+    );
+    let outer = ori_iter_map(inner, double_i64, ptr::null_mut(), 8, None);
+
+    let mut out = 0_i64;
+    while ori_iter_next(outer, (&raw mut out).cast(), 8) != 0 {}
+    ori_iter_drop(outer);
+
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 3);
+}
+
+#[test]
+fn filter_releases_each_rejected_mapped_output() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_helpers::lock_rc();
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let source = ori_iter_from_range(0, 3, 1, false);
+    let mapped = ori_iter_map(
+        source,
+        double_i64,
+        ptr::null_mut(),
+        8,
+        Some(count_mapped_output_dec),
+    );
+    let filtered = ori_iter_filter(mapped, reject_all, ptr::null_mut(), 8);
+
+    let mut out = 0_i64;
+    assert_eq!(ori_iter_next(filtered, (&raw mut out).cast(), 8), 0);
+    ori_iter_drop(filtered);
+
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 3);
+}
+
+#[test]
+fn skip_releases_discarded_mapped_outputs_and_forwards_the_survivor() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_helpers::lock_rc();
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let source = ori_iter_from_range(0, 3, 1, false);
+    let mapped = ori_iter_map(
+        source,
+        double_i64,
+        ptr::null_mut(),
+        8,
+        Some(count_mapped_output_dec),
+    );
+    let skipped = ori_iter_skip(mapped, 2);
+
+    let mut out = 0_i64;
+    assert_eq!(ori_iter_next(skipped, (&raw mut out).cast(), 8), 1);
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 2);
+    // The surviving value and its ownership obligation are forwarded. Mimic a
+    // terminal consumer releasing that value through the dynamic state.
+    unsafe {
+        (*skipped.cast::<IterState>()).release_last_yield((&raw mut out).cast());
+    }
+    ori_iter_drop(skipped);
+
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 3);
+}
+
 // Filter adapter
 
-extern "C" fn is_even(env: *mut u8, elem_ptr: *const u8) -> bool {
+extern "C-unwind" fn is_even(env: *mut u8, elem_ptr: *const u8) -> bool {
     let _ = env;
     unsafe {
         let val = elem_ptr.cast::<i64>().read();
@@ -253,7 +341,7 @@ fn collect_range() {
 
     // OriList layout: { i64 len, i64 cap, ptr data }
     let mut out = [0u8; 24];
-    ori_iter_collect(iter, 8, None, out.as_mut_ptr());
+    ori_iter_collect(iter, 8, None, None, out.as_mut_ptr());
 
     let len = unsafe { out.as_ptr().cast::<i64>().read() };
     let data_ptr = unsafe { out.as_ptr().add(16).cast::<*mut u8>().read() };
@@ -278,7 +366,7 @@ fn map_filter_take() {
     // [1,2,3,4,5,6,7,8,9,10].iter().map(x -> x*2).filter(x -> x > 10).take(3)
     let data: [i64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 10, 0, 8, true);
-    let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), 8);
+    let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), 8, None);
     let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8); // all doubled are even
     let iter = ori_iter_take(iter, 3);
 
@@ -296,7 +384,7 @@ fn map_filter_take() {
 
 // Any consumer
 
-extern "C" fn gt_3(env: *mut u8, elem_ptr: *const u8) -> bool {
+extern "C-unwind" fn gt_3(env: *mut u8, elem_ptr: *const u8) -> bool {
     let _ = env;
     unsafe { elem_ptr.cast::<i64>().read() > 3 }
 }
@@ -376,7 +464,7 @@ fn find_not_found() {
 
 // For Each consumer
 
-extern "C" fn increment_counter(env: *mut u8, _elem_ptr: *const u8) {
+extern "C-unwind" fn increment_counter(env: *mut u8, _elem_ptr: *const u8) {
     unsafe {
         let count = env.cast::<i64>();
         *count += 1;
@@ -403,7 +491,12 @@ fn for_each_empty() {
 
 // Fold consumer
 
-extern "C" fn sum_fold(env: *mut u8, acc_ptr: *const u8, elem_ptr: *const u8, out_ptr: *mut u8) {
+extern "C-unwind" fn sum_fold(
+    env: *mut u8,
+    acc_ptr: *const u8,
+    elem_ptr: *const u8,
+    out_ptr: *mut u8,
+) {
     let _ = env;
     unsafe {
         let acc = acc_ptr.cast::<i64>().read();
@@ -636,11 +729,105 @@ fn null_iter_safety() {
     ori_iter_drop(ptr::null_mut()); // should not crash
 }
 
+extern "C-unwind" fn panic_after_one_transform(env: *mut u8, in_ptr: *const u8, out_ptr: *mut u8) {
+    let calls = unsafe { &mut *env.cast::<usize>() };
+    assert_ne!(*calls, 1, "iterator transform panic");
+    *calls += 1;
+    unsafe { out_ptr.cast::<i64>().write(in_ptr.cast::<i64>().read()) };
+}
+
+/// A consumer owns both the opaque iterator and its in-progress output buffer.
+/// A user panic after at least one successful yield must unwind across every
+/// callback/runtime ABI frame and release both allocations before reaching the
+/// caller's catch boundary.
+#[test]
+fn collect_releases_iterator_and_partial_buffer_when_transform_panics() {
+    let _g = crate::test_helpers::lock_rc();
+    let before = crate::ori_rc_live_count();
+    let data = [10_i64, 20];
+    let source = ori_iter_from_list(data.as_ptr().cast_mut().cast(), 2, 0, 8, true);
+    let mut calls = 0_usize;
+    let mapped = ori_iter_map(
+        source,
+        panic_after_one_transform,
+        std::ptr::from_mut(&mut calls).cast(),
+        8,
+        None,
+    );
+    let mut out = [0_u8; 24];
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ori_iter_collect(mapped, 8, None, None, out.as_mut_ptr());
+    }));
+
+    assert!(
+        result.is_err(),
+        "transform panic must reach the catch boundary"
+    );
+    assert_eq!(calls, 1, "one element must be initialized before the panic");
+    assert_eq!(
+        crate::ori_rc_live_count(),
+        before,
+        "panic cleanup must release the partial collect buffer"
+    );
+}
+
+extern "C" fn eq_i64_ptr(left: *const u8, right: *const u8) -> bool {
+    unsafe { left.cast::<i64>().read() == right.cast::<i64>().read() }
+}
+
+extern "C" fn hash_i64_ptr(value: *const u8) -> i64 {
+    unsafe { value.cast::<i64>().read() }
+}
+
+#[test]
+fn collect_set_releases_iterator_and_partial_buffer_when_transform_panics() {
+    let _g = crate::test_helpers::lock_rc();
+    let before = crate::ori_rc_live_count();
+    let data = [10_i64, 20];
+    let source = ori_iter_from_list(data.as_ptr().cast_mut().cast(), 2, 0, 8, true);
+    let mut calls = 0_usize;
+    let mapped = ori_iter_map(
+        source,
+        panic_after_one_transform,
+        std::ptr::from_mut(&mut calls).cast(),
+        8,
+        None,
+    );
+    let mut out = [0_u8; 24];
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ori_iter_collect_set(
+            mapped,
+            8,
+            eq_i64_ptr,
+            hash_i64_ptr,
+            None,
+            None,
+            out.as_mut_ptr(),
+        );
+    }));
+
+    assert!(
+        result.is_err(),
+        "transform panic must reach the catch boundary"
+    );
+    assert_eq!(
+        calls, 1,
+        "one set element must be inserted before the panic"
+    );
+    assert_eq!(
+        crate::ori_rc_live_count(),
+        before,
+        "panic cleanup must release the partial collect_set buffer"
+    );
+}
+
 // Output element size validation
 //
-// Consumer functions and ori_iter_next are `extern "C"`, so panics abort
-// rather than unwind. We test the assert_elem_size guard directly, then
-// verify normal and boundary element sizes work through the full pipeline.
+// Element-size assertions are tested directly so malformed FFI inputs do not
+// obscure the callback-unwind matrix above. Normal and boundary sizes are then
+// verified through the full pipeline.
 
 #[test]
 #[should_panic(expected = "exceeds MAX_ELEM_SIZE")]
@@ -678,7 +865,7 @@ fn normal_sized_elem_passes_collect() {
     let data: [i64; 3] = [10, 20, 30];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
     let mut out = [0u8; 24];
-    ori_iter_collect(iter, 8, None, out.as_mut_ptr());
+    ori_iter_collect(iter, 8, None, None, out.as_mut_ptr());
     let len = unsafe { out.as_ptr().cast::<i64>().read() };
     assert_eq!(len, 3);
 
@@ -698,7 +885,7 @@ fn max_sized_elem_passes_collect() {
     let data = vec![0u8; state::MAX_ELEM_SIZE];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 1, 0, max_size, true);
     let mut out = [0u8; 24];
-    ori_iter_collect(iter, max_size, None, out.as_mut_ptr());
+    ori_iter_collect(iter, max_size, None, None, out.as_mut_ptr());
     let len = unsafe { out.as_ptr().cast::<i64>().read() };
     assert_eq!(len, 1);
 

@@ -105,6 +105,7 @@ impl ArcLowerer<'_> {
             exit_block,
             continue_block,
             mutable_vars: mutable_var_entries,
+            abandon_iter: None,
             yield_ctx: None,
         });
 

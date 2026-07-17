@@ -48,6 +48,14 @@ fn test_range_iter_collect() {
     );
 }
 
+#[test]
+fn test_range_direct_eager_methods() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/range_direct_eager_methods.ori"),
+        "range_direct_eager_methods",
+    );
+}
+
 // map adapter
 
 #[test]
@@ -65,15 +73,15 @@ fn test_iter_filter() {
     );
 }
 
-// AOT regression coverage for flatten with non-int inner awaits the separate
-// typeck → codegen-type-info handoff gap — the assert in flatten_inner_elem_size
-// correctly catches Tag::Var reaching codegen. The flatten codegen fix itself
-// is verified by:
-// (a) helper boundary discipline (production assert on non-iterator outer),
-// (b) spec tests at tests/spec/traits/iterator/methods.ori under
-//     interpreter (semantic pin: bool/char/tuple inner produce correct values),
-// (c) zero regression in the AOT suite (2160 passing tests).
-// AOT fixture for the bool-inner case to be added when that gap closes.
+// flatten adapter
+
+#[test]
+fn test_iter_flatten_closure_collection_ownership() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_flatten_closure_collection_ownership.ori"),
+        "iter_flatten_closure_collection_ownership",
+    );
+}
 
 // take adapter
 

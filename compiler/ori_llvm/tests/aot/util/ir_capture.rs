@@ -77,6 +77,37 @@ pub fn extract_function_ir<'a>(full_ir: &'a str, func_name: &str) -> &'a str {
     &full_ir[define_start..define_start + end]
 }
 
+/// Resolve a function's attributes through its LLVM `#N` attribute group.
+///
+/// Searches declarations and definitions and accepts both plain and quoted
+/// symbol spellings.
+pub fn resolve_function_attrs(ir: &str, func_name: &str) -> String {
+    let search_plain = format!("@{func_name}(");
+    let search_quoted = format!("@\"{func_name}\"(");
+    let declaration = ir
+        .lines()
+        .find(|line| {
+            (line.contains("declare") || line.contains("define"))
+                && (line.contains(&search_plain) || line.contains(&search_quoted))
+        })
+        .unwrap_or_else(|| panic!("{func_name} should be declared or defined in IR"));
+
+    let line = declaration.trim_end_matches('{').trim();
+    let group_ref = line
+        .rsplit_once('#')
+        .map(|(_, number)| format!("#{}", number.trim()))
+        .unwrap_or_default();
+    if group_ref.is_empty() {
+        return String::new();
+    }
+
+    let group_prefix = format!("attributes {group_ref} = ");
+    ir.lines()
+        .find(|line| line.starts_with(&group_prefix))
+        .map(|line| line[group_prefix.len()..].to_string())
+        .unwrap_or_default()
+}
+
 /// Count "bridge-only" blocks in a function's LLVM IR.
 ///
 /// A bridge-only block is one whose only non-comment, non-blank instruction

@@ -20,18 +20,19 @@ mod typed_module;
 
 pub use derived::AcceptedDerivedImpl;
 pub use mono::{
-    ConcreteMethodMono, ConstValue, DeferredMonoCall, DeferredVarBinding, GenericArg, MonoInstance,
-    MonoInstanceId,
+    ConcreteMethodMono, ConstGenericTerm, ConstValue, DeferredMonoCall, DeferredVarBinding,
+    GenericArg, MonoConstBinding, MonoInstance, MonoInstanceId,
 };
 pub use producer::{
-    DerivedCallPlan, DerivedCallPosition, DerivedCallSelection, DerivedDirectCallSelection,
-    MethodProducer, RegistryMethodIdentity, RegistryPreludeIdentity, REGISTRY_PRODUCER_SCHEMA,
+    imported_method_producer, imported_method_signature_hash, DerivedCallPlan, DerivedCallPosition,
+    DerivedCallSelection, DerivedDirectCallSelection, MethodProducer, RegistryMethodIdentity,
+    RegistryPreludeIdentity, IMPORTED_METHOD_PRODUCER_SCHEMA, REGISTRY_PRODUCER_SCHEMA,
 };
 pub use result::TypeCheckResult;
 pub use sig::{ConstParamInfo, EffectClass, FnWhereClause, FunctionSig};
 pub use typed_module::{
     AssignDesugar, ExportedTypeMetadata, FormatSpecTypes, ImplMethodId, ImplMethodRole, ImplSig,
-    TypedModule,
+    ImportedImplSig, IterMethodRoute, TypedModule,
 };
 
 // Test-support imports: the sibling `tests.rs` uses `use super::*;` and relies

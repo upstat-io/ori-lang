@@ -7,7 +7,7 @@
 //!
 //! Every `#[test]` that calls RC functions **must** acquire this lock:
 //!
-//! ```ignore
+//! ```text
 //! let _g = crate::test_helpers::lock_rc();
 //! ```
 

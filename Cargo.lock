@@ -833,7 +833,7 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "ori_arc"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "bincode",
  "ori_ir",
@@ -849,7 +849,7 @@ dependencies = [
 
 [[package]]
 name = "ori_canon"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "ori_format",
  "ori_ir",
@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "ori_compiler"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "ori_canon",
  "ori_diagnostic",
@@ -877,7 +877,7 @@ dependencies = [
 
 [[package]]
 name = "ori_diagnostic"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "ori_ir",
  "pretty_assertions",
@@ -885,7 +885,7 @@ dependencies = [
 
 [[package]]
 name = "ori_eval"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "ori_format",
  "ori_ir",
@@ -903,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "ori_fmt"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "ori_ir",
  "ori_lexer",
@@ -915,11 +915,11 @@ dependencies = [
 
 [[package]]
 name = "ori_format"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 
 [[package]]
 name = "ori_ir"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "parking_lot",
  "pretty_assertions",
@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "ori_lexer"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "ori_ir",
  "ori_lexer_core",
@@ -939,7 +939,7 @@ dependencies = [
 
 [[package]]
 name = "ori_lexer_core"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "memchr",
  "pretty_assertions",
@@ -948,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "ori_llvm"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "bincode",
  "im",
@@ -975,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "ori_parse"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
@@ -987,25 +987,24 @@ dependencies = [
 
 [[package]]
 name = "ori_patterns"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "ori_diagnostic",
  "ori_ir",
  "pretty_assertions",
  "rustc-hash",
- "tracing",
 ]
 
 [[package]]
 name = "ori_registry"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "pretty_assertions",
 ]
 
 [[package]]
 name = "ori_repr"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "ori_arc",
  "ori_ir",
@@ -1020,7 +1019,7 @@ dependencies = [
 
 [[package]]
 name = "ori_rt"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "cc",
  "ori_format",
@@ -1029,14 +1028,14 @@ dependencies = [
 
 [[package]]
 name = "ori_stack"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "stacker",
 ]
 
 [[package]]
 name = "ori_test_harness"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "regex",
  "similar",
@@ -1046,7 +1045,7 @@ dependencies = [
 
 [[package]]
 name = "ori_types"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "bitflags 2.11.0",
  "ori_diagnostic",
@@ -1065,7 +1064,7 @@ dependencies = [
 
 [[package]]
 name = "ori_vm"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "ori_arc",
  "ori_ir",
@@ -1078,7 +1077,7 @@ dependencies = [
 
 [[package]]
 name = "oric"
-version = "2026.7.16-alpha.1"
+version = "2026.7.17-alpha.1"
 dependencies = [
  "criterion",
  "libc",

@@ -34,12 +34,10 @@ pub(super) fn is_boxed_enum_field(pool: &Pool, owner_type: Idx, field_type: Idx)
 
 // Callee interception detection
 
-/// Builtin method names whose intercepted emission may call `ori_panic`
-/// (e.g., `Option.expect`, `Result.unwrap`). These emit an inline
-/// `call ori_panic` on the failing variant and therefore may unwind
-/// through the caller — they are NOT nounwind even though they are
-/// intercepted. Used by the nounwind analyzer to avoid marking callers
-/// of these methods as nounwind.
+/// Builtin method names whose intercepted emission may unwind. This includes
+/// inline panic paths (`Option.expect`, `Result.unwrap`) and iterator
+/// consumers/steps that may invoke a user closure stored anywhere in their
+/// adapter chain. They are NOT nounwind even though they are intercepted.
 ///
 /// The emission sites live in
 /// `codegen/arc_emitter/builtins/option_result_helpers.rs`
@@ -85,6 +83,22 @@ pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] = &[
     "from_gb",
     "from_terabytes",
     "from_tb",
+    "__iter_next",
+    "__collect_set",
+    "next",
+    "next_back",
+    "rev",
+    "collect",
+    "count",
+    "any",
+    "all",
+    "find",
+    "for_each",
+    "fold",
+    "last",
+    "rfind",
+    "rfold",
+    "join",
 ];
 
 /// Check if a callee will be intercepted by builtin handlers during emission.
@@ -124,11 +138,11 @@ pub(crate) fn is_callee_intercepted(
     if HANDLED_PRELUDE_NAMES.contains(&callee_name) {
         return true;
     }
-    // All protocol builtins are nounwind (iterator creation/cleanup don't
-    // panic), so they're always safe to emit as `call` rather than `invoke`.
-    // Some (Index, IterNext, CollectSet, Cast) are also intercepted by
-    // try_emit_protocol(); others (Iter, IterDrop) go through normal
-    // function dispatch but are still nounwind.
+    // Protocol builtins are intercepted before ordinary method dispatch.
+    // Their precise unwind classification is applied separately by
+    // `intercepted_is_nounwind`: iterator stepping/collection may execute a
+    // stored user closure, while iterator creation/cleanup and casts remain
+    // nounwind.
     if ori_ir::builtin_constants::protocol::ProtocolBuiltin::from_name(callee_name).is_some() {
         return true;
     }
@@ -200,6 +214,10 @@ pub(crate) fn intercepted_emission_invokes_unwind(
         "__index" => matches!(receiver_tag, Tag::List | Tag::Str),
         "unwrap" | "expect" => matches!(receiver_tag, Tag::Option | Tag::Result),
         "unwrap_err" | "expect_err" => matches!(receiver_tag, Tag::Result),
+        "__iter_next" | "__collect_set" | "next" | "next_back" | "rev" | "collect" | "count"
+        | "any" | "all" | "find" | "for_each" | "fold" | "last" | "rfind" | "rfold" | "join" => {
+            matches!(receiver_tag, Tag::Iterator | Tag::DoubleEndedIterator)
+        }
         _ => false,
     }
 }
@@ -209,8 +227,8 @@ pub(crate) fn intercepted_emission_invokes_unwind(
 /// Called by the nounwind analyzer when [`is_callee_intercepted`] returned
 /// `true` to decide whether the intercept may unwind. The default is
 /// `true` (nounwind) — the exceptional cases in
-/// [`MAY_UNWIND_INTERCEPTED_METHODS`] return `false` because they emit
-/// an inline `call ori_panic` on a failing variant.
+/// [`MAY_UNWIND_INTERCEPTED_METHODS`] return `false` because they either emit
+/// an inline panic path or call an unwind-capable iterator runtime function.
 ///
 /// Matching is by unqualified method name (the callee `Name` already
 /// strips the type prefix, e.g., `expect` not `Option.expect`), because
@@ -369,8 +387,8 @@ pub struct CodegenContext {
     pub mono_dispatch: FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
     /// Monomorphized generic dispatch keyed by abstract instance id.
     ///
-    /// Populated alongside `mono_dispatch` from each `MonoFunction.instance_ids`
-    /// in `declare_mono_functions`. When an `ArcInstr::Apply` /
+    /// Populated alongside `mono_dispatch` from each mono function identity in
+    /// `declare_mono_functions`. When an `ArcInstr::Apply` /
     /// `ArcTerminator::Invoke` carries `mono_instance_id: Some(id)`,
     /// `lookup_mono_dispatch` resolves the call directly via this map — no
     /// argument-type matching, no generic-name lookup. The mangled string
@@ -424,47 +442,5 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{intercepted_is_nounwind, MAY_UNWIND_INTERCEPTED_METHODS};
-
-    #[test]
-    fn intercepted_is_nounwind_defaults_true_for_unknown_methods() {
-        // A random builtin method name not in the may-unwind list should
-        // be treated as nounwind (the default behavior for intercepted
-        // methods like `map`, `filter`, `len`, `is_empty`).
-        assert!(intercepted_is_nounwind("map"));
-        assert!(intercepted_is_nounwind("filter"));
-        assert!(intercepted_is_nounwind("len"));
-        assert!(intercepted_is_nounwind("is_empty"));
-        assert!(intercepted_is_nounwind(""));
-    }
-
-    #[test]
-    fn intercepted_is_nounwind_rejects_may_unwind_methods() {
-        // Each entry in MAY_UNWIND_INTERCEPTED_METHODS must be recognized
-        // as may-unwind — their builtin emission includes `call ori_panic`
-        // on the failing variant, so callers must keep their invoke edges
-        // and not be marked nounwind.
-        for &name in MAY_UNWIND_INTERCEPTED_METHODS {
-            assert!(
-                !intercepted_is_nounwind(name),
-                "method {name:?} must be classified may-unwind"
-            );
-        }
-    }
-
-    #[test]
-    fn may_unwind_list_covers_option_result_panic_methods() {
-        // Regression pin: these are the exact method names that the
-        // builtins in `option_result_helpers.rs` route through
-        // `emit_expect_branch` / `emit_unwrap_branch`. If a new method
-        // is added to the dispatch in `option_result.rs`, it must also
-        // be added to `MAY_UNWIND_INTERCEPTED_METHODS`.
-        for expected in ["unwrap", "unwrap_err", "expect", "expect_err"] {
-            assert!(
-                MAY_UNWIND_INTERCEPTED_METHODS.contains(&expected),
-                "expected method {expected:?} missing from may-unwind list"
-            );
-        }
-    }
-}
+#[path = "context_tests.rs"]
+mod tests;

@@ -62,13 +62,6 @@ impl super::RawScanner<'_> {
     pub(super) fn minus_or_arrow(&mut self, start: u32) -> RawToken {
         self.cursor.advance(); // consume '-'
         match self.cursor.current() {
-            b'-' => {
-                self.cursor.advance();
-                RawToken {
-                    tag: RawTag::InvalidByte,
-                    len: self.cursor.pos() - start,
-                }
-            }
             b'>' => {
                 self.cursor.advance();
                 RawToken {

@@ -50,9 +50,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             self.ctx.emit_newline();
         }
 
-        // Test name
+        // Source-authored test name
         self.ctx.emit("@");
-        self.ctx.emit(self.interner.lookup(test.name));
+        self.ctx.emit(self.interner.lookup(test.display_name));
 
         // Targets: attached tests list specific targets, floating tests use `_`
         if test.targets.is_empty() {

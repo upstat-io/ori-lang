@@ -77,26 +77,27 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Iterator next — extern "C" (callbacks called inside, panics abort at boundary)
+    // Iterator next — extern "C-unwind" (adapter callbacks may panic)
     RtFn {
         name: "ori_iter_next",
         params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::I8),
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
-    // Iterator next_back — extern "C" (DoubleEndedIterator backward protocol)
+    // Iterator next_back — extern "C-unwind" (adapter callbacks may panic)
     RtFn {
         name: "ori_iter_next_back",
         params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::I8),
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     // Iterator adapters — extern "C" (store callback, don't call it)
     RtFn {
         name: "ori_iter_map",
-        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
+        // (iter, transform_fn, transform_env, input_size, output_dec_fn)
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
@@ -164,59 +165,67 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         // (iter, elem_size, elem_inc_fn, elem_dec_fn)
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Ptr),
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
-    // Iterator consumers — extern "C" (call callbacks internally, panics abort at boundary)
+    // Iterator consumers — extern "C-unwind" (advancing may call user closures)
     RtFn {
         name: "ori_iter_collect",
-        // (iter, elem_size, elem_inc_fn, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
+        // (iter, elem_size, elem_inc_fn, elem_dec_fn, out_ptr)
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr, Ty::Ptr],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_collect_set",
-        // (iter, elem_size, elem_eq, elem_hash, elem_inc_fn, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::Ptr],
+        // (iter, elem_size, elem_eq, elem_hash, elem_inc_fn, elem_dec_fn, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_count",
         params: &[Ty::Ptr, Ty::I64],
         ret: Some(Ty::I64),
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_any",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::I8),
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_all",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::I8),
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_find",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_for_each",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
@@ -231,7 +240,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
@@ -239,7 +248,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         // (iter, elem_size, out_ptr)
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
@@ -247,7 +256,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         // (iter, pred_fn, pred_env, elem_size, out_ptr)
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
@@ -263,7 +272,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
@@ -284,7 +293,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     // Iterator cleanup — extern "C"

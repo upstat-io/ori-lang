@@ -12,7 +12,7 @@ use super::{
 /// Minimal empty function for test construction.
 ///
 /// Tests use struct update syntax to override only the fields they care about:
-/// ```ignore
+/// ```text
 /// ArcFunction { name: ..., blocks: ..., ..Default::default() }
 /// ```
 ///

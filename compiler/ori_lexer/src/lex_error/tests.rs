@@ -353,10 +353,7 @@ fn every_lex_error_kind_has_error_code() {
             "E0008",
         ),
         (LexErrorKind::SingleQuoteString, "E0009"),
-        (
-            LexErrorKind::IncrementDecrementOperator { operator: "++" },
-            "E0010",
-        ),
+        (LexErrorKind::IncrementOperator { operator: "++" }, "E0010"),
         (LexErrorKind::StandaloneBackslash, "E0013"),
         (
             LexErrorKind::UnicodeConfusable {

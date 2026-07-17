@@ -1,8 +1,7 @@
-// Spec: typeck §RG-3/§RG-4 — registry-covered builtin methods AND struct
-// field-callables must continue to typecheck + run after BUG-02-041 drops the
-// concrete-receiver unknown-method gate. These are the false-positive risk the
-// struct-field-callable detection prep step protects.
-// Regression: bug-tracker/plans/BUG-02-041/
+// Spec: typeck §RG-3/§RG-4 — registry-covered builtin methods and struct
+// field-callables must continue to typecheck and run when concrete-receiver
+// unknown-method diagnostics are active. These cases guard against false
+// positives in struct-field-callable detection.
 
 use std.testing { assert_eq }
 
@@ -24,10 +23,9 @@ type Handler = { cb: (int) -> int }
 @test_registry_method_still_resolves tests @registry_method_resolves () -> void =
     assert_eq(actual: registry_method_resolves(), expected: 3);
 
-// Plan-TPR R1-F1/R1-F2/R1-F3: the gate drop affects the SHARED concrete-receiver
-// path, so every legitimate non-list method class must keep resolving. Cells
-// #6/#7/#9 of the matrix (map builtin, str builtin, char builtin, derived-trait
-// dispatch on a concrete receiver). All GREEN now; must stay GREEN post-fix.
+// The concrete-receiver path is shared, so every legitimate non-list method
+// class must keep resolving: map, str, and char builtins plus derived-trait
+// dispatch on a concrete receiver.
 
 #[derive(Clone)]
 type Box = { v: int }
@@ -59,13 +57,9 @@ type Box = { v: int }
 @test_trait_method_dispatch_survives tests @trait_method_on_concrete_resolves () -> void =
     assert_eq(actual: trait_method_on_concrete_resolves(), expected: 7);
 
-// Plan-TPR R2-F1 (R3-corrected, impl-audit-finalized): Range methods. The range
-// registry def registers 8 methods (collect, contains, count, is_empty, iter,
-// len, step_by, to_list) — count/collect/contains all RESOLVE via the registry,
-// so they stay GREEN after the gate drop trivially (matrix cell #12). The
-// prep-step-2 audit proved direct-Range map/filter/fold are accidental gate
-// over-acceptance (eval does NOT run them) — they correctly REJECT post-fix
-// (matrix cell #13, a positive-reject compile-fail pin, NOT a run-pass).
+// Range methods resolve through the builtin registry. Annex C also declares
+// direct map/filter/fold; their executable behavior is pinned in the range and
+// iterator method suites.
 
 @range_count_resolves () -> int = { let r = (0..5); r.count() }
 

@@ -409,7 +409,7 @@ fn check_var_tag(
         // instantiation var that became the union-find root of a scheme
         // var's equivalence class — it is a legitimate polymorphic
         // parameter, not an inference failure.
-        VarState::Unbound { .. } | VarState::Generalized { .. } => {
+        VarState::Unbound(_) | VarState::Generalized(_) => {
             emit_ambiguous_if_not_exempt(var_id, span, site, exempt, errors)
         }
         // Resolved via link — resolve_fully above should have removed these,

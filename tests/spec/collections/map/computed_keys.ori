@@ -63,15 +63,12 @@ use std.testing { assert_eq }
     assert_eq(actual: m.length(), expected: 2)
 }
 
-// --- Cell 8: duplicate computed keys — later wins.
-// #skip: interp does later-wins (Some(2)); LLVM map-literal construction does
-// first-wins (Some(1)) — a dual-exec parity break in codegen, NOT the parser
-// fix. The parser emits the identical 2-entry AST for both backends.
-#skip("BUG-04-227: duplicate map-literal key construction diverges interp(later-wins) vs LLVM(first-wins)")
+// --- Cell 8: duplicate computed keys — later wins and length counts unique keys.
 @test_duplicate_computed_key_later_wins tests _ () -> void = {
-    let $k = "x";
+    let $k = "duplicate computed map key with heap storage";
     let $m = {[k]: 1, [k]: 2};
-    assert_eq(actual: m[k], expected: Some(2))
+    assert_eq(actual: m[k], expected: Some(2));
+    assert_eq(actual: m.length(), expected: 1)
 }
 
 // --- Cell 9: non-string (int) computed key.

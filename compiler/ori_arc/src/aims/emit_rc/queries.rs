@@ -3,18 +3,26 @@
 //! Produces auxiliary data used by downstream pipeline steps (COW annotations,
 //! drop hints).
 
-use rustc_hash::FxHashSet;
+use ori_ir::Name;
+use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::aims::contract::MemoryContract;
+use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, NodeIdx};
 use crate::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId};
 
 #[cfg(test)]
 mod tests;
 
 /// Collect all variables whose logical storage identity received an added
-/// owner credit through the transitional `RcInc` carrier.
+/// owner credit through the transitional `RcInc` carrier or a sharing-view
+/// call boundary whose runtime retains the borrowed backing storage.
 ///
 /// Returns a set containing:
 /// - Every variable `v` that has an `RcInc { var: v }` instruction
+/// - The destination and every borrowed argument of an Apply/Invoke whose
+///   contract carries `returns_sharing_view`. The retain is internal to the
+///   producer runtime (for example `ori_list_slice`), so no ARC `RcInc`
+///   spells it even though the source and returned view are competing owners.
 /// - Every variable on a `Let { dst, value: Var(src) }` alias edge whose
 ///   OTHER end is in the set — BOTH directions, transitive through alias
 ///   chains. `dst` and `src` name the same logical storage identity, so an
@@ -33,12 +41,21 @@ mod tests;
 ///   pre-event `Unique` classification is no longer valid for that identity.
 ///   Propagation conservatively marks both operands because either can be
 ///   chosen.
+/// - Every whole-variable member of the same frozen birth-site class. This
+///   carries a credit across Construct-field / Project identities: an inc on
+///   the value moved into a struct field also invalidates pre-event uniqueness
+///   on a later projection of that field. The aggregate's whole variable is
+///   not in the field class and is therefore not conflated with its payload.
 ///
 /// Used by both COW annotations and drop hints: after logical event
 /// realization, a variable in this set may have a competing owner credit. Its
 /// pre-event AIMS uniqueness state therefore cannot authorize single-owner
 /// mutation or cleanup.
-pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVarId> {
+pub(crate) fn collect_rc_incremented_vars(
+    func: &ArcFunction,
+    birth_site_partition: Option<&BirthSitePartition>,
+    contracts: &FxHashMap<Name, MemoryContract>,
+) -> FxHashSet<ArcVarId> {
     use crate::ir::ArcTerminator;
 
     let mut incremented = FxHashSet::default();
@@ -48,9 +65,20 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
     // because a Select's dst aliases EITHER operand at runtime.
     let mut select_aliases: Vec<(ArcVarId, ArcVarId, ArcVarId)> = Vec::new();
 
+    // Freeze whole-variable members by birth-site representative up front.
+    // `BirthSitePartition` uses path-compressing queries, so work on a clone;
+    // the converged side table remains immutable per PL-5.
+    let birth_class_members = collect_birth_class_members(birth_site_partition);
+
     for block in &func.blocks {
         for instr in &block.body {
             match instr {
+                ArcInstr::Apply {
+                    dst,
+                    func: callee,
+                    args,
+                    ..
+                } => seed_sharing_view_owners(*dst, *callee, args, contracts, &mut incremented),
                 ArcInstr::RcInc { var, .. } => {
                     incremented.insert(*var);
                 }
@@ -78,41 +106,55 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
         // (e.g., loop header from entry + back-edge). If ANY source is
         // incremented, the param inherits the flag. Single-source cases
         // record an `alias_edges` entry; multi-source uses direct insertion.
-        if let ArcTerminator::Jump { target, args } = &block.terminator {
-            let target_idx = target.index();
-            if target_idx < func.blocks.len() {
-                for (i, &arg) in args.iter().enumerate() {
-                    if let Some(&(param_var, _)) = func.blocks[target_idx].params.get(i) {
-                        if let Some(existing) = alias_edges[param_var.index()] {
-                            // Multi-predecessor: param already has an alias
-                            // edge. If the new arg OR the existing source is
-                            // incremented, mark the param directly. This
-                            // handles loop headers where one predecessor
-                            // passes an incremented var and the back-edge
-                            // passes the param itself.
-                            if incremented.contains(&arg) || incremented.contains(&existing) {
-                                incremented.insert(param_var);
+        match &block.terminator {
+            ArcTerminator::Invoke {
+                dst,
+                func: callee,
+                args,
+                ..
+            } => seed_sharing_view_owners(*dst, *callee, args, contracts, &mut incremented),
+            ArcTerminator::Jump { target, args } => {
+                let target_idx = target.index();
+                if target_idx < func.blocks.len() {
+                    for (i, &arg) in args.iter().enumerate() {
+                        if let Some(&(param_var, _)) = func.blocks[target_idx].params.get(i) {
+                            if let Some(existing) = alias_edges[param_var.index()] {
+                                // Multi-predecessor: param already has an alias
+                                // edge. If the new arg OR the existing source is
+                                // incremented, mark the param directly. This
+                                // handles loop headers where one predecessor
+                                // passes an incremented var and the back-edge
+                                // passes the param itself.
+                                if incremented.contains(&arg) || incremented.contains(&existing) {
+                                    incremented.insert(param_var);
+                                }
+                            } else {
+                                alias_edges[param_var.index()] = Some(arg);
                             }
-                        } else {
-                            alias_edges[param_var.index()] = Some(arg);
                         }
                     }
                 }
             }
+            _ => {}
         }
     }
 
-    // Propagate: for each alias edge dst → src, if EITHER end is incremented,
-    // the other is too (both name the same object; see the fn doc's
-    // bidirectional rationale). Fixed-point loop handles chains like
-    // %11 = %8 = %6 (where %6 has RcInc) and sibling fan-outs
-    // %5 = %3, %8 = %3 (where %5 has the kept duplication inc).
-    //
-    // Select propagation (BUG-04-090 E-mat): for each Select instruction
-    // `dst = Select cond ? true_val: false_val`, if `dst` is incremented,
-    // BOTH operands are incremented (at runtime dst aliases one of them, with
-    // the bumped RC). Conservative two-way propagation matches `
-    // §1.9 Rule 5` for the `project_alias_sources` Select case.
+    propagate_incremented_vars(
+        &alias_edges,
+        &select_aliases,
+        &birth_class_members,
+        &mut incremented,
+    );
+
+    incremented
+}
+
+fn propagate_incremented_vars(
+    alias_edges: &[Option<ArcVarId>],
+    select_aliases: &[(ArcVarId, ArcVarId, ArcVarId)],
+    birth_class_members: &[Vec<ArcVarId>],
+    incremented: &mut FxHashSet<ArcVarId>,
+) {
     loop {
         let mut changed = false;
         for (i, alias) in alias_edges.iter().enumerate() {
@@ -130,7 +172,7 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
                 }
             }
         }
-        for &(dst, true_val, false_val) in &select_aliases {
+        for &(dst, true_val, false_val) in select_aliases {
             if incremented.contains(&dst) {
                 if incremented.insert(true_val) {
                     changed = true;
@@ -140,12 +182,62 @@ pub(crate) fn collect_rc_incremented_vars(func: &ArcFunction) -> FxHashSet<ArcVa
                 }
             }
         }
+        for members in birth_class_members {
+            if members.iter().any(|var| incremented.contains(var)) {
+                for &var in members {
+                    if incremented.insert(var) {
+                        changed = true;
+                    }
+                }
+            }
+        }
         if !changed {
             break;
         }
     }
+}
 
-    incremented
+fn collect_birth_class_members(
+    birth_site_partition: Option<&BirthSitePartition>,
+) -> Vec<Vec<ArcVarId>> {
+    birth_site_partition.map_or_else(Vec::new, |partition| {
+        let mut partition = partition.clone();
+        let mut by_rep: FxHashMap<NodeIdx, Vec<ArcVarId>> = FxHashMap::default();
+        for (var, path, node) in partition.nodes_snapshot() {
+            if path.is_whole_var() {
+                by_rep.entry(partition.rep_of(node)).or_default().push(var);
+            }
+        }
+        by_rep.into_values().collect()
+    })
+}
+
+/// Seed the physical competing-owner fact created inside a sharing-view
+/// producer. `returns_sharing_view` is path-universal typed provenance: the
+/// destination receives a new owner credit backed by one of the borrowed
+/// inputs. The contract does not yet name which borrowed parameter supplies
+/// that backing identity, so mark every borrowed parameter conservatively.
+fn seed_sharing_view_owners(
+    dst: ArcVarId,
+    callee: Name,
+    args: &[ArcVarId],
+    contracts: &FxHashMap<Name, MemoryContract>,
+    incremented: &mut FxHashSet<ArcVarId>,
+) {
+    use crate::aims::lattice::AccessClass;
+
+    let Some(contract) = contracts
+        .get(&callee)
+        .filter(|contract| contract.return_info.returns_sharing_view)
+    else {
+        return;
+    };
+    incremented.insert(dst);
+    for (&arg, param) in args.iter().zip(&contract.params) {
+        if param.access == AccessClass::Borrowed {
+            incremented.insert(arg);
+        }
+    }
 }
 
 /// Collect borrowed function parameter variables and their Let-alias

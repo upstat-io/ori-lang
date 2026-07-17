@@ -24,7 +24,7 @@ pub use compile::{
 };
 pub use ir_capture::{
     compile_and_capture_ir, compile_to_llvm_ir, count_bridge_blocks, count_dead_phis,
-    count_single_pred_phis, extract_function_ir,
+    count_single_pred_phis, extract_function_ir, resolve_function_attrs,
 };
 pub use object::{
     object_has_section, object_has_symbol, parse_object, ObjectFormat, ObjectVerification,

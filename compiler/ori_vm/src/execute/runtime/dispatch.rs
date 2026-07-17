@@ -40,6 +40,7 @@ impl Interpreter<'_> {
             RuntimeCall::IterNext => self.runtime_iter_next(site, operand_cursor),
             RuntimeCall::IterDrop => self.runtime_iter_drop(site, operand_cursor),
             RuntimeCall::ListNew => self.runtime_list_new(site, operand_cursor),
+            RuntimeCall::ListFree => self.runtime_list_free(site, operand_cursor),
             RuntimeCall::ListBuilderPush => self.runtime_list_builder_push(site, operand_cursor),
             RuntimeCall::ListPush => self.runtime_list_push(site, operand_cursor),
             RuntimeCall::ListInsert => self.runtime_list_insert(site, operand_cursor),

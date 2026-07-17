@@ -201,16 +201,17 @@ fn hazard_facts_for(
             .count(),
         ClassOutcome::Declined(_) => 0,
     };
-    hazard::ClassHazardFacts {
+    hazard::ClassHazardFacts::new(
         class,
-        released,
-        has_demand,
-        self_funded_clean,
-        has_credit,
-        borrowed_rooted_clean,
+        hazard::ClassHazardFlags::EMPTY
+            .with_released(released)
+            .with_demand(has_demand)
+            .with_self_funded_clean(self_funded_clean)
+            .with_credit(has_credit)
+            .with_borrowed_rooted_clean(borrowed_rooted_clean),
         planned_inc_count,
         consume_sites,
-    }
+    )
 }
 
 /// Plan and verify every partition class named by `classification`.

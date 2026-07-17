@@ -4,7 +4,6 @@
 //! (with recursive field boxing), list literals, map literals, and set literals.
 
 use ori_arc::ir::{ArcVarId, CtorKind};
-use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::{Idx, Tag};
 
 use super::context::is_boxed_enum_field;
@@ -79,15 +78,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // Mirrors the Project side (`instr_dispatch.rs::emit_project`):
                 // tagged-ptr → tagless → scalar-int → niche.
                 if self.get_tagged_ptr_encoding(ty).is_some() {
-                    let payload = if arg_vals.is_empty() {
+                    let payload = match arg_vals.as_slice() {
                         // Unit variant: zero pointer slot, tag bits identify variant.
-                        self.builder.const_i64(0)
-                    } else {
-                        debug_assert!(
-                            arg_vals.len() == 1,
-                            "tagged-pointer variant must have at most one field"
-                        );
-                        arg_vals[0]
+                        [] => self.builder.const_i64(0),
+                        [payload] => *payload,
+                        _ => unreachable!("tagged-pointer variant must have at most one field"),
                     };
                     return self.tagged_ptr_encode(payload, *variant, "tagged.ctor");
                 }
@@ -143,10 +138,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     }
                     // Option: Some (variant 0) carries the inner type; None (1) empty.
                     Tag::Option if *variant == 0 => vec![self.pool.option_inner(resolved_enum)],
+                    Tag::Option if *variant == 1 => Vec::new(),
                     // Result: Ok (variant 0) carries ok type; Err (variant 1) carries err type.
                     Tag::Result if *variant == 0 => vec![self.pool.result_ok(resolved_enum)],
                     Tag::Result if *variant == 1 => vec![self.pool.result_err(resolved_enum)],
-                    _ => Vec::new(),
+                    Tag::Option | Tag::Result => {
+                        unreachable!(
+                            "Construct variant {variant} out of bounds for {resolved_enum:?}"
+                        )
+                    }
+                    unexpected => unreachable!(
+                        "explicit-tag Construct requires enum/Option/Result, got {unexpected:?}"
+                    ),
                 };
 
                 // For user-defined enums (Tag::Enum), filter out
@@ -212,13 +215,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // List construction: allocate data, store elements, build struct
                 let count = arg_vals.len();
                 let type_info = self.type_info.get(ty);
-                let elem_idx =
-                    if let super::super::type_info::TypeInfo::List { element } = &type_info {
-                        *element
-                    } else {
-                        debug_assert!(false, "ListLiteral TypeInfo mismatch: {type_info:?}");
-                        ori_types::Idx::INT
-                    };
+                let super::super::type_info::TypeInfo::List { element } = &type_info else {
+                    unreachable!("ListLiteral TypeInfo mismatch: {type_info:?}")
+                };
+                let elem_idx = *element;
 
                 // Use narrowed element type/size if the ReprPlan
                 // has narrowed this collection's int elements (e.g., i8 for [int]
@@ -231,10 +231,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let esize_val = self.builder.const_i64(elem_size as i64);
 
                 let alloc_fn = self.builder.runtime_fn("ori_list_alloc_data");
-                let data_ptr = self
-                    .builder
-                    .call(alloc_fn, &[cap_val, esize_val], "list.data")
-                    .unwrap_or_else(|| self.builder.const_null_ptr());
+                let Some(data_ptr) =
+                    self.builder
+                        .call(alloc_fn, &[cap_val, esize_val], "list.data")
+                else {
+                    panic!("ori_list_alloc_data must return a data pointer");
+                };
 
                 // Store each element into the data buffer.
                 // For narrowed collections, trunc each i64 value to the narrow
@@ -247,7 +249,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let store_val = self.trunc_for_narrowed_collection_element(
                         val,
                         collection_idx,
-                        &format!("list.elem.trunc.{i}"),
+                        "list.elem.trunc",
                     );
                     self.builder.store(store_val, elem_ptr);
                 }
@@ -271,15 +273,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             CtorKind::MapLiteral => {
                 // Map literal: args are [key0, val0, key1, val1,...]
                 // Hash table layout: [metadata | keys | values]
+                assert!(
+                    arg_vals.len().is_multiple_of(2),
+                    "MapLiteral requires alternating key/value arguments"
+                );
                 let count = arg_vals.len() / 2;
                 let type_info = self.type_info.get(ty);
-                let (key_idx, val_idx) =
-                    if let super::super::type_info::TypeInfo::Map { key, value } = &type_info {
-                        (*key, *value)
-                    } else {
-                        debug_assert!(false, "MapLiteral TypeInfo mismatch: {type_info:?}");
-                        (Idx::INT, Idx::INT)
-                    };
+                let super::super::type_info::TypeInfo::Map { key, value } = &type_info else {
+                    unreachable!("MapLiteral TypeInfo mismatch: {type_info:?}")
+                };
+                let (key_idx, val_idx) = (*key, *value);
                 let key_llvm_ty = self.resolve_type(key_idx);
                 let val_llvm_ty = self.resolve_type(val_idx);
                 // Use narrowed element sizes for map buffers.
@@ -295,49 +298,60 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let i64_ty = self.builder.i64_type();
                 let out_cap = self.builder.alloca(i64_ty, "map.out_cap");
                 let alloc_fn = self.builder.runtime_fn("ori_map_literal_alloc");
-                let data_ptr = self
-                    .builder
-                    .call(alloc_fn, &[count_val, ks_val, vs_val, out_cap], "map.data")
-                    .unwrap_or_else(|| self.builder.const_null_ptr());
+                let Some(data_ptr) =
+                    self.builder
+                        .call(alloc_fn, &[count_val, ks_val, vs_val, out_cap], "map.data")
+                else {
+                    panic!("ori_map_literal_alloc must return a data pointer");
+                };
                 let cap_val = self.builder.load(i64_ty, out_cap, "map.cap");
 
-                // Get hash thunk for the key type
-                let hash_thunk = self
-                    .get_or_create_hash_thunk(key_idx)
-                    .unwrap_or_else(|| self.builder.const_null_ptr());
+                // Get equality/hash thunks and owned-element cleanup functions.
+                let Some(eq_thunk) = self.get_or_create_eq_thunk(key_idx) else {
+                    panic!("type-checked map key must have an equality implementation");
+                };
+                let Some(hash_thunk) = self.get_or_create_hash_thunk(key_idx) else {
+                    panic!("type-checked map key must have a hash implementation");
+                };
+                let key_dec_fn = self.get_or_generate_elem_dec_fn(key_idx);
+                let val_dec_fn = self.get_or_generate_elem_dec_fn(val_idx);
 
-                // Insert each key-value pair via runtime
+                // Insert each key-value pair in source order. The runtime
+                // reports whether it added a distinct key so duplicate literal
+                // entries do not inflate the map's logical length.
                 let key_tmp = self.builder.alloca(key_llvm_ty, "map.key_tmp");
                 let val_tmp = self.builder.alloca(val_llvm_ty, "map.val_tmp");
                 let put_fn = self.builder.runtime_fn("ori_map_literal_put");
-                for i in 0..count {
-                    self.builder.store(arg_vals[i * 2], key_tmp);
-                    self.builder.store(arg_vals[i * 2 + 1], val_tmp);
-                    self.emit_rt_call(
+                let mut actual_count_val = self.builder.const_i64(0);
+                for pair in arg_vals.chunks_exact(2) {
+                    self.builder.store(pair[0], key_tmp);
+                    self.builder.store(pair[1], val_tmp);
+                    let Some(inserted) = self.emit_rt_call(
                         put_fn,
                         &[
-                            data_ptr, cap_val, key_tmp, val_tmp, ks_val, vs_val, hash_thunk,
+                            data_ptr, cap_val, key_tmp, val_tmp, ks_val, vs_val, eq_thunk,
+                            hash_thunk, key_dec_fn, val_dec_fn,
                         ],
                         "map.put",
-                    );
+                    ) else {
+                        panic!("ori_map_literal_put must return an insertion flag");
+                    };
+                    actual_count_val = self.builder.add(actual_count_val, inserted, "map.len");
                 }
 
-                // Build map struct: {i64 count, i64 cap, ptr data}
+                // Build map struct: {i64 unique_count, i64 cap, ptr data}
                 self.builder
-                    .build_struct(llvm_ty, &[count_val, cap_val, data_ptr], "map")
+                    .build_struct(llvm_ty, &[actual_count_val, cap_val, data_ptr], "map")
             }
 
             CtorKind::SetLiteral => {
                 // Set literal: hash table layout [metadata | elements]
                 let count = arg_vals.len();
                 let type_info = self.type_info.get(ty);
-                let elem_idx =
-                    if let super::super::type_info::TypeInfo::Set { element } = &type_info {
-                        *element
-                    } else {
-                        debug_assert!(false, "SetLiteral TypeInfo mismatch: {type_info:?}");
-                        Idx::INT
-                    };
+                let super::super::type_info::TypeInfo::Set { element } = &type_info else {
+                    unreachable!("SetLiteral TypeInfo mismatch: {type_info:?}")
+                };
+                let elem_idx = *element;
                 // Sets always use canonical element sizes — eq/hash thunks load
                 // full-width values, so narrowing set elements would cause
                 // out-of-bounds reads. Phase C collection narrowing is gated
@@ -352,16 +366,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let i64_ty = self.builder.i64_type();
                 let out_cap = self.builder.alloca(i64_ty, "set.out_cap");
                 let alloc_fn = self.builder.runtime_fn("ori_set_literal_alloc");
-                let data_ptr = self
-                    .builder
-                    .call(alloc_fn, &[count_val, esize_val, out_cap], "set.data")
-                    .unwrap_or_else(|| self.builder.const_null_ptr());
+                let Some(data_ptr) =
+                    self.builder
+                        .call(alloc_fn, &[count_val, esize_val, out_cap], "set.data")
+                else {
+                    panic!("ori_set_literal_alloc must return a data pointer");
+                };
                 let cap_val = self.builder.load(i64_ty, out_cap, "set.cap");
 
                 // Get hash thunk for the element type
-                let hash_thunk = self
-                    .get_or_create_hash_thunk(elem_idx)
-                    .unwrap_or_else(|| self.builder.const_null_ptr());
+                let Some(hash_thunk) = self.get_or_create_hash_thunk(elem_idx) else {
+                    panic!("type-checked set element must have a hash implementation");
+                };
 
                 // Insert each element via runtime (canonical width).
                 let elem_tmp = self.builder.alloca(elem_llvm_ty, "set.elem_tmp");
@@ -398,119 +414,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Emit a `CollectionReuse` instruction.
-    ///
-    /// Calls `ori_list_reset_buffer` to either reuse the old buffer (if
-    /// uniquely owned) or allocate fresh (if shared). Then stores new
-    /// elements and builds the result struct.
-    pub(super) fn emit_collection_reuse(
-        &mut self,
-        old_var: ori_arc::ir::ArcVarId,
-        ty: Idx,
-        ctor: &CtorKind,
-        args: &[ori_arc::ir::ArcVarId],
-    ) -> ValueId {
-        let old_val = self.var(old_var);
-        let llvm_ty = self.resolve_type(ty);
-        let new_len = args.len();
-
-        // Determine element type from the collection type.
-        let type_info = self.type_info.get(ty);
-        let elem_idx = match (ctor, &type_info) {
-            (CtorKind::ListLiteral, super::super::type_info::TypeInfo::List { element })
-            | (CtorKind::SetLiteral, super::super::type_info::TypeInfo::Set { element }) => {
-                *element
-            }
-            _ => {
-                debug_assert!(
-                    false,
-                    "collection reuse TypeInfo mismatch: ctor={ctor:?}, info={type_info:?}"
-                );
-                Idx::INT
-            }
-        };
-
-        // Narrowed element type/size for collection reuse.
-        let collection_idx = self.pool.resolve_fully(ty);
-        let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_idx);
-        let elem_size = self.collection_elem_size(collection_idx, elem_idx);
-
-        // Extract old {len, cap, data} from old_var.
-        let old_data = self
-            .builder
-            .extract_value(old_val, FIELD_DATA, "reuse.old_data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let old_len = self
-            .builder
-            .extract_value(old_val, FIELD_LEN, "reuse.old_len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        let old_cap = self
-            .builder
-            .extract_value(old_val, FIELD_CAP, "reuse.old_cap")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-
-        // Build call args for ori_list_reset_buffer.
-        let new_len_val = self.builder.const_i64(new_len as i64);
-        let elem_size_val = self.builder.const_i64(elem_size as i64);
-        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_idx);
-
-        // Alloca for out_cap (caller-provided output parameter).
-        let i64_ty = self.builder.i64_type();
-        let out_cap_alloca = self.builder.alloca(i64_ty, "reuse.out_cap");
-
-        // Call ori_list_reset_buffer.
-        let reset_fn = self.builder.runtime_fn("ori_list_reset_buffer");
-        let new_data = self
-            .builder
-            .call(
-                reset_fn,
-                &[
-                    old_data,
-                    old_len,
-                    old_cap,
-                    new_len_val,
-                    elem_size_val,
-                    elem_dec_fn,
-                    out_cap_alloca,
-                ],
-                "reuse.data",
-            )
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-
-        // Store each new element into the returned buffer.
-        // For narrowed collections, trunc to narrow width before storing.
-        let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
-        for (i, &val) in arg_vals.iter().enumerate() {
-            let idx = self.builder.const_i64(i as i64);
-            let elem_ptr = self
-                .builder
-                .gep(elem_llvm_ty, new_data, &[idx], "reuse.elem_ptr");
-            let store_val = self.trunc_for_narrowed_collection_element(
-                val,
-                collection_idx,
-                &format!("reuse.elem.trunc.{i}"),
-            );
-            self.builder.store(store_val, elem_ptr);
-        }
-
-        // Store elem_dec_fn and elem_count in the new buffer's RC header.
-        // ori_list_reset_buffer does NOT propagate internally — codegen
-        // handles it externally after the reset returns.
-        let store_dec_fn = self.builder.runtime_fn("ori_buffer_store_elem_dec");
-        self.builder
-            .call(store_dec_fn, &[new_data, elem_dec_fn], "");
-        let store_count_fn = self.builder.runtime_fn("ori_buffer_store_elem_count");
-        self.builder
-            .call(store_count_fn, &[new_data, new_len_val], "");
-
-        // Load the output capacity.
-        let result_cap = self.builder.load(i64_ty, out_cap_alloca, "reuse.cap");
-
-        // Build result struct: {i64 len, i64 cap, ptr data}
-        self.builder
-            .build_struct(llvm_ty, &[new_len_val, result_cap, new_data], "reuse.list")
-    }
-
     /// Construct a niche-encoded enum variant.
     ///
     /// Niche layout has no tag field — payload fields start at struct index 0.
@@ -528,7 +431,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if encoding.needs_tag_store(variant) {
             // Niche variant (no payload): insert niche_value directly
             // so that `SetTag` is not needed (avoids GEP-on-register issues).
-            let niche_idx = encoding.niche_field_index().unwrap();
+            let Some(niche_idx) = encoding.niche_field_index() else {
+                panic!("niche variant requiring a tag store must name its niche field");
+            };
             let niche_value = encoding.variant_to_tag_value(variant);
             let niche_const =
                 self.builder
@@ -539,11 +444,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         // Data variant: insert payload fields starting at index 0.
         for (i, &val) in arg_vals.iter().enumerate() {
-            #[expect(clippy::cast_possible_truncation, reason = "field index fits u32")]
-            let idx = i as u32;
-            result = self
-                .builder
-                .insert_value(result, val, idx, &format!("niche.val.{i}"));
+            let Ok(idx) = u32::try_from(i) else {
+                panic!("niche payload field index must fit u32");
+            };
+            result = self.builder.insert_value(result, val, idx, "niche.val");
         }
         result
     }

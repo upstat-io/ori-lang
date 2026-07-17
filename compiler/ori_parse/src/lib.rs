@@ -227,6 +227,7 @@ impl ParseOutput {
 ///
 /// This is the basic parsing function that doesn't preserve formatting metadata.
 /// For formatters and IDEs, use [`parse_with_metadata`] instead.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn parse(tokens: &TokenList, interner: &StringInterner) -> ParseOutput {
     let parser = Parser::new(tokens, interner);
     parser.parse_module()
@@ -261,6 +262,7 @@ pub fn parse(tokens: &TokenList, interner: &StringInterner) -> ParseOutput {
 /// let docs = parse_output.metadata.doc_comments_for(fn_start);
 /// assert_eq!(docs.len(), 1);
 /// ```
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn parse_with_metadata(
     tokens: &TokenList,
     metadata: ModuleExtra,
@@ -291,6 +293,7 @@ pub fn parse_with_metadata(
 /// # Returns
 ///
 /// A new `ParseOutput` with reused declarations having adjusted spans.
+#[tracing::instrument(level = "debug", skip_all)]
 pub fn parse_incremental(
     tokens: &TokenList,
     interner: &StringInterner,

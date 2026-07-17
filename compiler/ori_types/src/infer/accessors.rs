@@ -267,18 +267,6 @@ impl<'pool> InferEngine<'pool> {
         self.interner.map(|i| i.intern(s))
     }
 
-    /// Unwrap Result<T, E> -> T or Option<T> -> T.
-    pub fn unwrap_result_or_option(&mut self, ty: Idx) -> Idx {
-        let resolved = self.resolve(ty);
-        let tag = self.pool().tag(resolved);
-
-        match tag {
-            Tag::Result => self.pool().result_ok(resolved),
-            Tag::Option => self.pool().option_inner(resolved),
-            _ => ty,
-        }
-    }
-
     // Pool Access
 
     /// Get read-only access to the pool.

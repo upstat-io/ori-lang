@@ -23,7 +23,7 @@
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
-use ori_ir::{Name, FIELD_CAP, FIELD_DATA, FIELD_LEN};
+use ori_ir::Name;
 
 use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeInfo;
@@ -181,16 +181,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let list_val = self.var(list_var);
         let start_val = self.var(start_var);
 
-        // Extract list components: {len, cap, data}
-        let len = self
-            .builder
-            .extract_value(list_val, FIELD_LEN, "slice.len")?;
-        let cap = self
-            .builder
-            .extract_value(list_val, FIELD_CAP, "slice.cap")?;
-        let data = self
-            .builder
-            .extract_value(list_val, FIELD_DATA, "slice.data")?;
+        let (data, len, cap) =
+            self.extract_collection_fields(list_val, "slice.data", "slice.len", "slice.cap")?;
 
         // Compute element size from the list's element type
         // (narrowed element size when available). A non-List receiver on the
@@ -251,14 +243,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(dst_ty);
         if self.pool.tag(resolved) == ori_types::Tag::List {
             let elem_ty = self.pool.list_elem(resolved);
-            let result_data = self
-                .builder
-                .extract_value(result, FIELD_DATA, "list_take.data")
-                .unwrap_or_else(|| self.builder.const_null_ptr());
-            let result_len = self
-                .builder
-                .extract_value(result, FIELD_LEN, "list_take.len")
-                .unwrap_or_else(|| self.builder.const_i64(0));
+            let (result_data, result_len) =
+                self.extract_collection_data_and_len(result, "list_take.data", "list_take.len")?;
             let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
             let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
             self.builder
@@ -275,7 +261,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// ABI shape (RT-6) `ori_list_take` / `ori_list_slice_drop` write through
     /// their out-pointer, independent of the receiver's repr. Single
     /// definition site for the manual-sret result layout.
-    fn fat_ptr_llvm_type(&mut self) -> crate::codegen::value_id::LLVMTypeId {
+    pub(super) fn fat_ptr_llvm_type(&mut self) -> crate::codegen::value_id::LLVMTypeId {
         let scx = self.builder.scx();
         let st = scx.type_struct(
             &[
@@ -298,18 +284,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         result_ty: crate::codegen::value_id::LLVMTypeId,
         label: &str,
     ) -> Option<ValueId> {
-        let out_alloca = self.builder.create_entry_alloca(
-            self.current_function,
-            &format!("{label}.out"),
-            result_ty,
-        );
-        let mut full_args = Vec::with_capacity(args.len() + 1);
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "manual.sret.out", result_ty);
+        let Some(full_arity) = args.len().checked_add(1) else {
+            panic!("manual-sret argument count must fit usize");
+        };
+        let mut full_args = Vec::with_capacity(full_arity);
         full_args.extend_from_slice(args);
         full_args.push(out_alloca);
         self.builder.call(func_id, &full_args, label);
-        Some(
-            self.builder
-                .load(result_ty, out_alloca, &format!("{label}.val")),
-        )
+        Some(self.builder.load(result_ty, out_alloca, "manual.sret.val"))
     }
 }

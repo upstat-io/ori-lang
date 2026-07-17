@@ -166,16 +166,7 @@ fn test_compile_module_with_tests_empty() {
         extern_blocks: vec![],
     };
 
-    let canon = ori_ir::canon::CanonResult {
-        arena: Default::default(),
-        constants: Default::default(),
-        decision_trees: ori_ir::canon::DecisionTreePool::new(),
-        root: ori_ir::canon::CanId::INVALID,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = ori_ir::canon::CanonResult::empty();
     let result = evaluator.compile_module_with_tests(
         &module,
         &[],

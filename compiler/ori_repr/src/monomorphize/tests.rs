@@ -1,9 +1,10 @@
 use ori_arc::MemoryContract;
 use ori_ir::{DerivedImplId, DerivedTrait, Name, Span, StringInterner};
 use ori_types::{
-    AcceptedDerivedImpl, ConcreteMethodMono, FunctionSig, GenericArg, Idx, ImplMethodId, ImplSig,
-    MethodProducer, MonoInstance, Pool,
+    AcceptedDerivedImpl, ConcreteMethodMono, ConstValue, FunctionSig, GenericArg, Idx,
+    ImplMethodId, ImplSig, MethodProducer, MonoConstBinding, MonoInstance, Pool,
 };
+use rustc_hash::FxHashMap;
 
 use crate::executable::{
     ExternalCallable, ExternalCallableMetadata, ExternalFactIdentities, ExternalUnwind,
@@ -12,7 +13,7 @@ use crate::executable::{
 
 use super::{
     collect_mono_functions, mangle_mono_name, realize_imported_callables, ImportSig,
-    MonoFunctionOrigin,
+    MonoFunctionIdentity, MonoFunctionOrigin,
 };
 
 fn make_interner() -> StringInterner {
@@ -183,7 +184,7 @@ fn collect_produces_concrete_sig() {
     assert_eq!(mono_fns.len(), 1);
     let mf = &mono_fns[0];
     assert_eq!(interner.lookup(mf.mangled_name), "identity$m$3_int");
-    assert_eq!(interner.lookup(mf.original_name), "identity");
+    assert_eq!(interner.lookup(mf.identity.original_name()), "identity");
     assert!(
         mf.sig.type_params.is_empty(),
         "concrete sig should have no type params"
@@ -196,6 +197,44 @@ fn collect_produces_concrete_sig() {
         !mf.is_imported,
         "function_sigs hit should yield is_imported=false"
     );
+}
+
+#[test]
+fn mono_function_identity_projects_checker_instance_coordinates() {
+    let interner = make_interner();
+    let method_name = interner.intern("at");
+    let const_name = interner.intern("N");
+    let producer = MethodProducer::Derived(DerivedImplId::new(7));
+    let binding = MonoConstBinding {
+        name: const_name,
+        value: ConstValue::Int(4),
+    };
+    let instance = MonoInstance::new_method_with_const_bindings(
+        method_name,
+        producer.clone(),
+        Vec::new(),
+        vec![GenericArg::Const(binding.value.clone())],
+        vec![binding.clone()],
+        ConcreteMethodMono {
+            receiver_type: Idx::STR,
+            param_types: Vec::new(),
+            return_type: Idx::CHAR,
+            body_type_map: Vec::new(),
+        },
+    );
+    let instance_id = ori_ir::canon::MonoInstanceId::new(9);
+
+    let identity = MonoFunctionIdentity::new(&instance, instance_id);
+
+    assert_eq!(identity.original_name(), method_name);
+    assert_eq!(identity.method_producer(), Some(&producer));
+    assert_eq!(identity.method_args(), instance.method_args);
+    assert_eq!(identity.const_bindings(), [binding]);
+    assert_eq!(identity.instance_ids(), [instance_id]);
+    assert_eq!(identity.receiver_type(), Some(Idx::STR));
+    assert!(MonoFunctionIdentity::generated(&instance)
+        .instance_ids()
+        .is_empty());
 }
 
 #[test]
@@ -433,6 +472,58 @@ fn imported_callable_metadata_validates_exactly_before_aims() {
 }
 
 #[test]
+fn imported_callable_compound_return_hash_survives_pool_reinterning() {
+    let interner = make_interner();
+    let mut producer_pool = Pool::new();
+    let type_name = interner.intern("ImportedManual");
+    let field_name = interner.intern("value");
+    let function_name = interner.intern("make_imported_manual");
+    let producer_return = producer_pool.applied(type_name, &[Idx::INT]);
+    let producer_body = producer_pool.struct_type(type_name, &[(field_name, Idx::INT)]);
+    producer_pool.set_resolution(producer_return, producer_body);
+
+    let mut producer_sig = FunctionSig::simple(function_name, Vec::new(), producer_return);
+    producer_sig.populate_hashes(&producer_pool);
+    let contract = MemoryContract::conservative(0);
+    let unwind = ExternalUnwind::from_effects(contract.effects);
+    let producer = ExternalCallable::freeze(
+        function_name,
+        "_ori_provider$make_imported_manual",
+        Vec::new(),
+        producer_return,
+        contract,
+        unwind,
+        &producer_pool,
+    );
+
+    let mut importer_pool = Pool::new();
+    let unrelated_name = interner.intern("Unrelated");
+    let unrelated_field = interner.intern("padding");
+    importer_pool.struct_type(unrelated_name, &[(unrelated_field, Idx::STR)]);
+    let mut cache = FxHashMap::default();
+    let importer_sig = ori_types::re_intern_sig(
+        &producer_sig,
+        &producer_pool,
+        &mut importer_pool,
+        &mut cache,
+    );
+
+    assert_eq!(
+        importer_pool.hash(importer_sig.return_type),
+        producer_pool.hash(producer_return),
+        "compound return identity must survive cross-pool re-interning"
+    );
+    let import = ImportSig {
+        name: function_name,
+        symbol: "_ori_provider$make_imported_manual".to_string(),
+        sig: importer_sig,
+        metadata: producer.metadata().clone(),
+    };
+    realize_imported_callables(&[import], &importer_pool)
+        .unwrap_or_else(|error| panic!("re-interned compound import must validate: {error}"));
+}
+
+#[test]
 fn mangle_method_distinct_from_top_level() {
     // INVARIANT: identical type args under top-level vs method mangling produce
     // distinct symbols — the trailing $im$ separator is the discriminator.
@@ -658,12 +749,12 @@ fn collect_resolves_same_method_name_on_distinct_receiver_shells() {
         .iter()
         .find(|m| m.sig.param_types == vec![box_int])
         .unwrap_or_else(|| panic!("no MonoFunction for Box<int>.get: {mono_fns:?}"));
-    assert_eq!(box_fn.original_name, get_name);
+    assert_eq!(box_fn.identity.original_name(), get_name);
     let wrap_fn = mono_fns
         .iter()
         .find(|m| m.sig.param_types == vec![wrap_int])
         .unwrap_or_else(|| panic!("no MonoFunction for Wrap<int>.get: {mono_fns:?}"));
-    assert_eq!(wrap_fn.original_name, get_name);
+    assert_eq!(wrap_fn.identity.original_name(), get_name);
 }
 
 #[test]
@@ -738,7 +829,7 @@ fn collect_resolves_no_self_assoc_fn_by_owning_receiver_shell() {
         "no-self assoc fn must resolve under the owning receiver shell, not the \
          value-param shell, got: {mono_fns:?}"
     );
-    assert_eq!(mono_fns[0].original_name, new_name);
+    assert_eq!(mono_fns[0].identity.original_name(), new_name);
 }
 
 #[test]
@@ -809,14 +900,14 @@ fn collect_resolves_generic_derived_signature_with_stable_origin_and_instance_id
     assert_eq!(mono_fns.len(), 1);
     let mono = &mono_fns[0];
     assert_eq!(mono.origin, MonoFunctionOrigin::Derived(derived_id));
-    assert_eq!(mono.original_name, eq_method_name);
-    assert_eq!(mono.receiver_type, Some(concrete_owner));
+    assert_eq!(mono.identity.original_name(), eq_method_name);
+    assert_eq!(mono.identity.receiver_type(), Some(concrete_owner));
     assert_eq!(mono.receiver_type_name, Some(box_name));
     assert!(mono.sig.type_params.is_empty());
     assert_eq!(mono.sig.param_types, vec![concrete_owner, concrete_owner]);
     assert_eq!(mono.sig.return_type, Idx::BOOL);
     assert_eq!(
-        mono.instance_ids,
+        mono.identity.instance_ids(),
         vec![
             ori_ir::canon::MonoInstanceId::new(0),
             ori_ir::canon::MonoInstanceId::new(1),

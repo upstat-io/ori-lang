@@ -1,0 +1,8 @@
+#derive(Eq)
+type Mixed = { text: str, key: int }
+
+@main () -> bool = {
+    let left = Mixed { text: "same", key: 1 };
+    let right = Mixed { text: "same", key: 2 };
+    left == right
+}

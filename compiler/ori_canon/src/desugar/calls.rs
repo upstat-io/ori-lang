@@ -81,7 +81,8 @@ impl Lowerer<'_> {
 
         // A routed call threads `recv.iter()` as the receiver (typed as the
         // iterator) so the materialized iterator is a real IR node.
-        let (lowered_receiver, receiver_ty) = self.lower_method_receiver(receiver, span);
+        let (lowered_receiver, receiver_ty, adapter_ty) =
+            self.lower_method_receiver(call_expr_id, receiver, span);
 
         // Try to resolve the method signature for reordering and default filling.
         // Pass the (possibly iterator) receiver's type so same-named methods on
@@ -91,15 +92,17 @@ impl Lowerer<'_> {
         let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
         let args_range = self.arena.push_expr_list(&lowered_args);
 
-        let can_id = self.push(
+        let method_ty = adapter_ty.map_or(ty, |idx| TypeId::from_raw(idx.raw()));
+        let adapter_call = self.push(
             CanExpr::MethodCall {
                 receiver: lowered_receiver,
                 method,
                 args: args_range,
             },
             span,
-            ty,
+            method_ty,
         );
+        let can_id = self.finish_eager_iter_adapter(adapter_call, adapter_ty, span, ty);
         // Named-arg method calls desugar to the same positional `MethodCall` as
         // `lower_method_call`; publish the typeck mono-dispatch entry here too so
         // a monomorphized method invoked with named args (e.g. `h.map(f: ...)`)

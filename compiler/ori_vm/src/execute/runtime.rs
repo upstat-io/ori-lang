@@ -32,14 +32,13 @@ impl Interpreter<'_> {
     ) -> Result<[VmValue; N], ExecutionError> {
         let arguments = self.call_arguments(operands);
         let actual = arguments.len();
-        let arguments: &[crate::bytecode::CallArgument; N] =
-            arguments
-                .try_into()
-                .map_err(|_| ExecutionError::RuntimeArity {
-                    call,
-                    expected: call.arity(),
-                    actual,
-                })?;
+        if actual != N {
+            return Err(ExecutionError::RuntimeArity {
+                call,
+                expected: call.arity(),
+                actual,
+            });
+        }
         Ok(std::array::from_fn(|index| {
             operand_cursor.read(&self.frames[frame].registers, arguments[index].register())
         }))
@@ -60,5 +59,17 @@ impl Interpreter<'_> {
                 expected: call.arity(),
                 actual: self.call_arguments(operands).len(),
             })
+    }
+}
+
+fn nonnegative_usize(value: i64, purpose: &'static str) -> Result<usize, ExecutionError> {
+    if value < 0 {
+        return Err(ExecutionError::NegativeInteger { purpose, value });
+    }
+    match usize::try_from(value) {
+        Ok(index) => Ok(index),
+        Err(_) => Err(ExecutionError::IntegerOperation {
+            operation: "host collection index conversion",
+        }),
     }
 }

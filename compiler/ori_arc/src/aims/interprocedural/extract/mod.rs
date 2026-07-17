@@ -12,7 +12,7 @@ use crate::tail_call::has_non_tail_recursive_calls;
 use crate::ArcClassification;
 
 use super::super::contract::{
-    ContextBehavior, ContextRegion, FipContract, MemoryContract, ParamContract, ReturnAliasShape,
+    ContextBehavior, ContextRegion, FipContract, MemoryContract, ParamContract,
 };
 use super::super::intraprocedural::compute_requires_unique_params;
 use super::super::intraprocedural::AimsStateMap;
@@ -22,18 +22,9 @@ mod alias_flow;
 mod param_facts;
 mod return_contract;
 
-pub(crate) use alias_flow::{
-    build_alias_to_param_map, build_subject_independent_alias_to_param_map,
-};
-use alias_flow::{
-    find_consumed_params, find_payload_containment_params, find_return_alias_shapes,
-    find_return_flow_params,
-};
+pub(crate) use alias_flow::build_subject_independent_alias_to_param_map;
 pub(crate) use param_facts::find_iter_consume_call_args;
-use param_facts::{
-    find_aggregate_iter_consume_fields, find_borrowed_cow_consumed_params,
-    find_borrowed_read_only_params, find_iter_consume_params, CowConsumeScope,
-};
+use param_facts::{detect_param_facts, ParamFacts};
 use return_contract::extract_return_info;
 
 /// Extract a [`MemoryContract`] from a converged intraprocedural state map.
@@ -51,6 +42,7 @@ use return_contract::extract_return_info;
 ///   pass. Used to compute `ContextBehavior` fields.
 /// - `interner` — string interner for protocol-builtin name lookup
 ///   (`@iter` / `ori_iter_drop`), consumed by `find_iter_consume_params`.
+#[cfg(test)]
 pub(crate) fn extract_contract(
     func: &ArcFunction,
     state_map: &AimsStateMap,
@@ -59,6 +51,37 @@ pub(crate) fn extract_contract(
     scc_peers: &FxHashSet<Name>,
     context_regions: &[ContextRegion],
     interner: &ori_ir::StringInterner,
+) -> MemoryContract {
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    extract_contract_with_call_ownership(
+        func,
+        state_map,
+        classifier,
+        sigs,
+        scc_peers,
+        context_regions,
+        interner,
+        &builtins,
+        &FxHashSet::default(),
+    )
+}
+
+/// Production contract extraction with exact callable identities and the
+/// registry-derived builtin ownership authority supplied by the SCC driver.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "contract extraction keeps analysis, call identity, and ownership authorities explicit"
+)]
+pub(crate) fn extract_contract_with_call_ownership(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    classifier: &dyn ArcClassification,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    scc_peers: &FxHashSet<Name>,
+    context_regions: &[ContextRegion],
+    interner: &ori_ir::StringInterner,
+    builtins: &crate::borrow::BuiltinOwnershipSets,
+    exact_callables: &FxHashSet<Name>,
 ) -> MemoryContract {
     // Build a map of param_var → param_index for lookup.
     let param_vars: FxHashMap<ArcVarId, usize> = func
@@ -72,7 +95,15 @@ pub(crate) fn extract_contract(
     // The backward analysis only tracks cardinality demand through Apply
     // instructions, so these structural scans supply the access-class facts
     // the state map cannot; field semantics live on [`ParamFacts`].
-    let facts = detect_param_facts(func, sigs, &param_vars, interner);
+    let facts = detect_param_facts(
+        func,
+        sigs,
+        &param_vars,
+        classifier,
+        builtins,
+        exact_callables,
+        interner,
+    );
 
     let params: Vec<ParamContract> = func
         .params
@@ -205,9 +236,14 @@ fn param_contract_for(
         cardinality: state.cardinality,
         // v1: locality from backward demand
         locality_bound: state.locality,
-        // v1 conservative — refined in 03.3 escape/share analysis
+        // The converged backward state already carries the parameter-local
+        // sharing proof: heap-escaping aggregate capture, a live-across COW
+        // consume, or a borrowed call to a sharing callee widens uniqueness.
+        // Publish that proof so the realized retain and the caller-visible
+        // contract describe the same ownership effect.
         may_escape: false,
-        may_share: false,
+        may_share: state.uniqueness != Uniqueness::Unique
+            || (access == AccessClass::Borrowed && facts.owner_credit.contains(&i)),
         // Caller-side uniqueness: set to MaybeShared by default.
         // Tightened to Unique by post-fixpoint demand propagation
         // when all callers satisfy the condition.
@@ -291,144 +327,6 @@ fn compute_context_behavior(
         consumes_hole,
         requires_unique_context: true, // modulo-cons instantiation only
         may_resume_nonlinearly: effects.may_share,
-    }
-}
-
-/// Detect parameters that flow (possibly through Let aliases) to a callee
-/// that consumes them at an Owned position.
-///
-/// The backward analysis only tracks cardinality demand for Apply arguments,
-/// not access class. Parameters passed to consuming builtins (like `iter`)
-/// retain Borrowed access in the state map. This scan upgrades them.
-///
-/// Walks all blocks, tracks Let alias chains from param vars, and checks
-/// Apply/Invoke call sites against callee contracts in `sigs`.
-///
-/// `alias_to_param` is multi-valued: a single variable may alias multiple
-/// parameters via merge-block phi nodes. Branch+Jump merges both x and y
-/// into the merge-block's param r, so r aliases BOTH parameter indices.
-/// Select aliases work the same way (`true_val` and `false_val` both reach
-/// dst at runtime); [`absorb_instr_aliases`]'s `Select` arm tracks both as
-/// alias sources.
-/// Per-param facts detected for contract construction by [`detect_param_facts`].
-struct ParamFacts {
-    /// Params consumed via callees OR returned — promoted to `Owned` access.
-    consumed: FxHashSet<usize>,
-    /// Params traced to a `Return { value }` terminator (Direct case).
-    /// Subset of `consumed`; sets `transfers_through_return` so the param
-    /// receives no scope-exit `RcDec` (ownership transfers through the return).
-    return_flow: FxHashSet<usize>,
-    /// Per-param `ReturnAliasShape` (Direct or Project) — the caller-side
-    /// signal for the `apply_result_aliases` side-table. Direct entries
-    /// mirror `return_flow`; Project entries detect `Return { value }` whose
-    /// definition is a `Project` off the param's var.
-    return_alias_shapes: FxHashMap<usize, ReturnAliasShape>,
-    /// Params flowing into a returned transitive-drop variant payload
-    /// (e.g., `wrap_ok(m) = Ok(m)`) — contained IN the result, not aliased
-    /// to it. Consumed by the burden-path transitive-drop alias machinery
-    /// (`intraprocedural/post_convergence.rs::materialize_transitive_drop_singleton_classes`).
-    payload_containment: FxHashSet<usize>,
-    /// Params iter-consumed (`@iter` -> `ori_iter_drop`) inside the body —
-    /// the RL-2 inward ownership transfer.
-    iter_consume: FxHashSet<usize>,
-    /// Params that flow ONLY to borrowed positions in the body (no
-    /// owned-position COW/transfer consumer) — the affirmative read-only
-    /// complement of `consumed` + `iter_consume` feeding the caller
-    /// carve-out gate.
-    borrowed_read_only: FxHashSet<usize>,
-    /// Params COW-consumed at the lineage's LAST body use (builtin COW
-    /// mutator receiver / second arg, or transitive callee fact) — the
-    /// caller-funding obligation behind `ParamContract.borrowed_cow_consumed`.
-    borrowed_cow_consumed: FxHashSet<usize>,
-    /// Params whose lineage is consumed at a COW-MUTATOR owned position (the
-    /// consuming set MINUS the builtin `iter`) at the lineage's last body use —
-    /// the caller-funding obligation behind `ParamContract.borrowed_cow_mutated`.
-    borrowed_cow_mutated: FxHashSet<usize>,
-    /// Per-param field-grained iter-consume record `i → field` — the caller-side
-    /// aggregate-field iter-consume signal behind
-    /// `ParamContract.iter_consumes_projected_field`.
-    iter_consumes_projected_field: FxHashMap<usize, u32>,
-}
-
-/// Detect every structural [`ParamFacts`] set in one pass over the body
-/// (per-field semantics on the struct).
-///
-/// Owned-only invariant: the consume / return-flow sets feed `access`
-/// promotion. Borrowed-param Project returns must NOT set `return_alias`;
-/// this is enforced by extending `consumed` to include Project-Return
-/// params, which routes them through the Owned access path in
-/// [`param_contract_for`].
-fn detect_param_facts(
-    func: &ArcFunction,
-    sigs: &FxHashMap<Name, MemoryContract>,
-    param_vars: &FxHashMap<ArcVarId, usize>,
-    interner: &ori_ir::StringInterner,
-) -> ParamFacts {
-    let alias_to_param = build_alias_to_param_map(func, param_vars, Some(sigs));
-    let mut consumed = find_consumed_params(func, sigs, &alias_to_param);
-    let mut return_flow = find_return_flow_params(func, &alias_to_param);
-    let return_alias_shapes = find_return_alias_shapes(func, &alias_to_param, sigs);
-    // Invariant `transfers_through_return == true IFF return_alias ==
-    // Some(Direct)`: a `Direct` return-alias means the WHOLE param flows out as
-    // the return (transfers ownership through the return slot). The
-    // construct-project round-trip (`find_return_alias_shapes`) can record
-    // `Direct` for a param the structural `find_return_flow_params` (Let / Jump /
-    // Select alias-chain only) does not reach — union those into `return_flow` so
-    // `transfers_through_return` stays paired with the `Direct` shape.
-    for (&idx, &shape) in &return_alias_shapes {
-        if shape == ReturnAliasShape::Direct {
-            return_flow.insert(idx);
-        }
-    }
-    let containment = find_payload_containment_params(func, &alias_to_param);
-    let iter_consume = find_iter_consume_params(func, sigs, &alias_to_param, interner);
-    let borrowed_read_only = find_borrowed_read_only_params(func, sigs, &alias_to_param, interner);
-    let borrowed_cow_consumed = find_borrowed_cow_consumed_params(
-        func,
-        sigs,
-        &alias_to_param,
-        interner,
-        CowConsumeScope::AnyConsume,
-    );
-    let borrowed_cow_mutated = find_borrowed_cow_consumed_params(
-        func,
-        sigs,
-        &alias_to_param,
-        interner,
-        CowConsumeScope::MutatorOnly,
-    );
-    // Field-grained iter-consume of a borrowed aggregate param's projected field
-    // (RL-2 inward transfer of the consumed field) — exclude any param already
-    // covered by the whole-param `iter_consume` fact (that case is whole-value).
-    let mut iter_consumes_projected_field = find_aggregate_iter_consume_fields(func, interner);
-    iter_consumes_projected_field.retain(|pi, _| !iter_consume.contains(pi));
-    // Direct-return params are promoted to Owned (Lean 4 `ownParamsUsingArgs`
-    // pattern): the param IS the returned value, so the caller takes
-    // ownership of the param's allocation through the return slot.
-    //
-    // Project-return params are NOT promoted — body-derived classification
-    // prevails. A function whose body is only `Project p.f → Return` does
-    // not consume `p`; promoting `p` to Owned would violate Spec: §1.4
-    // Uniqueness. Caller-side dec-suppression (when the caller passes the
-    // arg Owned) is handled by `apply_aliases::install_alias_entry` reading
-    // `ParamContract.return_alias`, independent of the param's own access.
-    //
-    // Payload-containment params are NOT promoted to Owned: the param is
-    // contained IN a returned construct, not aliased TO the result. The
-    // caller's edge-recording gate (post_convergence.rs) reads
-    // `return_payload_contains_param` to admit the transitive-drop
-    // containment relationship even for Borrowed-access params.
-    consumed.extend(&return_flow);
-    ParamFacts {
-        consumed,
-        return_flow,
-        return_alias_shapes,
-        payload_containment: containment.any,
-        iter_consume,
-        borrowed_read_only,
-        borrowed_cow_consumed,
-        borrowed_cow_mutated,
-        iter_consumes_projected_field,
     }
 }
 

@@ -54,11 +54,11 @@ type SliceHolder = { view: [int], origin: [int] }
 
 @slice_through_loop_phi () -> int = {
     let xs = [7, 8, 9, 10];
-    let mut acc = 0;
+    let acc = 0;
     for i in 0..3 do {
         let view = xs.slice(start: 0, end: i + 1);
         acc = acc + view.len()
-    }
+    };
     acc + xs.len()
 }
 

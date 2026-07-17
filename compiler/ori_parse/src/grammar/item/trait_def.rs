@@ -12,6 +12,7 @@ impl Parser<'_> {
     /// Syntax: [pub] trait Name [<T>] [: Super] { items }
     ///
     /// Returns `EmptyErr` if no `trait` keyword is present.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_trait(&mut self, visibility: Visibility) -> ParseOutcome<TraitDef> {
         if !self.cursor.check(&TokenKind::Trait) {
             return ParseOutcome::empty_err_expected(

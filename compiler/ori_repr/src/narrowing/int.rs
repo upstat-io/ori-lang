@@ -15,12 +15,12 @@
 //! - Fields with `Top` range are left at I64 (safe default)
 //! - Fields with `Bottom` range get I8 (unreachable — smallest valid)
 
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, Tag};
 
 use super::{commit_narrowing_decision, is_narrowing_candidate};
 use crate::plan::{DecisionReason, DecisionSource, ReprPlan};
 use crate::repr::{IntWidth, MachineRepr};
-use crate::struct_repr::FieldRepr;
+use crate::struct_repr::{FatRepr, FieldRepr};
 
 /// Apply integer narrowing to struct and tuple fields in the `ReprPlan`.
 ///
@@ -183,26 +183,96 @@ enum CandidateKind {
 
 /// Apply integer narrowing to collection element types (Phase C).
 ///
-/// **DISABLED**: Collection element narrowing is unsound when
-/// `collect()` produces lists with computed values that exceed the narrowed
-/// range. The narrowing analysis bases its decision on literal construction
-/// sites (e.g., `[1,2,3]` fits in i8), but `iter().map(x -> x * 1000).collect()`
-/// produces values (1000, 2000, ...) that exceed i8. Since all `List<int>`
-/// share one `ReprPlan` entry, readers (equality, hash, display) and writers
-/// (literal construction, collect, indexing) must agree on ONE stride. With
-/// collect using canonical stride and the analysis only seeing literals,
-/// narrowing creates a stride mismatch: silent data corruption in equality,
-/// comparison, hashing, and display of collected lists.
+/// Iterates canonical-width `[int]` representations and narrows their element
+/// width when the joined element summary proves a smaller signed width is safe.
 ///
-/// Collection element narrowing is disabled until the analysis accounts for
-/// ALL value sources (including collect output from iterator pipelines with
-/// map/filter/etc. that can produce arbitrary values). Struct field narrowing
-/// and local variable narrowing are unaffected.
+/// Element summaries are collection-type keyed and conservative across every
+/// producer seen by range analysis: literal/reuse values join their ranges,
+/// while direct, indirect, and unwinding calls that return a collection join
+/// `Top`. Consequently a computed collection result (including `collect()` or
+/// `push()`) keeps the shared `[int]` stride canonical rather than inheriting a
+/// literal-only bound.
 ///
-/// Prior to this fix, sets were already excluded for a similar reason (eq/hash
-/// thunks load canonical-width values from element pointers).
-pub(crate) fn narrow_collection_elements(_plan: &mut ReprPlan, _pool: &Pool) {
-    // disabled — see doc comment above.
-    // When the narrowing analysis is extended to account for collect() output
-    // values (not just literal construction sites), this can be re-enabled.
+/// Conservatism rules:
+/// - public or fixed-layout collections are not narrowed;
+/// - collections without bounded observations stay canonical (`Top`);
+/// - only `List<int>` is eligible;
+/// - `Set<int>` stays canonical because its eq/hash thunks are not
+///   narrowing-aware.
+pub(crate) fn narrow_collection_elements(plan: &mut ReprPlan, pool: &Pool) {
+    if plan.narrowing_policy() == crate::plan::NarrowingPolicy::Disabled {
+        return;
+    }
+
+    // Collect first because committing a narrowing decision mutates the plan.
+    let candidates: Vec<Idx> = plan
+        .decision_indices()
+        .filter(|&idx| {
+            matches!(
+                plan.get_repr(idx),
+                Some(MachineRepr::FatPointer(FatRepr::Collection { element_repr }))
+                    if is_canonical_int(element_repr)
+            )
+        })
+        .collect();
+
+    let mut narrowed_count: u32 = 0;
+
+    for idx in candidates {
+        let resolved = pool.resolve_fully(idx);
+
+        // Sets share the collection representation shape, but their eq/hash
+        // thunks still load canonical-width elements. Restrict positively to
+        // lists so no other collection-shaped type can enter by accident.
+        if pool.tag(resolved) != Tag::List {
+            tracing::trace!(
+                ?idx,
+                ?resolved,
+                "skipping collection narrowing — not a list"
+            );
+            continue;
+        }
+
+        if !is_narrowing_candidate(plan, idx)
+            || (resolved != idx && !is_narrowing_candidate(plan, resolved))
+        {
+            tracing::trace!(?idx, "skipping collection narrowing — not a candidate");
+            continue;
+        }
+
+        let element_range = plan.element_range(idx);
+        let min_width = element_range.min_width();
+        if min_width == IntWidth::I64 {
+            continue;
+        }
+
+        tracing::debug!(
+            ?idx,
+            ?element_range,
+            ?min_width,
+            "narrowing collection element type"
+        );
+
+        let new_repr = MachineRepr::FatPointer(FatRepr::Collection {
+            element_repr: Box::new(MachineRepr::Int {
+                width: min_width,
+                signed: true,
+            }),
+        });
+        let reason = format!("element narrowing: {element_range:?} → {min_width:?}");
+        commit_narrowing_decision(
+            plan,
+            pool,
+            idx,
+            DecisionSource::IntegerNarrowing,
+            new_repr,
+            DecisionReason::Custom(reason),
+        );
+        narrowed_count += 1;
+    }
+
+    tracing::debug!(
+        narrowed_count,
+        "integer narrowing complete (collection elements)"
+    );
 }

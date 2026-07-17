@@ -6,11 +6,11 @@
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use ori_ir::Name;
-use ori_types::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::context::EmittedValue;
 use super::dead_unwind::debug_assert_dead_unwind_unreachable;
+use super::emit_function_support::{scan_for_yield_elem_size_types, BlockLabel};
 use super::field_scan::{compute_pointer_only_params, scan_used_fields};
 use super::ArcIrEmitter;
 use super::FuncletPadKind;
@@ -64,10 +64,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mut dead_unwind = unwind_result.dead;
         let mut unwind_blocks = unwind_result.live;
 
-        // Same-frame catch handlers for inline checked-ops are NOT
+        // Same-frame landing blocks for inline checked-ops are NOT
         // found by `detect_dead_unwind_blocks` — it only walks Invoke/
         // InvokeIndirect terminators, and an inline checked-op references its
-        // handler via no terminator. Force each distinct handler block into the
+        // landing block via metadata. Force each distinct landing block into the
         // live unwind set so it (a) gets an LLVM block, (b) gets the catch-all
         // landing pad prelude in the RPO loop, (c) drives the personality
         // function (Itanium needs_personality checks `!unwind_blocks.is_empty()`).
@@ -97,27 +97,29 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Create the entry block first, then the rest in order.
         let entry_idx = func.entry.index();
         let mut block_map: Vec<Option<_>> = vec![None; func.blocks.len()];
+        let entry_label = BlockLabel::new(entry_idx);
         block_map[entry_idx] = Some(
             self.builder
-                .append_block(self.current_function, &format!("bb{entry_idx}")),
+                .append_block(self.current_function, entry_label.as_str()),
         );
         for (i, _) in func.blocks.iter().enumerate() {
             if i == entry_idx || dead_unwind.contains(&i) {
                 continue;
             }
+            let label = BlockLabel::new(i);
             block_map[i] = Some(
                 self.builder
-                    .append_block(self.current_function, &format!("bb{i}")),
+                    .append_block(self.current_function, label.as_str()),
             );
         }
         self.block_map = block_map;
 
-        // Map each catch-scoped checked-op result var → the LLVM block of its
-        // catch handler (now guaranteed live above). `emit_instr` reads this to
+        // Map each catch-scoped checked-op result var → its LLVM cleanup-only
+        // landing block (now guaranteed live above). `emit_instr` reads this to
         // thread `IrBuilder::catch_unwind_target` per-dispatch around the
-        // checked op so its panic invokes to the handler's landing pad.
+        // checked op so its panic invokes to that landing pad.
         // The catch-all landing-pad prelude is emitted for the
-        // handler block in the RPO loop below (it is in `unwind_blocks` with a
+        // landing block in the RPO loop below (it is in `unwind_blocks` with a
         // non-Resume terminator → the existing `is_catch` path).
         self.same_frame_catch_landing_pads.clear();
         for &(checked_var, handler) in &func.catch_scoped_checked_ops {
@@ -262,13 +264,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     // Use narrow type for narrowed int phis
                     if let Some(&width) = self.narrowed_vars.get(&var) {
                         let narrow_ty = self.llvm_type_for_int_width(width);
-                        let phi_val = self.builder.phi(narrow_ty, &format!("v{}.n", var.raw()));
+                        let phi_val = self.builder.phi(narrow_ty, "phi.narrow");
                         // Defer sext to after ALL phis are created (LLVM phi grouping)
                         narrowed_phis.push((var, phi_val, block.id));
                         block_phis.push((var, phi_val));
                     } else {
                         let llvm_ty = self.resolve_type(ty);
-                        let phi_val = self.builder.phi(llvm_ty, &format!("v{}", var.raw()));
+                        let phi_val = self.builder.phi(llvm_ty, "phi");
                         self.def_var_repr(var, phi_val, func);
                         block_phis.push((var, phi_val));
                     }
@@ -282,9 +284,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         for (var, phi_val, block_id) in narrowed_phis {
             self.builder.position_at_end(self.block(block_id));
             let i64_ty = self.builder.i64_type();
-            let sext_val = self
-                .builder
-                .sext(phi_val, i64_ty, &format!("v{}", var.raw()));
+            let sext_val = self.builder.sext(phi_val, i64_ty, "phi.wide");
             self.def_var(var, EmittedValue::Immediate(sext_val));
         }
 
@@ -307,7 +307,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // - Cleanup (Resume): `cleanuppad` → RC decs → `cleanupret`
         // - Catch (Jump): NO EH prelude — catch blocks are regular blocks
         //   reached via `ori_try_call` trampoline (see `catch_thunk.rs`)
-        // Seed RPO from each same-frame catch handler — it has no CFG
+        // Seed RPO from each same-frame checked-op landing block — it has no CFG
         // predecessor (an inline checked-op references it via no terminator), so
         // entry-only RPO would skip it and never emit its landing-pad prelude.
         let catch_handler_roots: Vec<usize> = func
@@ -459,39 +459,4 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .add_phi_incoming(phi_val, &[(value, source_block)]);
         }
     }
-}
-
-/// Pre-scan: map ALL for-yield `elem_size` `ArcVarId`s to their element type.
-///
-/// For reordered structs/tuples, `pool_type_store_size` (used by ARC lowering)
-/// returns the ORIGINAL layout size, but LLVM's struct layout uses the
-/// REORDERED size. The LLVM emitter overrides the literal with
-/// `element_store_size(elem_ty)` to ensure the runtime list stride matches
-/// LLVM's GEP stride.
-///
-/// The int-element accumulator subset (safe for narrowed-size overrides) is
-/// derived from this map at `emit_arc_function` — one scan feeds both.
-fn scan_for_yield_elem_size_types(
-    func: &ArcFunction,
-    interner: &ori_ir::StringInterner,
-) -> FxHashMap<ArcVarId, Idx> {
-    // The for-yield lowerer interns the runtime symbol as a `Name`; compare
-    // interned Names instead of per-instruction string lookups.
-    let list_push = interner.intern("ori_list_push");
-    let mut result = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Apply {
-                func: callee, args, ..
-            } = instr
-            {
-                // ori_list_push(list_ptr, elem_val, elem_size_var)
-                if *callee == list_push && args.len() == 3 {
-                    let elem_ty = func.var_type(args[1]);
-                    result.insert(args[2], elem_ty);
-                }
-            }
-        }
-    }
-    result
 }

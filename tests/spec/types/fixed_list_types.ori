@@ -158,9 +158,8 @@ use std.testing { assert, assert_eq }
 // Conversion Between Fixed and Dynamic
 // =============================================================================
 
-// Value-identity is correct on interp; the AOT path double-frees the shared
-// fat-pointer buffer (same_alloc_reps forwarder-result floor). Spec: Clause 8.2.2.
-#skip(backend: "llvm", reason: "BUG-04-224: to_dynamic AOT value-identity same_alloc double-free — aims-burden floor")
+// The conversion transfers the same fat-pointer owner into the dynamic type;
+// both executors must preserve the value and release it exactly once.
 @test_to_dynamic tests @to_dynamic () -> void = {
     let fixed: [int, max 5] = [1, 2, 3];
     let dynamic: [int] = fixed.to_dynamic();
@@ -168,9 +167,8 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: dynamic[0], expected: 1)
 }
 
-// Value-identity is correct on interp; the AOT path double-frees the shared
-// fat-pointer buffer (same_alloc_reps forwarder-result floor). Spec: Clause 8.2.2.
-#skip(backend: "llvm", reason: "BUG-04-224: to_fixed AOT value-identity same_alloc double-free — aims-burden floor")
+// The conversion transfers the same fat-pointer owner into the fixed type;
+// both executors must preserve the value and release it exactly once.
 @test_to_fixed tests @to_fixed () -> void = {
     let dynamic: [int] = [1, 2, 3];
     let fixed: [int, max 10] = dynamic.to_fixed<10>();

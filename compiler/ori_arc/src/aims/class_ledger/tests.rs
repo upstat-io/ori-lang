@@ -2699,6 +2699,82 @@ fn extract_then_move_out_decomposes_container_release() {
     );
 }
 
+/// A locally released container may also transfer out on another path. The
+/// spread shape returns the original container on success while an owned call
+/// consumes one projected field; globally re-booking the field's move-in as
+/// non-consuming would leave the returned original holding an unfunded stale
+/// pointer. Decomposition must decline and extraction funding must retain the
+/// projected field before the call.
+#[test]
+fn transferred_container_with_moved_field_uses_extraction_funding() {
+    let mut func = func_with_blocks(
+        6,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    ArcInstr::Let {
+                        dst: v(0),
+                        ty: Idx::STR,
+                        value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(3))),
+                    },
+                    construct(1, vec![0]),
+                    ArcInstr::Project {
+                        dst: v(2),
+                        ty: Idx::STR,
+                        value: v(1),
+                        field: 0,
+                    },
+                ],
+                invoke(3, vec![(2, ArgOwnership::Owned)], 1, 2),
+            ),
+            block(
+                1,
+                vec![],
+                vec![construct(4, vec![3]), construct(5, vec![1, 4])],
+                ret(5),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.var_types[0] = Idx::STR;
+    func.var_types[2] = Idx::STR;
+    func.var_types[3] = Idx::STR;
+    let state_map = AimsStateMap::new(&func);
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "extraction funding must cure the transferred-container spread shape"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+
+    let view = class_rep(&mut partition, 2);
+    let view_ops = ops_for(&analysis, view);
+    assert!(
+        view_ops.iter().any(|op| {
+            op.kind == PlannedOpKind::Inc
+                && op.var == v(2)
+                && op.slot == PlanSlot::AfterBody { block: 0, index: 2 }
+        }),
+        "the projected field must be retained before the owned Invoke: {view_ops:?}"
+    );
+
+    let container = class_rep(&mut partition, 1);
+    let container_ops = ops_for(&analysis, container);
+    assert!(
+        container_ops.iter().any(|op| op.kind == PlannedOpKind::Dec),
+        "the unwind path keeps the container's whole release: {container_ops:?}"
+    );
+    assert!(
+        container_ops
+            .iter()
+            .all(|op| !matches!(op.kind, PlannedOpKind::DecPartial { .. })),
+        "a transferred container must not globally decompose: {container_ops:?}"
+    );
+}
+
 /// A demand-endangered view (field borrowed and READ while the container
 /// is locally released) cures via extraction funding: the seed inc after
 /// the `Project` funds the read, and the view's single owed reference
@@ -3504,7 +3580,7 @@ fn unfundable_view_type_declines_extraction_funding() {
 /// Same consume-marked-then-Return shape as
 /// `extract_then_move_out_decomposes_container_release`, but the container is
 /// a SUM type (`CtorKind::EnumVariant`) instead of a tuple: the field
-/// decomposition cure declines a sum container (`hazard.sum_container`) since
+/// decomposition cure declines a sum container (`hazard.is_sum_container()`) since
 /// a variant's skip is discriminant- and arm-conditional and the per-class
 /// walk does not model per-arm variant state. The extraction-funding cure
 /// covers the endangered view instead, so the container's own release stays a

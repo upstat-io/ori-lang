@@ -5,7 +5,7 @@
 
 use rustc_hash::FxHashSet;
 
-use ori_ir::Name;
+use ori_ir::{Name, Span};
 
 use crate::Idx;
 
@@ -36,6 +36,15 @@ pub struct LoopContext {
     pub form: LoopForm,
 }
 
+/// Carrier observed at one explicit `?` expression inside the active try
+/// boundary. Result observations retain the propagated error type so all
+/// operations in the boundary can be reconciled.
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum TryPropagation {
+    Option { span: Span },
+    Result { error_ty: Idx, span: Span },
+}
+
 /// The surface loop form that introduced a [`LoopContext`].
 ///
 /// Used only to name the offending construct in E0860 / E0861 diagnostics.
@@ -52,6 +61,46 @@ pub enum LoopForm {
 }
 
 impl InferEngine<'_> {
+    /// Enter a `try {}` propagation boundary.
+    pub(crate) fn push_try_boundary(&mut self) {
+        self.try_boundaries.push(Some(Vec::new()));
+    }
+
+    /// Leave a `try {}` propagation boundary and return only the explicit
+    /// `?` operations inferred directly inside it.
+    pub(crate) fn pop_try_boundary(&mut self) -> Vec<TryPropagation> {
+        if let Some(Some(propagations)) = self.try_boundaries.pop() {
+            propagations
+        } else {
+            debug_assert!(false, "try propagation boundary stack is unbalanced");
+            Vec::new()
+        }
+    }
+
+    /// Prevent `?` inside a nested function body from attaching to an
+    /// enclosing try block. A nested try boundary pushed above this barrier
+    /// remains independently active.
+    pub(crate) fn push_try_boundary_barrier(&mut self) {
+        self.try_boundaries.push(None);
+    }
+
+    /// Leave a nested-function propagation barrier.
+    pub(crate) fn pop_try_boundary_barrier(&mut self) {
+        let popped = self.try_boundaries.pop();
+        debug_assert!(
+            matches!(popped, Some(None)),
+            "try propagation function barrier stack is unbalanced"
+        );
+    }
+
+    /// Attach an explicit `?` operation to the innermost active try boundary.
+    /// An absent boundary propagates to the current function instead.
+    pub(crate) fn record_try_propagation(&mut self, propagation: TryPropagation) {
+        if let Some(Some(propagations)) = self.try_boundaries.last_mut() {
+            propagations.push(propagation);
+        }
+    }
+
     /// Push a loop context onto the stack.
     /// Called when entering any loop form.
     pub fn push_loop_context(&mut self, ctx: LoopContext) {

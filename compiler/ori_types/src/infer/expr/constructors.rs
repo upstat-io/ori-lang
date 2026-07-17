@@ -4,7 +4,7 @@ use ori_ir::{ExprArena, ExprId, Name, Span};
 
 use crate::{ContextKind, Expected, Idx, Tag, TypeCheckError};
 
-use super::super::InferEngine;
+use super::super::{scope::TryPropagation, InferEngine};
 use super::{check_expr, infer_expr, infer_optional_or_unit};
 
 /// Infer the type of `Ok(value)`.
@@ -141,10 +141,13 @@ pub(crate) fn infer_try(
     match tag {
         Tag::Option => {
             // Option<T>? -> T (propagates None)
+            engine.record_try_propagation(TryPropagation::Option { span });
             engine.pool().option_inner(resolved)
         }
         Tag::Result => {
             // Result<T, E>? -> T (propagates Err)
+            let error_ty = engine.pool().result_err(resolved);
+            engine.record_try_propagation(TryPropagation::Result { error_ty, span });
             engine.pool().result_ok(resolved)
         }
         _ => {

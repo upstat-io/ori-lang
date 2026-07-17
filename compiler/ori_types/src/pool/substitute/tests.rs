@@ -3,7 +3,7 @@
 use rustc_hash::FxHashMap;
 
 use super::substitute_in_pool;
-use crate::{Idx, Pool, Tag};
+use crate::{GeneralizedVarState, Idx, Pool, Tag};
 
 /// Helper: build a `var_subst` map from `[(var_id, concrete_idx)]` pairs.
 fn subst(pairs: &[(u32, Idx)]) -> FxHashMap<u32, Idx> {
@@ -263,10 +263,10 @@ fn generalized_var_substituted() {
     let var_id = pool.data(var);
 
     // Generalize the var (simulates let-polymorphism).
-    *pool.var_state_mut(var_id) = crate::VarState::Generalized {
+    *pool.var_state_mut(var_id) = crate::VarState::Generalized(GeneralizedVarState {
         id: var_id,
         name: None,
-    };
+    });
 
     let map = subst(&[(var_id, Idx::STR)]);
     let result = substitute_in_pool(&mut pool, var, &map);

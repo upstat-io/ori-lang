@@ -12,6 +12,8 @@
 //! param returned directly) may be published; every ownership-cooperative
 //! field stays at its conservative default.
 
+use std::collections::hash_map::Entry;
+
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -48,6 +50,7 @@ pub(super) fn compute_impl_method_contracts(
     super::super::freeze_primitive_facts(funcs, classifier)?;
     let mut seed: FxHashMap<Name, MemoryContract> = FxHashMap::default();
     seed_builtin_contracts(&mut seed, builtins, interner);
+    let exact_callables: FxHashSet<Name> = funcs.iter().map(|func| func.name).collect();
 
     let mut out: FxHashMap<Name, MemoryContract> = FxHashMap::default();
     for func in funcs {
@@ -56,6 +59,8 @@ pub(super) fn compute_impl_method_contracts(
             classifier,
             &seed,
             interner,
+            builtins,
+            &exact_callables,
             &crate::pipeline::callable_boundary::ValidatedCallableBoundaryFacts::empty(),
         );
         out.insert(func.name, sanitize_to_as_compiled(&extracted));
@@ -144,13 +149,16 @@ pub(super) fn augment_contracts_with_impl_callees(
         let recv_ty = pool.resolve_fully(func.var_type(recv));
         let key = (recv_ty, callee);
         if impl_contracts.contains_key(&key) {
-            match bindings.get(&callee) {
-                Some(prior) if *prior != key => {
+            match bindings.entry(callee) {
+                Entry::Occupied(prior) if *prior.get() != key => {
                     poisoned.insert(callee);
                 }
-                _ => {
-                    bindings.insert(callee, key);
+
+                Entry::Vacant(slot) => {
+                    slot.insert(key);
                 }
+
+                Entry::Occupied(_) => {}
             }
         } else {
             // A same-named site that is NOT this impl method (builtin,

@@ -1,6 +1,9 @@
 //! Concrete specializations demanded by compiler-generated derived bodies.
 
-use super::{concrete_sig_for_instance, mangle_mono_name, MonoFunction, MonoFunctionOrigin};
+use super::{
+    concrete_sig_for_instance, mangle_mono_name, MonoFunction, MonoFunctionIdentity,
+    MonoFunctionOrigin,
+};
 use ori_ir::{DerivedMethodShape, Name, StringInterner};
 use ori_types::{
     AcceptedDerivedImpl, GenericArg, Idx, MethodProducer, MonoInstance, Pool, Tag, TypeFlags,
@@ -116,13 +119,11 @@ pub fn materialize_derived_mono_for_receiver(
 
     Ok(Some(MonoFunction {
         mangled_name,
-        original_name: accepted.method_name,
         origin: MonoFunctionOrigin::Derived(accepted.id),
+        identity: MonoFunctionIdentity::generated(&instance),
         sig,
         body_type_map: instance.body_type_map.iter().copied().collect(),
-        instance_ids: Vec::new(),
         is_imported: false,
-        receiver_type: Some(receiver),
         receiver_type_name: Some(accepted.owner_name),
     }))
 }
@@ -257,10 +258,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("unique applied receiver must recover: {error}"))
             .unwrap_or_else(|| panic!("receiver belongs to the accepted generic derive"));
 
-        assert_eq!(mono.receiver_type, Some(applied));
+        assert_eq!(mono.identity.receiver_type(), Some(applied));
         assert_eq!(mono.sig.param_types, vec![applied]);
         assert_eq!(mono.sig.return_type, Idx::INT);
-        assert!(mono.instance_ids.is_empty());
+        assert!(mono.identity.instance_ids().is_empty());
         assert_eq!(
             interner.lookup(mono.mangled_name),
             "hash$m$5_SWrap3_int$im$"

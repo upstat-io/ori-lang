@@ -20,14 +20,20 @@
 //! (Salsa, file resolution). oric orchestrates import resolution; `ori_types`
 //! handles type resolution internally via `ModuleChecker`.
 
+mod metadata;
+
+pub(crate) use metadata::{
+    build_function_sigs, collect_metadata_from_results, collect_surfaces_from_results,
+};
+
 use std::path::{Path, PathBuf};
 
-use ori_types::{FunctionSig, TypeCheckResult};
+use ori_types::TypeCheckResult;
 
 use crate::db::Db;
 use crate::imports;
 use crate::input::SourceFile;
-use crate::ir::{Name, Span, StringInterner};
+use crate::ir::{Span, StringInterner};
 use crate::parser::ParseOutput;
 
 // Prelude Auto-Loading
@@ -230,6 +236,27 @@ fn propagate_circular_import_errors<'a>(
     }
 }
 
+/// Register public imported traits before their provider-owned impl templates.
+///
+/// The ordering makes foreign trait names available while each impl is
+/// reconstructed in the consumer pool. The resolver-owned module path supplies
+/// the stable producer identity used by later method realization.
+fn register_imported_impl_templates(
+    resolved: &imports::ResolvedImports,
+    checker: &mut ori_types::ModuleChecker<'_>,
+) {
+    for module in &resolved.modules {
+        checker.register_imported_traits(&module.parse_output.module, &module.parse_output.arena);
+    }
+    for module in &resolved.modules {
+        checker.register_imported_impls(
+            &module.parse_output.module,
+            &module.parse_output.arena,
+            &module.module_path.to_string_lossy(),
+        );
+    }
+}
+
 /// Register prelude and imported functions with the type checker from resolved imports.
 ///
 /// Consumes a `ResolvedImports` produced by the unified import pipeline.
@@ -297,6 +324,10 @@ fn register_resolved_imports(
         .map(|m| m.source_file.map(|sf| typed_or_poison(db, sf)))
         .collect();
     propagate_circular_import_errors(checker, module_results.iter().flatten());
+
+    // Imported impl selection is consumer-owned. Register the complete direct
+    // import graph before local registration and derive closure run.
+    register_imported_impl_templates(resolved, checker);
 
     // 3a. Collect imported metadata for transitive forwarding.
     // Both type metadata and collection surfaces flow through the same sources.
@@ -386,118 +417,6 @@ fn report_missing_import(
         func_ref.span,
         ori_types::ImportErrorKind::ItemNotFound,
     ));
-}
-
-/// Build function signatures aligned with `module.functions` source order.
-///
-/// `typed.functions` is sorted by name (for Salsa determinism), while
-/// `module.functions` is in source order. `FunctionCompiler::declare_all`
-/// zips them, so they must be aligned.
-#[cfg_attr(
-    not(feature = "llvm"),
-    expect(
-        dead_code,
-        reason = "consumed by #[cfg(feature = \"llvm\")] paths in compile_common and test runner"
-    )
-)]
-pub(crate) fn build_function_sigs(
-    parse_result: &ParseOutput,
-    type_result: &TypeCheckResult,
-) -> Vec<FunctionSig> {
-    let sig_map: rustc_hash::FxHashMap<Name, &FunctionSig> = type_result
-        .typed
-        .functions
-        .iter()
-        .map(|ft| (ft.name, ft))
-        .collect();
-
-    parse_result
-        .module
-        .functions
-        .iter()
-        .map(|func| {
-            sig_map
-                .get(&func.name)
-                .copied()
-                .cloned()
-                .unwrap_or_else(|| dummy_sig(func.name))
-        })
-        .collect()
-}
-
-/// Fallback signature for functions missing from the type check result.
-///
-/// Should never be reached after successful type checking — only exists to
-/// prevent panics if the signature map is incomplete.
-#[cold]
-fn dummy_sig(name: Name) -> FunctionSig {
-    use ori_types::Idx;
-
-    debug_assert!(false, "function {name:?} has no type-checked signature");
-    tracing::warn!(
-        name = ?name,
-        "function missing from type check result — using dummy signature"
-    );
-    FunctionSig {
-        name,
-        type_params: vec![],
-        const_params: vec![],
-        param_names: vec![],
-        param_types: vec![],
-        return_type: Idx::UNIT,
-        capabilities: vec![],
-        is_public: false,
-        is_test: false,
-        is_main: false,
-        is_fbip: false,
-        type_param_bounds: vec![],
-        where_clauses: vec![],
-        generic_param_mapping: vec![],
-        scheme_var_ids: vec![],
-        required_params: 0,
-        param_defaults: vec![],
-        param_hashes: vec![],
-        return_hash: 0,
-        return_projection: None,
-    }
-}
-
-/// Collect exported type metadata from prelude and imported module results.
-///
-/// Gathers `ExportedTypeMetadata` from the prelude (if present) and all
-/// imported module `TypeCheckResult` objects for transitive forwarding.
-pub(crate) fn collect_metadata_from_results(
-    prelude: Option<&ori_types::TypeCheckResult>,
-    module_results: &[Option<ori_types::TypeCheckResult>],
-) -> Vec<ori_types::ExportedTypeMetadata> {
-    let mut metadata = Vec::new();
-    if let Some(tcr) = prelude {
-        metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
-    }
-    for tcr in module_results.iter().flatten() {
-        metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
-    }
-    metadata
-}
-
-/// Collect exported collection surface hashes from prelude and imported module results.
-///
-/// Gathers merkle hashes of collection types (List, Set) from the prelude (if
-/// present) and all imported module `TypeCheckResult` objects for transitive
-/// forwarding. The collected hashes are passed to `ModuleChecker::set_imported_collection_surfaces()`
-/// which feeds them into `generate_exported_collection_surfaces()` for A→B→C propagation.
-pub(crate) fn collect_surfaces_from_results(
-    prelude: Option<&ori_types::TypeCheckResult>,
-    module_results: &[Option<ori_types::TypeCheckResult>],
-) -> Vec<u64> {
-    let mut surfaces = Vec::new();
-    if let Some(tcr) = prelude {
-        surfaces.extend(tcr.typed.exported_collection_surfaces.iter().copied());
-    }
-    for tcr in module_results.iter().flatten() {
-        surfaces.extend(tcr.typed.exported_collection_surfaces.iter().copied());
-    }
-    surfaces
 }
 
 #[cfg(test)]

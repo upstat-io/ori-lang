@@ -9,7 +9,7 @@
 
 mod control_flow;
 
-use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup, UnaryOp};
+use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup};
 
 use crate::rules::{map_key_needs_brackets, needs_parens, ParenPosition};
 
@@ -77,15 +77,9 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
             ExprKind::Unary { op, operand } => {
                 self.ctx.emit(op.as_symbol());
-                // Unary operators bind tighter than binary - wrap the operand
-                // per the shared Layer 4 paren rule (`Neg` additionally
-                // guards the nested-Neg token-adjacency hazard).
-                let position = if *op == UnaryOp::Neg {
-                    ParenPosition::UnaryNegOperand
-                } else {
-                    ParenPosition::UnaryOperand
-                };
-                if needs_parens(self.arena, *operand, position) {
+                // Unary operators bind tighter than binary; wrap operands
+                // that require grouping under the shared Layer 4 paren rule.
+                if needs_parens(self.arena, *operand, ParenPosition::UnaryOperand) {
                     self.ctx.emit("(");
                     self.emit_inline(*operand);
                     self.ctx.emit(")");

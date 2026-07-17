@@ -14,7 +14,7 @@
 use ori_ir::{Name, Span};
 
 use super::ContextKind;
-use crate::Idx;
+use crate::{ConstGenericTerm, Idx};
 
 /// A type expectation with its origin context.
 ///
@@ -45,7 +45,42 @@ impl Expected {
     pub fn from_annotation(ty: Idx, name: Name, span: Span) -> Self {
         Self {
             ty,
-            origin: ExpectedOrigin::Annotation { name, span },
+            origin: ExpectedOrigin::Annotation {
+                name,
+                span,
+                const_terms: Vec::new(),
+            },
+        }
+    }
+
+    /// Create an annotation expectation that preserves a fixed-list capacity
+    /// constraint for const-generic call inference.
+    pub fn from_fixed_list_annotation(
+        ty: Idx,
+        name: Name,
+        span: Span,
+        capacity: ConstGenericTerm,
+    ) -> Self {
+        Self {
+            ty,
+            origin: ExpectedOrigin::Annotation {
+                name,
+                span,
+                const_terms: vec![capacity],
+            },
+        }
+    }
+
+    /// Return value-domain terms carried by this expectation in binder order.
+    ///
+    /// The direct fixed-list path currently contributes one term. A vector is
+    /// intentional: mixed or multiple const binders remain representable when
+    /// additional inference sources are added, rather than being silently
+    /// truncated to a single capacity.
+    pub fn const_terms(&self) -> &[ConstGenericTerm] {
+        match &self.origin {
+            ExpectedOrigin::Annotation { const_terms, .. } => const_terms,
+            _ => &[],
         }
     }
 
@@ -108,6 +143,8 @@ pub enum ExpectedOrigin {
         name: Name,
         /// Location of the annotation.
         span: Span,
+        /// Value-domain constraints retained from source annotations.
+        const_terms: Vec<ConstGenericTerm>,
     },
 
     /// Expected because of surrounding code context.

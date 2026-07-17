@@ -4,8 +4,13 @@
 //! signatures, resolved patterns, monomorphization instances, and the
 //! cross-module export sidecars (type descriptors, repr metadata).
 
-use ori_ir::{ExprId, Name, PatternKey, PatternResolution, ReprAttrKind, SparseSideTable};
-use ori_registry::burden::FnSym;
+mod impl_methods;
+mod sidecars;
+
+pub use impl_methods::{ImplMethodId, ImplMethodRole, ImplSig, ImportedImplSig};
+pub use sidecars::{AssignDesugar, ExportedTypeMetadata, FormatSpecTypes, IterMethodRoute};
+
+use ori_ir::{ExprId, Name, PatternKey, PatternResolution, SparseSideTable};
 
 use crate::pool::TypeDescriptor;
 use crate::registry::burden::UserBurdenSpec;
@@ -14,179 +19,6 @@ use crate::{Idx, TypeCheckError, TypeCheckWarning};
 
 use super::mono::{MonoInstance, MonoInstanceId};
 use super::sig::FunctionSig;
-
-/// Per-type metadata exported for cross-module repr plan construction.
-///
-/// Carries `#repr` attributes and visibility information alongside the
-/// Merkle hash that identifies the type in the Pool. This metadata is
-/// NOT part of the type's structural identity (hash) — it is source-level
-/// information needed by `ori_repr` to correctly exempt imported types
-/// from integer narrowing.
-///
-/// Without this sidecar, imported `pub` or `#repr("c")` types lose their
-/// protection when an importing module builds its `ReprPlan`, allowing
-/// their field layouts to be narrowed in violation of ABI guarantees.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ExportedTypeMetadata {
-    /// Merkle hash of the type's Pool representation.
-    ///
-    /// Used to map back to a local `Idx` in the importing module's pool
-    /// via `Pool::lookup_by_hash()`.
-    pub merkle_hash: u64,
-
-    /// Representation attribute (`#repr("c")`, `#repr("packed")`, etc.).
-    ///
-    /// `None` means default layout (all optimizations permitted).
-    pub repr: Option<ReprAttrKind>,
-
-    /// Whether this type is `pub` in its defining module.
-    ///
-    /// Public types have ABI contracts that narrowing must not violate.
-    pub is_public: bool,
-}
-
-/// Type-directed desugar plan for one `ExprKind::AssignTarget` chain.
-///
-/// `ori_types` resolves the type produced at each level of the chain
-/// (`root`, `root` + step 0, `root` + steps 0..1, ...) during
-/// `infer_assign_target`; `ori_canon` consumes the plan to synthesize the
-/// pure-reassignment form (`root = root.updated(...)` / `{ ...root, f: v }`)
-/// in its own `CanArena`. The arena is borrowed immutably during type
-/// checking, so the synthesized nodes are minted in `ori_canon`, where the
-/// mutable arena lives — `ori_types` records only the resolved types the
-/// synthesis needs, keeping the type-direction decision in the type checker
-/// while AIMS sees only the pure reassignment.
-///
-/// `level_types[k]` is the resolved type of the receiver-read after applying
-/// the first `k` access steps: `level_types[0]` is `root`'s type,
-/// `level_types[k]` is the type of reading `root.step0...step(k-1)`. The
-/// vector has `steps.len() + 1` entries.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct AssignDesugar {
-    /// Resolved receiver-read type at each chain level (length `steps + 1`).
-    pub level_types: Vec<Idx>,
-}
-
-/// Pool `Idx` values for the builtin `FormatSpec` struct and its `Option<_>`
-/// field types, captured at type-check time.
-///
-/// `ori_canon` consumes these to type the synthesized `FormatSpec` struct
-/// node + its field-value nodes when desugaring a non-primitive `{expr:spec}`
-/// interpolation that dispatches a user `Formattable.format(self:, spec:)`.
-/// Without precise field types the LLVM backend cannot compute the struct
-/// layout. `register_format_spec_type` registers these in every module's pool,
-/// so this is always populated after a successful check.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct FormatSpecTypes {
-    /// The `FormatSpec` struct type.
-    pub spec: Idx,
-    /// `Option<char>` — the `fill` field type.
-    pub opt_char: Idx,
-    /// `Option<Alignment>` — the `align` field type.
-    pub opt_alignment: Idx,
-    /// `Option<Sign>` — the `sign` field type.
-    pub opt_sign: Idx,
-    /// `Option<int>` — the `width` and `precision` field types.
-    pub opt_int: Idx,
-    /// `Option<FormatType>` — the `format_type` field type.
-    pub opt_format_type: Idx,
-    /// The `Alignment` enum type (variant-`Ident` node type).
-    pub alignment: Idx,
-    /// The `Sign` enum type (variant-`Ident` node type).
-    pub sign: Idx,
-    /// The `FormatType` enum type (variant-`Ident` node type).
-    pub format_type: Idx,
-}
-
-/// One impl method's owning receiver type, method name, and resolved signature.
-///
-/// Accumulated in `ModuleChecker::impl_sigs` during `check_impl_bodies`
-/// (`register_impl_sig`) and threaded — unchanged — through `ori_canon`
-/// desugaring (method-call param resolution), `ori_llvm` monomorphization
-/// (`collect_mono_functions`), and codegen impl-method compilation
-/// (`compile_impls`). `receiver` is the owning impl block's receiver type
-/// (e.g. `Box<T>` for `impl<T> Box<T>`); codegen keys mono-collection
-/// dispatch on it rather than on `sig.param_types.first()`, which is the
-/// first VALUE param — not the receiver — for a no-`self` associated function.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
-#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
-pub struct ImplMethodId {
-    /// Position of the owning impl block in `Module::impls`.
-    impl_index: usize,
-    /// Canonical source body. The impl index distinguishes one inherited
-    /// default body instantiated for multiple impl blocks.
-    body: ExprId,
-}
-
-impl ImplMethodId {
-    /// Construct the stable identity assigned by the type checker.
-    #[must_use]
-    pub const fn new(impl_index: usize, body: ExprId) -> Self {
-        Self { impl_index, body }
-    }
-
-    /// Owning impl block's module-local position.
-    #[must_use]
-    pub const fn impl_index(self) -> usize {
-        self.impl_index
-    }
-
-    /// Canonical source/default body identity.
-    #[must_use]
-    pub const fn body(self) -> ExprId {
-        self.body
-    }
-}
-
-/// Frontend-owned semantic role of an impl method.
-///
-/// Downstream consumers match this value, never the source spelling of the
-/// trait or method. `UserDrop` is minted only while the type checker has the
-/// exact resolved `Drop` trait identity in hand.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub enum ImplMethodRole {
-    /// Ordinary inherent or trait method.
-    Ordinary,
-    /// Body implementing one logical user-defined destruction operation.
-    UserDrop { logical: FnSym },
-}
-
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct ImplSig {
-    /// Exact source/default method identity.
-    pub id: ImplMethodId,
-    /// The impl block's receiver type.
-    pub receiver: Idx,
-    /// Exact trait implemented by the owning block; `None` for inherent impls.
-    pub trait_type: Option<Idx>,
-    /// The method's name.
-    pub name: Name,
-    /// Semantic role assigned by the type-checker authority.
-    pub role: ImplMethodRole,
-    /// The method's resolved signature.
-    pub sig: FunctionSig,
-}
-
-/// One producer-owned impl method template imported into this module.
-///
-/// Every type coordinate is re-created in the importing module's pool. The
-/// exact producer remains stable across module-local `ExprId` and impl-index
-/// spaces through [`super::MethodProducer::Imported`].
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct ImportedImplSig {
-    /// Stable producer-module identity for this exact method body.
-    pub producer: super::MethodProducer,
-    /// Generic receiver pattern in the importing module's pool.
-    pub receiver: Idx,
-    /// Exact implemented trait in the importing module's pool.
-    pub trait_type: Option<Idx>,
-    /// Source method name.
-    pub name: Name,
-    /// Whether the source signature includes `self` as its first parameter.
-    pub has_self: bool,
-    /// Importer-pool method signature used to close concrete mono demands.
-    pub sig: FunctionSig,
-}
 
 /// Type-checked module.
 ///
@@ -199,15 +31,14 @@ pub struct ImportedImplSig {
 ///
 /// # Example
 ///
-/// ```ignore
-/// let result = type_check_module(db, file);
-/// if result.has_errors() {
-///     for err in &result.typed.errors {
-///         // report error
-///     }
-/// }
-/// // Get type of expression 42
-/// let ty = result.typed.expr_type(42);
+/// ```rust
+/// use ori_types::{Idx, TypedModule};
+///
+/// let mut typed = TypedModule::new();
+/// typed.expr_types.push(Idx::INT);
+/// assert_eq!(typed.expr_type(0), Some(Idx::INT));
+/// assert_eq!(typed.expr_count(), 1);
+/// assert!(!typed.has_errors());
 /// ```
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Default)]
 pub struct TypedModule {
@@ -353,15 +184,14 @@ pub struct TypedModule {
     /// appears in the module.
     pub module_alias_call_map: SparseSideTable<ExprId, Name>,
 
-    /// Iterable->Iterator routed method calls, keyed by the call's
-    /// source RECEIVER `ExprId`, valued by the materialized iterator type `Idx`
-    /// (the receiver's `iter()` return). `ori_canon` reads this at
+    /// Iterable->Iterator routed method calls, keyed by the exact source call
+    /// `ExprId`. `ori_canon` reads each type-directed route at
     /// `lower_method_call` / `desugar_method_call_named` and rewrites
-    /// `recv.method(args)` -> `recv.iter().method(args)` so the materialized
-    /// iterator is a real IR node AIMS realizes. Lookup via
-    /// [`Self::resolve_iter_route`]. Empty when no Set/Iterable pipeline method
-    /// routes through the iterator surface.
-    pub iter_route_map: SparseSideTable<ExprId, Idx>,
+    /// `recv.method(args)` through a materialized `recv.iter()` node. An eager
+    /// adapter route additionally synthesizes the terminal `.collect()` used by
+    /// Annex C's direct `Range.map` / `Range.filter` list semantics. Lookup via
+    /// [`Self::resolve_iter_route`].
+    pub iter_route_map: SparseSideTable<ExprId, IterMethodRoute>,
 
     /// Portable type descriptors for all types referenced in exported signatures.
     ///
@@ -510,13 +340,12 @@ impl TypedModule {
         self.assign_desugar_map.get(key)
     }
 
-    /// Look up the materialized iterator type for an Iterable->Iterator routed
-    /// method call, keyed by the call's source RECEIVER `ExprId`.
+    /// Look up the type-directed Iterable->Iterator route for a method call,
+    /// keyed by the exact source call `ExprId`.
     ///
-    /// Returns `Some(iter_ty)` if the type checker routed this call through the
-    /// iterator surface (so `ori_canon` must desugar `recv.method(args)` ->
-    /// `recv.iter().method(args)`), `None` otherwise.
-    pub fn resolve_iter_route(&self, key: ExprId) -> Option<Idx> {
+    /// Returns the materialized iterator type and, for eager Range adapters,
+    /// the intermediate adapter type that must be collected.
+    pub fn resolve_iter_route(&self, key: ExprId) -> Option<IterMethodRoute> {
         self.iter_route_map.get(key).copied()
     }
 

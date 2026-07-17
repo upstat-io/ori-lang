@@ -16,6 +16,7 @@ impl Parser<'_> {
     /// Floating test: @name tests _ (params) -> void = body
     ///
     /// Returns `EmptyErr` if no `@` is present.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_function_or_test(
         &mut self,
         attrs: ParsedAttrs,

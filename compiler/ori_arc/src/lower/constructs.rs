@@ -242,13 +242,10 @@ impl ArcLowerer<'_> {
         // Set catch target — Invoke calls AND inline checked-ops inside the
         // body unwind here. An `Invoke` wires `catch_handler` via its unwind
         // edge; an inline checked-op PrimOp instead records its result var →
-        // `catch_handler` (via `note_checked_op` → `catch_scoped_checked_ops`)
-        // so every physical projection routes the checked-op panic here. LLVM
-        // currently materializes the edge as a landing pad (`Spec: Annex E
-        // §AIMS` cleanup is unaffected;
-        // Spec: Clause 14.3 for the panic conditions). `catch_unwind_target`
-        // is always the innermost enclosing catch, so a nested checked-op maps
-        // to its own (inner) handler.
+        // initial `catch_handler` mapping. AIMS retargets that metadata through
+        // a cleanup-only landing block before physical projection. Spec:
+        // Clause 14.3. `catch_unwind_target` is always the innermost enclosing
+        // catch, so a nested checked-op maps to its own (inner) handler.
         let prev_target = self.builder.set_catch_target(catch_handler);
 
         // Lower the body expression (panicking calls become Invoke → catch_handler)

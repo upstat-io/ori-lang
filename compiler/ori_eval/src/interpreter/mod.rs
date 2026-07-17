@@ -71,7 +71,7 @@ use crate::errors::no_member_in_module;
 use crate::eval_mode::{EvalMode, ModeState};
 use crate::print_handler::SharedPrintHandler;
 use crate::{Environment, Mutability, SharedMutableRegistry, UserMethodRegistry, Value};
-use ori_ir::canon::SharedCanonResult;
+use ori_ir::canon::{GenericConstValue, MonoConstBinding, SharedCanonResult};
 use ori_ir::{ExprArena, ExprId, Name, SharedArena, StringInterner};
 use ori_patterns::{
     recursion_limit_exceeded, ControlAction, EvalError, EvalResult, PatternExecutor,
@@ -317,19 +317,21 @@ impl<'a> Interpreter<'a> {
     ///
     /// For module namespaces, looks up the function and calls it directly.
     /// For other receivers, uses `eval_method_call`.
-    fn dispatch_method_call(
+    /// Dispatch one exact monomorphic method call with its solved const env.
+    fn dispatch_method_call_with_const_bindings(
         &mut self,
         receiver: Value,
         method: Name,
         args: Vec<Value>,
+        const_bindings: &[MonoConstBinding],
     ) -> EvalResult {
         if let Value::ModuleNamespace(ns) = &receiver {
             let func = ns
                 .get(&method)
                 .ok_or_else(|| no_member_in_module(self.interner.lookup(method)))?;
-            self.eval_call(func, &args)
+            self.eval_call_with_const_bindings(func, &args, const_bindings)
         } else {
-            self.eval_method_call(receiver, method, args)
+            self.eval_method_call_with_const_bindings(receiver, method, args, const_bindings)
         }
     }
 
@@ -448,6 +450,15 @@ impl<'a> Interpreter<'a> {
     /// Clear captured print output.
     pub fn clear_print_output(&self) {
         self.print_handler.clear();
+    }
+}
+
+/// Convert the deliberately narrow generic-const domain to an evaluator value.
+#[inline]
+pub(super) fn mono_const_value_to_value(value: &GenericConstValue) -> Value {
+    match value {
+        GenericConstValue::Int(value) => Value::int(*value),
+        GenericConstValue::Bool(value) => Value::Bool(*value),
     }
 }
 

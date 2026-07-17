@@ -45,18 +45,18 @@ use crate::{Pool, TraitRegistry, TypeCheckResult, TypeRegistry};
 ///
 /// # Example
 ///
-/// ```ignore
-/// let parse_output = parse_module(source);
+/// ```rust
+/// use ori_ir::StringInterner;
+/// use ori_types::check_module;
+///
+/// let interner = StringInterner::new();
+/// let tokens = ori_lexer::lex("@main () -> int = 42", &interner);
+/// let parse_output = ori_parse::parse(&tokens, &interner);
 /// let result = check_module(&parse_output.module, &parse_output.arena, &interner);
 ///
-/// if result.has_errors() {
-///     for error in result.errors() {
-///         eprintln!("{}", error);
-///     }
-/// }
-///
-/// // Access expression types
-/// let expr_ty = result.typed.expr_type(expr_index);
+/// assert!(!result.has_errors(), "{:?}", result.errors());
+/// // Access typed module metadata.
+/// assert_eq!(result.typed.function_count(), 1);
 /// ```
 #[tracing::instrument(level = "debug", skip_all)]
 pub fn check_module(
@@ -78,13 +78,19 @@ pub fn check_module(
 ///
 /// # Example
 ///
-/// ```ignore
-/// // Resolve imports first
-/// let (types, traits) = resolve_imports(&imports, db);
+/// ```rust
+/// use ori_ir::StringInterner;
+/// use ori_types::{check_module_with_registries, TraitRegistry, TypeRegistry};
 ///
+/// let interner = StringInterner::new();
+/// let tokens = ori_lexer::lex("@main () -> int = 42", &interner);
+/// let parsed = ori_parse::parse(&tokens, &interner);
+/// let types = TypeRegistry::new();
+/// let traits = TraitRegistry::new();
 /// let result = check_module_with_registries(
-///     &module, &arena, &interner, types, traits
+///     &parsed.module, &parsed.arena, &interner, types, traits
 /// );
+/// assert!(!result.has_errors());
 /// ```
 #[tracing::instrument(level = "debug", skip_all)]
 pub fn check_module_with_registries(
@@ -131,16 +137,19 @@ pub fn check_module_with_pool(
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// use ori_ir::StringInterner;
+/// use ori_types::check_module_with_imports;
+///
+/// let interner = StringInterner::new();
+/// let tokens = ori_lexer::lex("@main () -> int = 42", &interner);
+/// let parsed = ori_parse::parse(&tokens, &interner);
 /// let (result, pool) = check_module_with_imports(
-///     &module, &arena, &interner,
-///     |checker| {
-///         // Register functions from another module
-///         for func in &other_module.functions {
-///             checker.register_imported_function(func, &other_arena, None);
-///         }
-///     },
+///     &parsed.module, &parsed.arena, &interner,
+///     |_checker| {},
 /// );
+/// assert!(!result.has_errors());
+/// assert_eq!(pool.format_type(ori_types::Idx::INT), "int");
 /// ```
 #[tracing::instrument(level = "debug", skip_all)]
 pub fn check_module_with_imports<F>(

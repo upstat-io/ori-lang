@@ -16,11 +16,6 @@ fn detects_increment() {
 }
 
 #[test]
-fn detects_decrement() {
-    assert_eq!(what_is_next(b"--x", 0), NextContext::Operator("--"));
-}
-
-#[test]
 fn detects_semicolon() {
     assert_eq!(what_is_next(b";", 0), NextContext::Punctuation(';'));
 }

@@ -39,10 +39,11 @@
 use crate::util::assert_aot_success;
 
 // ---------------------------------------------------------------------------
-// FAIL-FIRST — `assert_eq` cluster. A generic struct (`Box<T>`, deriving
-// `Eq + Debug`) passed to `assert_eq` inside `check_box<T>`; the nested
-// `assert_eq<Box<int>>` is never recorded against the concrete `Box<int>`.
-// Pre-fix: AOT E5001 `unresolved function 'assert_eq'`. Interp passes.
+// Producer-closure guard — `assert_eq<Box<int>>` is discovered through the
+// generic-calling-generic fixed point, then its `T: Debug` bound must seed the
+// exact derived `Box<int>.debug` body before shared executable realization.
+// Pre-fix: AOT closed-program failure, unresolved `debug` from the concrete
+// `assert_eq` specialization. Interp passes through dynamic dispatch.
 // ---------------------------------------------------------------------------
 #[test]
 fn assert_eq_on_generic_struct_in_generic_body_monos() {

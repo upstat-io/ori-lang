@@ -145,6 +145,43 @@ fn parse_and_format_with_comments(source: &str) -> Result<String, String> {
     ))
 }
 
+#[test]
+fn duplicate_test_names_round_trip_with_source_names() {
+    let source = "@left () -> void = ();\n\n@right () -> void = ();\n\n@test tests @left () -> void = ();\n\n@test tests @right () -> void = ();";
+
+    let first = parse_and_format_with_comments(source).expect("source should parse and format");
+    assert!(!first.contains("$test$"));
+    assert!(first.contains("@test tests @left"));
+    assert!(first.contains("@test tests @right"));
+
+    let second = parse_and_format_with_comments(&first).expect("formatted output should re-parse");
+    assert_eq!(normalize_whitespace(&first), normalize_whitespace(&second));
+}
+
+#[test]
+fn constants_round_trip_with_complete_declaration_syntax() {
+    let source = "pub let $LIMIT: int = 4;\n\nlet $ENABLED = true;";
+
+    let first = parse_and_format_with_comments(source).expect("source should parse and format");
+    assert!(first.contains("pub let $LIMIT: int = 4;"));
+    assert!(first.contains("let $ENABLED = true;"));
+
+    let second = parse_and_format_with_comments(&first).expect("formatted output should re-parse");
+    assert_eq!(normalize_whitespace(&first), normalize_whitespace(&second));
+}
+
+#[test]
+fn trait_associated_type_defaults_round_trip() {
+    let source = "trait Addable<Rhs = Self> {\n    type Output = Self;\n    @add (self, rhs: Rhs) -> Self.Output\n}";
+
+    let first = parse_and_format_with_comments(source).expect("source should parse and format");
+    assert!(first.contains("trait Addable<Rhs = Self>"));
+    assert!(first.contains("type Output = Self"));
+
+    let second = parse_and_format_with_comments(&first).expect("formatted output should re-parse");
+    assert_eq!(normalize_whitespace(&first), normalize_whitespace(&second));
+}
+
 /// Normalize whitespace for comparison.
 fn normalize_whitespace(source: &str) -> String {
     let lines: Vec<&str> = source.lines().map(str::trim_end).collect();

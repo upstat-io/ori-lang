@@ -125,7 +125,7 @@ pub(crate) enum ClassInstr {
 
 /// Source position of one classified event inside its block — the
 /// placement anchor the class-ledger emitter plans insertions against.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum EventSite {
     /// Block-entry events, before any body instruction: function-param
     /// births in the entry block; `Invoke`/`InvokeIndirect` result events

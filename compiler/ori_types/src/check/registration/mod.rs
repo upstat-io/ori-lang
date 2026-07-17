@@ -31,6 +31,7 @@ pub use builtin_types::register_builtin_types;
 pub use consts::register_consts;
 pub use derived::register_derived_impls;
 pub use extern_types::register_extern_burdens;
+pub(super) use impls::register_imported_impls;
 pub use impls::{register_builtin_extensions, register_impls};
 pub use traits::{register_object_safety_violations, register_traits};
 pub use user_types::register_user_types;

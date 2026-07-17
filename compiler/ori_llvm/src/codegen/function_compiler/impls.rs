@@ -302,9 +302,15 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.codegen_ctx
                 .method_functions
                 .insert((type_name, method_name), declared.clone());
-            self.codegen_ctx
-                .functions
-                .insert(fact_name, declared.clone());
+            if artifact_name.is_some() {
+                // Exact artifact identities are type-qualified and therefore
+                // safe in the direct-call map. Source method names are not:
+                // same-name methods from different impls would overwrite one
+                // another and bypass type-qualified dispatch.
+                self.codegen_ctx
+                    .functions
+                    .insert(fact_name, declared.clone());
+            }
             declared
         };
 

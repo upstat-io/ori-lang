@@ -71,6 +71,10 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             TraitItem::AssocType(assoc) => {
                 self.ctx.emit("type ");
                 self.ctx.emit(self.interner.lookup(assoc.name));
+                if let Some(default_type) = &assoc.default_type {
+                    self.ctx.emit(" = ");
+                    format_parsed_type(default_type, self.arena, self.interner, &mut self.ctx);
+                }
             }
         }
     }

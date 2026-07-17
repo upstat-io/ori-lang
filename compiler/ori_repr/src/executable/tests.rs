@@ -1459,3 +1459,12 @@ fn keeps_list_builder_append_distinct_from_persistent_list_push() {
         Some(RuntimeCall::ListPush),
     );
 }
+
+#[test]
+fn resolves_list_builder_unwind_cleanup() {
+    assert_eq!(
+        RuntimeCall::resolve("ori_list_free", None),
+        Some(RuntimeCall::ListFree),
+    );
+    assert_eq!(RuntimeCall::ListFree.arity(), 2);
+}

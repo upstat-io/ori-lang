@@ -64,7 +64,7 @@ fn outer_body_idx(dump: &str) -> u32 {
 }
 
 #[test]
-fn ori_trace_idx_emits_nonempty_structure_dag_on_wrap_nested() {
+fn ori_trace_idx_emits_converged_structure_dag_on_wrap_nested() {
     let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let fixture = write_fixture(&dir, "wrap_nested.ori", WRAP_FIXTURE);
 
@@ -91,46 +91,24 @@ fn ori_trace_idx_emits_nonempty_structure_dag_on_wrap_nested() {
         !traced.contains("0 structure edge(s)"),
         "DAG rooted at the outer body Idx must NOT be empty:\n{traced}"
     );
-    // The production trace emits the FULL edge set (structure + resolution +
-    // mono + divergence) AND the diagnostic's core deliverable FIRES: the
-    // `Wrap<Wrap<int>>` body carries the `T#141` generic leaf under a concrete
-    // instantiation, so the divergence detector flags it (non-zero) — proving
-    // the edge SSOT is exercised end-to-end, not header-only.
+    // The production trace emits the full edge set. The nested generic has
+    // already converged to concrete bodies, so no stale generic leaf remains.
     assert!(
         traced.contains("~resolves~>"),
         "the trace must carry a real resolution edge (Named -> concrete):\n{traced}"
     );
     assert!(
-        traced.contains("divergence(s)") && !traced.contains("0 divergence(s)"),
-        "the diagnostic must SURFACE the generic-leaf divergence on Wrap<Wrap<int>> \
-         (non-zero), not merely print the section header:\n{traced}"
+        traced.contains("0 divergence(s)"),
+        "the materialized Wrap<Wrap<int>> body must have no generic-leaf divergence:\n{traced}"
+    );
+    assert!(
+        !traced.contains(" <> concrete "),
+        "the materialized Wrap<Wrap<int>> body must have no divergence line:\n{traced}"
     );
 }
 
-/// Parse the generic-leaf `Idx` from the divergence line
-/// (`  generic T#141 <> concrete ...`). The leaf's raw index is the first
-/// `#<digits>` in the segment before ` <> `.
-fn divergence_generic_idx(trace: &str) -> u32 {
-    let line = trace
-        .lines()
-        .find(|l| l.trim_start().starts_with("generic "))
-        .unwrap_or_else(|| panic!("trace missing a divergence line:\n{trace}"));
-    let seg = line.split(" <> ").next().unwrap_or(line);
-    let hash = seg
-        .find('#')
-        .unwrap_or_else(|| panic!("divergence generic has no #idx: {line}"))
-        + 1;
-    let digits: String = seg[hash..]
-        .chars()
-        .take_while(char::is_ascii_digit)
-        .collect();
-    digits
-        .parse::<u32>()
-        .unwrap_or_else(|e| panic!("could not parse generic leaf idx from `{digits}`: {e}"))
-}
-
 #[test]
-fn ori_trace_idx_attributes_drop_glue_to_generic_leaf_chain_on_wrap_nested() {
+fn ori_trace_idx_reports_no_scalar_drop_plan_on_wrap_nested() {
     let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let fixture = write_fixture(&dir, "wrap_nested.ori", WRAP_FIXTURE);
 
@@ -143,42 +121,15 @@ fn ori_trace_idx_attributes_drop_glue_to_generic_leaf_chain_on_wrap_nested() {
 
     let traced = run_check(&fixture, &[("ORI_TRACE_IDX", &root.to_string())]);
 
-    // The CONSUMER-edge section fires and is non-empty.
+    // The CONSUMER-edge section is present, but Wrap<Wrap<int>> contains only
+    // scalar leaves and therefore has no structural drop plan.
     assert!(
         traced.contains("consumer edge(s)"),
         "ORI_TRACE_IDX must emit a consumer-edge section:\n{traced}"
     );
     assert!(
-        !traced.contains("0 consumer edge(s)"),
-        "the Wrap<Wrap<int>> root must carry >=1 consumer edge:\n{traced}"
-    );
-
-    // North-star: the generic leaf's logical drop plan is attributed through
-    // its provenance chain to the traced outer body.
-    let leaf = divergence_generic_idx(&traced);
-    let edge_line = traced
-        .lines()
-        .find(|line| {
-            line.contains("drop-plan")
-                && line.contains(&format!("#{leaf}"))
-                && line.contains("<=consumes=")
-        })
-        .unwrap_or_else(|| {
-            panic!("no consumer edge attributes the generic-leaf drop plan #{leaf}:\n{traced}")
-        });
-    // The leaf plan descends from a parent Wrap body, not a bare leaf.
-    assert!(
-        edge_line.contains(" -> "),
-        "the generic-leaf drop plan must have a multi-hop walked chain:\n{edge_line}"
-    );
-    // The chain reaches the generic leaf and roots at the traced outer body.
-    assert!(
-        edge_line.contains(&format!("#{leaf}")),
-        "the walked chain must reach the generic leaf #{leaf}:\n{edge_line}"
-    );
-    assert!(
-        edge_line.contains(&format!("#{root}")),
-        "the walked chain must root at the traced outer body #{root}:\n{edge_line}"
+        traced.contains("0 consumer edge(s)"),
+        "the scalar-only Wrap<Wrap<int>> root must not invent a consumer edge:\n{traced}"
     );
 }
 

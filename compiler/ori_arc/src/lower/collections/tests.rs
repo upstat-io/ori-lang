@@ -12,16 +12,7 @@ fn lower_root(
     pool: &Pool,
     ret_ty: Idx,
 ) {
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, root);
     let mut problems = Vec::new();
     let _ = super::super::super::lower_function_can(
         Name::from_raw(1),
@@ -119,16 +110,7 @@ fn lower_try_injects_trace_on_genuine_error_err_payload() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: try_expr,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, try_expr);
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
         Name::from_raw(1),
@@ -186,16 +168,7 @@ fn lower_try_does_not_inject_trace_on_newtype_over_error_err_payload() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: try_expr,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, try_expr);
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
         Name::from_raw(1),
@@ -248,16 +221,7 @@ fn lower_tuple() {
         TypeId::from_raw(tuple_ty.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: tup,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, tup);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
@@ -295,16 +259,7 @@ fn lower_empty_tuple_as_unit_literal() {
         Span::new(0, 2),
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: unit,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, unit);
     let mut problems = Vec::new();
 
     let (function, _) = super::super::super::lower_function_can(
@@ -343,16 +298,7 @@ fn lower_none() {
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: none_id,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, none_id);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(

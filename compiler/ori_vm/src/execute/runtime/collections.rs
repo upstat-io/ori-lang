@@ -8,6 +8,7 @@ use crate::ExecutionError;
 use super::super::heap::HeapObject;
 use super::super::value::VmValue;
 use super::super::Interpreter;
+use super::nonnegative_usize;
 
 impl Interpreter<'_> {
     pub(in crate::execute) fn runtime_binary(
@@ -158,6 +159,16 @@ impl Interpreter<'_> {
         Ok(VmValue::UNIT)
     }
 
+    pub(super) fn list_free(&mut self, builder: VmValue) -> Result<VmValue, ExecutionError> {
+        if !matches!(self.heap.get(builder)?.object, HeapObject::Builder(_)) {
+            return Err(ExecutionError::InvalidHeapObject {
+                call: RuntimeCall::ListFree,
+            });
+        }
+        self.release_owned_value(builder)?;
+        Ok(VmValue::UNIT)
+    }
+
     pub(super) fn list_take(&mut self, builder: VmValue) -> Result<VmValue, ExecutionError> {
         if !matches!(self.heap.get(builder)?.object, HeapObject::Builder(_)) {
             return Err(ExecutionError::InvalidHeapObject {
@@ -234,16 +245,13 @@ impl Interpreter<'_> {
                 });
             }
         };
-        i64::try_from(length)
-            .map(VmValue::int)
-            .map_err(|_| ExecutionError::IntegerOperation {
+        match i64::try_from(length) {
+            Ok(length) => Ok(VmValue::int(length)),
+            Err(_) => Err(ExecutionError::IntegerOperation {
                 operation: "collection length conversion",
-            })
+            }),
+        }
     }
-}
-
-fn nonnegative_usize(value: i64, purpose: &'static str) -> Result<usize, ExecutionError> {
-    usize::try_from(value).map_err(|_| ExecutionError::NegativeInteger { purpose, value })
 }
 
 fn next_vector_capacity(current: usize, required: usize, limit: usize) -> usize {

@@ -27,6 +27,7 @@
 use ori_ir::builtin_constants::protocol::{ProtocolArgOwnership, ProtocolBuiltin};
 use ori_ir::{Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
+use smallvec::SmallVec;
 
 /// Intern a static method-name table into a [`Name`] set.
 fn intern_name_set(names: &[&str], interner: &StringInterner) -> FxHashSet<Name> {
@@ -102,9 +103,9 @@ const CONSUMING_THIRD_ARG_METHOD_NAMES: &[&str] = &[
 /// collections). Contrast with `CONSUMING_RECEIVER_METHOD_NAMES` where List
 /// methods also transfer inserted elements.
 ///
-/// In `compute_arg_ownership`, these methods produce `[Owned, Borrowed, ...]`
-/// instead of the default all-Owned, preventing RC leaks on comparison keys
-/// and read-only collection arguments.
+/// The type-qualified consumption authority reports only the receiver for
+/// these methods, preventing transfers of comparison keys and read-only
+/// collection arguments.
 ///
 /// Sorted alphabetically.
 const CONSUMING_RECEIVER_ONLY_METHOD_NAMES: &[&str] = &[
@@ -233,8 +234,8 @@ pub(crate) fn persistent_list_runtime_methods(
 /// Collect interned [`Name`]s for COW methods that consume only the receiver.
 ///
 /// Non-receiver arguments are borrowed (comparison keys, read-only collections).
-/// Used by `compute_arg_ownership` to produce `[Owned, Borrowed, ...]` instead
-/// of the default all-Owned.
+/// Used by [`BuiltinOwnershipSets::type_qualified_consuming_positions`] to
+/// produce only the receiver position.
 ///
 /// See [`CONSUMING_RECEIVER_ONLY_METHOD_NAMES`] for the full list.
 pub fn consuming_receiver_only_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
@@ -385,6 +386,10 @@ pub struct BuiltinOwnershipSets {
     /// builtins (`__index`, `__iter_next`, `__collect_set`) without
     /// needing the `StringInterner` in the core loop.
     pub protocol: FxHashMap<Name, &'static [ProtocolArgOwnership]>,
+    zip: Name,
+    chain: Name,
+    pop: Name,
+    insert: Name,
 }
 
 impl BuiltinOwnershipSets {
@@ -400,11 +405,69 @@ impl BuiltinOwnershipSets {
                 .iter()
                 .map(|pb| (interner.intern(pb.name()), pb.arg_ownership()))
                 .collect(),
+            zip: interner.intern("zip"),
+            chain: interner.intern("chain"),
+            pop: interner.intern("pop"),
+            insert: interner.intern("insert"),
         }
     }
 
-    /// Check if a name is a known builtin method (in any ownership set).
-    pub fn is_builtin(&self, name: Name) -> bool {
+    /// Return the type-qualified builtin positions that consume their argument.
+    ///
+    /// Collection results are the complete ownership-transfer override for the
+    /// call. Iterator results supplement the registry contract with the typed
+    /// receiver and `zip`/`chain` iterator-operand positions that bare method
+    /// names cannot disambiguate.
+    pub(crate) fn type_qualified_consuming_positions(
+        &self,
+        callee: Name,
+        arg_tags: &[Option<ori_registry::TypeTag>],
+    ) -> SmallVec<[usize; 3]> {
+        use ori_registry::TypeTag;
+
+        let mut positions = SmallVec::new();
+        let Some(Some(receiver_tag)) = arg_tags.first().copied() else {
+            return positions;
+        };
+
+        if matches!(
+            receiver_tag,
+            TypeTag::Iterator | TypeTag::DoubleEndedIterator
+        ) {
+            positions.push(0);
+            if (callee == self.zip || callee == self.chain)
+                && arg_tags.get(1).copied().flatten().is_some_and(|tag| {
+                    matches!(tag, TypeTag::Iterator | TypeTag::DoubleEndedIterator)
+                })
+            {
+                positions.push(1);
+            }
+            return positions;
+        }
+
+        if !matches!(receiver_tag, TypeTag::List | TypeTag::Map | TypeTag::Set)
+            || callee == self.pop
+            || !(self.consuming_receiver.contains(&callee)
+                || self.consuming_receiver_only.contains(&callee))
+        {
+            return positions;
+        }
+
+        positions.push(0);
+        if callee == self.insert && matches!(receiver_tag, TypeTag::Map | TypeTag::Set) {
+            return positions;
+        }
+        if arg_tags.len() >= 2 && self.consuming_second_arg.contains(&callee) {
+            positions.push(1);
+        }
+        if arg_tags.len() >= 3 && self.consuming_third_arg.contains(&callee) {
+            positions.push(2);
+        }
+        positions
+    }
+
+    /// Check if a name is a known builtin method in any ownership set.
+    pub fn contains(&self, name: Name) -> bool {
         self.borrowing.contains(&name)
             || self.consuming_receiver.contains(&name)
             || self.consuming_receiver_only.contains(&name)
@@ -420,6 +483,10 @@ impl BuiltinOwnershipSets {
             consuming_third_arg: FxHashSet::default(),
             consuming_receiver_only: FxHashSet::default(),
             protocol: FxHashMap::default(),
+            zip: Name::EMPTY,
+            chain: Name::EMPTY,
+            pop: Name::EMPTY,
+            insert: Name::EMPTY,
         }
     }
 }
