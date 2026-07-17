@@ -50,11 +50,8 @@ fn declare_module_alias_internals(
     merged_pool: &mut ori_types::Pool,
     re_interned_sigs: &mut Vec<ori_types::FunctionSig>,
     fn_refs: &mut Vec<FnRef>,
+    declared_producers: &mut rustc_hash::FxHashSet<(std::path::PathBuf, usize, crate::ir::Name)>,
 ) {
-    let mut declared_internal: rustc_hash::FxHashSet<(
-        Option<crate::input::SourceFile>,
-        crate::ir::Name,
-    )> = rustc_hash::FxHashSet::default();
     for func_ref in &resolved.imported_functions {
         if !func_ref.is_module_alias {
             continue;
@@ -63,7 +60,7 @@ fn declare_module_alias_internals(
         let imp_module = &resolved.modules[module_index];
         let tc = &imported_type_results[module_index];
         for (idx, func) in imp_module.parse_output.module.functions.iter().enumerate() {
-            if !declared_internal.insert((imp_module.source_file, func.name)) {
+            if !declared_producers.insert((imp_module.module_path.clone(), idx, func.name)) {
                 continue;
             }
             let Some(sig) = tc.typed.functions.iter().find(|s| s.name == func.name) else {
@@ -275,9 +272,22 @@ impl TestRunner {
         // Build per-function codegen structs for explicitly imported functions only.
         let mut fn_refs: Vec<FnRef> = Vec::new();
         let mut re_interned_sigs: Vec<ori_types::FunctionSig> = Vec::new();
+        let mut declared_producers: rustc_hash::FxHashSet<(
+            std::path::PathBuf,
+            usize,
+            crate::ir::Name,
+        )> = rustc_hash::FxHashSet::default();
 
         for func_ref in &resolved.imported_functions {
             if func_ref.is_module_alias {
+                continue;
+            }
+            if parse_result
+                .module
+                .functions
+                .iter()
+                .any(|function| function.name == func_ref.local_name)
+            {
                 continue;
             }
             let imp_module = &resolved.modules[func_ref.module_index];
@@ -292,6 +302,13 @@ impl TestRunner {
                 .enumerate()
                 .find(|(_, f)| f.name == func_ref.original_name)
             {
+                if !declared_producers.insert((
+                    imp_module.module_path.clone(),
+                    idx,
+                    func_ref.local_name,
+                )) {
+                    continue;
+                }
                 // Find its type-checked signature
                 if let Some(sig) = tc
                     .typed
@@ -349,6 +366,7 @@ impl TestRunner {
             &mut merged_pool,
             &mut re_interned_sigs,
             &mut fn_refs,
+            &mut declared_producers,
         );
 
         // Collect imported generic sigs for monomorphization resolution.

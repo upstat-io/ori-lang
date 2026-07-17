@@ -22,7 +22,7 @@ mod tests;
 
 pub use context::ParseContext;
 pub(crate) use cursor::Cursor;
-pub use error::{DetachmentReason, ErrorContext, ParseError, ParseWarning};
+pub use error::{DetachmentReason, ErrorContext, ParseError, ParseErrorKind, ParseWarning};
 pub use outcome::ParseOutcome;
 pub use recovery::{synchronize, TokenSet, FUNCTION_BOUNDARY, STMT_BOUNDARY};
 pub use series::{SeriesConfig, TrailingSeparator};
@@ -242,15 +242,24 @@ pub fn parse(tokens: &TokenList, interner: &StringInterner) -> ParseOutput {
 ///
 /// # Usage
 ///
-/// Call [`ori_lexer::lex_with_comments`] first, then convert to metadata:
+/// Call `ori_lexer::lex_with_comments` first, then decompose its output into
+/// the tokens and metadata consumed by the parser:
 ///
-/// ```ignore
-/// let lex_output = ori_lexer::lex_with_comments(source, &interner);
-/// let metadata = lex_output.into_metadata();
-/// let parse_output = ori_parse::parse_with_metadata(&lex_output.tokens, metadata, &interner);
+/// ```
+/// use ori_ir::StringInterner;
+/// use ori_lexer::lex_with_comments;
+/// use ori_parse::parse_with_metadata;
+///
+/// let source = "// #Description\n@main () -> int = 42;";
+/// let interner = StringInterner::new();
+/// let (tokens, metadata) = lex_with_comments(source, &interner).into_parts();
+/// let parse_output = parse_with_metadata(&tokens, metadata, &interner);
 ///
 /// // Access comments attached to declarations
+/// assert!(!parse_output.has_errors());
+/// let fn_start = parse_output.module.functions[0].span.start;
 /// let docs = parse_output.metadata.doc_comments_for(fn_start);
+/// assert_eq!(docs.len(), 1);
 /// ```
 pub fn parse_with_metadata(
     tokens: &TokenList,

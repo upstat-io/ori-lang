@@ -36,7 +36,6 @@ fn find_type_returns_known_types() {
 
 #[test]
 fn find_type_returns_none_for_non_registry_tags() {
-    assert!(find_type(TypeTag::Unit).is_none());
     assert!(find_type(TypeTag::Never).is_none());
     assert!(find_type(TypeTag::Function).is_none());
     // DEI has no separate TypeDef — must use base_type() aliasing
@@ -106,8 +105,16 @@ fn find_method_returns_none_for_unknown_method() {
 }
 
 #[test]
-fn find_method_returns_none_for_non_registry_type() {
-    assert!(find_method(TypeTag::Unit, "foo").is_none());
+fn unit_methods_have_exact_registry_identities() {
+    let compare = find_method_id(TypeTag::Unit, "compare")
+        .unwrap_or_else(|| panic!("void.compare should have an identity"));
+    let default = find_method_id(TypeTag::Unit, "default")
+        .unwrap_or_else(|| panic!("void.default should have an identity"));
+
+    assert_eq!(compare.receiver(), TypeTag::Unit);
+    assert_eq!(compare.arity(), 2);
+    assert_eq!(default.receiver(), TypeTag::Unit);
+    assert_eq!(default.arity(), 0);
 }
 
 #[test]
@@ -195,7 +202,6 @@ fn methods_for_returns_nonempty_for_known_types() {
 
 #[test]
 fn methods_for_returns_empty_for_unknown_types() {
-    assert!(methods_for(TypeTag::Unit).is_empty());
     assert!(methods_for(TypeTag::Never).is_empty());
 }
 

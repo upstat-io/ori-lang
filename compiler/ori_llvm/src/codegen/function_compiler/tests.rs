@@ -469,6 +469,7 @@ fn compile_impls_populates_method_functions_map() {
         ImplSig {
             id: ori_types::ImplMethodId::new(0, ori_ir::ExprId::INVALID),
             receiver: point_idx,
+            trait_type: None,
             name: distance_name,
             role: ori_types::ImplMethodRole::Ordinary,
             sig: sig_point,
@@ -476,6 +477,7 @@ fn compile_impls_populates_method_functions_map() {
         ImplSig {
             id: ori_types::ImplMethodId::new(1, ori_ir::ExprId::INVALID),
             receiver: line_idx,
+            trait_type: None,
             name: distance_name,
             role: ori_types::ImplMethodRole::Ordinary,
             sig: sig_line,

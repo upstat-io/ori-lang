@@ -135,7 +135,7 @@ impl TargetTripleComponents {
     ///   LLVM's default triple (e.g., `arm64-apple-darwin25.2.0` on Apple
     ///   Silicon) match the unversioned `aarch64-apple-darwin` entry.
     ///
-    /// Distinct from [`Self::to_string`], which preserves the OS version
+    /// Distinct from `ToString::to_string`, which preserves the OS version
     /// suffix for downstream consumers (LLVM `TargetMachine`) that need
     /// the exact LLVM-emitted spelling.
     #[must_use]

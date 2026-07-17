@@ -55,7 +55,14 @@ pub(crate) fn dispatch_associated_function(
     ctx: &DispatchCtx<'_>,
 ) -> EvalResult {
     let method_str = ctx.interner.lookup(method);
-    if type_name == ctx.names.duration {
+    if type_name == ctx.names.void {
+        if method_str == "default" {
+            helpers::require_args("default", 0, args.len())?;
+            Ok(Value::Void)
+        } else {
+            Err(no_such_method(method_str, "void").into())
+        }
+    } else if type_name == ctx.names.duration {
         units::dispatch_duration_associated(method_str, &args)
     } else if type_name == ctx.names.size {
         units::dispatch_size_associated(method_str, &args)
@@ -176,6 +183,7 @@ pub(crate) fn dispatch_builtin_method(
         Value::Bool(_) => variants::dispatch_bool_method(receiver, method, args, ctx),
         Value::Char(_) => variants::dispatch_char_method(receiver, method, args, ctx),
         Value::Byte(_) => variants::dispatch_byte_method(receiver, method, args, ctx),
+        Value::Void => dispatch_unit_method(method, &args, ctx),
         Value::List(_) => list::dispatch_list_method(receiver, method, args, ctx),
         Value::Str(_) => collections::dispatch_string_method(receiver, method, args, ctx),
         Value::Range(_) => collections::dispatch_range_method(receiver, method, args, ctx),
@@ -207,17 +215,47 @@ pub(crate) fn dispatch_builtin_method(
     }
 }
 
+fn dispatch_unit_method(method: Name, args: &[Value], ctx: &DispatchCtx<'_>) -> EvalResult {
+    let names = ctx.names;
+    if method == names.clone_ {
+        helpers::require_args("clone", 0, args.len())?;
+        Ok(Value::Void)
+    } else if method == names.equals {
+        helpers::require_args("equals", 1, args.len())?;
+        Ok(Value::Bool(matches!(args.first(), Some(Value::Void))))
+    } else if method == names.compare {
+        helpers::require_args("compare", 1, args.len())?;
+        if matches!(args.first(), Some(Value::Void)) {
+            Ok(compare::ordering_to_value(std::cmp::Ordering::Equal))
+        } else {
+            Err(ori_patterns::wrong_arg_type("compare", "void").into())
+        }
+    } else if method == names.hash {
+        helpers::require_args("hash", 0, args.len())?;
+        Ok(Value::int(0))
+    } else if method == names.debug {
+        helpers::require_args("debug", 0, args.len())?;
+        Ok(Value::string("()"))
+    } else if ctx.interner.lookup(method) == "default" {
+        helpers::require_args("default", 0, args.len())?;
+        Ok(Value::Void)
+    } else {
+        let method_str = ctx.interner.lookup(method);
+        Err(no_such_method(method_str, "void").into())
+    }
+}
+
 /// Dispatch a built-in method call by string name (test-only convenience).
 ///
 /// **Warning:** Interns all 97+ builtin method names on every call. Do not
 /// use in production paths. This exists solely for tests that construct
 /// method names as strings.
 ///
-/// Internally delegates to [`dispatch_builtin_method`] with a freshly-built
+/// Internally delegates to `dispatch_builtin_method` with a freshly-built
 /// `DispatchCtx`, so dispatch behavior is identical to the production path.
 ///
-/// Map/Set receivers route through [`Interpreter::dispatch_map_method`] /
-/// [`Interpreter::dispatch_set_method`] in production (key handling may invoke
+/// Map/Set receivers route through `Interpreter::dispatch_map_method` /
+/// `Interpreter::dispatch_set_method` in production (key handling may invoke
 /// user `@hash`/`@eq`, which needs interpreter access). This convenience cannot
 /// build an interpreter, so for Map/Set it reports handler existence statically
 /// via the dispatch-check method sets — a handled method returns a benign

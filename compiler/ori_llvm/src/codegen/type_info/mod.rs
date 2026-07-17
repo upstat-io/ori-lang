@@ -10,10 +10,10 @@
 //!
 //! # Module Layout
 //!
-//! - **[`info`]** — `TypeInfo` enum + methods (`storage_type`, `size`, `alignment`, triviality)
-//! - **[`store`]** — `TypeInfoStore` cached `Idx` → `TypeInfo` mapping
-//! - **[`layout_resolver`]** — `TypeLayoutResolver`: recursive LLVM type resolution with cycle detection
-//! - **[`enum_layout`]** — Enum-specific LLVM type resolution (tagless, niche, explicit)
+//! - **`info`** — `TypeInfo` enum + methods (`storage_type`, `size`, `alignment`, triviality)
+//! - **`store`** — `TypeInfoStore` cached `Idx` → `TypeInfo` mapping
+//! - **`layout_resolver`** — `TypeLayoutResolver`: recursive LLVM type resolution with cycle detection
+//! - **`enum_layout`** — Enum-specific LLVM type resolution (tagless, niche, explicit)
 //!
 //! # References
 //!

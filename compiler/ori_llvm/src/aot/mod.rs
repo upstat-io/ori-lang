@@ -31,41 +31,32 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use ori_llvm::aot::{TargetConfig, ObjectEmitter, OutputFormat, DebugInfoConfig, DebugLevel};
-//! use ori_llvm::aot::{LinkerDriver, LinkInput, LinkOutput};
+//! ```no_run
+//! use ori_llvm::aot::{LinkInput, LinkOutput, LinkerDriver, ObjectEmitter, OutputFormat, TargetConfig};
+//! use ori_llvm::inkwell::context::Context;
 //! use std::path::Path;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
-//! // Native compilation with debug info
+//! let context = Context::create();
+//! let module = context.create_module("example");
+//!
+//! // Emit a native object file
 //! let target = TargetConfig::native()?;
 //! let emitter = ObjectEmitter::new(&target)?;
-//!
-//! // Configure debug info
-//! let debug_config = DebugInfoConfig::new(DebugLevel::Full);
-//! let debug_builder = DebugInfoBuilder::new(&module, &context, debug_config, "main.ori", "src");
-//!
-//! // Configure and emit module
 //! emitter.configure_module(&module)?;
-//! if let Some(di) = debug_builder {
-//!     di.finalize();
-//! }
-//! emitter.emit_object(&module, Path::new("output.o"))?;
+//! emitter.emit(&module, Path::new("output.o"), OutputFormat::Object)?;
 //!
 //! // Link into executable
 //! let driver = LinkerDriver::new(&target);
-//! driver.link(LinkInput {
+//! let input = LinkInput {
 //!     objects: vec!["output.o".into()],
 //!     output: "myapp".into(),
 //!     output_kind: LinkOutput::Executable,
 //!     ..Default::default()
-//! })?;
-//!
-//! // Cross-compilation
-//! let target = TargetConfig::from_triple("aarch64-apple-darwin")?
-//!     .with_cpu("apple-m1")
-//!     .with_opt_level(OptimizationLevel::Aggressive);
-//! let emitter = ObjectEmitter::new(&target)?;
-//! emitter.emit(&module, Path::new("output.o"), OutputFormat::Object)?;
+//! };
+//! driver.link(&input)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Modules

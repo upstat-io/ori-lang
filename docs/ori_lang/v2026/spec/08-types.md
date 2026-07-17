@@ -890,7 +890,7 @@ The `#derive` attribute generates trait implementations automatically for user-d
 **Derivation Rules:**
 
 - `Eq`: Field-wise equality comparison; newtypes delegate to underlying type
-- `Hashable`: Combined field hashes using `hash_combine`; warning if derived without `Eq`; newtypes delegate to underlying type
+- `Hashable`: Products combine non-`void` field hashes from seed `0` in declaration order; sums combine the declaration ordinal before their non-`void` payload fields; newtypes return the underlying hash directly
 - `Comparable`: Lexicographic comparison by field declaration order; sum type variants compare by declaration order; newtypes delegate to underlying type
 - `Clone`: Field-wise cloning via `.clone()` method; newtypes delegate to underlying type
 - `Default`: Field-wise default construction; cannot be derived for sum types (ambiguous variant); newtypes delegate to underlying type

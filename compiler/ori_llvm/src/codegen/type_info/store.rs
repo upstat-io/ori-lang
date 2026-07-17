@@ -70,7 +70,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
     ///
     /// Triviality is lazily computed via `ori_types::triviality::classify_triviality()`
     /// — the single source of truth. For production paths, prefer
-    /// [`new_with_plan()`] which pre-computes triviality from `ReprPlan`.
+    /// [`Self::new_with_plan`] which pre-computes triviality from `ReprPlan`.
     pub fn new(pool: &'tcx Pool) -> Self {
         let mut entries = Vec::with_capacity(64);
         for i in 0..64u32 {

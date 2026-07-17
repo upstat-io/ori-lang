@@ -1,24 +1,29 @@
 //! Binary-operator support rules — operator-to-trait mapping, cross-type
 //! arithmetic, and trait dispatch.
 
-use ori_ir::{BinaryOp, ExprArena, ExprId, Name, Span};
+use ori_ir::{BinaryOp, DerivedTrait, ExprArena, ExprId, Name, Span};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::super::super::InferEngine;
 use super::super::registry_bridge::is_binary_op_supported;
 use crate::infer::expr::calls::{
-    match_self_type, pool_base_name as base_name, type_satisfies_named_trait,
+    match_self_type, pool_base_name as base_name, resolve_operator_method,
+    type_satisfies_named_trait,
 };
-use crate::{
-    ContextKind, Expected, ExpectedOrigin, Idx, MethodLookup, MethodLookupResult, Pool, Tag,
-    WhereConstraint,
-};
+use crate::{Idx, MethodLookup, MethodLookupResult, Pool, Tag, WhereConstraint};
 
 /// Map a binary operator to its trait method name.
 ///
-/// Delegates to `BinaryOp::trait_method_name()` — the single source of truth in `ori_ir`.
+/// Arithmetic/bitwise operators delegate to `BinaryOp::trait_method_name()`;
+/// comparison operators use their closed derived-trait method identities.
 fn binary_op_to_method_name(op: BinaryOp) -> Option<&'static str> {
-    op.trait_method_name()
+    match op {
+        BinaryOp::Eq | BinaryOp::NotEq => Some(DerivedTrait::Eq.method_name()),
+        BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => {
+            Some(DerivedTrait::Comparable.method_name())
+        }
+        _ => op.trait_method_name(),
+    }
 }
 
 /// Map a binary operator to its trait name (for error messages).
@@ -343,42 +348,15 @@ pub(super) fn resolve_binary_op_via_trait(
     let method_name = binary_op_to_method_name(op)?;
     let op_str = op.as_symbol();
     let name = engine.intern_name(method_name)?;
-
-    // Scoped borrow: extract signature and self-ness, then release the registry borrow.
-    let (sig_ty, has_self) = {
-        let trait_registry = engine.trait_registry()?;
-        let lookup = trait_registry.lookup_method(receiver_ty, name)?;
-        (lookup.method().signature, lookup.method().has_self)
-    };
-
-    let resolved_sig = engine.resolve(sig_ty);
-    if engine.pool().tag(resolved_sig) != Tag::Function {
-        return Some(Idx::ERROR);
-    }
-
-    let params = engine.pool().function_params(resolved_sig);
-    let ret = engine.pool().function_return(resolved_sig);
-
-    // Skip `self` parameter for instance methods
-    let skip = usize::from(has_self);
-    let method_params = &params[skip..];
-
-    // Binary operators expect exactly one non-self parameter
-    if method_params.len() != 1 {
-        return Some(Idx::ERROR);
-    }
-
-    // Check right operand against the method's parameter type
-    let expected = Expected {
-        ty: method_params[0],
-        origin: ExpectedOrigin::Context {
-            span,
-            kind: ContextKind::BinaryOpRight { op: op_str },
-        },
-    };
-    let _ = engine.check_type(right_ty, &expected, arena.get_expr(right).span);
-
-    Some(ret)
+    resolve_operator_method(
+        engine,
+        receiver_ty,
+        right_ty,
+        arena.get_expr(right).span,
+        name,
+        op_str,
+        span,
+    )
 }
 
 #[cfg(test)]

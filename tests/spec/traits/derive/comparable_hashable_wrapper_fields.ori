@@ -189,7 +189,7 @@ type TupHolder = { tag: int, t: (int, str) }
 
 @test_result_field_hash_exact_ok tests @res_hash_exact_ok () -> void = {
     let a = ResHolder { tag: 0, r: Ok(1) };
-    assert(cond: a.hash() == 4415936996134870917)
+    assert(cond: a.hash() == 173676443942)
 }
 @res_hash_exact_ok () -> int = {
     let a = ResHolder { tag: 0, r: Ok(1) };
@@ -198,7 +198,7 @@ type TupHolder = { tag: int, t: (int, str) }
 
 @test_result_field_hash_exact_err tests @res_hash_exact_err () -> void = {
     let b = ResHolder { tag: 0, r: Err(0) };
-    assert(cond: b.hash() == 4415864428367408991)
+    assert(cond: b.hash() == 173676443992)
 }
 @res_hash_exact_err () -> int = {
     let b = ResHolder { tag: 0, r: Err(0) };
@@ -207,7 +207,7 @@ type TupHolder = { tag: int, t: (int, str) }
 
 @test_tuple_field_hash_exact tests @tup_hash_exact () -> void = {
     let t = TupHolder { tag: 0, t: (5, "a") };
-    assert(cond: t.hash() == -7773344413214253457)
+    assert(cond: t.hash() == 8186225847383947061)
 }
 @tup_hash_exact () -> int = {
     let t = TupHolder { tag: 0, t: (5, "a") };
@@ -235,7 +235,7 @@ type EmptyTupHolder = { tag: int, e: () }
 
 @test_empty_tuple_field_hash_exact tests @empty_hash_exact () -> void = {
     let a = EmptyTupHolder { tag: 0, e: () };
-    assert(cond: a.hash() == 590684067820433389)
+    assert(cond: a.hash() == 2654435769)
 }
 @empty_hash_exact () -> int = {
     let a = EmptyTupHolder { tag: 0, e: () };
@@ -262,7 +262,7 @@ type NestHolder = { tag: int, n: (int, (int, int)) }
 
 @test_nested_tuple_field_hash_exact tests @nest_hash_exact () -> void = {
     let n = NestHolder { tag: 0, n: (1, (2, 3)) };
-    assert(cond: n.hash() == 1496872552860646343)
+    assert(cond: n.hash() == 526343518992)
 }
 @nest_hash_exact () -> int = {
     let n = NestHolder { tag: 0, n: (1, (2, 3)) };
@@ -338,7 +338,7 @@ type OptHolder = { tag: int, o: Option<int> }
 
 @test_option_field_hash_exact_some tests @opt_hash_exact_some () -> void = {
     let a = OptHolder { tag: 0, o: Some(1) };
-    assert(cond: a.hash() == 4416004066344191788)
+    assert(cond: a.hash() == 173676444123)
 }
 @opt_hash_exact_some () -> int = {
     let a = OptHolder { tag: 0, o: Some(1) };
@@ -347,7 +347,7 @@ type OptHolder = { tag: int, o: Option<int> }
 
 @test_option_field_hash_exact_none tests @opt_hash_exact_none () -> void = {
     let a = OptHolder { tag: 0, o: None };
-    assert(cond: a.hash() == 590684067820433389)
+    assert(cond: a.hash() == 175247769566)
 }
 @opt_hash_exact_none () -> int = {
     let a = OptHolder { tag: 0, o: None };

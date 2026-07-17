@@ -1,6 +1,6 @@
 //! Enum Hashable derive codegen: `HashCombine` strategy.
 //!
-//! FNV-1a hash of tag + per-variant payload fields.
+//! Zero-seeded `hash_combine` of the declaration ordinal and payload fields.
 
 use ori_ir::FieldOp;
 use ori_types::VariantDef;
@@ -9,14 +9,12 @@ use super::super::super::function_compiler::FunctionCompiler;
 use super::super::super::type_info::TypeLayoutResolver;
 use super::super::super::value_id::{BlockId, ValueId};
 use super::super::field_ops::emit_field_operation;
+use super::super::field_ops::emit_hash_combine;
 use super::super::{emit_derive_return, DeriveSetup};
 
 use super::variant_non_void_field_types;
 
-// FNV-1a constants — canonical source: ori_ir::hash_constants
-use ori_ir::{FNV_OFFSET_BASIS, FNV_PRIME};
-
-/// Enum Hashable: FNV-1a hash of tag + per-variant payload fields.
+/// Enum Hashable: combine the ordinal, then the selected payload fields.
 ///
 /// Hashes the tag first, then switches on tag to hash variant-specific
 /// payload fields.
@@ -29,18 +27,16 @@ pub(super) fn emit_enum_hash_combine<'a>(
     let self_val = setup.self_val.expect("HashCombine has self");
     let func_id = setup.func_id;
 
-    // Hash the tag first
-    let mut hash = fc.builder_mut().const_i64(FNV_OFFSET_BASIS as i64);
-    let prime = fc.builder_mut().const_i64(FNV_PRIME as i64);
-
-    let tag = fc.builder_mut().extract_value(self_val, 0, "hash.tag");
-    if let Some(tag_val) = tag {
-        // tag is narrowed (i8/i16/i32) — zext to i64 for hash arithmetic.
-        let i64_ty = fc.builder_mut().i64_type();
-        let tag_i64 = fc.builder_mut().zext(tag_val, i64_ty, "hash.tag.ext");
-        let xored = fc.builder_mut().xor(hash, tag_i64, "hash.xor.tag");
-        hash = fc.builder_mut().mul(xored, prime, "hash.mul.tag");
-    }
+    let tag = fc
+        .builder_mut()
+        .extract_value(self_val, 0, "hash.tag")
+        .expect("tag extraction for derived Hashable");
+    // The physical tag is the zero-based declaration ordinal. It may be
+    // narrowed, so extend it to the semantic `int` width before combining.
+    let i64_ty = fc.builder_mut().i64_type();
+    let tag_i64 = fc.builder_mut().zext(tag, i64_ty, "hash.tag.ext");
+    let zero = fc.builder_mut().const_i64(0);
+    let hash = emit_hash_combine(fc, zero, tag_i64, "hash.tag");
 
     // check for non-void payload fields, not just non-unit variants.
     let has_payload = variants
@@ -107,7 +103,6 @@ fn emit_enum_payload_hash<'a>(
     fc.builder_mut().unreachable();
 
     let i64_ty = fc.builder_mut().i64_type();
-    let prime = fc.builder_mut().const_i64(FNV_PRIME as i64);
 
     // Collect (variant_bb_end, hash_result) for phi node
     let mut phi_incoming: Vec<(ValueId, BlockId)> = Vec::new();
@@ -148,12 +143,7 @@ fn emit_enum_payload_hash<'a>(
                 str_ty_id,
             );
 
-            let xored =
-                fc.builder_mut()
-                    .xor(hash, field_as_i64, &format!("hash.v{tag_idx}.xor.{fi}"));
-            hash = fc
-                .builder_mut()
-                .mul(xored, prime, &format!("hash.v{tag_idx}.mul.{fi}"));
+            hash = emit_hash_combine(fc, hash, field_as_i64, &format!("hash.v{tag_idx}.f{fi}"));
 
             let field_bytes = TypeLayoutResolver::type_store_size(field_llvm_ty);
             i64_offset += field_bytes.div_ceil(8).max(1);

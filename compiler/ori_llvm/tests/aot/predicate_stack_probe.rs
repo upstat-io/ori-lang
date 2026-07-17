@@ -2035,10 +2035,6 @@ fn probe_list_contains_borrowed_read_no_payload_negative() {
 /// view's own read (use-after-free / double-free). The decline is correct;
 /// BUG-04-269 is a gap in the fallback placement path, not in this vet.
 #[test]
-#[ignore = "BUG-04-269: branchy map-index unwrap()+substring() double-frees; \
-            retain_aliasing's scalar-decline gate correctly declines admission \
-            on this shape (prevents an unsound placement) but no other pass \
-            covers it, so the pre-existing double-free stays live"]
 fn probe_retain_aliasing_untracked_sharing_view_declines_no_uaf() {
     let src = r#"
 @main () -> int = {

@@ -219,6 +219,22 @@ pub(crate) fn infer_binary(
                     ));
                     return Idx::ERROR;
                 }
+
+                // Trait presence is only the semantic gate. Resolve the exact
+                // method as well so a concrete use of a generic impl publishes
+                // its monomorphized body demand before executable realization.
+                if resolve_binary_op_via_trait(
+                    engine,
+                    arena,
+                    resolved_left,
+                    right_ty,
+                    right,
+                    op,
+                    span,
+                ) == Some(Idx::ERROR)
+                {
+                    return Idx::ERROR;
+                }
             }
 
             // Unify left and right operands

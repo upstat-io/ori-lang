@@ -187,7 +187,7 @@ pub fn lower_module(
     }
 
     for impl_def in &module.impls {
-        let Some(type_name) = impl_def.type_name() else {
+        let Some(type_name) = impl_def.semantic_type_name(interner) else {
             continue;
         };
 
@@ -201,6 +201,7 @@ pub fn lower_module(
                 method_roots.push(MethodRoot {
                     type_name,
                     method_name: method.name,
+                    source_body: method.body,
                     body: can_id,
                 });
             }
@@ -216,6 +217,7 @@ pub fn lower_module(
                             method_roots.push(MethodRoot {
                                 type_name,
                                 method_name: dm.name,
+                                source_body: dm.body,
                                 body: can_id,
                             });
                         }
@@ -232,6 +234,7 @@ pub fn lower_module(
                 method_roots.push(MethodRoot {
                     type_name: extend_def.target_type_name,
                     method_name: method.name,
+                    source_body: method.body,
                     body: can_id,
                 });
             }
@@ -245,6 +248,7 @@ pub fn lower_module(
                 method_roots.push(MethodRoot {
                     type_name: def_impl_def.trait_name,
                     method_name: method.name,
+                    source_body: method.body,
                     body: can_id,
                 });
             }

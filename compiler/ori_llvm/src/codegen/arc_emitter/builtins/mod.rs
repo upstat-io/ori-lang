@@ -37,7 +37,7 @@
 ///
 /// # Usage
 ///
-/// ```ignore
+/// ```text
 /// declare_builtins! { emitter, ctx;
 ///     ("int", "abs") => emitter.emit_int_abs(ctx),
 ///     ("int", "clone") => Some(ctx.arg_vals[0]),

@@ -46,6 +46,7 @@ impl Default for ArcFunction {
             reassign_deaths: Vec::new(),
             catch_scoped_checked_ops: Vec::new(),
             method_call_facts: Vec::new(),
+            direct_call_facts: Vec::new(),
             class_ledger_emission: false,
         }
     }
@@ -58,7 +59,16 @@ impl super::ArcFunction {
         self.method_call_facts
             .iter()
             .find(|fact| fact.destination == destination)
-            .copied()
+            .cloned()
+    }
+
+    /// Return exact generated free-call provenance for one result register.
+    #[must_use]
+    pub fn direct_call_fact(&self, destination: ArcVarId) -> Option<super::DirectCallFact> {
+        self.direct_call_facts
+            .iter()
+            .find(|fact| fact.destination == destination)
+            .cloned()
     }
 
     /// Look up the type of a variable.

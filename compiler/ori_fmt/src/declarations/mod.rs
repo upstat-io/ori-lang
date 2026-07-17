@@ -13,18 +13,18 @@
 //!
 //! # Modules
 //!
-//! - [`parsed_types`]: Type expression formatting and width calculation
-//! - [`functions`]: Function declaration formatting
-//! - [`types`]: Type declaration formatting (struct, sum, newtype)
-//! - [`traits`]: Trait definition formatting
-//! - [`impls`]: Impl block formatting
-//! - [`def_impls`]: Default implementation block formatting
-//! - [`extends`]: Extension block formatting
-//! - [`imports`]: Import statement formatting
-//! - [`configs`]: Constant definition formatting
-//! - [`tests_fmt`]: Test definition formatting
-//! - [`comments`]: Comment handling and emission
-//! - [`attributes`]: File / item / repr attribute emission
+//! - `parsed_types`: Type expression formatting and width calculation
+//! - `functions`: Function declaration formatting
+//! - `types`: Type declaration formatting (struct, sum, newtype)
+//! - `traits`: Trait definition formatting
+//! - `impls`: Impl block formatting
+//! - `def_impls`: Default implementation block formatting
+//! - `extends`: Extension block formatting
+//! - `imports`: Import statement formatting
+//! - `configs`: Constant definition formatting
+//! - `tests_fmt`: Test definition formatting
+//! - `comments`: Comment handling and emission
+//! - `attributes`: File / item / repr attribute emission
 
 mod attributes;
 mod comments;

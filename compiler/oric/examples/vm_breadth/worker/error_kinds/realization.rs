@@ -9,6 +9,7 @@ pub(super) fn program_realization_error_kind(
     error: &ProgramRealizationError,
 ) -> RealizationErrorKind {
     match error {
+        ProgramRealizationError::CallableCensus(_) => RealizationErrorKind::CallableCensus,
         ProgramRealizationError::ArcLowering { .. } => RealizationErrorKind::ArcLowering,
         ProgramRealizationError::LambdaSpecialization { .. } => {
             RealizationErrorKind::LambdaSpecialization
@@ -130,6 +131,7 @@ fn realization_error_kind(error: &RealizationError) -> RealizationErrorKind {
         Error::MissingCallable { .. } => call_kind(CallKind::MissingCallable),
         Error::InvalidClosureTarget { .. } => call_kind(CallKind::InvalidClosureTarget),
         Error::DuplicateDirectCallResult { .. } => call_kind(CallKind::DuplicateDirectCallResult),
+        Error::InvalidGeneratedCallProvenance { .. } => Kind::InvalidGeneratedCallProvenance,
         Error::TooManyBlocks { .. } => Kind::TooManyBlocks,
         Error::TooManyInstructions { .. } => Kind::TooManyInstructions,
     }

@@ -80,6 +80,10 @@ declare_builtins! { emitter, ctx;
     ("Size", "is_greater") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Size", "is_less_or_equal") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Size", "is_greater_or_equal") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    // Unit trait methods
+    ("void", "equals") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("void", "compare") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("void", "hash") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
     // String trait methods (equals, compare, hash, comparison predicates)
     ("str", "equals") => emitter.emit_str_trait_method(ctx.method, ctx.arg_vals),
     ("str", "is_equal") => emitter.emit_str_trait_method(ctx.method, ctx.arg_vals),
@@ -201,6 +205,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs = arg_vals[1];
 
         match type_info {
+            TypeInfo::Unit => Some(self.builder.const_bool(true)),
             TypeInfo::Int
             | TypeInfo::Bool
             | TypeInfo::Char
@@ -223,6 +228,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs = arg_vals[1];
 
         match type_info {
+            TypeInfo::Unit => Some(self.builder.const_i8(1)),
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
                 Some(self.builder.emit_icmp_ordering(lhs, rhs, "cmp", true))
             }
@@ -243,6 +249,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let i64_ty = self.builder.i64_type();
 
         match type_info {
+            TypeInfo::Unit => Some(self.builder.const_i64(0)),
             // int.hash() = identity (already i64)
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => Some(receiver),
             // float.hash(): normalize ±0 to +0, then bitcast to i64

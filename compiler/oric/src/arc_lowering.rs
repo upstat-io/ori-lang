@@ -139,6 +139,61 @@ pub fn lower_impl_method_to_arc(
     )
 }
 
+/// Lower one impl-method specialization by its exact parse-level body.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "thin wrapper over lower_function_can — params mirror the underlying API"
+)]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "downstream lower_function_can requires concrete FxHashMap — cannot generalize"
+)]
+pub fn lower_impl_method_to_arc_by_source(
+    name: Name,
+    sig: &FunctionSig,
+    source_body: ori_ir::ExprId,
+    canon: &CanonResult,
+    interner: &StringInterner,
+    pool: &Pool,
+    arc_problems: &mut Vec<ori_arc::ArcProblem>,
+    type_subst: Option<&FxHashMap<Idx, Idx>>,
+) -> (ArcFunction, Vec<ArcFunction>) {
+    let params: Vec<(Name, Idx)> = sig
+        .param_names
+        .iter()
+        .zip(sig.param_types.iter())
+        .map(|(&name, &ty)| (name, ty))
+        .collect();
+    let Some(body_id) = canon.method_root_for_source(source_body) else {
+        arc_problems.push(ori_arc::ArcProblem::InternalError {
+            message: format!(
+                "impl-method specialization {name:?} has no canonical root for source body {source_body:?}"
+            ),
+            span: ori_ir::Span::DUMMY,
+        });
+        return (
+            ori_arc::ArcFunction {
+                name,
+                return_type: sig.return_type,
+                ..ori_arc::ArcFunction::default()
+            },
+            Vec::new(),
+        );
+    };
+    ori_arc::lower_function_can(
+        name,
+        &params,
+        sig.return_type,
+        body_id,
+        canon,
+        interner,
+        pool,
+        arc_problems,
+        sig.is_fbip,
+        type_subst,
+    )
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "shared impl for lower_to_arc and lower_impl_method_to_arc"

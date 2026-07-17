@@ -65,6 +65,25 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    // Set structural trait methods
+    ("Set", "equals") => {
+        if let TypeInfo::Set { element } = ctx.type_info {
+            if ctx.arg_vals.len() >= 2 {
+                emitter.emit_set_equals(ctx.arg_vals[0], ctx.arg_vals[1], ctx.receiver_ty, *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Set", "hash") => {
+        if let TypeInfo::Set { element } = ctx.type_info {
+            emitter.emit_set_hash(ctx.arg_vals[0], ctx.receiver_ty, *element)
+        } else {
+            None
+        }
+    },
     // Option structural trait methods
     ("Option", "equals") => {
         if let TypeInfo::Option { inner } = ctx.type_info {
@@ -227,6 +246,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let type_info = self.type_info.get(elem_ty);
         match &type_info {
+            TypeInfo::Unit | TypeInfo::Never => Some(self.builder.const_bool(true)),
             TypeInfo::Int
             | TypeInfo::Bool
             | TypeInfo::Char
@@ -254,6 +274,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let key = *key;
                 let value = *value;
                 self.emit_map_equals(lhs, rhs, key, value)
+            }
+            TypeInfo::Set { element } => {
+                let element = *element;
+                self.emit_set_equals(lhs, rhs, elem_ty, element)
             }
             TypeInfo::Struct { fields } => {
                 let fields = fields.clone();
@@ -316,6 +340,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let type_info = self.type_info.get(elem_ty);
         match &type_info {
+            TypeInfo::Unit | TypeInfo::Never => Some(self.builder.const_i8(1)),
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
                 Some(self.builder.emit_icmp_ordering(lhs, rhs, "elem_cmp", true))
             }
@@ -368,6 +393,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let type_info = self.type_info.get(elem_ty);
         let i64_ty = self.builder.i64_type();
         match &type_info {
+            TypeInfo::Unit | TypeInfo::Never => Some(self.builder.const_i64(0)),
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => Some(val),
             TypeInfo::Float => {
                 let arg_vals = [val];
@@ -396,6 +422,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let key = *key;
                 let value = *value;
                 self.emit_map_hash(val, key, value)
+            }
+            TypeInfo::Set { element } => {
+                let element = *element;
+                self.emit_set_hash(val, elem_ty, element)
             }
             TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
                 self.emit_derived_hash_call(val, elem_ty)

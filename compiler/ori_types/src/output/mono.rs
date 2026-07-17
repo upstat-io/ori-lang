@@ -6,7 +6,7 @@
 use ori_ir::ExprId;
 use ori_ir::Name;
 
-use crate::Idx;
+use crate::{Idx, MethodProducer};
 
 /// A compile-time value used as a const generic argument.
 ///
@@ -100,6 +100,10 @@ pub struct MonoInstance {
     /// `Option<int>.new()` carry distinct `receiver_type` values even when their
     /// `concrete_param_types` and `concrete_return_type` post-substitution match.
     pub receiver_type: Option<Idx>,
+    /// Exact checker-selected producer for a method specialization.
+    ///
+    /// `None` is valid only for a top-level free-function instance.
+    pub method_producer: Option<MethodProducer>,
     /// Substituted parameter types (all type variables replaced with concrete types).
     pub concrete_param_types: Vec<Idx>,
     /// Substituted return type.
@@ -110,6 +114,15 @@ pub struct MonoInstance {
     /// cutoff). The ARC lowerer converts this to `FxHashMap` for O(1) lookup
     /// when lowering the shared canonical IR body into a monomorphized ARC
     /// function (matching Swift's clone-and-substitute strategy).
+    pub body_type_map: Vec<(Idx, Idx)>,
+}
+
+/// Concrete receiver/signature coordinates for one method specialization.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ConcreteMethodMono {
+    pub receiver_type: Idx,
+    pub param_types: Vec<Idx>,
+    pub return_type: Idx,
     pub body_type_map: Vec<(Idx, Idx)>,
 }
 
@@ -131,6 +144,7 @@ impl MonoInstance {
             impl_args: Vec::new(),
             method_args: Vec::new(),
             receiver_type: None,
+            method_producer: None,
             concrete_param_types,
             concrete_return_type,
             body_type_map,
@@ -147,22 +161,21 @@ impl MonoInstance {
     /// Asserts the resulting instance satisfies the top-level/method invariant.
     pub fn new_method(
         fn_name: Name,
+        method_producer: MethodProducer,
         impl_args: Vec<GenericArg>,
         method_args: Vec<GenericArg>,
-        receiver_type: Idx,
-        concrete_param_types: Vec<Idx>,
-        concrete_return_type: Idx,
-        body_type_map: Vec<(Idx, Idx)>,
+        concrete: ConcreteMethodMono,
     ) -> Self {
         let inst = Self {
             fn_name,
             generic_args: Vec::new(),
             impl_args,
             method_args,
-            receiver_type: Some(receiver_type),
-            concrete_param_types,
-            concrete_return_type,
-            body_type_map,
+            receiver_type: Some(concrete.receiver_type),
+            method_producer: Some(method_producer),
+            concrete_param_types: concrete.param_types,
+            concrete_return_type: concrete.return_type,
+            body_type_map: concrete.body_type_map,
         };
         inst.check_invariants();
         inst
@@ -184,6 +197,11 @@ impl MonoInstance {
                 self.fn_name,
                 self.generic_args,
             );
+            assert!(
+                self.method_producer.is_some(),
+                "MonoInstance invariant violated: method instance for {:?} must carry an exact producer",
+                self.fn_name,
+            );
         } else {
             assert!(
                 self.impl_args.is_empty(),
@@ -198,6 +216,11 @@ impl MonoInstance {
                  {:?} must have empty method_args (got method_args = {:?})",
                 self.fn_name,
                 self.method_args,
+            );
+            assert!(
+                self.method_producer.is_none(),
+                "MonoInstance invariant violated: top-level instance for {:?} must not carry a method producer",
+                self.fn_name,
             );
         }
     }

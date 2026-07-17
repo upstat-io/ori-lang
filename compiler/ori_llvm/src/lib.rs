@@ -14,11 +14,11 @@
 //!
 //! # Key Types
 //!
-//! - [`SimpleCx`](context::SimpleCx): Minimal LLVM context (module + types)
+//! - [`SimpleCx`]: Minimal LLVM context (module + types)
 //! - [`IrBuilder`](codegen::IrBuilder): ID-based LLVM instruction builder
 //! - [`FunctionCompiler`](codegen::function_compiler::FunctionCompiler): Two-pass compilation
 //! - [`TypeInfoStore`](codegen::TypeInfoStore): Type information cache
-//! - [`LLVMEvaluator`](evaluator::LLVMEvaluator): JIT evaluation
+//! - [`OwnedLLVMEvaluator`](evaluator::OwnedLLVMEvaluator): JIT evaluation
 
 #![warn(clippy::allow_attributes_without_reason)]
 #![allow(

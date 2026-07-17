@@ -79,11 +79,12 @@ def _is_leak_failure(message):
 
 # cargo libtest failure line: `test <name> ... FAILED`.
 _RUST_FAIL_RE = re.compile(r"^test\s+(?P<name>.*?)\s+\.\.\.\s+FAILED$")
-# cargo-nextest failure line: `<indent>FAIL [   0.038s] (7487/7887) <crate> <test::path>`.
+# cargo-nextest failure line: `<indent>FAIL|LEAK [   0.038s] (7487/7887) <crate> <test::path>`.
 # The `(n/total)` progress index is present in streamed runs, absent in some
 # modes; the time field varies (`0.038s` / `1.2s ` / `12.34s`). Both optional.
-_NEXTEST_FAIL_RE = re.compile(
-    r"^\s*FAIL \[[^\]]*\]\s+(?:\(\d+/\d+\)\s+)?(?P<crate>\S+)\s+(?P<name>\S+)\s*$"
+_NEXTEST_FAILURE_RE = re.compile(
+    r"^\s*(?P<status>FAIL|LEAK) \[[^\]]*\]\s+"
+    r"(?:\(\d+/\d+\)\s+)?(?P<crate>\S+)\s+(?P<name>\S+)\s*$"
 )
 
 
@@ -200,8 +201,8 @@ def _rust_failure_entries(text, suite, failure_kind):
     Matches both runner formats so failure-name attribution survives the
     cargo-test -> cargo-nextest runner switch:
     - cargo libtest:  `test <name> ... FAILED`
-    - cargo-nextest:  `<indent>FAIL [ <time> ] (<n>/<total>) <crate> <test::path>`
-    A test_id is emitted at most once even if both forms appear (dedup by id).
+    - cargo-nextest:  `<indent>FAIL|LEAK [ <time> ] (<n>/<total>) <crate> <test::path>`
+    A test/failure-kind pair is emitted at most once even if a runner repeats it.
 
     `failure_kind` is attributed PER TEST, never blanket-applied from the
     whole log: a test is "panic" only when its own `thread '<name>' panicked`
@@ -214,29 +215,36 @@ def _rust_failure_entries(text, suite, failure_kind):
         cargo = _RUST_FAIL_RE.match(line)
         if cargo:
             name = cargo.group("name")
-            if name in seen:
+            identity = (name, "FAIL")
+            if identity in seen:
                 continue
-            seen.add(name)
-            matches.append((name, f"test {name} ... FAILED"))
+            seen.add(identity)
+            matches.append((name, f"test {name} ... FAILED", "FAIL"))
             continue
-        nextest = _NEXTEST_FAIL_RE.match(line)
+        nextest = _NEXTEST_FAILURE_RE.match(line)
         if nextest:
             crate = nextest.group("crate")
             name = nextest.group("name")
-            if name in seen:
+            status = nextest.group("status")
+            identity = (name, status)
+            if identity in seen:
                 continue
-            seen.add(name)
-            matches.append((name, f"FAIL {crate} {name} (nextest)"))
+            seen.add(identity)
+            matches.append((name, f"{status} {crate} {name} (nextest)", status))
 
     solo_fallback = len(matches) == 1 and "panicked at" in text
     entries = []
-    for name, error_message in matches:
+    for name, error_message, status in matches:
         panicked = f"thread '{name}' panicked" in text or solo_fallback
         entries.append({
             "test_id": name,
             "test_id_kind": "rust",
             "suite": suite,
-            "failure_kind": "panic" if panicked else failure_kind,
+            "failure_kind": (
+                "process_leak"
+                if status == "LEAK"
+                else "panic" if panicked else failure_kind
+            ),
             "error_message": error_message,
         })
     return entries

@@ -31,12 +31,12 @@
 //!
 //! # Modules
 //!
-//! - [`inline`]: Single-line expression rendering
-//! - [`broken`]: Multi-line expression rendering
-//! - [`stacked`]: Always-multi-line constructs (run, try, match)
-//! - [`patterns`]: Match and binding pattern rendering
-//! - [`literals`]: Literal value rendering
-//! - [`operands`]: Operand emission for collections, calls, and wrappers (Layer 2, 4 integration)
+//! - `inline`: Single-line expression rendering
+//! - `broken`: Multi-line expression rendering
+//! - `stacked`: Always-multi-line constructs (run, try, match)
+//! - `patterns`: Match and binding pattern rendering
+//! - `literals`: Literal value rendering
+//! - `operands`: Operand emission for collections, calls, and wrappers (Layer 2, 4 integration)
 
 mod broken;
 mod inline;

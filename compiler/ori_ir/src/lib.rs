@@ -166,6 +166,7 @@ pub use ast::{
     TemplatePartRange,
     TestBackend,
     TestDef,
+    TestId,
     TraitAssocType,
     TraitBound,
     // Trait types

@@ -64,6 +64,7 @@ pub(crate) enum FrontendErrorKind {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RealizationErrorKind {
+    CallableCensus,
     ArcLowering,
     LambdaSpecialization,
     OperatorCallResolution,
@@ -148,6 +149,7 @@ pub(crate) enum RealizationErrorKind {
     MissingCallable,
     InvalidClosureTarget,
     DuplicateDirectCallResult,
+    InvalidGeneratedCallProvenance,
     TooManyBlocks,
     TooManyInstructions,
 }

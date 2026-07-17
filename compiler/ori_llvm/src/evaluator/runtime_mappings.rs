@@ -230,6 +230,8 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_set_literal_put" => runtime::set::ori_set_literal_put as *const () as usize,
         "ori_set_buffer_rc_dec" => runtime::ori_set_buffer_rc_dec as *const () as usize,
         "ori_set_buffer_drop_unique" => runtime::ori_set_buffer_drop_unique as *const () as usize,
+        "ori_set_eq" => runtime::set::ori_set_eq as *const () as usize,
+        "ori_set_hash" => runtime::set::ori_set_hash as *const () as usize,
         // Iterator sources
         "ori_iter_from_list" => runtime::iterator::ori_iter_from_list as *const () as usize,
         "ori_iter_from_range" => runtime::iterator::ori_iter_from_range as *const () as usize,

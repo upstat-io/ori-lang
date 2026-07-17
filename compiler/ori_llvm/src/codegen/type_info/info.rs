@@ -255,7 +255,7 @@ impl TypeInfo {
     ///
     /// Returns `Some("int")` for `TypeInfo::Int`, `Some("Option")` for
     /// `TypeInfo::Option { .. }`, etc. Returns `None` for types without
-    /// builtin methods (Unit, Never, user-defined structs/enums).
+    /// builtin methods (Never and user-defined structs/enums).
     ///
     /// Naming convention follows `ori_registry`: lowercase for
     /// primitive syntax types (`int`, `str`, `list`, `map`, `range`, `tuple`),
@@ -268,6 +268,7 @@ impl TypeInfo {
             Self::Bool => Some("bool"),
             Self::Char => Some("char"),
             Self::Byte => Some("byte"),
+            Self::Unit => Some("void"),
             Self::Str => Some("str"),
             Self::Duration => Some("Duration"),
             Self::Size => Some("Size"),
@@ -283,11 +284,7 @@ impl TypeInfo {
             Self::Channel { .. } => Some("Channel"),
             Self::Error => Some("error"),
             // No builtin methods for these types
-            Self::Unit
-            | Self::Never
-            | Self::Struct { .. }
-            | Self::Enum { .. }
-            | Self::Function { .. } => None,
+            Self::Never | Self::Struct { .. } | Self::Enum { .. } | Self::Function { .. } => None,
         }
     }
 

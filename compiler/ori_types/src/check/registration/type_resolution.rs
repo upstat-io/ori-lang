@@ -297,6 +297,24 @@ pub(crate) fn resolve_type_with_method_generics(
     self_type: Idx,
 ) -> Idx {
     let arena = checker.arena();
+    resolve_type_with_method_generics_from(
+        checker,
+        parsed,
+        method_substitutions,
+        type_params,
+        self_type,
+        arena,
+    )
+}
+
+pub(crate) fn resolve_type_with_method_generics_from(
+    checker: &mut ModuleChecker<'_>,
+    parsed: &ParsedType,
+    method_substitutions: &FxHashMap<Name, Idx>,
+    type_params: &[Name],
+    self_type: Idx,
+    arena: &ExprArena,
+) -> Idx {
     resolve_type_with_overlay_inner(
         checker,
         parsed,
@@ -686,6 +704,30 @@ pub(crate) fn build_method_generic_metadata(
     Vec<WhereConstraint>,
 ) {
     let generic_params = checker.arena().get_generic_params(generics).to_vec();
+    build_method_generic_metadata_from(
+        checker,
+        &generic_params,
+        where_clauses,
+        outer_type_params,
+        self_type,
+        checker.arena(),
+    )
+}
+
+pub(crate) fn build_method_generic_metadata_from(
+    checker: &mut ModuleChecker<'_>,
+    generic_params: &[ori_ir::GenericParam],
+    where_clauses: &[WhereClause],
+    outer_type_params: &[Name],
+    self_type: Idx,
+    arena: &ExprArena,
+) -> (
+    Vec<u32>,
+    FxHashMap<Name, Idx>,
+    Vec<GenericParamMeta>,
+    Vec<WhereConstraint>,
+) {
+    let generic_params = generic_params.to_vec();
 
     let method_type_param_names: Vec<Name> = generic_params
         .iter()
@@ -709,15 +751,28 @@ pub(crate) fn build_method_generic_metadata(
             .map(|tb| checker.pool_mut().named(tb.name()))
             .collect();
 
-        let default_type = p
-            .default_type
-            .as_ref()
-            .map(|dt| resolve_type_with_self(checker, dt, &combined_scope, self_type));
+        let empty_overlay = FxHashMap::default();
+        let default_type = p.default_type.as_ref().map(|dt| {
+            resolve_type_with_method_generics_from(
+                checker,
+                dt,
+                &empty_overlay,
+                &combined_scope,
+                self_type,
+                arena,
+            )
+        });
 
-        let const_type = p
-            .const_type
-            .as_ref()
-            .map(|ct| resolve_type_with_self(checker, ct, &combined_scope, self_type));
+        let const_type = p.const_type.as_ref().map(|ct| {
+            resolve_type_with_method_generics_from(
+                checker,
+                ct,
+                &empty_overlay,
+                &combined_scope,
+                self_type,
+                arena,
+            )
+        });
 
         if !p.is_const {
             let var_idx = checker.pool_mut().fresh_named_var(p.name);

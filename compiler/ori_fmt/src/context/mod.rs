@@ -291,11 +291,14 @@ impl<E: Emitter> FormatContext<E> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// use ori_fmt::{FormatContext, TokenCategory};
+    ///
+    /// let mut ctx = FormatContext::new();
     /// ctx.emit_token(TokenCategory::Ident, "foo");
     /// ctx.emit_token(TokenCategory::Plus, "+");  // Auto-adds space before
     /// ctx.emit_token(TokenCategory::Ident, "bar"); // Auto-adds space before
-    /// // Result: "foo + bar"
+    /// assert_eq!(ctx.output(), "foo + bar");
     /// ```
     pub fn emit_token(&mut self, category: TokenCategory, text: &str) {
         if let Some(action) = self.spacing_for(category) {

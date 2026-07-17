@@ -8,10 +8,12 @@
 ///
 /// # Usage
 ///
-/// ```ignore
-/// self.in_error_context(ErrorContext::IfExpression, |p| {
-///     p.parse_if_expr_inner()
-/// })
+/// ```
+/// use ori_parse::ErrorContext;
+///
+/// let context = ErrorContext::IfExpression;
+/// assert_eq!(context.description(), "an if expression");
+/// assert_eq!(context.label(), "if expression");
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ErrorContext {

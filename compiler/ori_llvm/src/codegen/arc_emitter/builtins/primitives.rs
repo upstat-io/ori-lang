@@ -33,6 +33,7 @@ declare_builtins! { emitter, ctx;
     // byte
     ("byte", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("byte", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("byte", "to_str") => emitter.emit_element_to_str(ctx.arg_vals[0], ctx.receiver_ty),
     ("byte", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
     // Duration
     ("Duration", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
@@ -60,6 +61,9 @@ declare_builtins! { emitter, ctx;
     ("Ordering", "to_str") => emitter.emit_element_to_str(ctx.arg_vals[0], ctx.receiver_ty),
     ("Ordering", "then") => emitter.emit_ordering_then(ctx.arg_vals),
     ("Ordering", "then_with") => emitter.emit_ordering_then_with(ctx.arg_vals, ctx.receiver_ty),
+    // void
+    ("void", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("void", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
 }
 
 use crate::codegen::type_info::TypeInfo;

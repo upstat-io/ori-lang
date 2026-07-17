@@ -14,6 +14,7 @@ use std::hash::{Hash, Hasher};
 /// - Equality: O(1) integer compare
 /// - Cache locality: indices into contiguous array
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 #[repr(transparent)]
 pub struct ExprId(u32);
 

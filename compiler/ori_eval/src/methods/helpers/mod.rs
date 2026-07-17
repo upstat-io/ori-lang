@@ -169,7 +169,7 @@ pub fn debug_value(val: &Value, interner: &dyn StringLookup) -> String {
         Value::Str(s) => format!("\"{}\"", escape_debug_str(s)),
         Value::Char(c) => format!("'{}'", escape_debug_char(*c)),
         Value::Byte(b) => format!("0x{b:02x}"),
-        Value::Void => "void".to_string(),
+        Value::Void => "()".to_string(),
         Value::None => "None".to_string(),
         Value::Some(v) => format!("Some({})", debug_value(v, interner)),
         Value::Ok(v) => format!("Ok({})", debug_value(v, interner)),

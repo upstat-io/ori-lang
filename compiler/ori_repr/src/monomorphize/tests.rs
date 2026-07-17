@@ -1,6 +1,9 @@
 use ori_arc::MemoryContract;
 use ori_ir::{DerivedImplId, DerivedTrait, Name, Span, StringInterner};
-use ori_types::{AcceptedDerivedImpl, FunctionSig, GenericArg, Idx, ImplSig, MonoInstance, Pool};
+use ori_types::{
+    AcceptedDerivedImpl, ConcreteMethodMono, FunctionSig, GenericArg, Idx, ImplMethodId, ImplSig,
+    MethodProducer, MonoInstance, Pool,
+};
 
 use crate::executable::{
     ExternalCallable, ExternalCallableMetadata, ExternalFactIdentities, ExternalUnwind,
@@ -284,12 +287,15 @@ fn collect_does_not_consult_import_sigs_for_methods() {
     // Method instance: receiver_type = Some(Idx::INT).
     let instance = MonoInstance::new_method(
         method_name,
+        MethodProducer::Impl(ImplMethodId::new(99, ori_ir::ExprId::INVALID)),
         vec![GenericArg::Type(Idx::INT)], // impl_args
         vec![],                           // method_args
-        Idx::INT,                         // receiver_type
-        vec![Idx::INT],                   // concrete_param_types
-        Idx::INT,                         // concrete_return_type
-        Vec::new(),                       // body_type_map
+        ConcreteMethodMono {
+            receiver_type: Idx::INT,
+            param_types: vec![Idx::INT],
+            return_type: Idx::INT,
+            body_type_map: Vec::new(),
+        },
     );
 
     let mono_fns = collect_mono_functions(
@@ -586,17 +592,21 @@ fn collect_resolves_same_method_name_on_distinct_receiver_shells() {
 
     let sig_box = make_method_sig(&interner, get_name, box_generic);
     let sig_wrap = make_method_sig(&interner, get_name, wrap_generic);
+    let box_method_id = ImplMethodId::new(0, ori_ir::ExprId::INVALID);
+    let wrap_method_id = ImplMethodId::new(1, ori_ir::ExprId::INVALID);
     let impl_sigs = vec![
         ImplSig {
-            id: ori_types::ImplMethodId::new(0, ori_ir::ExprId::INVALID),
+            id: box_method_id,
             receiver: box_generic,
+            trait_type: None,
             name: get_name,
             role: ori_types::ImplMethodRole::Ordinary,
             sig: sig_box,
         },
         ImplSig {
-            id: ori_types::ImplMethodId::new(1, ori_ir::ExprId::INVALID),
+            id: wrap_method_id,
             receiver: wrap_generic,
+            trait_type: None,
             name: get_name,
             role: ori_types::ImplMethodRole::Ordinary,
             sig: sig_wrap,
@@ -605,21 +615,27 @@ fn collect_resolves_same_method_name_on_distinct_receiver_shells() {
 
     let inst_box = MonoInstance::new_method(
         get_name,
+        MethodProducer::Impl(box_method_id),
         vec![GenericArg::Type(Idx::INT)],
         vec![],
-        box_int,
-        vec![box_int],
-        Idx::INT,
-        Vec::new(),
+        ConcreteMethodMono {
+            receiver_type: box_int,
+            param_types: vec![box_int],
+            return_type: Idx::INT,
+            body_type_map: Vec::new(),
+        },
     );
     let inst_wrap = MonoInstance::new_method(
         get_name,
+        MethodProducer::Impl(wrap_method_id),
         vec![GenericArg::Type(Idx::INT)],
         vec![],
-        wrap_int,
-        vec![wrap_int],
-        Idx::INT,
-        Vec::new(),
+        ConcreteMethodMono {
+            receiver_type: wrap_int,
+            param_types: vec![wrap_int],
+            return_type: Idx::INT,
+            body_type_map: Vec::new(),
+        },
     );
 
     let mono_fns = collect_mono_functions(
@@ -691,9 +707,11 @@ fn collect_resolves_no_self_assoc_fn_by_owning_receiver_shell() {
         return_hash: 0,
         return_projection: None,
     };
+    let method_id = ImplMethodId::new(0, ori_ir::ExprId::INVALID);
     let impl_sigs = vec![ImplSig {
-        id: ori_types::ImplMethodId::new(0, ori_ir::ExprId::INVALID),
+        id: method_id,
         receiver: box_generic,
+        trait_type: None,
         name: new_name,
         role: ori_types::ImplMethodRole::Ordinary,
         sig: assoc_sig,
@@ -701,12 +719,15 @@ fn collect_resolves_no_self_assoc_fn_by_owning_receiver_shell() {
 
     let inst = MonoInstance::new_method(
         new_name,
+        MethodProducer::Impl(method_id),
         vec![GenericArg::Type(Idx::INT)],
         vec![],
-        box_int,        // receiver `Box<int>`
-        vec![Idx::INT], // concrete value param (no self)
-        box_int,        // return `Box<int>`
-        Vec::new(),
+        ConcreteMethodMono {
+            receiver_type: box_int,
+            param_types: vec![Idx::INT],
+            return_type: box_int,
+            body_type_map: Vec::new(),
+        },
     );
 
     let mono_fns = collect_mono_functions(&[inst], &[], &impl_sigs, &[], &[], &interner, &pool);
@@ -762,12 +783,15 @@ fn collect_resolves_generic_derived_signature_with_stable_origin_and_instance_id
     };
     let instance = MonoInstance::new_method(
         eq_method_name,
+        MethodProducer::Derived(derived_id),
         vec![GenericArg::Type(Idx::INT)],
         vec![],
-        concrete_owner,
-        vec![concrete_owner],
-        Idx::BOOL,
-        vec![(type_param, Idx::INT)],
+        ConcreteMethodMono {
+            receiver_type: concrete_owner,
+            param_types: vec![concrete_owner],
+            return_type: Idx::BOOL,
+            body_type_map: vec![(type_param, Idx::INT)],
+        },
     );
 
     // Duplicate concrete instances collapse to one function while retaining
@@ -786,6 +810,7 @@ fn collect_resolves_generic_derived_signature_with_stable_origin_and_instance_id
     let mono = &mono_fns[0];
     assert_eq!(mono.origin, MonoFunctionOrigin::Derived(derived_id));
     assert_eq!(mono.original_name, eq_method_name);
+    assert_eq!(mono.receiver_type, Some(concrete_owner));
     assert_eq!(mono.receiver_type_name, Some(box_name));
     assert!(mono.sig.type_params.is_empty());
     assert_eq!(mono.sig.param_types, vec![concrete_owner, concrete_owner]);
@@ -816,8 +841,9 @@ fn collect_skips_method_when_no_shell_matches() {
 
     let sig_box = make_method_sig(&interner, get_name, box_generic);
     let impl_sigs = vec![ImplSig {
-        id: ori_types::ImplMethodId::new(0, ori_ir::ExprId::INVALID),
+        id: ImplMethodId::new(0, ori_ir::ExprId::INVALID),
         receiver: box_generic,
+        trait_type: None,
         name: get_name,
         role: ori_types::ImplMethodRole::Ordinary,
         sig: sig_box,
@@ -826,12 +852,15 @@ fn collect_skips_method_when_no_shell_matches() {
     // Receiver is Other<int> — name matches `get` but shell does not.
     let inst = MonoInstance::new_method(
         get_name,
+        MethodProducer::Impl(ImplMethodId::new(1, ori_ir::ExprId::INVALID)),
         vec![GenericArg::Type(Idx::INT)],
         vec![],
-        other_int,
-        vec![other_int],
-        Idx::INT,
-        Vec::new(),
+        ConcreteMethodMono {
+            receiver_type: other_int,
+            param_types: vec![other_int],
+            return_type: Idx::INT,
+            body_type_map: Vec::new(),
+        },
     );
 
     let mono_fns = collect_mono_functions(&[inst], &[], &impl_sigs, &[], &[], &interner, &pool);

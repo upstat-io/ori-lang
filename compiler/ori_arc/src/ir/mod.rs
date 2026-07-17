@@ -35,7 +35,7 @@ pub use repr::{
 };
 
 use ori_ir::{BinaryOp, DurationUnit, Name, SizeUnit, Span, UnaryOp};
-use ori_types::Idx;
+use ori_types::{DerivedCallPosition, Idx, MethodProducer};
 
 use crate::uniqueness::{CowAnnotations, DropHints};
 use crate::Ownership;
@@ -464,7 +464,7 @@ pub enum MethodCallForm {
 /// durable key across block movement. User-impl closure and builtin-registry
 /// closure both consume this fact; a free function with the same spelling has
 /// no fact and therefore cannot be cross-wired to a method.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct MethodCallFact {
     /// Result register defined by the `Apply` or `Invoke` call.
@@ -473,6 +473,25 @@ pub struct MethodCallFact {
     pub receiver_type: Idx,
     /// Whether the receiver is an explicit source operand.
     pub form: MethodCallForm,
+    /// Exact executable producer when this call was compiler-generated.
+    ///
+    /// Source calls not yet frozen at this seam carry `None`; every generated
+    /// call must carry `Some` before executable closure.
+    pub producer: Option<MethodProducer>,
+    /// Structural generated-body position paired with [`Self::producer`].
+    pub derived_position: Option<DerivedCallPosition>,
+}
+
+/// Exact producer provenance for a compiler-generated direct free call.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub struct DirectCallFact {
+    /// Result register defined by the direct `Apply` or `Invoke`.
+    pub destination: ArcVarId,
+    /// Exact executable producer selected by type checking.
+    pub producer: MethodProducer,
+    /// Structural generated-body position.
+    pub derived_position: DerivedCallPosition,
 }
 
 /// A complete function in the ARC IR.
@@ -656,6 +675,9 @@ pub struct ArcFunction {
     /// stream before selecting any physical backend.
     #[cfg_attr(feature = "cache", serde(default))]
     pub method_call_facts: Vec<MethodCallFact>,
+    /// Exact compiler-generated free-call producer facts.
+    #[cfg_attr(feature = "cache", serde(default))]
+    pub direct_call_facts: Vec<DirectCallFact>,
     /// Whether the class-ledger emitter committed its verified Step-4b plan for
     /// this function.
     ///

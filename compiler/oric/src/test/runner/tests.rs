@@ -417,7 +417,9 @@ fn test_backend_skip_reason_matches_named_backend_only() {
     let name = interner.intern("t");
     let reason = interner.intern("AOT N/A");
     let test = TestDef {
+        id: ori_ir::TestId::new(0),
         name,
+        display_name: name,
         targets: vec![],
         params: ori_ir::ParamRange::default(),
         return_ty: None,

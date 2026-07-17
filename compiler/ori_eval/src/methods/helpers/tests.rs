@@ -116,7 +116,7 @@ fn debug_value_byte() {
 
 #[test]
 fn debug_value_void() {
-    assert_eq!(debug_value(&Value::Void, &interner()), "void");
+    assert_eq!(debug_value(&Value::Void, &interner()), "()");
 }
 
 #[test]

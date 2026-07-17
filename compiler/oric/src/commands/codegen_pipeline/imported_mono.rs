@@ -121,6 +121,7 @@ pub(crate) fn build_imported_mono_functions(
                 body_type_map,
                 instance_ids: vec![instance_id],
                 is_imported: true,
+                receiver_type: None,
                 // Cross-module imported methods are out of scope here; imported
                 // monos today are top-level free functions (free-function body
                 // namespace).

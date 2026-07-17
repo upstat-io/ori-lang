@@ -22,14 +22,13 @@
 //!
 //! ## Usage
 //!
-//! ```ignore
-//! fn parse_atom(&mut self) -> ParseOutcome<Expr> {
-//!     one_of!(self,
-//!         self.parse_literal(),    // Try literal first
-//!         self.parse_ident(),      // Then identifier
-//!         self.parse_paren_expr(), // Then parenthesized
-//!     )
-//! }
+//! ```
+//! use ori_parse::{ParseOutcome, TokenSet};
+//!
+//! let literal: ParseOutcome<&str> = ParseOutcome::empty_err(TokenSet::new(), 0);
+//! let atom = literal.or_else(|| ParseOutcome::consumed_ok("identifier"));
+//!
+//! assert!(matches!(atom, ParseOutcome::ConsumedOk { value: "identifier" }));
 //! ```
 //!
 //! ## Integration
@@ -228,9 +227,18 @@ impl<T> ParseOutcome<T> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// self.parse_condition()
-    ///     .with_error_context(ErrorContext::IfExpression)
+    /// ```
+    /// use ori_parse::{ErrorContext, ParseError, ParseOutcome, TokenSet};
+    ///
+    /// let error = ParseError::from_expected_tokens(&TokenSet::new(), 8);
+    /// let span = error.span();
+    /// let outcome: ParseOutcome<()> = ParseOutcome::consumed_err(error, span)
+    ///     .with_error_context(ErrorContext::IfExpression);
+    ///
+    /// let ParseOutcome::ConsumedErr { error, .. } = outcome else {
+    ///     panic!("expected a hard parse error");
+    /// };
+    /// assert_eq!(error.context(), Some("while parsing an if expression"));
     /// ```
     #[must_use]
     pub fn with_error_context(self, context: ErrorContext) -> Self {

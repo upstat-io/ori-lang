@@ -109,6 +109,7 @@ pub struct FormatSpecTypes {
 /// dispatch on it rather than on `sig.param_types.first()`, which is the
 /// first VALUE param — not the receiver — for a no-`self` associated function.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Ord, PartialOrd)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct ImplMethodId {
     /// Position of the owning impl block in `Module::impls`.
     impl_index: usize,
@@ -156,11 +157,34 @@ pub struct ImplSig {
     pub id: ImplMethodId,
     /// The impl block's receiver type.
     pub receiver: Idx,
+    /// Exact trait implemented by the owning block; `None` for inherent impls.
+    pub trait_type: Option<Idx>,
     /// The method's name.
     pub name: Name,
     /// Semantic role assigned by the type-checker authority.
     pub role: ImplMethodRole,
     /// The method's resolved signature.
+    pub sig: FunctionSig,
+}
+
+/// One producer-owned impl method template imported into this module.
+///
+/// Every type coordinate is re-created in the importing module's pool. The
+/// exact producer remains stable across module-local `ExprId` and impl-index
+/// spaces through [`super::MethodProducer::Imported`].
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct ImportedImplSig {
+    /// Stable producer-module identity for this exact method body.
+    pub producer: super::MethodProducer,
+    /// Generic receiver pattern in the importing module's pool.
+    pub receiver: Idx,
+    /// Exact implemented trait in the importing module's pool.
+    pub trait_type: Option<Idx>,
+    /// Source method name.
+    pub name: Name,
+    /// Whether the source signature includes `self` as its first parameter.
+    pub has_self: bool,
+    /// Importer-pool method signature used to close concrete mono demands.
     pub sig: FunctionSig,
 }
 
@@ -229,11 +253,23 @@ pub struct TypedModule {
     /// on the owning receiver rather than the first value param.
     pub impl_sigs: Vec<ImplSig>,
 
+    /// Imported impl templates reachable through this module's imports.
+    ///
+    /// These are semantic lookup/codegen inputs, not locally-owned bodies.
+    pub imported_impl_sigs: Vec<ImportedImplSig>,
+
     /// Derived implementations accepted by validation and coherence.
     ///
     /// This is the only downstream authority for compiler-generated derive
     /// bodies. Raw source attributes are not an executable inventory.
     pub accepted_derives: Vec<super::AcceptedDerivedImpl>,
+
+    /// Concrete nested-call selections for accepted generated bodies.
+    ///
+    /// Each plan is frozen while trait coherence and concrete substitutions
+    /// coexist. Realization consumes these facts without redispatching by
+    /// receiver shape or method spelling.
+    pub derived_call_plans: Vec<super::DerivedCallPlan>,
 
     /// Trait impl method identities: `(self_type_idx, method_name)`.
     ///
@@ -249,9 +285,10 @@ pub struct TypedModule {
 
     /// Monomorphization instances discovered during type checking.
     ///
-    /// Each entry represents a unique `(fn_name, generic_args)` combination
-    /// found at a call site. The LLVM backend uses these to stamp out
-    /// concrete specializations of generic functions.
+    /// Each entry represents one unique concrete generic callable identity.
+    /// Most originate at call sites; operator-selected generic methods also
+    /// appear here without a corresponding `mono_dispatch_map` entry. Physical
+    /// backends use the inventory to stamp out concrete specializations.
     pub mono_instances: Vec<MonoInstance>,
 
     /// Map from AST `ExprId` of a generic call site to its resolved
@@ -399,7 +436,9 @@ impl TypedModule {
             warnings: Vec::new(),
             pattern_resolutions: SparseSideTable::new(),
             impl_sigs: Vec::new(),
+            imported_impl_sigs: Vec::new(),
             accepted_derives: Vec::new(),
+            derived_call_plans: Vec::new(),
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
             mono_dispatch_map: SparseSideTable::new(),

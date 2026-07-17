@@ -90,6 +90,28 @@ impl TraitRegistry {
         self.impls.get(impl_idx)
     }
 
+    /// Return the exact producer selected from one registered impl method.
+    pub(crate) fn method_producer(
+        &self,
+        impl_idx: usize,
+        method: &ImplMethodDef,
+    ) -> Option<crate::MethodProducer> {
+        match self.impl_origins.get(impl_idx)?.as_ref()? {
+            super::RegisteredImplOrigin::Source { impl_index } => Some(
+                crate::MethodProducer::Impl(crate::ImplMethodId::new(*impl_index, method.body)),
+            ),
+            super::RegisteredImplOrigin::Derived(id) => Some(crate::MethodProducer::Derived(*id)),
+            super::RegisteredImplOrigin::Imported(methods) => {
+                methods
+                    .get(&method.body)
+                    .map(|origin| crate::MethodProducer::Imported {
+                        symbol: origin.symbol.clone(),
+                        signature_hash: origin.signature_hash,
+                    })
+            }
+        }
+    }
+
     /// Get a mutable impl entry by index.
     #[inline]
     pub fn get_impl_mut(&mut self, impl_idx: usize) -> Option<&mut ImplEntry> {

@@ -126,6 +126,62 @@ show_suite_outputs() {
     fi
 }
 
+clear_leak_metrics() {
+    local prefix="$1"
+    local -n rc_tests="${prefix}_RC_LEAK_TESTS"
+    local -n rc_allocations="${prefix}_RC_LEAK_ALLOCATIONS"
+    local -n rc_check="${prefix}_RC_LEAK_CHECK"
+    local -n process_tests="${prefix}_PROCESS_LEAK_TESTS"
+    local -n process_check="${prefix}_PROCESS_LEAK_CHECK"
+    local -n parse_error="${prefix}_LEAK_PARSE_ERROR"
+    rc_tests=0
+    rc_allocations=0
+    rc_check=0
+    process_tests=0
+    process_check=0
+    parse_error=0
+}
+
+collect_nextest_leak_metrics() {
+    local output_file="$1" prefix="$2" metrics
+    clear_leak_metrics "$prefix"
+    if [ -z "${NEXTEST_ACTIVE:-}" ]; then
+        return
+    fi
+    if ! metrics=$(python3 "$PARSE_TEST_LEAKS" --nextest "$output_file"); then
+        local -n parse_error="${prefix}_LEAK_PARSE_ERROR"
+        parse_error=1
+        echo "  [fail] ${prefix}: nextest leak evidence was not parseable" >&2
+        return
+    fi
+    read -r \
+        "${prefix}_RC_LEAK_TESTS" \
+        "${prefix}_RC_LEAK_ALLOCATIONS" \
+        "${prefix}_RC_LEAK_CHECK" \
+        "${prefix}_PROCESS_LEAK_TESTS" \
+        "${prefix}_PROCESS_LEAK_CHECK" <<< "$metrics"
+}
+
+collect_ori_leak_metrics() {
+    local json_file="$1" prefix="$2" metrics
+    clear_leak_metrics "$prefix"
+    if [ ! -f "$json_file" ]; then
+        return
+    fi
+    if ! metrics=$(python3 "$PARSE_TEST_LEAKS" --ori-json "$json_file"); then
+        local -n parse_error="${prefix}_LEAK_PARSE_ERROR"
+        parse_error=1
+        echo "  [fail] ${prefix}: Ori leak evidence was not parseable" >&2
+        return
+    fi
+    read -r \
+        "${prefix}_RC_LEAK_TESTS" \
+        "${prefix}_RC_LEAK_ALLOCATIONS" \
+        "${prefix}_RC_LEAK_CHECK" \
+        "${prefix}_PROCESS_LEAK_TESTS" \
+        "${prefix}_PROCESS_LEAK_CHECK" <<< "$metrics"
+}
+
 collect_suite_results() {
     parse_rust_results "$RUST_OUTPUT" "RUST"
     parse_rust_results "$RUST_RT_OUTPUT" "RUST_RT"
@@ -137,14 +193,26 @@ collect_suite_results() {
         parse_ori_results "$ORI_LLVM_JSON" "ORI_LLVM" "$ORI_LLVM_EXIT"
     fi
 
-    AOT_LEAKS=$(grep -c "leaked memory" "$AOT_OUTPUT" 2>/dev/null || true)
-    AOT_LEAKS=${AOT_LEAKS:-0}
+    collect_nextest_leak_metrics "$RUST_OUTPUT" "RUST"
+    collect_nextest_leak_metrics "$RUST_RT_OUTPUT" "RUST_RT"
+    collect_nextest_leak_metrics "$RUST_LLVM_OUTPUT" "RUST_LLVM"
+    collect_nextest_leak_metrics "$AOT_OUTPUT" "AOT"
+    collect_ori_leak_metrics "$ORI_LLVM_JSON" "ORI_LLVM"
+    # Compatibility alias for older JSON consumers. Human output uses the
+    # explicit backend-neutral metrics below.
+    AOT_LEAKS=$AOT_RC_LEAK_TESTS
     if [ "${AOT_INVALID:-0}" = "1" ]; then
         AOT_FAILED=0
         # shellcheck disable=SC2034 # read by reporting.sh:print_test_summary + json_report.sh:emit_json
         AOT_PASSED=0
         # shellcheck disable=SC2034 # read by reporting.sh:print_test_summary + json_report.sh:emit_json
         AOT_IGNORED=0
+        AOT_RC_LEAK_TESTS=0
+        AOT_RC_LEAK_ALLOCATIONS=0
+        AOT_RC_LEAK_CHECK=0
+        AOT_PROCESS_LEAK_TESTS=0
+        AOT_PROCESS_LEAK_CHECK=0
+        AOT_LEAKS=0
         AOT_EXIT=1
     fi
 
@@ -168,6 +236,15 @@ compute_suite_statuses() {
     AOT_STATUS=$(suite_status "$AOT_EXIT" "$AOT_FAILED")
     ORI_INTERP_STATUS=$(suite_status "$ORI_INTERP_EXIT" "$ORI_INTERP_FAILED")
 
+    [ "${RUST_LEAK_PARSE_ERROR:-0}" -gt 0 ] && RUST_STATUS="errored"
+    [ "${RUST_RT_LEAK_PARSE_ERROR:-0}" -gt 0 ] && RUST_RT_STATUS="errored"
+    [ "${RUST_LLVM_LEAK_PARSE_ERROR:-0}" -gt 0 ] && RUST_LLVM_STATUS="errored"
+    [ "${AOT_LEAK_PARSE_ERROR:-0}" -gt 0 ] && AOT_STATUS="errored"
+    [ "${RUST_PROCESS_LEAK_TESTS:-0}" -gt 0 ] && RUST_STATUS="failed"
+    [ "${RUST_RT_PROCESS_LEAK_TESTS:-0}" -gt 0 ] && RUST_RT_STATUS="failed"
+    [ "${RUST_LLVM_PROCESS_LEAK_TESTS:-0}" -gt 0 ] && RUST_LLVM_STATUS="failed"
+    [ "${AOT_PROCESS_LEAK_TESTS:-0}" -gt 0 ] && AOT_STATUS="failed"
+
     ERRORED_SUITES=""
     INCOMPLETE_SUITES=0
     for pair in \
@@ -182,7 +259,7 @@ compute_suite_statuses() {
             INCOMPLETE_SUITES=$((INCOMPLETE_SUITES + 1))
         fi
     done
-    if [ "${LLVM_BUILD_OK:-1}" -eq 0 ] || [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
+    if [ "${LLVM_BUILD_OK:-1}" -eq 0 ] || [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ] || [ "${ORI_LLVM_LEAK_PARSE_ERROR:-0}" -eq 1 ]; then
         INCOMPLETE_SUITES=$((INCOMPLETE_SUITES + 1))
     fi
 }

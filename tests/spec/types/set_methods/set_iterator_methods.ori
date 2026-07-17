@@ -195,7 +195,6 @@ use std.testing { assert, assert_eq }
 // The Iterable->Iterator route is proven through a generic at typeck (L1/L2) and
 // interpreter (L5); the LLVM/AOT leg is blocked by an orthogonal AIMS RC-realization
 // double-free of the by-value generic Set param's materialized iterator.
-#skip("BUG-04-239: generic Set<T> by-value param + .iter() double-frees under monomorphized LLVM/AOT (ori_set_to_list ownership); passes interpreter, blocked at LLVM RC realization")
 @test_set_int_count_via_generic tests @set_int_count_via_generic () -> void =
     assert_eq(actual: set_int_count_via_generic(), expected: 3);
 

@@ -6,7 +6,7 @@
 //! canonical bodies; [`MonoInstanceId`] is the abstract monomorphization
 //! dispatch handle; [`SharedCanonResult`] is the thread-safe shared wrapper.
 
-use crate::Name;
+use crate::{ExprId, Name};
 
 use super::arena::CanArena;
 use super::ids::CanId;
@@ -41,6 +41,8 @@ pub struct MethodRoot {
     pub type_name: Name,
     /// Method name.
     pub method_name: Name,
+    /// Exact parse-level body that produced this canonical root.
+    pub source_body: ExprId,
     /// Canonical body expression.
     pub body: CanId,
 }
@@ -180,6 +182,14 @@ impl CanonResult {
             .filter(|r| r.type_name == type_name && r.method_name == method_name)
             .nth(n)
             .map(|r| r.body)
+    }
+
+    /// Look up a method root by its exact parse-level body identity.
+    pub fn method_root_for_source(&self, source_body: ExprId) -> Option<CanId> {
+        self.method_roots
+            .iter()
+            .find(|root| root.source_body == source_body)
+            .map(|root| root.body)
     }
 }
 

@@ -66,8 +66,11 @@ fn backtrace_produces_note() {
 fn immutable_binding_has_suggestion() {
     let err = crate::cannot_assign_immutable("x");
     let diag = err.to_diagnostic();
-    assert!(!diag.suggestions.is_empty());
-    assert!(diag.suggestions[0].contains("mut x"));
+    assert!(diag.message.contains("immutable variable: x"));
+    assert_eq!(
+        diag.suggestions,
+        ["remove the `$` prefix from `x` if the binding should be mutable"]
+    );
 }
 
 #[test]

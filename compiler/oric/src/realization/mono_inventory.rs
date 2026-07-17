@@ -7,7 +7,6 @@ use rustc_hash::FxHashMap;
 /// One checked mono inventory before any canonical body is lowered.
 #[derive(Debug)]
 pub(crate) struct MonoFunctionInventory {
-    local_start: usize,
     all: Vec<MonoFunction>,
 }
 
@@ -89,7 +88,6 @@ impl MonoFunctionInventory {
             all.push(function);
         }
 
-        let local_start = all.len();
         for function in local {
             let name = function.mangled_name;
             match owner_by_name.get(&name).copied() {
@@ -131,12 +129,7 @@ impl MonoFunctionInventory {
             }
         }
 
-        Ok(Self { local_start, all })
-    }
-
-    /// Monomorphized bodies owned by the host module's canonical namespace.
-    pub(crate) fn local_bodies(&self) -> &[MonoFunction] {
-        &self.all[self.local_start..]
+        Ok(Self { all })
     }
 
     /// Every unique mono identity used for target rewriting and dispatch.
@@ -163,6 +156,8 @@ fn validate_cross_producer_identity(
         Some("concrete signature")
     } else if imported.body_type_map != local.body_type_map {
         Some("body substitution map")
+    } else if imported.receiver_type != local.receiver_type {
+        Some("concrete receiver identity")
     } else if imported.receiver_type_name != local.receiver_type_name {
         Some("receiver identity")
     } else {
@@ -243,6 +238,7 @@ mod tests {
             body_type_map: FxHashMap::default(),
             instance_ids: vec![MonoInstanceId::new(instance_id)],
             is_imported,
+            receiver_type: None,
             receiver_type_name: None,
         }
     }
@@ -258,10 +254,6 @@ mod tests {
             "compatible imported identity must own the source body",
         );
 
-        assert!(
-            inventory.local_bodies().is_empty(),
-            "the host canon must not lower an imported specialization"
-        );
         assert_eq!(inventory.all().len(), 1);
         assert!(inventory.all()[0].is_imported);
         assert_eq!(
@@ -281,7 +273,6 @@ mod tests {
             "one local identity is valid",
         );
 
-        assert_eq!(inventory.local_bodies().len(), 1);
         assert_eq!(inventory.all().len(), 1);
         assert!(!inventory.all()[0].is_imported);
     }

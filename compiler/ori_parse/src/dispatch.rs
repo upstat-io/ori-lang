@@ -9,7 +9,7 @@ use crate::grammar::ParsedAttrs;
 use crate::outcome::ParseOutcome;
 use crate::{FunctionOrTest, ParseError, Parser};
 
-use ori_ir::{Module, TokenKind, Visibility};
+use ori_ir::{Module, Name, StringInterner, TestDef, TestId, TokenKind, Visibility};
 use tracing::trace;
 
 impl Parser<'_> {
@@ -43,7 +43,10 @@ impl Parser<'_> {
                 ParseOutcome::ConsumedOk { value } | ParseOutcome::EmptyOk { value } => match value
                 {
                     FunctionOrTest::Function(func) => module.functions.push(func),
-                    FunctionOrTest::Test(test) => module.tests.push(test),
+                    FunctionOrTest::Test(mut test) => {
+                        assign_test_identity(self.cursor.interner(), module, &mut test);
+                        module.tests.push(test);
+                    }
                 },
                 ParseOutcome::ConsumedErr { error, .. } => {
                     self.recover_to_function();
@@ -349,4 +352,36 @@ impl Parser<'_> {
     pub(super) fn recover_to_function(&mut self) {
         crate::recovery::synchronize(&mut self.cursor, crate::recovery::FUNCTION_BOUNDARY);
     }
+}
+
+fn assign_test_identity(interner: &StringInterner, module: &mut Module, test: &mut TestDef) {
+    let Ok(raw) = u32::try_from(module.tests.len()) else {
+        test.id = TestId::INVALID;
+        return;
+    };
+    test.id = TestId::new(raw);
+    let display_name = test.display_name;
+    if !module
+        .tests
+        .iter()
+        .any(|existing| existing.display_name == display_name)
+    {
+        return;
+    }
+
+    for existing in module
+        .tests
+        .iter_mut()
+        .filter(|existing| existing.display_name == display_name)
+    {
+        if existing.name == existing.display_name {
+            existing.name = qualified_test_name(interner, existing.display_name, existing.id);
+        }
+    }
+    test.name = qualified_test_name(interner, display_name, test.id);
+}
+
+fn qualified_test_name(interner: &StringInterner, display_name: Name, id: TestId) -> Name {
+    let display = interner.lookup(display_name).to_owned();
+    interner.intern(&format!("{display}$test${}", id.raw()))
 }

@@ -38,6 +38,7 @@ impl ModuleChecker<'_> {
         &mut self,
         id: crate::ImplMethodId,
         self_type: Idx,
+        trait_type: Option<Idx>,
         name: Name,
         role: crate::ImplMethodRole,
         sig: FunctionSig,
@@ -45,6 +46,7 @@ impl ModuleChecker<'_> {
         self.impl_sigs.push(crate::ImplSig {
             id,
             receiver: self_type,
+            trait_type,
             name,
             role,
             sig,

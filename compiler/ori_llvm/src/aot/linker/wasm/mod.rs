@@ -11,10 +11,12 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use ori_llvm::aot::linker::WasmLinker;
-//! use ori_llvm::aot::wasm::WasmConfig;
+//! ```no_run
+//! use ori_llvm::aot::{TargetConfig, WasmConfig, WasmLinker};
+//! use std::path::Path;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
+//! let target = TargetConfig::from_triple("wasm32-unknown-unknown")?;
 //! let mut linker = WasmLinker::new(&target);
 //!
 //! // Apply WASM-specific configuration
@@ -24,6 +26,8 @@
 //! // Standard linking operations
 //! linker.set_output(Path::new("output.wasm"));
 //! linker.add_object(Path::new("main.o"));
+//! # Ok(())
+//! # }
 //! ```
 
 use std::path::Path;

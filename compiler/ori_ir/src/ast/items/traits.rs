@@ -315,6 +315,15 @@ impl ImplDef {
     pub fn type_name(&self) -> Option<Name> {
         self.self_path.last().copied()
     }
+
+    /// Semantic owner name, including primitive receiver spellings whose
+    /// parser path is intentionally empty.
+    pub fn semantic_type_name(&self, interner: &crate::StringInterner) -> Option<Name> {
+        self.type_name().or_else(|| match &self.self_ty {
+            ParsedType::Primitive(id) => id.name().map(|name| interner.intern(name)),
+            _ => None,
+        })
+    }
 }
 
 impl Spanned for ImplDef {

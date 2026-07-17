@@ -577,6 +577,7 @@ fn compile_result_for_value(
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
         method_call_facts,
+        direct_call_facts: Vec::new(),
         class_ledger_emission: false,
     };
     let classifier = ArcClassifier::new(&pool);
@@ -981,6 +982,7 @@ fn list_concat_executable() -> ExecutableProgram {
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
         method_call_facts: Vec::new(),
+        direct_call_facts: Vec::new(),
         class_ledger_emission: false,
     };
     let mut functions = vec![function];
@@ -1157,6 +1159,8 @@ fn iterator_fixture(pool: &mut Pool, iter: Name) -> RcValueFixture {
             destination: ArcVarId::new(3),
             receiver_type: range_type,
             form: ori_arc::MethodCallForm::Instance,
+            producer: None,
+            derived_position: None,
         }],
     }
 }

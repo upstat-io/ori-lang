@@ -337,13 +337,14 @@ impl StringLookup for StringInterner {
 /// - Lifetime is well-defined (codegen borrows from earlier phase output)
 /// - Zero runtime cost is required (no atomic ref counting)
 ///
-/// **Example - Correct patterns:**
-/// ```ignore
-/// // Salsa database owns the interner
-/// let db = CompilerDb::new(); // contains SharedInterner internally
+/// **Example - Shared ownership:**
+/// ```
+/// use ori_ir::SharedInterner;
 ///
-/// // Codegen borrows - does NOT need Arc
-/// fn compile(cx: &CodegenCx, interner: &StringInterner) { ... }
+/// let coordinator = SharedInterner::new();
+/// let name = coordinator.intern("main");
+/// let worker = coordinator.clone();
+/// assert_eq!(worker.lookup(name), "main");
 /// ```
 ///
 /// # Thread Safety

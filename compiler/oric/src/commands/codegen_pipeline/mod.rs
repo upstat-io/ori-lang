@@ -119,6 +119,18 @@ pub(super) fn run_codegen_pipeline<'ctx>(
 
         // Runtime functions are declared lazily on first `builder.runtime_fn(name)` use.
         let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
+        let derived_analysis = crate::realization::lower_non_generic_derived_methods_for_analysis(
+            &type_result.typed.accepted_derives,
+            &type_result.typed.derived_call_plans,
+            interner,
+            pool,
+        )
+        .map_err(|problems| {
+            format!(
+                "derived-method ARC lowering failed with {} problem(s): {problems:?}",
+                problems.len()
+            )
+        })?;
         let borrow_inference::ArcBatchLoweringResult {
             groups,
             mono_functions,
@@ -133,6 +145,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             pool,
             &type_result.typed.mono_instances,
             &type_result.typed.accepted_derives,
+            &type_result.typed.derived_call_plans,
         ) {
             Ok(result) => result,
             Err(borrow_inference::ArcBatchLoweringFailure::ArcLowering) => {
@@ -144,6 +157,9 @@ pub(super) fn run_codegen_pipeline<'ctx>(
                 );
             }
             Err(borrow_inference::ArcBatchLoweringFailure::MonoInventory(error)) => {
+                return Err(error.to_string());
+            }
+            Err(borrow_inference::ArcBatchLoweringFailure::CallableCensus(error)) => {
                 return Err(error.to_string());
             }
         };
@@ -172,20 +188,21 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             )
         })?;
 
-        let derived_analysis = crate::realization::lower_non_generic_derived_methods_for_analysis(
-            &type_result.typed.accepted_derives,
+        for (key, target) in derived_analysis.targets {
+            impl_qualified_by_recv.entry(key).or_insert(target);
+        }
+        crate::realization::extend_mono_method_targets(
+            &mut impl_qualified_by_recv,
+            &mono_functions,
             interner,
             pool,
         )
         .map_err(|problems| {
             format!(
-                "derived-method ARC lowering failed with {} problem(s): {problems:?}",
+                "monomorphized method target census failed with {} problem(s): {problems:?}",
                 problems.len()
             )
         })?;
-        for (key, target) in derived_analysis.targets {
-            impl_qualified_by_recv.entry(key).or_insert(target);
-        }
 
         let mut lowered_batch =
             crate::realization::LoweredArcBatch::try_from_groups(groups, interner)

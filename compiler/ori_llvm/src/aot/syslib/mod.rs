@@ -19,16 +19,19 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```no_run
 //! use ori_llvm::aot::{SysLibConfig, TargetConfig};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
-//! let target = TargetConfig::from_triple("aarch64-linux-gnu")?;
-//! let syslib = SysLibConfig::for_target(&target)?;
+//! let target = TargetConfig::from_triple("aarch64-unknown-linux-gnu")?;
+//! let syslib = SysLibConfig::for_target(&target.components)?;
 //!
 //! // Get library search paths
 //! for path in syslib.library_paths() {
 //!     println!("Search path: {}", path.display());
 //! }
+//! # Ok(())
+//! # }
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -115,7 +118,7 @@ pub fn home_wasi_sdk_sysroot() -> PathBuf {
 ///
 /// This is the SSOT for "what env var name does the per-target sysroot
 /// override use". Both the discovery side
-/// ([`SysLibConfig::detect_sysroot`]) and any documentation that tells
+/// (`SysLibConfig::detect_sysroot`) and any documentation that tells
 /// users to `export ORI_SYSROOT_X=...` MUST query this function so they
 /// always agree.
 ///

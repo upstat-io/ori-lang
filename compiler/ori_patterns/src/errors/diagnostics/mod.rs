@@ -112,7 +112,7 @@ impl EvalErrorKind {
         match self {
             Self::DivisionByZero => Some("add a zero check before dividing".to_string()),
             Self::ImmutableBinding { name } => Some(format!(
-                "declare `{name}` as mutable with `mut {name} = ...`"
+                "remove the `$` prefix from `{name}` if the binding should be mutable"
             )),
             Self::NonExhaustiveMatch => {
                 Some("add a wildcard `_` arm to cover remaining cases".to_string())

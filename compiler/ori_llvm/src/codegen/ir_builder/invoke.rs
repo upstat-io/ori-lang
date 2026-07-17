@@ -47,7 +47,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
 
     /// Build an indirect invoke through a function pointer.
     ///
-    /// Like [`invoke`], but the callee is a function pointer with an
+    /// Like [`Self::invoke`], but the callee is a function pointer with an
     /// explicit type signature.
     pub fn invoke_indirect(
         &mut self,

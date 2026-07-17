@@ -229,9 +229,33 @@ pub struct BackendSkip {
 }
 
 /// Test definition.
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+pub struct TestId(u32);
+
+impl TestId {
+    pub const INVALID: Self = Self(u32::MAX);
+
+    #[inline]
+    pub const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+/// Test definition.
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct TestDef {
+    /// Stable source-order identity within the parsed module.
+    pub id: TestId,
+    /// Executable/report identity. Repeated display names are deterministically
+    /// qualified with `id` so the artifact and worker protocol remain total.
     pub name: Name,
+    /// Source-authored presentation name before identity qualification.
+    pub display_name: Name,
     pub targets: Vec<Name>,
     pub params: ParamRange,
     /// The parsed return type. None if no return type annotation.
@@ -262,8 +286,10 @@ impl fmt::Debug for TestDef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "TestDef {{ name: {:?}, targets: {:?}, skip: {:?}, expected_errors: {}, fail: {:?} }}",
+            "TestDef {{ id: {:?}, name: {:?}, display_name: {:?}, targets: {:?}, skip: {:?}, expected_errors: {}, fail: {:?} }}",
+            self.id,
             self.name,
+            self.display_name,
             self.targets,
             self.skip_reason,
             self.expected_errors.len(),

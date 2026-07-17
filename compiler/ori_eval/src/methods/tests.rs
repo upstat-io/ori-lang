@@ -3,7 +3,7 @@
 use super::BuiltinMethodNames;
 
 /// All method-name strings interned by `BuiltinMethodNames`, excluding
-/// non-method fields (`duration`, `size` are type names for associated
+/// non-method fields (`duration`, `size`, `void` are type names for associated
 /// function dispatch).
 ///
 /// Must be kept in sync with `assert_exhaustive` below — adding a field
@@ -244,6 +244,7 @@ fn assert_exhaustive(names: &BuiltinMethodNames) {
         then,
         duration,
         size,
+        void,
         subtract,
         multiply,
         divide,
@@ -397,6 +398,7 @@ fn assert_exhaustive(names: &BuiltinMethodNames) {
         then,
         duration,
         size,
+        void,
         subtract,
         multiply,
         divide,

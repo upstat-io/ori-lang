@@ -131,6 +131,7 @@ LEG_TIMING_DIR=$(mktemp -d)
 ORI_INTERP_JSON="$(dirname "$0")/build/ori-interp-results.json"
 ORI_LLVM_JSON="$(dirname "$0")/build/ori-llvm-results.json"
 PARSE_TEST_JSON="$(dirname "$0")/diagnostics/parse_test_json.py"
+PARSE_TEST_LEAKS="$(dirname "$0")/diagnostics/parse_test_leaks.py"
 
 # Stale runner-JSON from a prior run would mask a current build-failure (the
 # -f guard at parse time would parse last run's results). Remove up front so a

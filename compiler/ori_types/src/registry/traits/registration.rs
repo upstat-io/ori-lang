@@ -7,7 +7,7 @@
 
 use ori_ir::Name;
 
-use super::{ImplEntry, ObjectSafetyViolation, TraitEntry, TraitRegistry};
+use super::{ImplEntry, ObjectSafetyViolation, RegisteredImplOrigin, TraitEntry, TraitRegistry};
 
 impl TraitRegistry {
     // Trait Registration
@@ -43,6 +43,15 @@ impl TraitRegistry {
     ///
     /// Returns the impl index for reference.
     pub fn register_impl(&mut self, entry: ImplEntry) -> usize {
+        self.register_impl_with_origin(entry, None)
+    }
+
+    /// Register an implementation with its exact checker-owned body origin.
+    pub(crate) fn register_impl_with_origin(
+        &mut self,
+        entry: ImplEntry,
+        origin: Option<RegisteredImplOrigin>,
+    ) -> usize {
         let impl_idx = self.impls.len();
 
         // Index by self type
@@ -60,6 +69,7 @@ impl TraitRegistry {
         }
 
         self.impls.push(entry);
+        self.impl_origins.push(origin);
         impl_idx
     }
 }

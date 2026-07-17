@@ -125,7 +125,7 @@ pub(crate) fn infer_method_call(
         // Record a receiver-bearing MonoInstance for an inherent generic-impl
         // method (`Box<int>.unwrap()`). Runs AFTER arg-checking so the method's
         // instantiation vars are unified; inert for every other dispatch kind.
-        maybe_record_method_mono_instance(engine, call_expr_id, method, resolved, &sig);
+        maybe_record_method_mono_instance(engine, Some(call_expr_id), method, resolved, &sig);
         return ret_ty;
     }
 
@@ -264,7 +264,7 @@ pub(crate) fn infer_method_call_named(
         );
         // Mirror the positional path: record a receiver-bearing MonoInstance for
         // an inherent generic-impl method after named-arg checking.
-        maybe_record_method_mono_instance(engine, call_expr_id, method, resolved, &sig);
+        maybe_record_method_mono_instance(engine, Some(call_expr_id), method, resolved, &sig);
         return sig.ret;
     }
 

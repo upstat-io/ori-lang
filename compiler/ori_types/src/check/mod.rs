@@ -74,6 +74,7 @@ type MonoIdentityKey = (
     Vec<crate::GenericArg>,
     Vec<crate::Idx>,
     Option<crate::Idx>,
+    Option<crate::MethodProducer>,
 );
 
 // Re-export main API
@@ -84,6 +85,7 @@ pub use api::{
 mod accessors;
 mod api;
 mod bodies;
+mod derived_call_plans;
 mod exports;
 mod imports;
 mod object_safety;
@@ -270,10 +272,11 @@ pub struct ModuleChecker<'a> {
     trait_impl_fn_names: Vec<(Idx, Name)>,
 
     // Monomorphization
-    /// Concrete generic function instantiations discovered during type checking.
+    /// Concrete generic callable demands discovered during type checking.
     ///
     /// Accumulated from `InferEngine` after each function body is checked.
-    /// Deduped by `(fn_name, generic_args)` before inclusion in `TypedModule`.
+    /// Deduped by the full free-function/method identity before inclusion in
+    /// `TypedModule`.
     mono_instances: Vec<crate::MonoInstance>,
 
     /// Pre-dedup `(call_expr_id, MonoInstanceId)` entries accumulated from
@@ -558,6 +561,27 @@ impl<'a> ModuleChecker<'a> {
             );
         }
 
+        let mut accepted_derives = self.accepted_derives;
+        accepted_derives.sort_unstable_by_key(|accepted| accepted.id);
+        debug_assert!(
+            accepted_derives
+                .windows(2)
+                .all(|pair| pair[0].id != pair[1].id),
+            "accepted derived implementation identities must be unique"
+        );
+        let derived_call_plans = derived_call_plans::close_derived_call_plans(
+            &mut pool,
+            derived_call_plans::DerivedCallClosureSources {
+                generic_type_params: &generic_type_params,
+                traits: &self.traits,
+                impl_sigs: &self.impl_sigs,
+                accepted_derives: &accepted_derives,
+                interner: self.interner,
+            },
+            &mut mono_instances,
+            &mut self.errors,
+        );
+
         // Complete each method instance's `body_type_map` against the now-fully-
         // interned pool. The eager method-mono path builds the map at the call
         // site (Pass 3), before a generic-impl method body interns its own
@@ -598,15 +622,6 @@ impl<'a> ModuleChecker<'a> {
             &self.imported_collection_surfaces,
         );
 
-        let mut accepted_derives = self.accepted_derives;
-        accepted_derives.sort_unstable_by_key(|accepted| accepted.id);
-        debug_assert!(
-            accepted_derives
-                .windows(2)
-                .all(|pair| pair[0].id != pair[1].id),
-            "accepted derived implementation identities must be unique"
-        );
-
         let typed = TypedModule {
             expr_types: self.expr_types,
             functions,
@@ -615,7 +630,9 @@ impl<'a> ModuleChecker<'a> {
             warnings: self.warnings,
             pattern_resolutions: SparseSideTable::from_unsorted(pattern_resolutions),
             impl_sigs: self.impl_sigs,
+            imported_impl_sigs: Vec::new(),
             accepted_derives,
+            derived_call_plans,
             trait_impl_fn_names: self.trait_impl_fn_names,
             mono_instances,
             // Populated from `mono_dispatch_pre_dedup` after remapping
@@ -689,6 +706,7 @@ fn dedup_and_remap_mono_instances(
             inst.method_args.clone(),
             inst.concrete_param_types.clone(),
             inst.receiver_type,
+            inst.method_producer.clone(),
         );
         if let Some(&existing) = seen.get(&key) {
             old_to_dedup.push(existing);

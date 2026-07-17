@@ -37,6 +37,7 @@ pub use types::{
 };
 
 // Trait registry exports
+pub(crate) use traits::RegisteredImplOrigin;
 pub use traits::{
     BoundChainLookup, GenericParamMeta, ImplEntry, ImplMethodDef, ImplSpecificity, MethodLookup,
     MethodLookupResult, ObjectSafetyViolation, TraitAssocTypeDef, TraitEntry, TraitMethodDef,

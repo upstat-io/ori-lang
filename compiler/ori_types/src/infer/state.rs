@@ -50,7 +50,8 @@ impl InferEngine<'_> {
 
     // Monomorphization Recording
 
-    /// Record a concrete instantiation of a generic function.
+    /// Record a concrete generic callable demand without an AST call-dispatch
+    /// entry, such as a user-defined operator method.
     pub fn record_mono_instance(&mut self, instance: crate::MonoInstance) {
         self.mono_instances.push(instance);
     }

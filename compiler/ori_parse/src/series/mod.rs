@@ -219,7 +219,9 @@ impl Parser<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// This is a schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// let args = self.series(
     ///     SeriesConfig::comma(TokenKind::RParen),
     ///     |p| {

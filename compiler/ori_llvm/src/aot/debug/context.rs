@@ -209,7 +209,7 @@ impl<'ctx> DebugContext<'ctx> {
 
     /// Emit `llvm.dbg.value` for an immutable binding at the end of a block.
     ///
-    /// Like [`emit_value_for_binding`], but appends to the block instead
+    /// Like [`Self::emit_value_for_binding`], but appends to the block instead
     /// of requiring an `insert_before` instruction. Useful when emitting
     /// debug info at binding time before any subsequent instructions exist.
     pub fn emit_value_for_binding_at_end(

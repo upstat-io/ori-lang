@@ -181,11 +181,24 @@ impl fmt::Display for FormatSpecError {
 ///
 /// # Examples
 ///
-/// ```ignore
-/// parse_format_spec(">10")     // align=Right, width=10
-/// parse_format_spec("08x")     // zero_pad, width=8, type=Hex
-/// parse_format_spec("*^20.5f") // fill='*', align=Center, width=20, precision=5, type=Fixed
-/// parse_format_spec("")        // all defaults (empty spec)
+/// ```
+/// use ori_format::{parse_format_spec, Align, FormatType, ParsedFormatSpec};
+///
+/// let Ok(right) = parse_format_spec(">10") else { panic!("valid format spec") };
+/// assert_eq!(right.align, Some(Align::Right));
+/// assert_eq!(right.width, Some(10));
+///
+/// let Ok(hex) = parse_format_spec("08x") else { panic!("valid format spec") };
+/// assert!(hex.zero_pad);
+/// assert_eq!(hex.width, Some(8));
+/// assert_eq!(hex.format_type, Some(FormatType::Hex));
+///
+/// let Ok(centered) = parse_format_spec("*^20.5f") else { panic!("valid format spec") };
+/// assert_eq!(centered.fill, Some('*'));
+/// assert_eq!(centered.align, Some(Align::Center));
+/// assert_eq!(centered.precision, Some(5));
+///
+/// assert_eq!(parse_format_spec(""), Ok(ParsedFormatSpec::EMPTY));
 /// ```
 pub fn parse_format_spec(spec: &str) -> Result<ParsedFormatSpec, FormatSpecError> {
     if spec.is_empty() {

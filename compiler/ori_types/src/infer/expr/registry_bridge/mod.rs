@@ -55,20 +55,11 @@ pub(crate) const OP_TRAIT_MAP: &[(&str, OpAccessor)] = &[
 /// 1. `OpDefs` fields — operator traits (Add, Sub, Neg, etc.)
 /// 2. `MethodDef.trait_name` — method traits (Clone, Eq, Hashable, Len, etc.)
 /// 3. `TypeDef.traits` — marker traits (Default, Sendable, Iterator)
-/// 4. Special cases: Eq/Comparable from operators, Unit/Never without `TypeDef`
+/// 4. Special case: Never without a `TypeDef`
 ///
-/// For types without a registry `TypeDef` (Unit, Never), hardcoded fallbacks
-/// are used. These will be eliminated when Unit/Never get `TypeDef`s.
+/// Never is uninhabited and intentionally has no registry definition.
 #[must_use]
 pub(crate) fn registry_satisfies_trait(type_tag: TypeTag, trait_name: &str) -> bool {
-    // Special case: Unit has no TypeDef but satisfies these traits.
-    if type_tag == TypeTag::Unit {
-        return matches!(
-            trait_name,
-            "Eq" | "Comparable" | "Hashable" | "Clone" | "Default" | "Debug"
-        );
-    }
-
     // Special case: Never has no TypeDef and satisfies no traits.
     if type_tag == TypeTag::Never {
         return false;
@@ -128,7 +119,7 @@ fn type_def_satisfies_trait(type_def: &ori_registry::TypeDef, trait_name: &str) 
 /// need trait/impl dispatch (Named, Applied, Struct, Enum, etc.).
 #[must_use]
 pub(crate) fn registry_type_satisfies_trait(tag: Tag, trait_name: &str) -> Option<bool> {
-    // Unit and Never are special — they have no TypeDef but are builtin.
+    // Never is special — it has no TypeDef and no values.
     if tag == Tag::Unit {
         return Some(registry_satisfies_trait(TypeTag::Unit, trait_name));
     }

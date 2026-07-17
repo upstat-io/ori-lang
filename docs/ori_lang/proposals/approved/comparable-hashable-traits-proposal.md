@@ -221,6 +221,10 @@ impl Point: Hashable {
 }
 ```
 
+Products use the shown seed-`0`, declaration-order fold and skip `void` fields.
+Sums combine their zero-based declaration ordinal before the active payload.
+Newtypes return the underlying value's hash directly.
+
 ### hash_combine Function
 
 The `hash_combine` function is available in the prelude and mixes hash values:

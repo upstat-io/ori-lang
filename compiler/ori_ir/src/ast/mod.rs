@@ -50,7 +50,7 @@ pub use items::{
     ExtendDef, ExtensionImport, ExtensionImportItem, ExternBlock, ExternItem, ExternParam,
     FileAttr, Function, GenericParam, ImplAssocType, ImplDef, ImplMethod, ImportCycleGuard,
     ImportErrorKind, ImportPath, Module, Param, PostContract, PreContract, ReprAttrKind,
-    StructField, TargetAttr, TestBackend, TestDef, TraitAssocType, TraitBound, TraitDef,
+    StructField, TargetAttr, TestBackend, TestDef, TestId, TraitAssocType, TraitBound, TraitDef,
     TraitDefaultMethod, TraitItem, TraitMethodSig, TypeDecl, TypeDeclKind, UseDef, UseItem,
     Variant, VariantField, WhereClause,
 };

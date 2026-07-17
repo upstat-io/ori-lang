@@ -218,12 +218,12 @@ pub(crate) fn hash_combine(seed: i64, value: i64) -> i64 {
         .wrapping_add(seed >> 2))
 }
 
-/// Compute the hash of a value recursively.
+/// Compute the structural hash of a builtin value recursively.
 ///
-/// Handles all hashable types. For primitives, uses identity (int) or
-/// `DefaultHasher` (str). For compound types, combines element hashes
-/// with `hash_combine`. Float normalization ensures `-0.0` and `+0.0`
-/// produce the same hash, and all NaN representations hash identically.
+/// User-defined structs, sums, and newtypes are rejected because only
+/// interpreter method dispatch can honor their actual `Hashable` implementation.
+/// Float normalization ensures `-0.0` and `+0.0` produce the same hash, and all
+/// NaN representations hash identically.
 pub(crate) fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, EvalError> {
     match v {
         Value::Int(n) => Ok(n.raw()),
@@ -283,33 +283,15 @@ pub(crate) fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, Ev
             }
             Ok(h)
         }
-        // Struct: FNV-1a over field values (matching derived hash)
-        Value::Struct(sv) => {
-            let mut hash = FNV_OFFSET_BASIS;
-            for field_val in sv.fields.iter() {
-                let field_hash = (hash_value(field_val, interner)?).cast_unsigned();
-                hash ^= field_hash;
-                hash = hash.wrapping_mul(FNV_PRIME);
-            }
-            Ok(hash.cast_signed())
-        }
-        // Variant: discriminant (variant name hash) + payload fields
-        Value::Variant {
-            variant_name,
-            fields,
-            ..
-        } => {
-            let mut hash = FNV_OFFSET_BASIS;
-            let variant_str = interner.lookup(*variant_name);
-            let discriminant = fnv1a_hash(variant_str.as_bytes()).cast_unsigned();
-            hash ^= discriminant;
-            hash = hash.wrapping_mul(FNV_PRIME);
-            for field in fields.as_ref() {
-                let field_hash = (hash_value(field, interner)?).cast_unsigned();
-                hash ^= field_hash;
-                hash = hash.wrapping_mul(FNV_PRIME);
-            }
-            Ok(hash.cast_signed())
+        Value::Struct(sv) => Err(EvalError::new(format!(
+            "cannot structurally hash {}; invoke its Hashable method",
+            interner.lookup(sv.type_name)
+        ))),
+        Value::Variant { type_name, .. } | Value::Newtype { type_name, .. } => {
+            Err(EvalError::new(format!(
+                "cannot structurally hash {}; invoke its Hashable method",
+                interner.lookup(*type_name)
+            )))
         }
         _ => Err(EvalError::new(format!("cannot hash {}", v.type_name()))),
     }

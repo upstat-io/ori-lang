@@ -39,7 +39,9 @@ use ori_ir::{BinaryOp, ParsedType, UnaryOp};
 pub use calls::{compose_burden_for_idx, register_resolved_collection_burdens};
 pub use type_resolution::resolve_parsed_type;
 
+pub(crate) use calls::match_self_type;
 pub(crate) use calls::register_concrete_applied_resolutions;
+pub(crate) use calls::type_satisfies_named_trait;
 pub(crate) use refutability::{pattern_is_irrefutable, NestedPathStep, RefutableReason};
 pub(crate) use registry_bridge::{tag_to_type_tag, OP_TRAIT_MAP};
 

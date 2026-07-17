@@ -17,7 +17,7 @@ use crate::tags::OpStrategy;
 ///
 /// Consumers map their own `BinOp` enum to these fields directly:
 ///
-/// ```ignore
+/// ```text
 /// let type_def = find_type(tag)?;
 /// let strategy = match op {
 ///     BinOp::Add => type_def.operators.add,

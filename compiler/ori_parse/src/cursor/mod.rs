@@ -394,8 +394,10 @@ impl<'a> Cursor<'a> {
 
     /// Mark the current position for starting a token capture.
     ///
-    /// Use with `complete_capture()` to capture a range of tokens:
-    /// ```ignore
+    /// Use with `complete_capture()` to capture a range of tokens. This is a
+    /// schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// let start = cursor.start_capture();
     /// // ... parse some tokens ...
     /// let capture = cursor.complete_capture(start);

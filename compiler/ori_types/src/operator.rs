@@ -63,7 +63,12 @@ pub fn primitive_binary_strategy(type_tag: TypeTag, operation: BinaryOp) -> OpSt
         BinaryOp::Eq | BinaryOp::NotEq
             if matches!(
                 type_tag,
-                TypeTag::List | TypeTag::Map | TypeTag::Tuple | TypeTag::Option | TypeTag::Result
+                TypeTag::List
+                    | TypeTag::Map
+                    | TypeTag::Set
+                    | TypeTag::Tuple
+                    | TypeTag::Option
+                    | TypeTag::Result
             ) =>
         {
             Some(OpStrategy::StructuralEquality)
@@ -164,8 +169,20 @@ mod tests {
     #[test]
     fn compound_comparisons_have_shared_structural_identities() {
         assert_eq!(
+            primitive_binary_strategy(TypeTag::Unit, BinaryOp::Eq),
+            OpStrategy::StructuralEquality
+        );
+        assert_eq!(
             primitive_binary_strategy(TypeTag::List, BinaryOp::Eq),
             OpStrategy::StructuralEquality
+        );
+        assert_eq!(
+            primitive_binary_strategy(TypeTag::Set, BinaryOp::Eq),
+            OpStrategy::StructuralEquality
+        );
+        assert_eq!(
+            primitive_binary_strategy(TypeTag::Unit, BinaryOp::Lt),
+            OpStrategy::StructuralOrdering
         );
         assert_eq!(
             primitive_binary_strategy(TypeTag::Option, BinaryOp::Lt),

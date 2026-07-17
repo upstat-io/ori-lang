@@ -328,7 +328,8 @@ impl InvokeMode {
 /// Shared lookup tables for function resolution during ARC IR → LLVM IR emission.
 ///
 /// Bundles the five name-resolution maps that travel together from
-/// [`FunctionCompiler`] to [`ArcIrEmitter`]. Extracting these reduces the
+/// [`FunctionCompiler`](crate::codegen::function_compiler::FunctionCompiler) to
+/// [`ArcIrEmitter`]. Extracting these reduces the
 /// emitter constructor from 12 parameters to 7 semantically distinct ones.
 #[derive(Default)]
 pub struct CodegenContext {

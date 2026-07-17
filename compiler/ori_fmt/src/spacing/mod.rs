@@ -13,13 +13,11 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! let rules_map = RulesMap::new();
-//! let action = rules_map.lookup(
-//!     TokenCategory::Ident,
-//!     TokenCategory::Plus,
-//!     &ctx,
-//! );
+//! ```
+//! use ori_fmt::{lookup_spacing, SpaceAction, TokenCategory};
+//!
+//! let action = lookup_spacing(TokenCategory::Ident, TokenCategory::Plus);
+//! assert_eq!(action, SpaceAction::Space);
 //! ```
 //!
 //! # Spec Reference

@@ -10,9 +10,20 @@
 //!   semantics: fast path mutates in place when RC==1, slow path copies.
 
 pub mod cow;
+mod structural;
+
+pub use structural::{ori_set_eq, ori_set_hash};
 
 use crate::list::write_array_to_list;
 use crate::map::hash_table::{get_meta, probe_find, HashTableLayout, META_EMPTY, META_OCCUPIED};
+
+/// Ori set representation: `{ i64 len, i64 cap, *mut u8 data }`.
+#[repr(C)]
+pub struct OriSet {
+    pub len: i64,
+    pub cap: i64,
+    pub data: *mut u8,
+}
 
 /// Return an empty set sentinel (no allocation).
 ///

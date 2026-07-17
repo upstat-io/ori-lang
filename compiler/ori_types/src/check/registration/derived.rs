@@ -130,6 +130,7 @@ pub(super) fn register_derived_impl(
     } else {
         ImplSpecificity::Constrained
     };
+    let id = next_derived_impl_id(checker.accepted_derives.len());
     let entry = ImplEntry {
         trait_idx: Some(trait_idx),
         trait_type_args: Vec::new(),
@@ -143,10 +144,11 @@ pub(super) fn register_derived_impl(
         span: type_decl.span,
     };
 
-    let id = next_derived_impl_id(checker.accepted_derives.len());
-
     // Keep the trait and lowering registries coherent when the ID domain is exhausted.
-    checker.trait_registry_mut().register_impl(entry);
+    checker.trait_registry_mut().register_impl_with_origin(
+        entry,
+        Some(crate::registry::RegisteredImplOrigin::Derived(id)),
+    );
     checker.accepted_derives.push(AcceptedDerivedImpl {
         id,
         owner_name: type_decl.name,

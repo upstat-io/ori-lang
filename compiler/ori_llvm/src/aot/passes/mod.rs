@@ -22,11 +22,21 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use ori_llvm::aot::passes::{OptimizationConfig, OptimizationLevel, run_optimization_passes};
+//! ```no_run
+//! use ori_llvm::aot::passes::{run_optimization_passes, OptimizationConfig, OptimizationLevel};
+//! use ori_llvm::aot::TargetConfig;
+//! use ori_llvm::inkwell::context::Context;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
+//! let context = Context::create();
+//! let module = context.create_module("example");
+//! let target = TargetConfig::native()?;
+//! target.configure_module(&module)?;
+//! let target_machine = target.create_target_machine()?;
 //! let config = OptimizationConfig::new(OptimizationLevel::O2);
 //! run_optimization_passes(&module, &target_machine, &config)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # References
@@ -186,7 +196,7 @@ pub fn optimize_module(
 
 /// Run optimization passes on a module using the LLVM new pass manager.
 ///
-/// This uses the LLVM 17 C API for the new pass manager, specifically
+/// This uses the LLVM C API for the new pass manager, specifically
 /// `LLVMRunPasses` with pipeline strings like `"default<O3>"`.
 ///
 /// # Arguments
@@ -204,9 +214,20 @@ pub fn optimize_module(
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// use ori_llvm::aot::passes::{run_optimization_passes, OptimizationConfig};
+/// use ori_llvm::aot::TargetConfig;
+/// use ori_llvm::inkwell::context::Context;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let context = Context::create();
+/// let module = context.create_module("example");
+/// let target = TargetConfig::native()?;
+/// target.configure_module(&module)?;
+/// let target_machine = target.create_target_machine()?;
 /// let config = OptimizationConfig::release();
 /// run_optimization_passes(&module, &target_machine, &config)?;
+/// # Ok(())
+/// # }
 /// ```
 pub fn run_optimization_passes(
     module: &Module<'_>,
@@ -311,12 +332,23 @@ pub fn run_optimization_passes(
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// use ori_llvm::aot::passes::run_custom_pipeline;
+/// use ori_llvm::aot::TargetConfig;
+/// use ori_llvm::inkwell::context::Context;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let context = Context::create();
+/// let module = context.create_module("example");
+/// let target = TargetConfig::native()?;
+/// target.configure_module(&module)?;
+/// let target_machine = target.create_target_machine()?;
 /// // Run specific passes
-/// run_custom_pipeline(&module, &tm, "instcombine,simplifycfg")?;
+/// run_custom_pipeline(&module, &target_machine, "instcombine,simplifycfg")?;
 ///
 /// // Run with function adapter
-/// run_custom_pipeline(&module, &tm, "function(mem2reg,instcombine)")?;
+/// run_custom_pipeline(&module, &target_machine, "function(mem2reg,instcombine)")?;
+/// # Ok(())
+/// # }
 /// ```
 pub fn run_custom_pipeline(
     module: &Module<'_>,

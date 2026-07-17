@@ -9,14 +9,19 @@ use rustc_hash::{FxBuildHasher, FxHashMap};
 
 use ori_ir::canon::{CanId, CanonResult, MonoInstanceId};
 use ori_ir::{DerivedImplId, Name, StringInterner};
-use ori_types::{AcceptedDerivedImpl, FunctionSig, Idx, ImplSig, MonoInstance, Pool, Tag};
+use ori_types::{
+    AcceptedDerivedImpl, FunctionSig, Idx, ImplMethodId, ImplSig, MethodProducer, MonoInstance,
+    Pool, Tag,
+};
 
 use crate::executable::{
     validate_external_callables, ExternalCallable, ExternalCallableMetadata, RealizationError,
 };
 
+mod derived_mono;
 mod mangle;
 mod targets;
+pub use derived_mono::{materialize_derived_mono_for_receiver, DerivedMonoMaterializationError};
 pub use mangle::mangle_mono_name;
 pub use targets::{callee_shadows_builtin_method, rewrite_apply_targets_for_monos, MonoTargetMaps};
 
@@ -80,6 +85,8 @@ pub fn realize_imported_callables(
 pub enum MonoFunctionOrigin {
     /// An ordinary source declaration, whether local or imported.
     Source,
+    /// Exact local source/default impl body selected by type checking.
+    Impl(ImplMethodId),
     /// A compiler-generated method accepted by type checking and coherence.
     Derived(DerivedImplId),
 }
@@ -117,6 +124,12 @@ pub struct MonoFunction {
     /// imported mono functions flow through identical `declare_mono_functions`
     /// + `prepare_mono_cached` plumbing.
     pub is_imported: bool,
+    /// Exact concrete receiver selected by type checking for a method or
+    /// associated-function specialization.
+    ///
+    /// This is semantic dispatch identity. It remains distinct from
+    /// `receiver_type_name`, which selects only the canonical body namespace.
+    pub receiver_type: Option<Idx>,
     /// Nominal type name of the receiver for an inherent-method specialization
     /// (`Some("Box")` for `impl<T> Box<T> { @unwrap }`), else `None` for a
     /// free-function specialization. Selects the canon-body namespace: method
@@ -165,10 +178,9 @@ struct ResolvedMonoSignature<'a> {
 }
 
 struct MonoSignatureLookup<'a> {
-    shell_pool: Pool,
     functions: FxHashMap<Name, &'a FunctionSig>,
-    methods: FxHashMap<(Name, Option<Idx>), &'a FunctionSig>,
-    derived_methods: FxHashMap<(Name, Option<Idx>), &'a AcceptedDerivedImpl>,
+    methods: FxHashMap<ImplMethodId, &'a ImplSig>,
+    derived_methods: FxHashMap<DerivedImplId, &'a AcceptedDerivedImpl>,
     imports: FxHashMap<Name, &'a FunctionSig>,
 }
 
@@ -178,35 +190,23 @@ impl<'a> MonoSignatureLookup<'a> {
         impl_sigs: &'a [ImplSig],
         accepted_derives: &'a [AcceptedDerivedImpl],
         import_sigs: &'a [ImportSig],
-        pool: &Pool,
+        _pool: &Pool,
     ) -> Self {
         let functions = function_sigs.iter().map(|sig| (sig.name, sig)).collect();
-        let mut shell_pool = Pool::new();
         let mut methods = FxHashMap::with_capacity_and_hasher(impl_sigs.len(), FxBuildHasher);
-        for ImplSig {
-            receiver,
-            name,
-            sig,
-            ..
-        } in impl_sigs
-        {
-            let shell = Some(shell_pool.generic_shell(pool, *receiver));
-            methods.entry((*name, shell)).or_insert(sig);
+        for signature in impl_sigs {
+            methods.entry(signature.id).or_insert(signature);
         }
         let mut derived_methods =
             FxHashMap::with_capacity_and_hasher(accepted_derives.len(), FxBuildHasher);
         for accepted in accepted_derives {
-            let shell = Some(shell_pool.generic_shell(pool, accepted.owner_type));
-            derived_methods
-                .entry((accepted.method_name, shell))
-                .or_insert(accepted);
+            derived_methods.entry(accepted.id).or_insert(accepted);
         }
         let mut imports = FxHashMap::with_capacity_and_hasher(import_sigs.len(), FxBuildHasher);
         for ImportSig { name, sig, .. } in import_sigs {
             imports.entry(*name).or_insert(sig);
         }
         Self {
-            shell_pool,
             functions,
             methods,
             derived_methods,
@@ -214,33 +214,31 @@ impl<'a> MonoSignatureLookup<'a> {
         }
     }
 
-    fn receiver_shell(&mut self, instance: &MonoInstance, pool: &Pool) -> Option<Idx> {
-        instance
-            .receiver_type
-            .map(|receiver| self.shell_pool.generic_shell(pool, receiver))
-    }
-
-    fn resolve(
-        &mut self,
-        instance: &MonoInstance,
-        pool: &Pool,
-    ) -> Option<ResolvedMonoSignature<'a>> {
-        if instance.receiver_type.is_some() {
-            let key = (instance.fn_name, self.receiver_shell(instance, pool));
-            if let Some(&signature) = self.methods.get(&key) {
-                return Some(ResolvedMonoSignature {
-                    signature,
-                    is_imported: false,
-                    origin: MonoFunctionOrigin::Source,
-                });
+    fn resolve(&self, instance: &MonoInstance, _pool: &Pool) -> Option<ResolvedMonoSignature<'a>> {
+        if let Some(producer) = &instance.method_producer {
+            match producer {
+                MethodProducer::Impl(id) => {
+                    self.methods
+                        .get(id)
+                        .map(|implementation| ResolvedMonoSignature {
+                            signature: &implementation.sig,
+                            is_imported: false,
+                            origin: MonoFunctionOrigin::Impl(*id),
+                        })
+                }
+                MethodProducer::Derived(id) => {
+                    self.derived_methods
+                        .get(id)
+                        .map(|accepted| ResolvedMonoSignature {
+                            signature: &accepted.signature,
+                            is_imported: false,
+                            origin: MonoFunctionOrigin::Derived(*id),
+                        })
+                }
+                MethodProducer::Registry(_)
+                | MethodProducer::Prelude(_)
+                | MethodProducer::Imported { .. } => None,
             }
-            self.derived_methods
-                .get(&key)
-                .map(|accepted| ResolvedMonoSignature {
-                    signature: &accepted.signature,
-                    is_imported: false,
-                    origin: MonoFunctionOrigin::Derived(accepted.id),
-                })
         } else if let Some(&signature) = self.functions.get(&instance.fn_name) {
             Some(ResolvedMonoSignature {
                 signature,
@@ -261,21 +259,18 @@ impl<'a> MonoSignatureLookup<'a> {
 }
 
 fn log_unknown_mono_instance(
-    signatures: &mut MonoSignatureLookup<'_>,
+    signatures: &MonoSignatureLookup<'_>,
     instance: &MonoInstance,
     interner: &StringInterner,
-    pool: &Pool,
 ) {
     let name_str = interner.lookup(instance.fn_name);
-    let lookup_shell = signatures.receiver_shell(instance, pool);
     tracing::debug!(
         target: "ori_llvm::mono",
         fn_name = ?instance.fn_name,
         name = name_str,
         is_method = instance.receiver_type.is_some(),
-        ?lookup_shell,
         impl_sig_keys = signatures.methods.len(),
-        impl_shells = ?signatures.methods.keys().collect::<Vec<_>>(),
+        method_producer = ?instance.method_producer,
         "mono instance for unknown function — skipping"
     );
 }
@@ -321,6 +316,7 @@ fn build_mono_function(
         body_type_map,
         instance_ids: vec![instance_id],
         is_imported: resolved.is_imported,
+        receiver_type: instance.receiver_type,
         receiver_type_name,
     }
 }
@@ -356,7 +352,7 @@ pub fn collect_mono_functions(
     // receiver's shell at lookup. Keying on the receiver — NOT
     // `sig.param_types.first()` — is load-bearing for a no-`self` associated
     // function, whose first param is a VALUE param, not the receiver.
-    let mut signatures = MonoSignatureLookup::new(
+    let signatures = MonoSignatureLookup::new(
         function_sigs,
         impl_sigs,
         accepted_derives,
@@ -384,7 +380,7 @@ pub fn collect_mono_functions(
     for (idx, instance) in mono_instances.iter().enumerate() {
         let instance_id = MonoInstanceId::new(idx as u32);
         let Some(resolved) = signatures.resolve(instance, pool) else {
-            log_unknown_mono_instance(&mut signatures, instance, interner, pool);
+            log_unknown_mono_instance(&signatures, instance, interner);
             continue;
         };
 

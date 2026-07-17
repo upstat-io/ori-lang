@@ -83,3 +83,24 @@ fn sequential_executable_compiles_freeze_each_programs_primitive_facts() {
             .unwrap_or_else(|error| panic!("{path} should realize in sequence: {error}"));
     }
 }
+
+#[test]
+fn generic_derived_eq_operator_realizes_its_concrete_method_body() {
+    let source = r"
+#[derive(Eq)]
+type GenericDerived<T: Eq> = { value: T }
+
+@main () -> bool = {
+    let left: GenericDerived<int> = GenericDerived { value: 42 };
+    let right: GenericDerived<int> = GenericDerived { value: 42 };
+    left == right
+}
+";
+
+    compile_to_executable(
+        "generic_derived_eq.ori",
+        source,
+        ori_repr::NarrowingPolicy::Aggressive,
+    )
+    .unwrap_or_else(|error| panic!("generic derived Eq operator should realize: {error}"));
+}

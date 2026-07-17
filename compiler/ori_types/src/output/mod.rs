@@ -13,13 +13,19 @@
 
 mod derived;
 mod mono;
+mod producer;
 mod result;
 mod sig;
 mod typed_module;
 
 pub use derived::AcceptedDerivedImpl;
 pub use mono::{
-    ConstValue, DeferredMonoCall, DeferredVarBinding, GenericArg, MonoInstance, MonoInstanceId,
+    ConcreteMethodMono, ConstValue, DeferredMonoCall, DeferredVarBinding, GenericArg, MonoInstance,
+    MonoInstanceId,
+};
+pub use producer::{
+    DerivedCallPlan, DerivedCallPosition, DerivedCallSelection, DerivedDirectCallSelection,
+    MethodProducer, RegistryMethodIdentity, RegistryPreludeIdentity, REGISTRY_PRODUCER_SCHEMA,
 };
 pub use result::TypeCheckResult;
 pub use sig::{ConstParamInfo, EffectClass, FnWhereClause, FunctionSig};

@@ -4,10 +4,19 @@
 //!
 //! # Quick Start
 //!
-//! ```ignore
-//! use ori_fmt::{format_module, FormatConfig};
+//! ```
+//! use ori_fmt::format_module;
+//! use ori_ir::StringInterner;
 //!
-//! let formatted = format_module(&module, &arena, &interner);
+//! let source = "@main () -> int = 42;\n";
+//! let interner = StringInterner::new();
+//! let tokens = ori_lexer::lex(source, &interner);
+//! let parsed = ori_parse::parse(&tokens, &interner);
+//! assert!(!parsed.has_errors());
+//!
+//! let formatted = format_module(&parsed.module, &parsed.arena, &interner);
+//! assert!(formatted.contains("@main"));
+//! assert!(formatted.ends_with('\n'));
 //! ```
 //!
 //! # API Stability

@@ -1,4 +1,4 @@
-//! Option<T> equality thunk generator for derived trait callbacks.
+//! `Option<T>` equality thunk generator for derived trait callbacks.
 
 use ori_types::Idx;
 

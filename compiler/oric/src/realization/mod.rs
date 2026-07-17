@@ -1,6 +1,8 @@
 //! Pure construction of backend-neutral executable-program inputs.
 
 mod arc_batch;
+mod callable_census;
+mod derived_mono_closure;
 mod mono_inventory;
 mod program;
 mod repr;
@@ -14,9 +16,12 @@ pub(crate) use program::{
 pub(crate) use arc_batch::{
     ArcBatchPreparationError, ArcFunctionGroup, LoweredArcBatch, PreparedArcBatch,
 };
+pub(crate) use callable_census::{CallableCensusBuilder, CallableCensusError};
+pub(crate) use derived_mono_closure::lower_mono_functions_for_analysis;
 pub(crate) use mono_inventory::{MonoFunctionInventory, MonoFunctionInventoryError};
 
 pub(crate) use repr::{
-    compute_module_repr_plan, lower_impl_methods_for_analysis, lower_mono_function_for_analysis,
-    lower_non_generic_derived_methods_for_analysis, DerivedMethodAnalysis, ImplMethodAnalysis,
+    compute_module_repr_plan, extend_mono_method_targets, lower_impl_methods_for_analysis,
+    lower_non_generic_derived_methods_for_analysis, method_receiver_key, DerivedMethodAnalysis,
+    ImplMethodAnalysis,
 };

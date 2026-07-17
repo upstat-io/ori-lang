@@ -9,8 +9,8 @@ use ori_ir::{ExprId, Name, Span};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::type_resolution::{
-    build_method_generic_metadata, build_where_constraint, collect_generic_param_bounds,
-    collect_generic_params, resolve_parsed_type_simple, resolve_type_with_method_generics,
+    build_method_generic_metadata_from, build_where_constraint, collect_generic_param_bounds,
+    collect_generic_params, resolve_parsed_type_simple, resolve_type_with_method_generics_from,
     resolve_type_with_self,
 };
 use crate::check::bodies::allocate_rigid_var_map;
@@ -159,7 +159,10 @@ fn register_impl(
         span: impl_def.span,
     };
 
-    checker.trait_registry_mut().register_impl(entry);
+    checker.trait_registry_mut().register_impl_with_origin(
+        entry,
+        Some(crate::registry::RegisteredImplOrigin::Source { impl_index }),
+    );
 
     // 10. Drop trait wiring: when this impl is `impl T: Drop`, populate
     //     `UserBurdenSpec.user_drop = Some(FnSym)` and mint a stable
@@ -631,17 +634,40 @@ fn build_impl_method(
     self_type: Idx,
     trait_substitutions: &FxHashMap<Name, Idx>,
 ) -> ImplMethodDef {
+    let arena = checker.arena();
+    build_impl_method_from(
+        checker,
+        method,
+        type_params,
+        self_type,
+        trait_substitutions,
+        arena,
+        true,
+    )
+}
+
+fn build_impl_method_from(
+    checker: &mut ModuleChecker<'_>,
+    method: &ori_ir::ImplMethod,
+    type_params: &[Name],
+    self_type: Idx,
+    trait_substitutions: &FxHashMap<Name, Idx>,
+    arena: &ori_ir::ExprArena,
+    allocate_body_rigids: bool,
+) -> ImplMethodDef {
     // Deep-copy method-level generics + where-clauses into arena-independent
     // owned form for downstream bound enforcement. Also collect the
     // `Name → Idx` overlay for fresh-Var substitution of method-level type
     // names in param/return resolution.
+    let generic_params = arena.get_generic_params(method.generics).to_vec();
     let (scheme_var_ids, scheme_overlay, generic_param_metadata, where_clause_metadata) =
-        build_method_generic_metadata(
+        build_method_generic_metadata_from(
             checker,
-            method.generics,
+            &generic_params,
             &method.where_clauses,
             type_params,
             self_type,
+            arena,
         );
 
     // allocate the method body's `RigidVar`s NOW (Pass 0c) and store
@@ -654,8 +680,10 @@ fn build_impl_method(
     // and the rigid leaf survives to executable projection. The registration-time scheme vars
     // (`scheme_var_ids`, fresh `Tag::Var` for call-site instantiation) and these
     // body rigid vars are distinct pool entries serving distinct purposes.
-    let method_rigid_var_map = allocate_rigid_var_map(checker, method.generics);
-    checker.set_method_rigid_var_map(method.body, method_rigid_var_map);
+    if allocate_body_rigids {
+        let method_rigid_var_map = allocate_rigid_var_map(checker, method.generics);
+        checker.set_method_rigid_var_map(method.body, method_rigid_var_map);
+    }
 
     // Merge `trait_substitutions` into the resolver overlay used for
     // param/return type resolution. The trait→impl
@@ -692,18 +720,19 @@ fn build_impl_method(
 
     // Resolve parameter types, substituting Self with the actual type and
     // method-level binders with their fresh-Var Idx via the overlay.
-    let params: Vec<_> = checker.arena().get_params(method.params).to_vec();
+    let params: Vec<_> = arena.get_params(method.params).to_vec();
     let param_types: Vec<Idx> = params
         .iter()
         .map(|p| {
             let is_self = p.name == checker.well_known().self_kw;
             match p.ty.as_ref() {
-                Some(ty) => resolve_type_with_method_generics(
+                Some(ty) => resolve_type_with_method_generics_from(
                     checker,
                     ty,
                     &combined_overlay,
                     &combined_type_params,
                     self_type,
+                    arena,
                 ),
                 None if is_self => self_type,
                 None => Idx::ERROR,
@@ -712,12 +741,13 @@ fn build_impl_method(
         .collect();
 
     // Resolve return type with the same combined overlay.
-    let return_ty = resolve_type_with_method_generics(
+    let return_ty = resolve_type_with_method_generics_from(
         checker,
         &method.return_ty,
         &combined_overlay,
         &combined_type_params,
         self_type,
+        arena,
     );
 
     // Detect whether the first parameter is `self` (instance method vs associated function)

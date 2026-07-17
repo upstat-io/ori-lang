@@ -1,4 +1,4 @@
-//! Inline Option/Result/Tuple comparison for derived trait codegen.
+//! Inline Option comparison and hashing for derived trait codegen.
 //!
 //! These functions generate branchless LLVM IR for structural equality,
 //! comparison, and hashing of wrapper types. Each recursively dispatches
@@ -319,7 +319,7 @@ pub(super) fn emit_option_hash<'a>(
 /// Mirrors the interpreter's `function_val_hash_combine` exactly (all wrapping
 /// i64; `>> 2` is arithmetic per the signed interpreter shift) so derived
 /// Result/Tuple hashes match the parity oracle.
-pub(super) fn emit_hash_combine<'a>(
+pub(in crate::codegen::derive_codegen) fn emit_hash_combine<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     seed: ValueId,
     value: ValueId,

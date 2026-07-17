@@ -2728,16 +2728,10 @@ type P2Pair<A, B> = { first: A, second: B };
     );
 }
 
-// Pin 3 — derived-Eq comparison on a GENERIC composite instantiation. Derived
-// methods (like builtins/iterators) take the `ReceiverDispatch::Return` arm and
-// are codegen-direct, NOT mono-recorded — so an instance-recorded assertion is
-// the wrong contract (the factory + iterator families proved this). This pin
-// holds the durable typeck-layer contract: the derived-Eq comparison
-// type-checks and resolves to `bool`. The AOT runtime gap (the derived `equals`
-// for the `P3Pair<int, str>` instantiation is unresolved at LLVM, and an
-// un-annotated generic composite with a heap field emits invalid IR) is the
-// generic-composite-type monomorphization gap; its fix lands the real AOT
-// compile+run pin.
+// Pin 3 — derived-Eq comparison on a GENERIC composite instantiation. Operator
+// dispatch must publish the same concrete receiver-bearing method demand as an
+// ordinary generic method call; ARC uses its receiver-qualified operator fact
+// rather than a canonical call-dispatch entry to bind the realized body.
 #[test]
 fn s09_2_derived_method_on_generic_composite_typechecks_to_bool() {
     let source = r"
@@ -2757,6 +2751,26 @@ fn s09_2_derived_method_on_generic_composite_typechecks_to_bool() {
         Idx::BOOL,
         "derived-Eq `p == q` on P3Pair<int, str> must resolve to bool; got {body_ty:?}"
     );
+    let receiver = result
+        .find_applied("P3Pair", &[Idx::INT, Idx::STR])
+        .expect("concrete P3Pair<int, str> must exist");
+    let instances = result.mono_instances_for("eq");
+    assert_eq!(
+        instances.len(),
+        1,
+        "generic derived Eq operator must publish one deduplicated method instance: {instances:?}"
+    );
+    let instance = instances[0];
+    assert_eq!(instance.receiver_type, Some(receiver));
+    assert_eq!(
+        instance.impl_args,
+        vec![
+            crate::GenericArg::Type(Idx::INT),
+            crate::GenericArg::Type(Idx::STR),
+        ]
+    );
+    assert_eq!(instance.concrete_param_types, vec![receiver]);
+    assert_eq!(instance.concrete_return_type, Idx::BOOL);
 }
 
 #[test]

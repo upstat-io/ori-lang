@@ -37,7 +37,9 @@ mod body_finalize;
 mod context;
 mod env;
 mod expr;
+pub(crate) use expr::match_self_type;
 pub(crate) use expr::register_concrete_applied_resolutions;
+pub(crate) use expr::type_satisfies_named_trait;
 pub(crate) use expr::{NestedPathStep, RefutableReason};
 mod scope;
 pub(crate) use scope::{LoopContext, LoopForm};
@@ -184,8 +186,9 @@ pub struct InferEngine<'pool> {
 
     /// Monomorphization instances discovered during inference.
     ///
-    /// Populated by `record_mono_instance()` when a generic function is called
-    /// with concrete type arguments. Extracted via `take_mono_instances()`.
+    /// Populated when a generic function or method is selected with concrete
+    /// type arguments, including operator-selected methods that have no call
+    /// expression dispatch entry. Extracted via `take_mono_instances()`.
     mono_instances: Vec<crate::MonoInstance>,
 
     /// Pre-dedup `(call_expr_id, MonoInstanceId)` pairs accumulated during

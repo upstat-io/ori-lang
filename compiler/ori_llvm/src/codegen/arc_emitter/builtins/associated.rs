@@ -128,6 +128,7 @@ fn ori_types_tag_to_registry(tag: ori_types::Tag) -> Option<TypeTag> {
         Tag::Str => TypeTag::Str,
         Tag::Char => TypeTag::Char,
         Tag::Byte => TypeTag::Byte,
+        Tag::Unit => TypeTag::Unit,
         Tag::Duration => TypeTag::Duration,
         Tag::Size => TypeTag::Size,
         Tag::Ordering => TypeTag::Ordering,

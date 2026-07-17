@@ -204,6 +204,8 @@ impl ArcIrBuilder {
             destination,
             receiver_type,
             form,
+            producer: None,
+            derived_position: None,
         });
     }
 
@@ -475,6 +477,7 @@ impl ArcIrBuilder {
             reassign_deaths: self.reassign_deaths,
             catch_scoped_checked_ops: self.catch_scoped_checked_ops,
             method_call_facts: self.method_call_facts,
+            direct_call_facts: Vec::new(),
             class_ledger_emission: false,
         }
     }

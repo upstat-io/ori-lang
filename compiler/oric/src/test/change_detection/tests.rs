@@ -40,8 +40,13 @@ fn make_canon(roots: &[(u32, i64)]) -> CanonResult {
 fn make_module(tests: &[(u32, &[u32])]) -> Module {
     let mut module = Module::new();
     for &(name_raw, target_raws) in tests {
+        let Ok(test_id) = u32::try_from(module.tests.len()) else {
+            panic!("test fixture count must fit u32")
+        };
         module.tests.push(TestDef {
+            id: ori_ir::TestId::new(test_id),
             name: Name::from_raw(name_raw),
+            display_name: Name::from_raw(name_raw),
             targets: target_raws.iter().map(|&r| Name::from_raw(r)).collect(),
             params: ori_ir::ParamRange::default(),
             return_ty: None,

@@ -52,7 +52,7 @@ impl BuiltinMethodResolver {
     /// Create a new built-in method resolver with pre-interned method names.
     ///
     /// Reads from `ori_registry::BUILTIN_TYPES` (the single source of truth)
-    /// and maps type names to evaluator convention via [`eval_type_name()`].
+    /// and maps type names to evaluator convention via `eval_type_name()`.
     pub fn new(interner: &StringInterner) -> Self {
         let known_methods = ori_registry::BUILTIN_TYPES
             .iter()

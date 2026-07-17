@@ -50,6 +50,9 @@ pub struct TraitRegistry {
     /// All implementations.
     pub(super) impls: Vec<ImplEntry>,
 
+    /// Type-checker-owned semantic origin parallel to `impls`.
+    pub(super) impl_origins: Vec<Option<RegisteredImplOrigin>>,
+
     /// Quick lookup: `self_type` -> impl indices.
     /// Enables O(1) lookup of implementations for a given type.
     pub(super) impls_by_type: FxHashMap<Idx, Vec<usize>>,
@@ -57,6 +60,28 @@ pub struct TraitRegistry {
     /// Quick lookup: `trait_idx` -> impl indices.
     /// Enables coherence checking and trait method resolution.
     pub(super) impls_by_trait: FxHashMap<Idx, Vec<usize>>,
+}
+
+/// Module-local semantic origin of one registered implementation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum RegisteredImplOrigin {
+    /// Source or inherited-default body in a parsed impl block.
+    Source { impl_index: usize },
+    /// Compiler-generated accepted derive.
+    Derived(ori_ir::DerivedImplId),
+    /// Method templates imported from another producer module.
+    #[expect(
+        dead_code,
+        reason = "the exported imported-impl registration seam is completed in the next closure step"
+    )]
+    Imported(FxHashMap<ExprId, ImportedMethodOrigin>),
+}
+
+/// Stable imported producer identity for one method body.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ImportedMethodOrigin {
+    pub(crate) symbol: Box<str>,
+    pub(crate) signature_hash: u64,
 }
 
 /// A registered trait definition.

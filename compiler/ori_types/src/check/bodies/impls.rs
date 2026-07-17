@@ -87,6 +87,7 @@ fn check_impl_block(
     let impl_context = ImplBodyContext {
         impl_index,
         self_type,
+        trait_type: trait_idx,
         type_params: &impl_generic_params,
         substitutions: &impl_substitutions,
         inline_bounds: &impl_inline_bounds,
@@ -127,6 +128,7 @@ fn check_impl_block(
 struct ImplBodyContext<'a> {
     impl_index: usize,
     self_type: Idx,
+    trait_type: Option<Idx>,
     type_params: &'a [Name],
     substitutions: &'a FxHashMap<Name, Idx>,
     inline_bounds: &'a [(Idx, Vec<Name>)],
@@ -450,5 +452,12 @@ fn check_impl_method(
     // Export impl method signature for codegen.
     // Codegen needs param_types, return_type, and type_params to compute ABI,
     // plus the owning receiver `self_type` to key mono-collection dispatch.
-    checker.register_impl_sig(method_id, self_type, method.name, role, sig);
+    checker.register_impl_sig(
+        method_id,
+        self_type,
+        impl_context.trait_type,
+        method.name,
+        role,
+        sig,
+    );
 }

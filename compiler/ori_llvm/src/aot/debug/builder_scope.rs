@@ -272,7 +272,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
 
     /// Emit a `llvm.dbg.value` intrinsic at the end of a basic block.
     ///
-    /// Like [`emit_dbg_value`], but appends to the block instead of
+    /// Like [`Self::emit_dbg_value`], but appends to the block instead of
     /// inserting before a specific instruction. Uses the LLVM C API
     /// `LLVMDIBuilderInsertDbgValueRecordAtEnd` which inkwell doesn't wrap.
     pub fn emit_dbg_value_at_end(

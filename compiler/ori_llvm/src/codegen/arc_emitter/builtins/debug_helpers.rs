@@ -108,13 +108,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Str: Printable returns the raw string (no quotes, no escaping)
             TypeInfo::Str => Some(val),
 
-            // Byte: decimal via int path (matches emit_element_debug Byte arm)
+            // Byte Printable is the language's two-digit hexadecimal form.
             TypeInfo::Byte => {
                 let i64_ty = self
                     .builder
                     .register_type(self.builder.scx().type_i64().into());
                 let as_i64 = self.builder.sext(val, i64_ty, "tstr.byte.sext");
-                self.emit_to_str(as_i64, &TypeInfo::Int)
+                let str_ty = self.resolve_type(ori_types::Idx::STR);
+                let func_id = self.builder.runtime_fn("ori_byte_debug_format");
+                self.builder
+                    .call_with_sret(func_id, &[as_i64], str_ty, "tstr.byte")
             }
 
             // Option: recursive Printable
@@ -185,6 +188,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(super) fn emit_element_debug(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
         let type_info = self.type_info.get(ty);
         match &type_info {
+            TypeInfo::Unit => self.emit_literal_ori_str("()"),
             // Primitives: Debug == Printable
             TypeInfo::Int
             | TypeInfo::Duration
@@ -215,14 +219,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .call_with_sret(func_id, &[val], str_ty, "dbg.char.fmt")
             }
 
-            // Byte: Debug uses decimal (matching current evaluator/spec behavior
-            // where bytes are stored as Value::Int and debug via int path).
+            // Byte Debug is the same two-digit hexadecimal form as Printable.
             TypeInfo::Byte => {
                 let i64_ty = self
                     .builder
                     .register_type(self.builder.scx().type_i64().into());
                 let as_i64 = self.builder.sext(val, i64_ty, "dbg.byte.sext");
-                self.emit_to_str(as_i64, &TypeInfo::Int)
+                let str_ty = self.resolve_type(ori_types::Idx::STR);
+                let func_id = self.builder.runtime_fn("ori_byte_debug_format");
+                self.builder
+                    .call_with_sret(func_id, &[as_i64], str_ty, "dbg.byte")
             }
 
             // Option: recursive Debug

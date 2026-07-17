@@ -7,7 +7,7 @@
 //!
 //! Types are allocated in the parser's arena. For recursive types (lists, maps,
 //! functions, associated types), child types are allocated first and referenced
-//! by ID. This enables flat storage without Box<ParsedType>.
+//! by ID. This enables flat storage without `Box<ParsedType>`.
 
 use ori_diagnostic::ErrorCode;
 use ori_ir::{ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind, TypeId};

@@ -110,7 +110,11 @@ impl Point: Hashable {
 }
 ```
 
-**Invariant:** If `a == b`, then `a.hash() == b.hash()`. Deriving `Hashable` without `Eq` is a warning.
+Products fold non-`void` fields from seed `0` in declaration order. Sums fold
+their zero-based declaration ordinal before the active non-`void` payload.
+Newtypes return the underlying value's hash directly.
+
+**Invariant:** If `a == b`, then `a.hash() == b.hash()`. Deriving `Hashable` without `Eq` is an error.
 
 ### Comparable
 

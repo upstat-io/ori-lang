@@ -106,6 +106,7 @@ fn empty_executable(symbols: &SharedInterner) -> ExecutableProgram {
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
         method_call_facts: Vec::new(),
+        direct_call_facts: Vec::new(),
         class_ledger_emission: false,
     };
     let pool = Pool::new();

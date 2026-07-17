@@ -27,7 +27,7 @@ use crate::{MethodDef, RegisteredMethodId, TypeDef, TypeTag};
 
 /// Finds the [`TypeDef`] for a given [`TypeTag`].
 ///
-/// Returns `None` for tags not in the registry (e.g., `Unit`, `Never`,
+/// Returns `None` for tags not in the registry (e.g., `Never`,
 /// `Function`, user-defined types).
 ///
 /// Note: `TypeTag::DoubleEndedIterator` returns `None` because no
@@ -42,7 +42,7 @@ use crate::{MethodDef, RegisteredMethodId, TypeDef, TypeTag};
 /// let int_def = find_type(TypeTag::Int).unwrap();
 /// assert_eq!(int_def.name, "int");
 ///
-/// assert!(find_type(TypeTag::Unit).is_none());
+/// assert_eq!(find_type(TypeTag::Unit).unwrap().name, "void");
 /// ```
 #[must_use]
 pub const fn find_type(tag: TypeTag) -> Option<&'static TypeDef> {
@@ -134,7 +134,9 @@ pub fn has_method(tag: TypeTag, name: &str) -> bool {
 /// let int_methods = methods_for(TypeTag::Int);
 /// assert!(int_methods.iter().any(|m| m.name == "abs"));
 ///
-/// assert!(methods_for(TypeTag::Unit).is_empty());
+/// assert!(methods_for(TypeTag::Unit)
+///     .iter()
+///     .any(|method| method.name == "equals"));
 /// ```
 #[must_use]
 pub fn methods_for(tag: TypeTag) -> &'static [MethodDef] {
@@ -213,11 +215,13 @@ pub fn borrowing_methods(tag: TypeTag) -> impl Iterator<Item = &'static MethodDe
 ///
 /// # Example
 ///
-/// ```ignore
-/// let set: FxHashSet<Name> = ori_registry::borrowing_method_names()
-///     .iter()
-///     .map(|name| interner.intern(name))
-///     .collect();
+/// ```
+/// use ori_registry::borrowing_method_names;
+///
+/// let names = borrowing_method_names();
+/// assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
+/// assert!(names.contains(&"len"));
+/// assert!(!names.contains(&"iter"));
 /// ```
 pub fn borrowing_method_names() -> &'static [&'static str] {
     // Buffer holds pre-dedup borrowing-method names across all BUILTIN_TYPES;

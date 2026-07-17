@@ -22,17 +22,22 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```no_run
 //! use ori_llvm::aot::wasm::{WasmConfig, WasmMemoryConfig, JsBindingGenerator};
+//! use std::path::Path;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! let config = WasmConfig::default()
 //!     .with_memory(WasmMemoryConfig::default().with_initial_pages(16))
 //!     .with_js_bindings(true);
+//! assert!(config.generate_js_bindings());
 //!
 //! // Generate WASM with JS bindings
-//! let js_gen = JsBindingGenerator::new("my_module", &exports);
+//! let js_gen = JsBindingGenerator::new("my_module", Vec::new());
 //! js_gen.generate_js(Path::new("my_module.js"))?;
 //! js_gen.generate_dts(Path::new("my_module.d.ts"))?;
+//! # Ok(())
+//! # }
 //! ```
 
 pub mod config;

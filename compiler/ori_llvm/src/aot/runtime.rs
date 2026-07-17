@@ -17,16 +17,24 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use ori_llvm::aot::{RuntimeConfig, LinkerDriver, LinkInput};
+//! ```no_run
+//! use ori_llvm::aot::{LinkInput, LinkerDriver, RuntimeConfig, TargetConfig};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! let rt_config = RuntimeConfig::detect()?;
+//! let target = TargetConfig::native()?;
 //! let driver = LinkerDriver::new(&target);
 //!
-//! let mut input = LinkInput::default();
+//! let mut input = LinkInput {
+//!     objects: vec!["main.o".into()],
+//!     output: "myapp".into(),
+//!     ..Default::default()
+//! };
 //! rt_config.configure_link(&mut input);
 //!
 //! driver.link(&input)?;
+//! # Ok(())
+//! # }
 //! ```
 
 use std::path::{Path, PathBuf};

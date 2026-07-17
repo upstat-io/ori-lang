@@ -6,10 +6,10 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```
 //! use ori_compiler::{compile_and_run, CompileConfig};
 //!
-//! let output = compile_and_run("@main () -> int = 42", &CompileConfig::default());
+//! let output = compile_and_run("@main () -> int = 42;", &CompileConfig::default());
 //! assert!(output.success);
 //! assert_eq!(output.output, "42");
 //! ```

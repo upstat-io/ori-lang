@@ -44,7 +44,7 @@ fn llvm_dump_requested() -> bool {
 /// Pairs a function AST with its type-checked signature and the canonical IR
 /// from its source module. All `Idx` values in `sig` and `canon` have been
 /// re-interned into the main compilation pool before construction — the caller
-/// uses [`ori_types::re_intern_type`] and [`CanArena::remap_types`] to ensure
+/// uses [`ori_types::re_intern_type`] and [`ori_ir::canon::CanArena::remap_types`] to ensure
 /// single-pool consistency.
 pub struct ImportedFunctionForCodegen<'a> {
     /// The function AST from the imported module.

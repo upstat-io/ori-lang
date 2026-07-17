@@ -49,11 +49,10 @@ fn all_type_tags_present() {
     let registered_tags: HashSet<TypeTag> = BUILTIN_TYPES.iter().map(|td| td.tag).collect();
 
     // TypeTag variants that intentionally have no TypeDef:
-    // - Unit, Never: no methods, no operators
+    // - Never: no values, methods, or operators
     // - Function: no methods (memory classification only)
     // - DoubleEndedIterator: aliased to Iterator via base_type()
     let excluded = [
-        TypeTag::Unit,
         TypeTag::Never,
         TypeTag::Function,
         TypeTag::DoubleEndedIterator,

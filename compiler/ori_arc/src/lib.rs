@@ -52,6 +52,9 @@ pub(crate) mod classify;
 mod closure_abi;
 pub mod decision_tree;
 mod derived_body;
+mod derived_compare;
+mod derived_format;
+mod derived_hash;
 pub mod drop;
 pub mod fbip;
 pub mod graph;
@@ -99,8 +102,12 @@ pub use decision_tree::{
     TestValue,
 };
 pub use derived_body::{
-    build_derived_clone_identity, build_derived_eq, DerivedCloneBodyError, DerivedEqBodyError,
+    build_derived_clone_identity, build_derived_default, build_derived_eq, DerivedCloneBodyError,
+    DerivedDefaultBodyError, DerivedEqBodyError,
 };
+pub use derived_compare::{build_derived_compare, DerivedCompareBodyError};
+pub use derived_format::{build_derived_format, DerivedFormatBodyError};
+pub use derived_hash::{build_derived_hash, DerivedHashBodyError};
 pub use drop::{
     collect_drop_infos, compute_closure_env_drop, compute_consumer_attribution, compute_drop_info,
     type_drop_may_unwind, DropInfo, DropKind,
@@ -115,8 +122,8 @@ pub use ir::validate::{
 };
 pub use ir::{
     compute_var_reprs, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,
-    ArcValue, ArcVarId, ArgOwnership, CtorKind, LitValue, MethodCallFact, MethodCallForm, PrimOp,
-    RcAtomicity, RcStrategy, ValueRepr, VariableMetadataState,
+    ArcValue, ArcVarId, ArgOwnership, CtorKind, DirectCallFact, LitValue, MethodCallFact,
+    MethodCallForm, PrimOp, RcAtomicity, RcStrategy, ValueRepr, VariableMetadataState,
 };
 pub use lambda_specialization::{
     first_unresolved_bound_var, specialize_polymorphic_lambdas, type_contains_bound_var,

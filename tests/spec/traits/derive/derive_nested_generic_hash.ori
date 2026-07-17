@@ -23,7 +23,6 @@ use std.testing { assert }
 type Wrap<T> = { inner: T }
 
 // Equal nested-generic values hash equally (determinism).
-#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_nested_generic_hash_stable tests @nested_hash_stable () -> void = {
     let a = Wrap { inner: Wrap { inner: 7 } };
     let b = Wrap { inner: Wrap { inner: 7 } };
@@ -36,7 +35,6 @@ type Wrap<T> = { inner: T }
 }
 
 // Distinct inner values must hash distinctly.
-#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_nested_generic_hash_differs tests @nested_hash_differs () -> void = {
     let a = Wrap { inner: Wrap { inner: 7 } };
     let b = Wrap { inner: Wrap { inner: 8 } };
@@ -49,10 +47,9 @@ type Wrap<T> = { inner: T }
 }
 
 // Exact-value parity oracle (L9) — golden hash from the interpreter.
-#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_nested_generic_hash_exact tests @nested_hash_exact () -> void = {
     let a = Wrap { inner: Wrap { inner: 7 } };
-    assert(cond: a.hash() == 447706272673883321)
+    assert(cond: a.hash() == 5308871545)
 }
 @nested_hash_exact () -> int = {
     let a = Wrap { inner: Wrap { inner: 7 } };

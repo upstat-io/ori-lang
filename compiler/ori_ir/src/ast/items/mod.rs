@@ -11,7 +11,7 @@ mod types;
 pub use extern_def::{ExternBlock, ExternItem, ExternParam};
 pub use function::{
     BackendSkip, CapabilityRef, CfgAttr, ConstDef, ExpectedError, FileAttr, Function, Module,
-    Param, PostContract, PreContract, TargetAttr, TestBackend, TestDef,
+    Param, PostContract, PreContract, TargetAttr, TestBackend, TestDef, TestId,
 };
 pub use imports::{
     qualified_alias_name, ExtensionImport, ExtensionImportItem, ImportCycleGuard, ImportErrorKind,

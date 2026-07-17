@@ -4,7 +4,7 @@ use ori_ir::{ExprId, Name};
 use rustc_hash::FxHashMap;
 
 use crate::pool::substitute::substitute_in_pool;
-use crate::{GenericArg, Idx, MonoInstance};
+use crate::{ConcreteMethodMono, GenericArg, Idx, MonoInstance};
 
 use crate::infer::InferEngine;
 
@@ -73,10 +73,12 @@ fn resolve_method_binder_args(
 /// method resolving through another generic — is conservatively skipped this pass.
 ///
 /// MUST be called AFTER argument type-checking has unified the method's
-/// instantiation vars, so `engine.resolve` yields concrete types.
+/// instantiation vars, so `engine.resolve` yields concrete types. `Some(id)`
+/// publishes canonical call dispatch; `None` records only the concrete body
+/// demand for an operator expression.
 pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
     engine: &mut InferEngine<'_>,
-    call_expr_id: ExprId,
+    call_expr_id: Option<ExprId>,
     method_name: Name,
     receiver_ty: Idx,
     sig: &ImplMethodSig,
@@ -171,14 +173,20 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
     let (body_type_map, extra_named) =
         build_method_body_type_map(engine, sig, mono, receiver, method_named, &mut var_subst);
 
+    let Some(producer) = sig.producer.clone() else {
+        return;
+    };
     let instance = MonoInstance::new_method(
         method_name,
+        producer,
         impl_args,
         method_args,
-        receiver,
-        concrete_param_types,
-        concrete_return_type,
-        body_type_map,
+        ConcreteMethodMono {
+            receiver_type: receiver,
+            param_types: concrete_param_types,
+            return_type: concrete_return_type,
+            body_type_map,
+        },
     );
 
     tracing::debug!(
@@ -192,7 +200,15 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
         "recorded mono instance"
     );
 
-    engine.record_mono_with_dispatch(call_expr_id, instance);
+    if let Some(call_expr_id) = call_expr_id {
+        engine.record_mono_with_dispatch(call_expr_id, instance);
+    } else {
+        // Operator expressions have no canonical call node to rewrite, but
+        // their selected generic method still needs a concrete body in the
+        // executable inventory. The ARC operator-target pass binds that body
+        // through its receiver-qualified method fact.
+        engine.record_mono_instance(instance);
+    }
 }
 
 /// `(body_type_map, extra_named)` returned by [`build_method_body_type_map`]:

@@ -91,9 +91,9 @@ pub enum CombineOp {
     ///
     /// Initial: `Ordering::Equal`. Used by Comparable.
     Lexicographic,
-    /// FNV-1a: `hash = (hash ^ field_hash) * FNV_PRIME`.
+    /// Prelude `hash_combine`: `hash = hash_combine(hash, field_hash)`.
     ///
-    /// Initial: `FNV_OFFSET_BASIS`. Used by Hashable.
+    /// Initial: `0`. Used by Hashable.
     HashCombine,
 }
 

@@ -290,7 +290,7 @@ impl RuntimeCall {
 #[cfg(test)]
 mod tests {
     use super::RuntimeCall;
-    use ori_registry::{MethodRuntime, OptionRuntime, ResultRuntime, TypeTag};
+    use ori_registry::{MethodKind, MethodRuntime, OptionRuntime, ResultRuntime, TypeTag};
 
     #[test]
     fn unwrap_or_resolution_preserves_receiver_semantics() {
@@ -374,6 +374,7 @@ mod tests {
     #[test]
     fn every_registered_method_has_an_exact_callable_identity() {
         for receiver in [
+            TypeTag::Unit,
             TypeTag::List,
             TypeTag::Map,
             TypeTag::Set,
@@ -383,7 +384,8 @@ mod tests {
             for method in ori_registry::methods_for(receiver) {
                 let call = RuntimeCall::resolve(method.name, Some(receiver))
                     .unwrap_or_else(|| panic!("{receiver:?}.{} should resolve", method.name));
-                assert_eq!(call.arity(), method.params.len() + 1);
+                let receiver_arity = usize::from(method.kind == MethodKind::Instance);
+                assert_eq!(call.arity(), method.params.len() + receiver_arity);
             }
         }
     }

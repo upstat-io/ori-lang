@@ -17,15 +17,23 @@ type TraitMatch<'a> = (
     FxHashMap<Name, Idx>,
     Name,
     Vec<Name>,
+    crate::MethodProducer,
 );
 
 /// An inherent-impl method match: method def, impl-binder substitution, impl
 /// type-params in declaration order.
-type InherentMatch<'a> = (&'a crate::ImplMethodDef, FxHashMap<Name, Idx>, Vec<Name>);
+type InherentMatch<'a> = (
+    &'a crate::ImplMethodDef,
+    FxHashMap<Name, Idx>,
+    Vec<Name>,
+    crate::MethodProducer,
+);
 
 /// Result of looking up a method in the `TraitRegistry`.
 pub(super) enum LookupOutcome {
     Found {
+        /// Exact checker-selected executable producer.
+        producer: Option<crate::MethodProducer>,
         sig: Idx,
         has_self: bool,
         /// Method-level where-clause constraints, deep-copied owned form.
@@ -80,6 +88,8 @@ pub(super) struct MethodMonoData {
 
 /// Successfully resolved impl method signature.
 pub(super) struct ImplMethodSig {
+    /// Exact checker-selected producer when dispatch reached a concrete impl.
+    pub(super) producer: Option<crate::MethodProducer>,
     /// Method parameters (excluding `self`).
     pub(super) params: Vec<Idx>,
     /// Return type.
@@ -194,6 +204,7 @@ fn match_self_type_inner(
 /// Result of the base-name fallback search — single match, ambiguous, or none.
 enum FallbackResult {
     Single {
+        producer: crate::MethodProducer,
         sig: Idx,
         has_self: bool,
         where_clause_metadata: Vec<WhereConstraint>,
@@ -236,7 +247,7 @@ fn lookup_method_by_base_match(
     let mut inherent_matches: Vec<InherentMatch<'_>> = Vec::new();
     let mut trait_matches: Vec<TraitMatch<'_>> = Vec::new();
 
-    for (_, entry) in reg.impls_iter() {
+    for (impl_idx, entry) in reg.impls_iter() {
         let Some(entry_base) = pool_base_name(pool, entry.self_type) else {
             continue;
         };
@@ -251,8 +262,18 @@ fn lookup_method_by_base_match(
         else {
             continue;
         };
+        let Some(producer) = reg.method_producer(impl_idx, method_def) else {
+            continue;
+        };
         match entry.trait_idx {
-            None => inherent_matches.push((method_def, impl_subst, entry.type_params.clone())),
+            None => {
+                inherent_matches.push((
+                    method_def,
+                    impl_subst,
+                    entry.type_params.clone(),
+                    producer,
+                ));
+            }
             Some(trait_idx) => {
                 let trait_name = reg.get_trait_by_idx(trait_idx).map_or(method, |t| t.name);
                 trait_matches.push((
@@ -260,6 +281,7 @@ fn lookup_method_by_base_match(
                     impl_subst,
                     trait_name,
                     entry.type_params.clone(),
+                    producer,
                 ));
             }
         }
@@ -267,8 +289,11 @@ fn lookup_method_by_base_match(
 
     // Inherent wins; ambiguity within inherent is a registration error caught
     // earlier (coherence check `TR-5`), so first hit suffices.
-    if let Some((method_def, impl_subst, impl_type_params)) = inherent_matches.into_iter().next() {
+    if let Some((method_def, impl_subst, impl_type_params, producer)) =
+        inherent_matches.into_iter().next()
+    {
         return FallbackResult::Single {
+            producer,
             sig: method_def.signature,
             has_self: method_def.has_self,
             where_clause_metadata: method_def.where_clause_metadata.clone(),
@@ -280,11 +305,14 @@ fn lookup_method_by_base_match(
     }
 
     if trait_matches.len() > 1 {
-        let trait_names: Vec<Name> = trait_matches.iter().map(|(_, _, n, _)| *n).collect();
+        let trait_names: Vec<Name> = trait_matches.iter().map(|(_, _, n, _, _)| *n).collect();
         return FallbackResult::Ambiguous(trait_names);
     }
-    if let Some((method_def, impl_subst, _, impl_type_params)) = trait_matches.into_iter().next() {
+    if let Some((method_def, impl_subst, _, impl_type_params, producer)) =
+        trait_matches.into_iter().next()
+    {
         FallbackResult::Single {
+            producer,
             sig: method_def.signature,
             has_self: method_def.has_self,
             where_clause_metadata: method_def.where_clause_metadata.clone(),
@@ -327,7 +355,11 @@ pub(super) fn lookup_impl_method(
     match primary {
         MethodLookupResult::Found(lookup) => {
             let m = lookup.method();
+            let producer = engine
+                .trait_registry()
+                .and_then(|registry| registry.method_producer(lookup.impl_idx(), m));
             return LookupOutcome::Found {
+                producer,
                 sig: m.signature,
                 has_self: m.has_self,
                 where_clause_metadata: m.where_clause_metadata.clone(),
@@ -350,6 +382,7 @@ pub(super) fn lookup_impl_method(
 
     match lookup_method_by_base_match(engine, receiver_ty, method) {
         FallbackResult::Single {
+            producer,
             sig,
             has_self,
             where_clause_metadata,
@@ -359,6 +392,7 @@ pub(super) fn lookup_impl_method(
             impl_type_params,
         } => {
             return LookupOutcome::Found {
+                producer: Some(producer),
                 sig,
                 has_self,
                 where_clause_metadata,
@@ -377,21 +411,15 @@ pub(super) fn lookup_impl_method(
         FallbackResult::None => {}
     }
 
-    // Bound-chain dispatch on `Tag::RigidVar` receivers.
-    //
-    // When the receiver is a generic type parameter (`@f<T: Clone> ...`),
-    // primary `lookup_method_checked` keyed on the rigid var's `Idx` always
-    // misses (RigidVar indices are never registered as impl `self_type`
-    // keys), and the base-name fallback's structural matcher also fails
-    // because no impl's `self_type` shape unifies with a RigidVar. The
-    // method must be resolved via the rigid var's declared trait bounds:
-    // walk the bound list (registered by `bind_method_rigid_bound` at
-    // body-check entry) and look for a trait providing the method.
-    //
-    // The trait method's signature carries `Tag::SelfType` references that
-    // remain in place — `Self` resolves to the receiver's RigidVar at
-    // call-site type resolution per `infer/expr/type_resolution.rs`,
-    // which sees the impl-self type bound by `with_impl_scope`.
+    lookup_bound_method(engine, receiver_ty, method)
+}
+
+/// Resolve a method through the declared bounds of a rigid generic receiver.
+fn lookup_bound_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: Name,
+) -> LookupOutcome {
     let receiver_tag = engine.pool().tag(receiver_ty);
     if matches!(receiver_tag, Tag::RigidVar | Tag::Var) {
         let Some(bounds) = engine.rigid_var_bounds(receiver_ty).map(<[Name]>::to_vec) else {
@@ -403,7 +431,7 @@ pub(super) fn lookup_impl_method(
             };
             reg.find_trait_method_via_bound_chain(method, &bounds)
         };
-        return match lookup {
+        match lookup {
             BoundChainLookup::Found {
                 trait_idx: _,
                 method: tm,
@@ -437,6 +465,7 @@ pub(super) fn lookup_impl_method(
                     substitute_self_in_pool(engine.pool_mut(), raw_sig, receiver_ty)
                 };
                 LookupOutcome::Found {
+                    producer: None,
                     sig,
                     // Use the trait method's actual self-ness: an instance method
                     // (`hello(self)`) consumes the receiver as `self`; a no-`self`
@@ -460,8 +489,8 @@ pub(super) fn lookup_impl_method(
                 LookupOutcome::Ambiguous(candidates.iter().map(|&(_, n)| n).collect())
             }
             BoundChainLookup::NotFound => LookupOutcome::NotFound,
-        };
+        }
+    } else {
+        LookupOutcome::NotFound
     }
-
-    LookupOutcome::NotFound
 }

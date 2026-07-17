@@ -21,6 +21,7 @@ use strategy::{CombineOp, DeriveStrategy, FieldOp, FormatOpen, StructBody, SumBo
 /// identity instead of using `ExprId::INVALID` or rediscovering derives from
 /// source spelling.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 #[repr(transparent)]
 pub struct DerivedImplId(u32);
 

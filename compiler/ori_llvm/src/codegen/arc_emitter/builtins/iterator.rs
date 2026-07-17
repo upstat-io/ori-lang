@@ -453,7 +453,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         };
 
-        let inner_elem_size = self.flatten_inner_elem_size(closure_return);
+        // A divergent transform is a valid flat_map input: `Never` absorbs
+        // the iterator-return constraint during type checking. No inner
+        // iterator can exist on that path. The mapped source either exhausts
+        // before invoking the transform or the transform diverges, so the
+        // flatten adapter never observes an inner handle. Zero is the runtime
+        // stride for this uninhabited output and is accepted by
+        // `assert_elem_size`; keep `flatten_inner_elem_size` strict for every
+        // inhabited return type so a non-iterator cannot become a stride.
+        let resolved_return = self.pool.resolve_fully(closure_return);
+        let inner_elem_size = if self.pool.tag(resolved_return) == ori_types::Tag::Never {
+            0
+        } else {
+            self.flatten_inner_elem_size(resolved_return)
+        };
         let inner_elem_size_val = self.builder.const_i64(inner_elem_size);
         let func_id = self.builder.runtime_fn("ori_iter_flatten");
         self.emit_rt_call(func_id, &[mapped, inner_elem_size_val], "iter.flat_map")

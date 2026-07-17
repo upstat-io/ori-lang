@@ -12,9 +12,10 @@ use ori_types::{FunctionSig, Idx, Pool, TypeCheckResult, TypeRegistry};
 use rustc_hash::FxHashMap;
 
 use super::{
-    compute_module_repr_plan, lower_impl_methods_for_analysis, lower_mono_function_for_analysis,
-    lower_non_generic_derived_methods_for_analysis, ArcBatchPreparationError, ArcFunctionGroup,
-    ImplMethodAnalysis, LoweredArcBatch,
+    compute_module_repr_plan, extend_mono_method_targets, lower_impl_methods_for_analysis,
+    lower_non_generic_derived_methods_for_analysis, method_receiver_key, ArcBatchPreparationError,
+    ArcFunctionGroup, CallableCensusBuilder, CallableCensusError, ImplMethodAnalysis,
+    LoweredArcBatch,
 };
 
 /// Explicit inputs to backend-neutral local-module realization.
@@ -59,9 +60,19 @@ pub(crate) struct ArcProgramRealizationInput {
     pub verify_arc: bool,
 }
 
+#[derive(Clone, Copy)]
+struct TopLevelMonoSources<'a> {
+    functions: &'a [ori_repr::monomorphize::MonoFunction],
+    accepted_derives: &'a [ori_types::AcceptedDerivedImpl],
+    derived_call_plans: &'a [ori_types::DerivedCallPlan],
+}
+
 /// A typed failure in frontend-to-executable realization.
 #[derive(Debug, thiserror::Error)]
 pub enum ProgramRealizationError {
+    /// Raw declarations could not form one semantic callable seed inventory.
+    #[error(transparent)]
+    CallableCensus(#[from] CallableCensusError),
     /// ARC lowering rejected one or more ordinary or monomorphized bodies.
     #[error("ARC lowering produced {count} problem(s): {problems:?}")]
     ArcLowering {
@@ -164,15 +175,6 @@ pub fn realize_local_program(
         interner,
         &input.pool,
     );
-    let groups = lower_top_level_functions(
-        input.parse,
-        input.canon,
-        interner,
-        &input.pool,
-        &function_sigs,
-        &mono_functions,
-        &input.types.typed.accepted_derives,
-    )?;
     let ImplMethodAnalysis {
         groups: impl_groups,
         targets: mut impl_targets,
@@ -188,13 +190,28 @@ pub fn realize_local_program(
     .map_err(arc_lowering_error)?;
     let derived = lower_non_generic_derived_methods_for_analysis(
         &input.types.typed.accepted_derives,
+        &input.types.typed.derived_call_plans,
         interner,
         &input.pool,
     )
     .map_err(arc_lowering_error)?;
+    let groups = lower_top_level_functions(
+        input.parse,
+        input.canon,
+        interner,
+        &input.pool,
+        &function_sigs,
+        TopLevelMonoSources {
+            functions: &mono_functions,
+            accepted_derives: &input.types.typed.accepted_derives,
+            derived_call_plans: &input.types.typed.derived_call_plans,
+        },
+    )?;
     for (key, target) in derived.targets {
         impl_targets.entry(key).or_insert(target);
     }
+    extend_mono_method_targets(&mut impl_targets, &mono_functions, interner, &input.pool)
+        .map_err(arc_lowering_error)?;
     let mut batch =
         LoweredArcBatch::try_from_groups(groups, interner).map_err(map_arc_batch_error)?;
     for group in impl_groups {
@@ -391,12 +408,15 @@ fn lower_top_level_functions(
     interner: &StringInterner,
     pool: &Pool,
     function_sigs: &[FunctionSig],
-    mono_functions: &[ori_repr::monomorphize::MonoFunction],
-    accepted_derives: &[ori_types::AcceptedDerivedImpl],
+    monos: TopLevelMonoSources<'_>,
 ) -> Result<Vec<ArcFunctionGroup>, ProgramRealizationError> {
     let mut groups = Vec::new();
     let mut problems = Vec::new();
-    for (function, signature) in parse.module.functions.iter().zip(function_sigs) {
+    let source_seeds = CallableCensusBuilder::new(interner)
+        .source_functions(&parse.module.functions, function_sigs)?;
+    for seed in source_seeds {
+        let function = seed.function;
+        let signature = seed.signature;
         if signature.is_generic() {
             continue;
         }
@@ -412,42 +432,19 @@ fn lower_top_level_functions(
         );
         groups.push(lowered.into());
     }
-    lower_monomorphized_functions(
-        &mut groups,
-        mono_functions,
+    groups.extend(super::lower_mono_functions_for_analysis(
+        monos.functions,
+        monos.accepted_derives,
+        monos.derived_call_plans,
         canon,
         interner,
         pool,
         &mut problems,
-        accepted_derives,
-    );
+    ));
     if problems.is_empty() {
         Ok(groups)
     } else {
         Err(arc_lowering_error(problems))
-    }
-}
-
-fn lower_monomorphized_functions(
-    groups: &mut Vec<ArcFunctionGroup>,
-    mono_functions: &[ori_repr::monomorphize::MonoFunction],
-    canon: &CanonResult,
-    interner: &StringInterner,
-    pool: &Pool,
-    problems: &mut Vec<ori_arc::ArcProblem>,
-    accepted_derives: &[ori_types::AcceptedDerivedImpl],
-) {
-    for mono in mono_functions {
-        if let Some(group) = lower_mono_function_for_analysis(
-            mono,
-            accepted_derives,
-            canon,
-            interner,
-            pool,
-            problems,
-        ) {
-            groups.push(group);
-        }
     }
 }
 
@@ -484,7 +481,7 @@ fn rewrite_impl_target(
     else {
         return;
     };
-    let key = (pool.resolve_fully(fact.receiver_type), *target);
+    let key = (method_receiver_key(pool, fact.receiver_type), *target);
     if let Some(&qualified) = impl_targets.get(&key) {
         *target = qualified;
     }
@@ -532,5 +529,82 @@ fn arc_lowering_error(problems: Vec<ori_arc::ArcProblem>) -> ProgramRealizationE
     ProgramRealizationError::ArcLowering {
         count: problems.len(),
         problems,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ori_arc::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership,
+        MethodCallFact, MethodCallForm,
+    };
+    use ori_ir::{Name, StringInterner};
+    use ori_types::{Idx, Pool};
+    use rustc_hash::FxHashMap;
+
+    use super::rewrite_impl_targets;
+
+    fn hash_call(function_name: Name, hash: Name, receiver_type: Idx) -> ArcFunction {
+        ArcFunction {
+            name: function_name,
+            var_types: vec![receiver_type, Idx::INT],
+            blocks: vec![ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![ArcInstr::Apply {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::INT,
+                    func: hash,
+                    args: vec![ArcVarId::new(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                }],
+                terminator: ArcTerminator::Return {
+                    value: ArcVarId::new(1),
+                },
+            }],
+            method_call_facts: vec![MethodCallFact {
+                destination: ArcVarId::new(1),
+                receiver_type,
+                form: MethodCallForm::Instance,
+                producer: None,
+                derived_position: None,
+            }],
+            ..ArcFunction::default()
+        }
+    }
+
+    #[test]
+    fn newtype_hash_calls_rewrite_by_nominal_receiver() {
+        let interner = StringInterner::new();
+        let left_name = interner.intern("LeftKey");
+        let right_name = interner.intern("RightKey");
+        let hash = interner.intern("hash");
+        let left_target = interner.intern("hash$derived$LeftKey");
+        let right_target = interner.intern("hash$derived$RightKey");
+        let mut pool = Pool::new();
+        let left = pool.named(left_name);
+        let right = pool.named(right_name);
+        pool.register_newtype_ctor(left_name, Idx::INT);
+        pool.register_newtype_ctor(right_name, Idx::INT);
+        pool.set_resolution(left, Idx::INT);
+        pool.set_resolution(right, Idx::INT);
+        let targets =
+            FxHashMap::from_iter([((left, hash), left_target), ((right, hash), right_target)]);
+        let mut functions = vec![
+            hash_call(interner.intern("hash_left"), hash, left),
+            hash_call(interner.intern("hash_right"), hash, right),
+        ];
+
+        rewrite_impl_targets(&mut functions, &targets, &pool);
+
+        let rewritten_targets: Vec<Name> = functions
+            .iter()
+            .map(|function| match function.blocks[0].body[0] {
+                ArcInstr::Apply { func, .. } => func,
+                ref instruction => panic!("expected rewritten hash call, found {instruction:?}"),
+            })
+            .collect();
+        assert_eq!(rewritten_targets, vec![left_target, right_target]);
     }
 }

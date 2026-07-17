@@ -1303,6 +1303,27 @@ fn parse_source_with_interner(source: &str) -> (ParseOutput, StringInterner) {
 }
 
 #[test]
+fn repeated_test_display_names_receive_stable_distinct_identities() {
+    let (result, interner) = parse_source_with_interner(
+        "@test tests @alpha () -> void = ();\n@test tests @beta () -> void = ();",
+    );
+    assert!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
+    assert_eq!(result.module.tests.len(), 2);
+    let first = &result.module.tests[0];
+    let second = &result.module.tests[1];
+    assert_eq!(first.id, ori_ir::TestId::new(0));
+    assert_eq!(second.id, ori_ir::TestId::new(1));
+    assert_eq!(first.display_name, second.display_name);
+    assert_ne!(first.name, second.name);
+    assert_eq!(interner.lookup(first.name), "test$test$0");
+    assert_eq!(interner.lookup(second.name), "test$test$1");
+}
+
+#[test]
 fn test_labeled_break() {
     let (result, interner) =
         parse_source_with_interner("@f () -> int = loop:outer { break:outer 42 }");

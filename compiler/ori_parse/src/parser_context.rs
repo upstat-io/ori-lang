@@ -28,7 +28,10 @@ impl Parser<'_> {
     /// This is the primary way to temporarily modify parsing context.
     ///
     /// # Example
-    /// ```ignore
+    ///
+    /// This is a schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// // Parse condition without allowing struct literals
     /// let cond = self.with_context(ParseContext::NO_STRUCT_LIT, |p| {
     ///     p.parse_expr()
@@ -49,7 +52,10 @@ impl Parser<'_> {
     /// Execute a closure with context flags removed, then restore the original context.
     ///
     /// # Example
-    /// ```ignore
+    ///
+    /// This is a schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// // Parse body allowing struct literals again
     /// let body = self.without_context(ParseContext::NO_STRUCT_LIT, |p| {
     ///     p.parse_expr()
@@ -97,7 +103,9 @@ impl Parser<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// This is a schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
     ///     self.in_error_context(ErrorContext::IfExpression, |p| {
     ///         p.cursor.expect(&TokenKind::If)?;

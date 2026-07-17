@@ -619,6 +619,24 @@ type Point = { x: int, y: int }
 // Generated: combine field hashes using hash_combine
 ```
 
+The generated implementation is defined as follows:
+
+- A product type starts with seed `0` and, in field declaration order, replaces
+  the seed with `hash_combine(seed, field.hash())` for each field.
+- A sum type starts with `hash_combine(0, ordinal)`, where `ordinal` is the
+  selected variant's zero-based declaration ordinal. It then combines the
+  selected variant's payload fields in declaration order using the product rule.
+  The variant ordinal participates even when the variant has no payload.
+- A newtype returns its underlying value's hash directly. It does not add a type
+  name, constructor, or wrapper salt.
+- Fields whose semantic type is `void` (whose sole value is `()`) do not
+  participate and shall not be projected solely for hashing. An empty product,
+  or a product containing only `void` fields, therefore hashes to `0`. Every
+  other declared field participates regardless of its runtime representation
+  size.
+
+These rules apply identically to generic and non-generic derived implementations.
+
 Deriving `Hashable` without `Eq` is an error (E2029). The hash invariant requires that equal values produce equal hashes, which cannot be guaranteed without an `Eq` implementation.
 
 ## 9.14 Into Trait

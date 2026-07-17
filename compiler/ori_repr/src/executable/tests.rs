@@ -48,6 +48,7 @@ fn empty_function(name: ori_ir::Name) -> ArcFunction {
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
         method_call_facts: Vec::new(),
+        direct_call_facts: Vec::new(),
         class_ledger_emission: false,
     }
 }
@@ -1222,6 +1223,8 @@ fn resolves_list_set_before_backend_selection() {
         destination: ArcVarId::new(0),
         receiver_type: list,
         form: MethodCallForm::Instance,
+        producer: None,
+        derived_position: None,
     }];
     input.pool = pool;
     input.callable_facts = ori_arc::freeze_function_callable_facts(&input.functions, &input.pool);
@@ -1368,6 +1371,8 @@ fn resolves_len_protocol_aliases_from_receiver_registry_evidence() {
                 destination: ArcVarId::new(0),
                 receiver_type,
                 form: MethodCallForm::Instance,
+                producer: None,
+                derived_position: None,
             }];
             populate_metadata(&mut input.functions[0], &pool);
             input.pool = pool;

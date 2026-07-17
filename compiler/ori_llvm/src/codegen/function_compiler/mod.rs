@@ -10,12 +10,12 @@
 //!    pipeline (`CanExpr` → ARC IR → `ArcIrEmitter` → LLVM IR).
 //!
 //! Submodules:
-//! - [`define_phase`]: Function body definition (Phase 2) and ARC processing
-//! - [`nounwind`]: Two-pass nounwind analysis (prepare → analyze → emit)
-//! - [`impls`]: Impl method, test, and derived trait compilation
-//! - [`entry_point`]: AOT `main` wrapper
-//! - [`seh_main_thunk`]: SEH/MSVC `ori_try_call` thunk for `@main(args:)`
-//! - [`panic_trampoline`]: Panic handler trampoline (`_ori_panic_trampoline`)
+//! - `define_phase`: Function body definition (Phase 2) and ARC processing
+//! - `nounwind`: Two-pass nounwind analysis (prepare → analyze → emit)
+//! - `impls`: Impl method, test, and derived trait compilation
+//! - `entry_point`: AOT `main` wrapper
+//! - `seh_main_thunk`: SEH/MSVC `ori_try_call` thunk for `@main(args:)`
+//! - `panic_trampoline`: Panic handler trampoline (`_ori_panic_trampoline`)
 
 mod accessors;
 mod artifact_projection;

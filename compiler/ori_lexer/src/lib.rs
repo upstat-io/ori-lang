@@ -32,14 +32,14 @@
 //!
 //! # Modules
 //!
-//! - [`comments`]: Comment classification and normalization
-//! - [`parse_helpers`]: Numeric literal parsing utilities
-//! - [`cooker`]: Token cooking layer
-//! - [`keywords`]: Keyword resolution
-//! - [`cook_escape`]: Spec-strict escape processing
+//! - `comments`: Comment classification and normalization
+//! - `parse_helpers`: Numeric literal parsing utilities
+//! - `cooker`: Token cooking layer
+//! - `keywords`: Keyword resolution
+//! - `cook_escape`: Spec-strict escape processing
 //! - [`lex_error`]: Lexer error types
-//! - [`output`]: Output types (`LexOutput`, `LexResult`)
-//! - [`driver`]: Lexer driver loop
+//! - `output`: Output types (`LexOutput`, `LexResult`)
+//! - `driver`: Lexer driver loop
 
 mod comments;
 mod cook_escape;
@@ -93,7 +93,7 @@ pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
 /// - Blank lines (for formatting preservation)
 /// - Newlines (for line counting)
 ///
-/// Each token carries [`TokenFlags`] metadata capturing whitespace/trivia context.
+/// Each token carries [`ori_ir::TokenFlags`] metadata capturing whitespace/trivia context.
 #[must_use]
 pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
     lex_driver::<true>(source, interner)

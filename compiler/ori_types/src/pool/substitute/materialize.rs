@@ -33,10 +33,11 @@ pub(crate) fn materialize_applied_body(
     if pool.tag(applied) != Tag::Applied {
         return;
     }
-    // Already materialized (concrete resolution recorded) — done.
-    if pool.resolve(applied).is_some() {
-        return;
-    }
+    // Revisit an existing resolution as well. Some registration paths attach
+    // a concrete `Applied` handle to its generic composite body before the
+    // binder substitutions are known; that resolution is not a materialized
+    // specialization. Re-running is idempotent once the body is concrete and
+    // lets this routine replace an earlier generic-body resolution.
     // Resolve each arg through its var-links: an inferred construct's type
     // (`GenPair{a:1,b:"s"}`) interns the `Applied` with a Var arg linked to the
     // concrete element (`B` → str-linked Var), so the raw `Applied` carries
@@ -63,6 +64,10 @@ pub(crate) fn materialize_applied_body(
     let resolved_args: Vec<Idx> = raw_args
         .iter()
         .map(|&a| {
+            let chased = pool.chase_var_links(a);
+            if pool.tag(chased) == Tag::Applied && !pool.flags(chased).has_any_var_or_infer() {
+                return chased;
+            }
             let r = pool.resolve_fully(a);
             // An unconstrained type param resolves to an unbound unification
             // `Var` (`Either<str, $t6>` when the second variant is never

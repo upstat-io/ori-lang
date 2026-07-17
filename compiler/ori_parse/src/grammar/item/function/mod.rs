@@ -207,7 +207,9 @@ impl Parser<'_> {
         self.eat_optional_item_semicolon();
 
         ParseOutcome::consumed_ok(FunctionOrTest::Test(TestDef {
+            id: ori_ir::TestId::INVALID,
             name,
+            display_name: name,
             targets,
             params,
             return_ty,

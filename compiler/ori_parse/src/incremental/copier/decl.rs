@@ -90,7 +90,9 @@ impl AstCopier<'_> {
             .collect();
 
         TestDef {
+            id: test.id,
             name: test.name,
+            display_name: test.display_name,
             targets: test.targets.clone(),
             params: new_arena.alloc_params(new_params),
             return_ty: test

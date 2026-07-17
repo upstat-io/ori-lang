@@ -14,9 +14,10 @@
 //! - `iterator`: Internal method names for type-directed specialization
 //!
 //! Using submodules allows for scoped imports like:
-//! ```ignore
+//! ```
 //! use ori_ir::builtin_constants::duration;
-//! let ms = duration::NS_PER_MS;
+//!
+//! assert_eq!(duration::NS_PER_MS, 1_000_000);
 //! ```
 
 /// Duration constants for nanosecond-based time representation.

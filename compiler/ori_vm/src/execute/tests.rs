@@ -167,6 +167,8 @@ fn verified_iterator_unwind_program() -> VerifiedProgram {
         destination: ArcVarId::new(2),
         receiver_type: list_type,
         form: ori_arc::MethodCallForm::Instance,
+        producer: None,
+        derived_position: None,
     }];
     verified_program(symbols, pool, vec![function], main)
 }
@@ -1337,6 +1339,7 @@ fn test_function_with_blocks(
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
         method_call_facts: Vec::new(),
+        direct_call_facts: Vec::new(),
         class_ledger_emission: false,
     }
 }

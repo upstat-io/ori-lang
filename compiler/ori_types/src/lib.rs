@@ -49,10 +49,12 @@ pub use operator::{
 };
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
-    AcceptedDerivedImpl, AssignDesugar, ConstParamInfo, ConstValue, DeferredMonoCall,
-    DeferredVarBinding, EffectClass, ExportedTypeMetadata, FnWhereClause, FormatSpecTypes,
-    FunctionSig, GenericArg, ImplMethodId, ImplMethodRole, ImplSig, MonoInstance, MonoInstanceId,
-    TypeCheckResult, TypedModule,
+    AcceptedDerivedImpl, AssignDesugar, ConcreteMethodMono, ConstParamInfo, ConstValue,
+    DeferredMonoCall, DeferredVarBinding, DerivedCallPlan, DerivedCallPosition,
+    DerivedCallSelection, DerivedDirectCallSelection, EffectClass, ExportedTypeMetadata,
+    FnWhereClause, FormatSpecTypes, FunctionSig, GenericArg, ImplMethodId, ImplMethodRole, ImplSig,
+    MethodProducer, MonoInstance, MonoInstanceId, RegistryMethodIdentity, RegistryPreludeIdentity,
+    TypeCheckResult, TypedModule, REGISTRY_PRODUCER_SCHEMA,
 };
 pub use pool::{
     build_mono_body_type_map, collect_public_collection_types, extend_var_subst_with_roots,

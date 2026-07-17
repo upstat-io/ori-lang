@@ -18,6 +18,8 @@ mod thunks;
 mod tuple_cmp;
 mod wrapper_cmp;
 
+pub(super) use wrapper_cmp::emit_hash_combine;
+
 use ori_ir::{DerivedTrait, FieldOp};
 use ori_types::Idx;
 use tracing::trace;

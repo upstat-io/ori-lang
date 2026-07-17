@@ -12,13 +12,13 @@
 //! `setup_derive_function`; these functions only emit the body logic.
 
 use ori_ir::{CombineOp, DerivedTrait, FieldOp, FormatOpen, Name};
-use ori_types::{FieldDef, Idx};
+use ori_types::{FieldDef, Idx, Tag};
 use tracing::warn;
 
 use super::super::function_compiler::FunctionCompiler;
 use super::clone_rc::emit_clone_field_rc_inc;
 
-use super::field_ops::emit_field_operation;
+use super::field_ops::{emit_field_operation, emit_hash_combine};
 use super::string_helpers::{
     emit_field_to_string, emit_str_concat, emit_str_literal, emit_str_rc_dec,
 };
@@ -67,9 +67,6 @@ fn remap_derive_field<'a>(
     }
 }
 
-// FNV-1a constants — canonical source: ori_ir::hash_constants
-use ori_ir::{FNV_OFFSET_BASIS, FNV_PRIME};
-
 // ForEachField: Eq, Comparable, Hashable
 
 /// Generate a derived method that applies a per-field operation and combines results.
@@ -77,7 +74,7 @@ use ori_ir::{FNV_OFFSET_BASIS, FNV_PRIME};
 /// Dispatches to per-`CombineOp` helpers:
 /// - `AllTrue`: short-circuit AND (Eq)
 /// - `Lexicographic`: first non-Equal ordering (Comparable)
-/// - `HashCombine`: FNV-1a accumulation (Hashable)
+/// - `HashCombine`: `hash_combine` accumulation from zero (Hashable)
 pub(super) fn compile_for_each_field<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     trait_kind: DerivedTrait,
@@ -246,7 +243,7 @@ fn emit_lexicographic_body<'a>(
     }
 }
 
-/// FNV-1a accumulation: hash each field into a running hash value.
+/// Hash each non-Unit field into a zero-seeded running hash value.
 fn emit_hash_combine_body<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     setup: &DeriveSetup,
@@ -256,10 +253,14 @@ fn emit_hash_combine_body<'a>(
     let self_val = setup.self_val.expect("HashCombine has self");
     let str_ty_id = setup.str_ty_id.expect("HashCombine needs str_ty_id");
 
-    let mut hash = fc.builder_mut().const_i64(FNV_OFFSET_BASIS as i64);
-    let prime = fc.builder_mut().const_i64(FNV_PRIME as i64);
+    let mut hash = fc.builder_mut().const_i64(0);
 
     for (i, field) in fields.iter().enumerate() {
+        let resolved = fc.pool().resolve_fully(field.ty);
+        if fc.pool().tag(resolved) == Tag::Unit {
+            continue;
+        }
+
         let field_name = fc.lookup_name(field.name).to_owned();
         // Remap declaration-order index to memory-order for LLVM extract.
         #[expect(
@@ -273,6 +274,7 @@ fn emit_hash_combine_body<'a>(
 
         let Some(fv) = field_val else {
             warn!(field = %field_name, "extract_value failed in derive HashCombine");
+            fc.builder_mut().record_codegen_error();
             continue;
         };
 
@@ -286,12 +288,7 @@ fn emit_hash_combine_body<'a>(
             str_ty_id,
         );
 
-        let xored = fc
-            .builder_mut()
-            .xor(hash, field_as_i64, &format!("hash.xor.{field_name}"));
-        hash = fc
-            .builder_mut()
-            .mul(xored, prime, &format!("hash.mul.{field_name}"));
+        hash = emit_hash_combine(fc, hash, field_as_i64, &format!("hash.{field_name}"));
     }
 
     emit_derive_return(fc, setup.func_id, &setup.abi, Some(hash));

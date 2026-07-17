@@ -79,53 +79,55 @@ fn test_all_documented_codes_retrievable() {
     }
 }
 
-/// Documentation debt guard: prevents new error codes from silently
-/// skipping documentation. Fails if the undocumented count grows.
-///
-/// When adding a new `ErrorCode`, either:
-/// 1. Write an `.md` file and add it to the `DOCS` array, or
-/// 2. Bump `MAX_UNDOCUMENTED` here (with justification in the commit).
+/// Documentation completeness guard: every registered code must have an
+/// embedded explanation. The failure lists every missing code in one run.
 #[test]
-fn test_undocumented_count_does_not_grow() {
-    const MAX_UNDOCUMENTED: usize = 53;
-
+fn test_every_error_code_has_documentation() {
     let undocumented: Vec<_> = ErrorCode::ALL
         .iter()
         .filter(|code| !ErrorDocs::has_docs(**code))
         .collect();
 
     assert!(
-        undocumented.len() <= MAX_UNDOCUMENTED,
-        "undocumented error codes grew from {MAX_UNDOCUMENTED} to {}; \
-         new codes need documentation or an explicit MAX_UNDOCUMENTED bump.\n\
-         Newly undocumented: {:?}",
-        undocumented.len(),
+        undocumented.is_empty(),
+        "every error code needs an embedded explanation; missing: {:?}",
         undocumented.iter().map(|c| c.as_str()).collect::<Vec<_>>()
     );
 }
 
-/// Exhaustive coverage inventory: lists all undocumented error codes.
-///
-/// Run manually to see the full list:
-/// `cargo test -p ori_diagnostic -- --ignored test_undocumented_codes_inventory`
-///
-/// The test body computes the live undocumented set and panics with the exact
-/// list — there is no hand-maintained inventory to drift out of sync.
+/// Independent count clamp: the documentation registry and the error-code
+/// registry must cover the same number of entries.
 #[test]
-#[ignore = "BUG-08-028: on-demand manual inventory — run with --ignored to see all undocumented codes"]
 fn test_undocumented_codes_inventory() {
-    let undocumented: Vec<_> = ErrorCode::ALL
-        .iter()
-        .filter(|code| !ErrorDocs::has_docs(**code))
-        .collect();
+    assert_eq!(
+        ErrorDocs::all_codes().count(),
+        ErrorCode::ALL.len(),
+        "documentation registry must contain one entry for every error code"
+    );
+}
 
-    if !undocumented.is_empty() {
-        let list: Vec<_> = undocumented.iter().map(|c| c.as_str()).collect();
-        panic!(
-            "{} of {} error codes lack documentation: [{}]",
-            undocumented.len(),
-            ErrorCode::ALL.len(),
-            list.join(", ")
+fn heading_matches_code(code: ErrorCode, documentation: &str) -> bool {
+    documentation.starts_with(&format!("# {}:", code.as_str()))
+}
+
+#[test]
+fn test_documentation_headings_match_registered_codes() {
+    for (code, documentation) in DOCS {
+        assert!(
+            heading_matches_code(*code, documentation),
+            "{} documentation must start with `# {}:`",
+            code.as_str(),
+            code.as_str()
         );
     }
+}
+
+/// Negative pin: a documentation file headed by another stable code must not
+/// satisfy the registry's structural contract.
+#[test]
+fn test_documentation_heading_rejects_different_code() {
+    assert!(!heading_matches_code(
+        ErrorCode::E0001,
+        "# E0002: Invalid Character"
+    ));
 }

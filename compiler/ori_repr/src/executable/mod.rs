@@ -845,6 +845,48 @@ fn resolve_callable(
     symbols: &StringInterner,
     pool: &Pool,
 ) -> Result<CallableTarget, RealizationError> {
+    if let Some(destination) = destination {
+        if let Some(fact) = caller.direct_call_fact(destination) {
+            if let ori_types::MethodProducer::Prelude(identity) = fact.producer {
+                let runtime = identity
+                    .resolve()
+                    .map(RuntimeCall::RegistryPrelude)
+                    .ok_or_else(|| RealizationError::MissingCallable {
+                        caller: caller.name,
+                        callee,
+                        caller_symbol: symbols
+                            .try_lookup(caller.name)
+                            .unwrap_or("<unknown caller>")
+                            .into(),
+                        callee_symbol: symbols
+                            .try_lookup(callee)
+                            .unwrap_or("<unknown callee>")
+                            .into(),
+                    })?;
+                return Ok(CallableTarget::Runtime(runtime));
+            }
+        }
+        if let Some(fact) = caller.method_call_fact(destination) {
+            if let Some(ori_types::MethodProducer::Registry(identity)) = fact.producer {
+                let runtime = identity
+                    .resolve()
+                    .map(RuntimeCall::RegistryMethod)
+                    .ok_or_else(|| RealizationError::MissingCallable {
+                        caller: caller.name,
+                        callee,
+                        caller_symbol: symbols
+                            .try_lookup(caller.name)
+                            .unwrap_or("<unknown caller>")
+                            .into(),
+                        callee_symbol: symbols
+                            .try_lookup(callee)
+                            .unwrap_or("<unknown callee>")
+                            .into(),
+                    })?;
+                return Ok(CallableTarget::Runtime(runtime));
+            }
+        }
+    }
     if let Some(&function) = function_ids.get(&callee) {
         return Ok(CallableTarget::Function(function));
     }

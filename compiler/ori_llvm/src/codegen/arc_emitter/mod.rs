@@ -1,6 +1,6 @@
 //! ARC IR → LLVM IR emitter.
 //!
-//! Translates [`ArcFunction`] basic blocks and instructions directly to LLVM IR,
+//! Translates [`ori_arc::ArcFunction`] basic blocks and instructions directly to LLVM IR,
 //! including RC operations (`ori_rc_inc`, `ori_rc_dec`) and structured cleanup
 //! via `invoke`/`landingpad`.
 //!
@@ -17,21 +17,21 @@
 //!
 //! # Submodules
 //!
-//! - [`builtins`] — builtin method emission (string, list, map, iterator ops)
-//! - [`closure_wrappers`] — closure wrapper function generation (`_ori_partial_N` trampolines)
-//! - [`closures`] — closure (partial application) emission and environment management
-//! - [`construction`] — value construction: structs, enums, lists, maps, sets
-//! - [`context`] — shared types: `CodegenContext`, `EmittedValue`, `InvokeMode`, `is_boxed_enum_field`
-//! - [`dead_unwind`] — dead unwind block detection (nounwind invoke targets)
-//! - [`drop_gen`] — per-type LLVM drop function generation (cached by mangled name)
-//! - [`emit_function`] — function-level emission orchestration
-//! - [`field_scan`] — field usage scanning for surgical struct loading
-//! - [`instr_dispatch`] — per-instruction dispatch (`emit_instr`, `emit_project`)
-//! - [`narrowing_codegen`] — integer and float narrowing at struct/collection/local boundaries
-//! - [`operators`] — binary and unary operator emission (primitive + trait dispatch)
-//! - [`rc_helpers`] — RC data pointer extraction and inline enum cleanup
-//! - [`rc_ops`] — `ori_rc_inc`/`ori_rc_dec` emission with closure-aware `env_ptr` handling
-//! - [`terminators`] — `ArcTerminator` → LLVM control flow emission
+//! - `builtins` — builtin method emission (string, list, map, iterator ops)
+//! - `closure_wrappers` — closure wrapper function generation (`_ori_partial_N` trampolines)
+//! - `closures` — closure (partial application) emission and environment management
+//! - `construction` — value construction: structs, enums, lists, maps, sets
+//! - `context` — shared types: `CodegenContext`, `EmittedValue`, `InvokeMode`, `is_boxed_enum_field`
+//! - `dead_unwind` — dead unwind block detection (nounwind invoke targets)
+//! - `drop_gen` — per-type LLVM drop function generation (cached by mangled name)
+//! - `emit_function` — function-level emission orchestration
+//! - `field_scan` — field usage scanning for surgical struct loading
+//! - `instr_dispatch` — per-instruction dispatch (`emit_instr`, `emit_project`)
+//! - `narrowing_codegen` — integer and float narrowing at struct/collection/local boundaries
+//! - `operators` — binary and unary operator emission (primitive + trait dispatch)
+//! - `rc_helpers` — RC data pointer extraction and inline enum cleanup
+//! - `rc_ops` — `ori_rc_inc`/`ori_rc_dec` emission with closure-aware `env_ptr` handling
+//! - `terminators` — `ArcTerminator` → LLVM control flow emission
 
 mod apply;
 mod apply_casts;

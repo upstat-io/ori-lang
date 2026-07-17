@@ -20,6 +20,9 @@ pub(crate) struct JitArcLowering {
 /// Typed failure while lowering and preparing one JIT executable unit.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum JitArcLoweringError {
+    /// Raw declarations could not form one semantic callable seed inventory.
+    #[error(transparent)]
+    CallableCensus(#[from] crate::realization::CallableCensusError),
     /// Canonical-to-ARC lowering produced invalid bodies.
     #[error(
         "ARC lowering produced {count} problem(s): {problems:?}. Fix the reported Ori source errors; if no source error is shown, report this complete message"
@@ -70,7 +73,11 @@ pub(crate) fn lower_jit_arc_program(
     let mut arc_problems = Vec::new();
 
     // Lower module functions (local — uses main pool)
-    for (func, sig) in module.functions.iter().zip(function_sigs.iter()) {
+    let source_seeds = crate::realization::CallableCensusBuilder::new(interner)
+        .source_functions(&module.functions, function_sigs)?;
+    for seed in source_seeds {
+        let func = seed.function;
+        let sig = seed.signature;
         if sig.is_generic() {
             continue;
         }
@@ -149,6 +156,7 @@ pub(crate) fn lower_jit_arc_program(
     };
     let derived = match crate::realization::lower_non_generic_derived_methods_for_analysis(
         &type_result.typed.accepted_derives,
+        &type_result.typed.derived_call_plans,
         interner,
         pool,
     ) {
@@ -174,6 +182,15 @@ pub(crate) fn lower_jit_arc_program(
         interner,
         pool,
     );
+    let mono_groups = crate::realization::lower_mono_functions_for_analysis(
+        &mono_functions,
+        &type_result.typed.accepted_derives,
+        &type_result.typed.derived_call_plans,
+        canon,
+        interner,
+        pool,
+        &mut arc_problems,
+    );
     let mono_inventory = crate::realization::MonoFunctionInventory::try_new(
         mono_functions,
         imported_mono_fns
@@ -181,17 +198,16 @@ pub(crate) fn lower_jit_arc_program(
             .map(|(function, _, _)| function.clone()),
         interner,
     )?;
-    for mono_fn in mono_inventory.local_bodies() {
-        if let Some(group) = crate::realization::lower_mono_function_for_analysis(
-            mono_fn,
-            &type_result.typed.accepted_derives,
-            canon,
-            interner,
-            pool,
-            &mut arc_problems,
-        ) {
-            local_lowered.push(group.into_parts());
-        }
+    if let Err(problems) = crate::realization::extend_mono_method_targets(
+        &mut impl_targets,
+        mono_inventory.all(),
+        interner,
+        pool,
+    ) {
+        arc_problems.extend(problems);
+    }
+    for group in mono_groups {
+        local_lowered.push(group.into_parts());
     }
 
     // Tests are ordinary executable roots. Lower them before AIMS so the JIT

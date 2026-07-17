@@ -64,11 +64,17 @@ struct CallStackNode {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// use ori_eval::{CallFrame, CallStack};
+/// use ori_ir::StringInterner;
+///
+/// let interner = StringInterner::new();
+/// let name = interner.intern("main");
 /// let mut stack = CallStack::new(Some(200));
-/// stack.push(CallFrame { name, call_span: Some(span) })?;
+/// assert!(stack.push(CallFrame { name, call_span: None }).is_ok());
 /// // ... evaluate function body ...
 /// stack.pop();
+/// assert!(stack.is_empty());
 /// ```
 #[derive(Clone, Debug)]
 pub struct CallStack {

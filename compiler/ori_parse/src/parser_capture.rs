@@ -16,7 +16,9 @@ impl Parser<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// This is a schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// let snapshot = self.snapshot();
     /// // Try parsing as type
     /// if self.parse_type().is_ok() && self.cursor.check(&TokenKind::Eq) {
@@ -53,7 +55,9 @@ impl Parser<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// This is a schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// // Try parsing as type annotation first
     /// if let Some(ty) = self.try_parse(|p| p.parse_type()) {
     ///     return Ok(TypeOrExpr::Type(ty));
@@ -86,7 +90,9 @@ impl Parser<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// This is a schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// // Check if this looks like a type annotation
     /// let is_type_annotation = self.look_ahead(|p| {
     ///     p.parse_type().is_ok() && p.cursor.check(&TokenKind::Eq)

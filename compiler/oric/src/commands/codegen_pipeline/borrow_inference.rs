@@ -31,6 +31,8 @@ pub(super) struct ArcBatchLoweringResult {
 /// Failure before closed executable realization can consume the ARC batch.
 #[cfg(feature = "llvm")]
 pub(super) enum ArcBatchLoweringFailure {
+    /// Raw declarations could not form one semantic callable seed inventory.
+    CallableCensus(crate::realization::CallableCensusError),
     /// ARC lowering emitted its structured diagnostics.
     ArcLowering,
     /// Final mono identities could not be bound to one source namespace.
@@ -64,6 +66,7 @@ pub(super) fn lower_arc_batch(
     pool: &mut Pool,
     mono_instances: &[ori_types::MonoInstance],
     accepted_derives: &[ori_types::AcceptedDerivedImpl],
+    derived_call_plans: &[ori_types::DerivedCallPlan],
 ) -> Result<ArcBatchLoweringResult, ArcBatchLoweringFailure> {
     let ImportedSurfaces {
         imported_mono_fns,
@@ -77,12 +80,12 @@ pub(super) fn lower_arc_batch(
     // sig.is_generic(); mono instances are fully substituted (empty scheme_var_ids).
     let exempt: FxHashSet<u32> = FxHashSet::default();
 
-    for (func, sig) in parse_result
-        .module
-        .functions
-        .iter()
-        .zip(function_sigs.iter())
-    {
+    let source_seeds = crate::realization::CallableCensusBuilder::new(interner)
+        .source_functions(&parse_result.module.functions, function_sigs)
+        .map_err(ArcBatchLoweringFailure::CallableCensus)?;
+    for seed in source_seeds {
+        let func = seed.function;
+        let sig = seed.signature;
         if sig.is_generic() {
             continue;
         }
@@ -119,6 +122,15 @@ pub(super) fn lower_arc_batch(
         interner,
         pool,
     );
+    let mono_groups = crate::realization::lower_mono_functions_for_analysis(
+        &mono_functions,
+        accepted_derives,
+        derived_call_plans,
+        canon,
+        interner,
+        pool,
+        &mut arc_problems,
+    );
     let mono_inventory = crate::realization::MonoFunctionInventory::try_new(
         mono_functions,
         imported_mono_fns
@@ -127,17 +139,7 @@ pub(super) fn lower_arc_batch(
         interner,
     )
     .map_err(ArcBatchLoweringFailure::MonoInventory)?;
-    for mono_fn in mono_inventory.local_bodies() {
-        let Some(group) = crate::realization::lower_mono_function_for_analysis(
-            mono_fn,
-            accepted_derives,
-            canon,
-            interner,
-            pool,
-            &mut arc_problems,
-        ) else {
-            continue;
-        };
+    for group in mono_groups {
         let (arc_fn, lambdas) = group.into_parts();
         super::pc2_hooks::run_pc2_hook_aot(
             pool,

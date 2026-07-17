@@ -337,6 +337,13 @@ pub enum RealizationError {
         expected: Idx,
         found: Idx,
     },
+    /// Frozen generated-call provenance is incomplete or internally inconsistent.
+    #[error("the ARC pipeline produced invalid generated-call provenance for function '{function_symbol}': {details}")]
+    InvalidGeneratedCallProvenance {
+        function: Name,
+        function_symbol: Box<str>,
+        details: Box<str>,
+    },
     /// Frozen primitive facts do not exactly cover or describe the realized body.
     #[error("the ARC pipeline produced invalid primitive facts for function '{function_symbol}': {details}; rerun whole-program AIMS realization and report this compiler bug")]
     InvalidPrimitiveFacts {

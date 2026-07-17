@@ -210,7 +210,9 @@ fn each_registered_type_has_exactly_one_memory_strategy() {
 
     assert_eq!(
         copy_types,
-        vec!["int", "float", "bool", "char", "byte", "Duration", "Size", "Ordering", "Range"]
+        vec![
+            "int", "float", "bool", "char", "byte", "void", "Duration", "Size", "Ordering", "Range"
+        ]
     );
     assert_eq!(
         arc_types,

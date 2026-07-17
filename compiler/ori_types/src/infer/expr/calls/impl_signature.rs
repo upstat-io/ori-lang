@@ -26,6 +26,7 @@ pub(super) fn resolve_impl_signature(
     span: Span,
 ) -> Option<Result<ImplMethodSig, ()>> {
     let (
+        producer,
         sig_ty,
         has_self,
         where_clause_metadata,
@@ -36,6 +37,7 @@ pub(super) fn resolve_impl_signature(
         optional_param_count,
     ) = match outcome {
         LookupOutcome::Found {
+            producer,
             sig,
             has_self,
             where_clause_metadata,
@@ -45,6 +47,7 @@ pub(super) fn resolve_impl_signature(
             impl_type_params,
             optional_param_count,
         } => (
+            producer,
             sig,
             has_self,
             where_clause_metadata,
@@ -144,6 +147,7 @@ pub(super) fn resolve_impl_signature(
     }
 
     Some(Ok(ImplMethodSig {
+        producer,
         params: method_params,
         ret,
         method_mono,

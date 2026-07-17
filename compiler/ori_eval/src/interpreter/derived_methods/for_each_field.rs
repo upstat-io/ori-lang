@@ -17,7 +17,7 @@ impl Interpreter<'_> {
         reason = "Consistent strategy-driven dispatch signature"
     )]
     pub(super) fn eval_for_each_field(
-        &self,
+        &mut self,
         receiver: Value,
         info: &DerivedMethodInfo,
         args: &[Value],
@@ -40,6 +40,11 @@ impl Interpreter<'_> {
             (Value::Struct(self_s), None) => {
                 self.for_each_struct(self_s, None, info, field_op, combine)
             }
+            (Value::Newtype { inner, .. }, None)
+                if field_op == FieldOp::Hash && combine == CombineOp::HashCombine =>
+            {
+                Ok(Value::int(self.eval_hashable_value(inner)?))
+            }
             (
                 Value::Variant {
                     type_name: t1,
@@ -59,13 +64,14 @@ impl Interpreter<'_> {
                     ..
                 },
                 None,
-            ) => self.for_each_variant_unary(*variant_name, fields, combine),
+            ) => self.for_each_variant_unary(*variant_name, fields, info, combine),
             _ => match combine {
                 CombineOp::AllTrue => Ok(Value::Bool(false)),
-                CombineOp::HashCombine => {
-                    use crate::methods::compare::FNV_OFFSET_BASIS;
-                    Ok(Value::int(FNV_OFFSET_BASIS.cast_signed()))
-                }
+                CombineOp::HashCombine => Err(crate::errors::no_such_method(
+                    info.trait_kind.method_name(),
+                    "incompatible value",
+                )
+                .into()),
                 CombineOp::Lexicographic => Err(crate::errors::no_such_method(
                     info.trait_kind.method_name(),
                     "incompatible values",
@@ -77,7 +83,7 @@ impl Interpreter<'_> {
 
     /// `ForEachField` on named struct fields.
     fn for_each_struct(
-        &self,
+        &mut self,
         self_s: &StructValue,
         other_s: Option<&StructValue>,
         info: &DerivedMethodInfo,
@@ -134,16 +140,22 @@ impl Interpreter<'_> {
                 Ok(ordering_to_value(std::cmp::Ordering::Equal))
             }
             (FieldOp::Hash, CombineOp::HashCombine) => {
-                use crate::methods::compare::{hash_value, FNV_OFFSET_BASIS, FNV_PRIME};
-                let mut hash = FNV_OFFSET_BASIS;
+                use crate::methods::compare::hash_combine;
+                let mut hash = 0_i64;
                 for field_name in &info.field_names {
-                    if let Some(val) = self_s.get_field(*field_name) {
-                        let field_hash = hash_value(val, self.interner)?.cast_unsigned();
-                        hash ^= field_hash;
-                        hash = hash.wrapping_mul(FNV_PRIME);
+                    let Some(value) = self_s.get_field(*field_name) else {
+                        return Err(crate::errors::no_such_method(
+                            "hash",
+                            "struct with missing field",
+                        )
+                        .into());
+                    };
+                    if is_unit_value(value) {
+                        continue;
                     }
+                    hash = hash_combine(hash, self.eval_hashable_value(value)?);
                 }
-                Ok(Value::int(hash.cast_signed()))
+                Ok(Value::int(hash))
             }
             // SAFETY: DerivedTrait::strategy() only produces valid (FieldOp, CombineOp) pairings:
             // (Equals, AllTrue), (Compare, Lexicographic), (Hash, HashCombine).
@@ -204,27 +216,35 @@ impl Interpreter<'_> {
 
     /// `ForEachField` on variant payloads — unary case (Hash).
     fn for_each_variant_unary(
-        &self,
+        &mut self,
         variant_name: Name,
         fields: &[Value],
+        info: &DerivedMethodInfo,
         combine: CombineOp,
     ) -> EvalResult {
         match combine {
             CombineOp::HashCombine => {
-                use crate::methods::compare::{
-                    fnv1a_hash, hash_value, FNV_OFFSET_BASIS, FNV_PRIME,
+                use crate::methods::compare::hash_combine;
+                let Some(ordinal) = info
+                    .variant_names
+                    .iter()
+                    .position(|name| *name == variant_name)
+                else {
+                    return Err(
+                        crate::errors::no_such_method("hash", "variant not found in type").into(),
+                    );
                 };
-                let mut hash = FNV_OFFSET_BASIS;
-                let variant_str = self.interner.lookup(variant_name);
-                let discriminant = fnv1a_hash(variant_str.as_bytes()).cast_unsigned();
-                hash ^= discriminant;
-                hash = hash.wrapping_mul(FNV_PRIME);
+                let ordinal = i64::try_from(ordinal).map_err(|_| {
+                    crate::EvalError::new("variant declaration ordinal does not fit in int")
+                })?;
+                let mut hash = hash_combine(0, ordinal);
                 for field in fields {
-                    let field_hash = hash_value(field, self.interner)?.cast_unsigned();
-                    hash ^= field_hash;
-                    hash = hash.wrapping_mul(FNV_PRIME);
+                    if is_unit_value(field) {
+                        continue;
+                    }
+                    hash = hash_combine(hash, self.eval_hashable_value(field)?);
                 }
-                Ok(Value::int(hash.cast_signed()))
+                Ok(Value::int(hash))
             }
             // SAFETY: only Hash routes to unary variant handling; Hash pairs with HashCombine.
             CombineOp::AllTrue | CombineOp::Lexicographic => {
@@ -233,3 +253,10 @@ impl Interpreter<'_> {
         }
     }
 }
+
+fn is_unit_value(value: &Value) -> bool {
+    matches!(value, Value::Void) || matches!(value, Value::Tuple(fields) if fields.is_empty())
+}
+
+#[cfg(test)]
+mod tests;

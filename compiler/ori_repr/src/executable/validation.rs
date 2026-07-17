@@ -24,6 +24,7 @@ pub(super) fn validate_function_metadata(
         }
         validate_call_ownership(function, &function_symbol)?;
         validate_method_call_facts(function, pool, &function_symbol)?;
+        validate_direct_call_facts(function, &function_symbol)?;
         if let Err(errors) = ori_arc::validate_primitive_facts(function, &classifier) {
             let details = errors
                 .iter()
@@ -106,6 +107,7 @@ fn validate_method_call_facts(
     function_symbol: &str,
 ) -> Result<(), RealizationError> {
     let mut seen = rustc_hash::FxHashSet::default();
+    let mut positions = rustc_hash::FxHashSet::default();
     for fact in &function.method_call_facts {
         if !seen.insert(fact.destination) {
             return Err(RealizationError::DuplicateMethodCallFact {
@@ -121,6 +123,43 @@ fn validate_method_call_facts(
                 destination: fact.destination,
             }
         })?;
+        match (&fact.producer, fact.derived_position) {
+            (Some(ori_types::MethodProducer::Prelude(_)), Some(_)) => {
+                return Err(RealizationError::InvalidGeneratedCallProvenance {
+                    function: function.name,
+                    function_symbol: function_symbol.into(),
+                    details: format!(
+                        "method-call register {:?} carries a free-function producer",
+                        fact.destination
+                    )
+                    .into_boxed_str(),
+                });
+            }
+            (Some(_), Some(position)) => {
+                if !positions.insert(position) {
+                    return Err(RealizationError::InvalidGeneratedCallProvenance {
+                        function: function.name,
+                        function_symbol: function_symbol.into(),
+                        details: format!(
+                            "multiple method calls claim structural position {position:?}"
+                        )
+                        .into_boxed_str(),
+                    });
+                }
+            }
+            (None, None) => {}
+            _ => {
+                return Err(RealizationError::InvalidGeneratedCallProvenance {
+                    function: function.name,
+                    function_symbol: function_symbol.into(),
+                    details: format!(
+                        "method-call register {:?} has only one half of producer/position provenance",
+                        fact.destination
+                    )
+                    .into_boxed_str(),
+                });
+            }
+        }
         if fact.form == MethodCallForm::Instance {
             let receiver =
                 arguments
@@ -150,6 +189,64 @@ fn validate_method_call_facts(
                     found,
                 });
             }
+        }
+    }
+    Ok(())
+}
+
+fn validate_direct_call_facts(
+    function: &ArcFunction,
+    function_symbol: &str,
+) -> Result<(), RealizationError> {
+    let method_destinations: rustc_hash::FxHashSet<_> = function
+        .method_call_facts
+        .iter()
+        .map(|fact| fact.destination)
+        .collect();
+    let mut destinations = rustc_hash::FxHashSet::default();
+    let mut positions = rustc_hash::FxHashSet::default();
+    for fact in &function.direct_call_facts {
+        if method_destinations.contains(&fact.destination) || !destinations.insert(fact.destination)
+        {
+            return Err(RealizationError::InvalidGeneratedCallProvenance {
+                function: function.name,
+                function_symbol: function_symbol.into(),
+                details: format!("multiple call facts claim register {:?}", fact.destination)
+                    .into_boxed_str(),
+            });
+        }
+        if direct_call_arguments(function, fact.destination).is_none() {
+            return Err(RealizationError::InvalidGeneratedCallProvenance {
+                function: function.name,
+                function_symbol: function_symbol.into(),
+                details: format!(
+                    "direct-call fact at register {:?} has no emitted call",
+                    fact.destination
+                )
+                .into_boxed_str(),
+            });
+        }
+        if !positions.insert(fact.derived_position) {
+            return Err(RealizationError::InvalidGeneratedCallProvenance {
+                function: function.name,
+                function_symbol: function_symbol.into(),
+                details: format!(
+                    "multiple direct calls claim structural position {:?}",
+                    fact.derived_position
+                )
+                .into_boxed_str(),
+            });
+        }
+        if matches!(fact.producer, ori_types::MethodProducer::Registry(_)) {
+            return Err(RealizationError::InvalidGeneratedCallProvenance {
+                function: function.name,
+                function_symbol: function_symbol.into(),
+                details: format!(
+                    "direct-call register {:?} carries a method producer",
+                    fact.destination
+                )
+                .into_boxed_str(),
+            });
         }
     }
     Ok(())

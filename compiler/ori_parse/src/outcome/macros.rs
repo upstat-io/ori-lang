@@ -20,14 +20,27 @@
 ///
 /// # Usage
 ///
-/// ```ignore
-/// fn parse_atom(&mut self) -> ParseOutcome<ExprId> {
+/// ```
+/// use ori_parse::{one_of, ParseOutcome, TokenSet};
+///
+/// # #[derive(Clone)]
+/// # struct Snapshot;
+/// # struct Cursor { position: usize }
+/// # impl Cursor { fn position(&self) -> usize { self.position } }
+/// # struct DemoParser { cursor: Cursor }
+/// # impl DemoParser {
+/// #     fn snapshot(&self) -> Snapshot { Snapshot }
+/// #     fn restore(&mut self, _: Snapshot) {}
+/// fn parse_atom(&mut self) -> ParseOutcome<&'static str> {
+///     let no_literal = ParseOutcome::empty_err(TokenSet::new(), self.cursor.position());
 ///     one_of!(self,
-///         self.parse_literal(),
-///         self.parse_ident(),
-///         self.parse_paren_expr(),
+///         no_literal,
+///         ParseOutcome::consumed_ok("identifier"),
 ///     )
 /// }
+/// # }
+/// # let mut parser = DemoParser { cursor: Cursor { position: 0 } };
+/// # assert!(matches!(parser.parse_atom(), ParseOutcome::ConsumedOk { value: "identifier" }));
 /// ```
 ///
 /// # Note
@@ -39,7 +52,7 @@
 macro_rules! one_of {
     ($self:expr, $first:expr $(, $rest:expr)* $(,)?) => {{
         let original = $self.snapshot();
-        let mut accumulated_expected = $crate::recovery::TokenSet::new();
+        let mut accumulated_expected = $crate::TokenSet::new();
         let mut last_position: usize = $self.cursor.position();
 
         // Try first alternative
@@ -95,11 +108,24 @@ macro_rules! one_of {
 ///
 /// # Usage
 ///
-/// ```ignore
-/// fn parse_optional_type_annotation(&mut self) -> ParseOutcome<Option<TypeId>> {
-///     let ty = try_outcome!(self, self.parse_type_annotation());
+/// ```
+/// use ori_parse::{try_outcome, ParseOutcome, TokenSet};
+///
+/// # #[derive(Default)]
+/// # struct DemoParser { restores: usize }
+/// # impl DemoParser {
+/// #     fn snapshot(&self) {}
+/// #     fn restore(&mut self, (): ()) { self.restores += 1; }
+/// fn parse_optional_type_annotation(&mut self) -> ParseOutcome<Option<u8>> {
+///     let absent = ParseOutcome::empty_err(TokenSet::new(), 0);
+///     let ty = try_outcome!(self, absent);
 ///     ParseOutcome::consumed_ok(ty)
 /// }
+/// # }
+/// # let mut parser = DemoParser::default();
+/// # assert!(matches!(parser.parse_optional_type_annotation(),
+/// #     ParseOutcome::ConsumedOk { value: None }));
+/// # assert_eq!(parser.restores, 1);
 /// ```
 ///
 /// # Note
@@ -146,12 +172,16 @@ macro_rules! try_outcome {
 ///
 /// # Usage
 ///
-/// ```ignore
-/// fn parse_if_expr(&mut self) -> ParseOutcome<ExprId> {
-///     self.expect(&TokenKind::If)?;  // Already consumed 'if'
-///     let cond = require!(self, self.parse_expr(), "condition in if expression");
-///     // ...
+/// ```
+/// use ori_parse::{require, ParseOutcome, TokenSet};
+///
+/// fn parse_required(candidate: ParseOutcome<u8>) -> ParseOutcome<u8> {
+///     let value = require!((), candidate, "condition in if expression");
+///     ParseOutcome::consumed_ok(value)
 /// }
+///
+/// let missing = ParseOutcome::empty_err(TokenSet::new(), 4);
+/// assert!(matches!(parse_required(missing), ParseOutcome::ConsumedErr { .. }));
 /// ```
 ///
 /// # Note
@@ -178,13 +208,10 @@ macro_rules! require {
                 let error = $crate::ParseError::from_expected_tokens_with_context(
                     &expected, position, $context,
                 );
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "position fits in u32 for source files"
-                )]
+                let consumed_span = error.span();
                 return $crate::ParseOutcome::ConsumedErr {
                     error,
-                    consumed_span: ori_ir::Span::point(position as u32),
+                    consumed_span,
                 };
             }
         }
@@ -203,13 +230,17 @@ macro_rules! require {
 ///
 /// # Usage
 ///
-/// ```ignore
-/// fn parse_binary(&mut self) -> ParseOutcome<ExprId> {
-///     let lhs = chain!(self, self.parse_atom());
-///     let op = chain!(self, self.parse_operator());
-///     let rhs = chain!(self, self.parse_atom());
-///     ParseOutcome::consumed_ok(self.make_binary(lhs, op, rhs))
+/// ```
+/// use ori_parse::{chain, ParseOutcome};
+///
+/// fn parse_sum(lhs: ParseOutcome<i32>, rhs: ParseOutcome<i32>) -> ParseOutcome<i32> {
+///     let lhs = chain!((), lhs);
+///     let rhs = chain!((), rhs);
+///     ParseOutcome::consumed_ok(lhs + rhs)
 /// }
+///
+/// let sum = parse_sum(ParseOutcome::consumed_ok(20), ParseOutcome::empty_ok(22));
+/// assert!(matches!(sum, ParseOutcome::ConsumedOk { value: 42 }));
 /// ```
 #[macro_export]
 macro_rules! chain {
@@ -249,17 +280,16 @@ macro_rules! chain {
 ///
 /// # Usage
 ///
-/// ```ignore
-/// fn parse_generics(&mut self) -> ParseOutcome<GenericParamRange> {
-///     if !self.check(&TokenKind::Lt) {
-///         return ParseOutcome::empty_err_expected(&TokenKind::Lt, self.position());
-///     }
-///     // Committed: `<` confirmed present, all errors are hard errors
-///     committed!(self.expect(&TokenKind::Lt));
-///     let params = committed!(self.series(...));
-///     committed!(self.expect(&TokenKind::Gt));
-///     ParseOutcome::consumed_ok(self.arena.alloc_generic_params(params))
+/// ```
+/// use ori_parse::{committed, ParseError, ParseOutcome};
+///
+/// fn after_commit(result: Result<u8, ParseError>) -> ParseOutcome<u8> {
+///     let value = committed!(result);
+///     ParseOutcome::consumed_ok(value)
 /// }
+///
+/// let parsed = after_commit(Ok(42));
+/// assert!(matches!(parsed, ParseOutcome::ConsumedOk { value: 42 }));
 /// ```
 ///
 /// # Note
@@ -274,7 +304,7 @@ macro_rules! committed {
         match $expr {
             Ok(value) => value,
             Err(error) => {
-                let span = error.span;
+                let span = error.span();
                 return $crate::ParseOutcome::ConsumedErr {
                     error,
                     consumed_span: span,
