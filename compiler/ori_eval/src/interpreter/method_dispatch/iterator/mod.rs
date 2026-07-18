@@ -23,10 +23,6 @@ use super::Interpreter;
 
 impl Interpreter<'_> {
     /// Dispatch an iterator method call.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive CollectionMethod dispatch for all iterator operations"
-    )]
     pub(in crate::interpreter) fn eval_iterator_method(
         &mut self,
         receiver: Value,
@@ -90,6 +86,52 @@ impl Interpreter<'_> {
                 Self::expect_arg_count("rev", 0, args)?;
                 Self::make_reversed(iter_val)
             }
+            consumer @ (CollectionMethod::IterFold
+            | CollectionMethod::IterCount
+            | CollectionMethod::IterFind
+            | CollectionMethod::IterAny
+            | CollectionMethod::IterAll
+            | CollectionMethod::IterForEach
+            | CollectionMethod::IterCollect
+            | CollectionMethod::IterCollectSet
+            | CollectionMethod::IterJoin
+            | CollectionMethod::IterLast
+            | CollectionMethod::IterRFind
+            | CollectionMethod::IterRFold) => self.eval_iterator_consumer(iter_val, consumer, args),
+            // Explicit non-iterator arms preserve exhaustiveness so a new
+            // iterator variant must add handling above.
+            CollectionMethod::Map
+            | CollectionMethod::Filter
+            | CollectionMethod::Fold
+            | CollectionMethod::Find
+            | CollectionMethod::Collect
+            | CollectionMethod::MapEntries
+            | CollectionMethod::FilterEntries
+            | CollectionMethod::Any
+            | CollectionMethod::All
+            | CollectionMethod::Join
+            | CollectionMethod::OrderingThenWith
+            | CollectionMethod::OptionMap
+            | CollectionMethod::OptionAndThen
+            | CollectionMethod::OptionFlatMap
+            | CollectionMethod::OptionFilter
+            | CollectionMethod::OptionOrElse
+            | CollectionMethod::ResultMap
+            | CollectionMethod::ResultMapErr
+            | CollectionMethod::ResultAndThen
+            | CollectionMethod::ResultOrElse => {
+                unreachable!("non-iterator CollectionMethod in eval_iterator_method")
+            }
+        }
+    }
+
+    fn eval_iterator_consumer(
+        &mut self,
+        iter_val: IteratorValue,
+        method: CollectionMethod,
+        args: &[Value],
+    ) -> EvalResult {
+        match method {
             CollectionMethod::IterFold => {
                 Self::expect_arg_count("fold", 2, args)?;
                 self.eval_iter_fold(iter_val, args[0].clone(), &args[1])
@@ -142,32 +184,7 @@ impl Interpreter<'_> {
                 Self::expect_arg_count("rfold", 2, args)?;
                 self.eval_iter_rfold(iter_val, args[0].clone(), &args[1])
             }
-            // Non-iterator variants are routed to their own handlers by
-            // `dispatch_collection_method` and never reach here. Listing them
-            // explicitly (vs `_ =>`) makes this match exhaustive, so adding a
-            // new `Iter*` variant fails to compile until it gets an arm above.
-            CollectionMethod::Map
-            | CollectionMethod::Filter
-            | CollectionMethod::Fold
-            | CollectionMethod::Find
-            | CollectionMethod::Collect
-            | CollectionMethod::MapEntries
-            | CollectionMethod::FilterEntries
-            | CollectionMethod::Any
-            | CollectionMethod::All
-            | CollectionMethod::Join
-            | CollectionMethod::OrderingThenWith
-            | CollectionMethod::OptionMap
-            | CollectionMethod::OptionAndThen
-            | CollectionMethod::OptionFlatMap
-            | CollectionMethod::OptionFilter
-            | CollectionMethod::OptionOrElse
-            | CollectionMethod::ResultMap
-            | CollectionMethod::ResultMapErr
-            | CollectionMethod::ResultAndThen
-            | CollectionMethod::ResultOrElse => {
-                unreachable!("non-iterator CollectionMethod in eval_iterator_method")
-            }
+            _ => unreachable!("non-consumer method in iterator consumer dispatch"),
         }
     }
 

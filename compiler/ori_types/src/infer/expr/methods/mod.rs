@@ -1,19 +1,8 @@
-//! Built-in method resolution for primitives and collections.
+//! Builtin method resolution for primitives and collections.
 //!
-//! Resolution uses the [`ori_registry`] as the single source of truth for
-//! method existence and return types. The flow:
-//!
-//! 1. [`registry_bridge::tag_to_type_tag`] — convert `Tag` → `TypeTag`
-//! 2. [`ori_registry::find_method`] — look up method by `(TypeTag, name)`
-//! 3. [`registry_bridge::return_tag_to_idx`] — convert `ReturnTag` → `Idx`
-//! 4. [`computed_returns`] — handle `ReturnTag::Fresh` methods needing
-//!    specific type construction (DEI propagation, tuple pairs)
-//!
-//! Named/Applied types (user-defined) bypass the registry and use
-//! [`resolve_named_type_method`] directly — EXCEPT the registered `Error`
-//! struct's 5 codegen-backed methods (`trace_entries`/`has_trace`/`trace`/
-//! `with_trace`/`clone`), which route to the canonical `ERROR_METHODS`
-//! registry table FIRST, exactly as a `Tag::Error` receiver resolves.
+//! [`ori_registry`] supplies method existence and return tags; computed-return
+//! handlers materialize context-dependent types. User-defined receivers bypass
+//! this path except for the registered error type's backend-supported methods.
 
 mod computed_returns;
 
@@ -61,13 +50,7 @@ pub(crate) fn resolve_builtin_method(
     tag: Tag,
     method_name: &str,
 ) -> Option<Idx> {
-    // Named/Applied types: user-defined, not in registry — EXCEPT the
-    // registered error struct's 5 codegen-backed methods, routed to
-    // ERROR_METHODS first. Allow-list membership is derived dynamically from
-    // the registry's own `backend_required` field (never a hand-maintained
-    // list), so this route can never silently diverge from real codegen
-    // coverage: `message`/`debug`/`to_str` (backend_required: false) fall
-    // through unchanged to named-type method resolution.
+    // INVARIANT: only registry-declared backend methods bypass named-type lookup.
     if matches!(tag, Tag::Named | Tag::Applied) {
         if engine.pool().is_error_struct_receiver(receiver_ty) {
             if let Some(method_def) =
@@ -128,7 +111,6 @@ fn resolve_named_type_method(
     receiver_ty: Idx,
     method_name: &str,
 ) -> Option<Idx> {
-    // Check type registry for newtype unwrap
     if method_name == "unwrap" || method_name == "inner" || method_name == "value" {
         if let Some(type_registry) = engine.type_registry() {
             if let Some(entry) = type_registry.get_by_idx(receiver_ty) {

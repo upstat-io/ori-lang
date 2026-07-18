@@ -19,6 +19,7 @@ use super::ParseError;
 ///
 /// Includes a `tags` slice for fast O(1) discriminant checks without
 /// touching the full 16-byte `TokenKind`.
+#[derive(Debug)]
 pub struct Cursor<'a> {
     tokens: &'a TokenList,
     /// Dense array of discriminant tags, parallel to `tokens`.

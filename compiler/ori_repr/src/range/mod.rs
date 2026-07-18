@@ -292,7 +292,6 @@ pub fn is_int_typed(ty: Idx, pool: &Pool) -> bool {
             }
             let result = is_int_typed(resolved, pool);
             tracing::trace!(
-                target: "ori_repr",
                 ?ty, ?resolved, result, tag = ?pool.tag(ty),
                 "is_int_typed: resolved through indirection"
             );

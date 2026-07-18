@@ -1,17 +1,22 @@
-//! Map builtin method codegen for LLVM.
+//! LLVM emission for map builtins.
 //!
-//! Handles `length`, `len`, `is_empty`, `contains_key`, `keys`, `values`,
-//! `get`, `insert`, `remove`, and `iter` for maps.
-//!
-//! Map mutations use COW semantics: when the collection is uniquely
-//! owned (RC == 1), mutation happens in-place; when shared, a copy is made
-//! first. Each mutating method returns a `{i64 len, i64 cap, ptr data}` struct.
+//! Mutations use copy-on-write and return the `{i64 len, i64 cap, ptr data}`
+//! map representation.
 
 use ori_types::Idx;
 
 use crate::codegen::value_id::{LLVMTypeId, ValueId};
 
 use super::super::super::ArcIrEmitter;
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct MapComponents {
+    pub(super) data: ValueId,
+    pub(super) len: ValueId,
+    pub(super) cap: ValueId,
+    pub(super) key_size: ValueId,
+    pub(super) val_size: ValueId,
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `map.contains_key(key)` — hash table lookup with type-specific equality.
@@ -31,7 +36,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.extract_collection_fields(receiver, "map.data", "map.len", "map.cap")?;
 
         let needle_ptr = self.elem_to_ptr(key, key_ty, "contains_key.needle");
-        // Use narrowed key size if available.
         let collection_idx = self.pool.resolve_fully(map_ty);
         let key_size = self.collection_elem_size(collection_idx, key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
@@ -44,7 +48,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "contains_key",
         )?;
 
-        // Convert i64 (0/1) to i1 (bool)
         let zero = self.builder.const_i64(0);
         Some(self.builder.icmp_ne(result, zero, "contains_key.bool"))
     }
@@ -65,7 +68,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (data, len, cap) =
             self.extract_collection_fields(receiver, "map.data", "map.len", "map.cap")?;
 
-        // Use narrowed key size if available.
         let collection_idx = self.pool.resolve_fully(map_ty);
         let key_size = self.collection_elem_size(collection_idx, key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
@@ -108,8 +110,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_values_to_list");
 
-        let (data, cap, len, key_size_val, val_size_val) =
-            self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty))?;
+        let components = self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty))?;
         let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
         let val_inc_fn = self.get_or_generate_elem_inc_fn(val_ty);
 
@@ -121,11 +122,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(
             func_id,
             &[
-                data,
-                cap,
-                len,
-                key_size_val,
-                val_size_val,
+                components.data,
+                components.cap,
+                components.len,
+                components.key_size,
+                components.val_size,
                 val_dec_fn,
                 val_inc_fn,
                 out_alloca,
@@ -150,14 +151,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_get");
 
-        let (data, cap, len, key_size_val, val_size_val) =
-            self.extract_map_components(receiver, key_ty, val_ty, map_ty)?;
+        let components = self.extract_map_components(receiver, key_ty, val_ty, map_ty)?;
 
         let needle_ptr = self.elem_to_ptr(key, key_ty, "get.needle");
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
         let key_hash = self.get_or_create_hash_thunk(key_ty)?;
 
-        // Option<V> layout: {i64 tag, V value} — runtime (ori_rt) writes i64 tags
         let val_llvm_ty = self.resolve_type(val_ty);
         let raw_val_ty = self.builder.raw_type(val_llvm_ty);
         let option_ty = self.builder.register_type(
@@ -173,12 +172,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(
             func_id,
             &[
-                data,
-                cap,
-                len,
+                components.data,
+                components.cap,
+                components.len,
                 needle_ptr,
-                key_size_val,
-                val_size_val,
+                components.key_size,
+                components.val_size,
                 key_eq,
                 key_hash,
                 out_alloca,
@@ -186,12 +185,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "get",
         );
 
-        // ori_map_get does a shallow byte-copy of the value from the map's
-        // internal storage. For RC-managed value types (lists, maps, strings,
-        // closures), the caller needs its own reference — emit RcInc on the
-        // value when the tag is Some. Without this, the returned value shares
-        // the map's internal pointer: when the map is freed (elem cleanup frees
-        // the inner value), the caller's copy becomes a dangling pointer.
+        // INVARIANT: A copied RC value needs its own credit before the map can drop.
         let val_tag = self.pool.tag(self.pool.resolve_fully(val_ty));
         let needs_rc = !matches!(
             val_tag,
@@ -207,7 +201,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         );
 
         if needs_rc {
-            // Conditionally inc: only when tag == SOME (0)
             let tag_ptr = self
                 .builder
                 .struct_gep(option_ty, out_alloca, 0, "get.tag.ptr");
@@ -238,16 +231,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// When `map_ty` is `Some`, uses `collection_elem_size` for
     /// narrowed element sizes. Otherwise falls back to canonical sizes.
-    pub(in crate::codegen::arc_emitter) fn extract_map_components(
+    pub(super) fn extract_map_components(
         &mut self,
         receiver: ValueId,
         key_ty: Idx,
         val_ty: Idx,
         map_ty: Option<Idx>,
-    ) -> Option<(ValueId, ValueId, ValueId, ValueId, ValueId)> {
+    ) -> Option<MapComponents> {
         let (data, len, cap) =
             self.extract_collection_fields(receiver, "map.data", "map.len", "map.cap")?;
-        // Use narrowed element sizes for map buffers.
         let (key_size, val_size) = if let Some(mt) = map_ty {
             let collection_idx = self.pool.resolve_fully(mt);
             (
@@ -262,12 +254,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
         let key_size_val = self.builder.const_i64(key_size as i64);
         let val_size_val = self.builder.const_i64(val_size as i64);
-        Some((data, cap, len, key_size_val, val_size_val))
+        Some(MapComponents {
+            data,
+            len,
+            cap,
+            key_size: key_size_val,
+            val_size: val_size_val,
+        })
     }
 
     /// Build the LLVM struct type `{i64, i64, ptr}` for map sret returns.
     pub(in crate::codegen::arc_emitter) fn map_struct_type(&mut self) -> LLVMTypeId {
-        // Same as list/set — {i64 len, i64 cap, ptr data}
         self.list_struct_type()
     }
 }

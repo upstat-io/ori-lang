@@ -53,7 +53,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         tuple_ty: Idx,
     ) -> Option<ValueId> {
         if elements.is_empty() {
-            return Some(self.builder.const_i8(1)); // Equal
+            return Some(self.builder.const_i8(1));
         }
 
         let equal_ord = self.builder.const_i8(1);

@@ -7,11 +7,8 @@
 //! The helper is the sole PC-2 walker at AOT secondary sites; primary seam
 //! enforcement is in `ori_llvm::codegen::function_compiler::shared_seam`.
 
-#[cfg(feature = "llvm")]
 use ori_ir::StringInterner;
-#[cfg(feature = "llvm")]
 use ori_types::Pool;
-#[cfg(feature = "llvm")]
 use rustc_hash::FxHashSet;
 
 /// Run the PC-2 `Tag::Var` walker on one `arc_fn` + each of its lambdas.
@@ -24,7 +21,6 @@ use rustc_hash::FxHashSet;
 /// Emits `tracing::error!` on each violation but does not propagate — the
 /// primary seam in `ori_llvm::codegen::function_compiler::shared_seam` is
 /// the load-bearing gate; secondary sites are diagnostic localization only.
-#[cfg(feature = "llvm")]
 pub(super) fn run_pc2_hook_aot(
     pool: &Pool,
     arc_fn: &ori_arc::ArcFunction,

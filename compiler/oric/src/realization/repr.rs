@@ -38,6 +38,19 @@ pub(crate) struct ImplMethodAnalysis {
     pub(crate) emission_names: Vec<Option<Name>>,
 }
 
+// Lowered ARC groups have a separate executable diagnostic owner. Report the
+// semantic inventory dimensions and exact target map here.
+impl std::fmt::Debug for ImplMethodAnalysis {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImplMethodAnalysis")
+            .field("group_count", &self.groups.len())
+            .field("targets", &self.targets)
+            .field("user_drop_binding_count", &self.user_drop_bindings.len())
+            .field("emission_names", &self.emission_names)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Default)]
 struct ReceiverDispatch {
     targets: FxHashMap<(Idx, Name), Name>,
@@ -110,6 +123,17 @@ pub(crate) struct DerivedMethodAnalysis {
     pub(crate) groups: Vec<super::ArcFunctionGroup>,
     /// `(concrete receiver, method) -> generated executable body`.
     pub(crate) targets: FxHashMap<(Idx, Name), Name>,
+}
+
+// Generated ARC groups remain opaque; derived-method diagnostics expose the
+// realized group count and exact receiver-qualified targets.
+impl std::fmt::Debug for DerivedMethodAnalysis {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DerivedMethodAnalysis")
+            .field("group_count", &self.groups.len())
+            .field("targets", &self.targets)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Canonical receiver identity for method-target insertion and lookup.
@@ -191,19 +215,9 @@ pub(crate) fn extend_mono_method_targets(
     }
 }
 
-/// Build the representation plan from a type-checked module.
-///
-/// Extracts `#repr` attributes and public type indices from the typed module,
-/// then runs the repr plan computation pipeline (canonical reprs, range analysis,
-/// integer narrowing, float narrowing).
-///
-/// `imported_type_metadata` carries repr/pub metadata from imported modules,
-/// enabling the repr plan to correctly exempt imported `pub` and `#repr(...)`
-/// types from integer narrowing.
-///
-/// Must run AFTER borrow inference (accepts `ArcFunction`s for range analysis)
-/// and BEFORE codegen (`TypeLayoutResolver` and `TypeInfoStore` read the plan).
-#[derive(Clone, Copy)]
+/// Inputs for representation planning after borrow inference and before codegen.
+/// Imported metadata preserves public and explicit representation exemptions.
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct ModuleReprInput<'a> {
     pub(crate) pool: &'a Pool,
     pub(crate) arc_functions: &'a [ori_arc::ArcFunction],
@@ -226,7 +240,6 @@ pub(crate) fn compute_module_repr_plan(input: ModuleReprInput<'_>) -> ori_repr::
         imported_collection_surfaces,
         has_analysis_only_functions,
     } = input;
-    // Extract #repr attributes from typed module for the repr plan.
     let repr_attrs: Vec<(Idx, ReprAttrKind)> = type_result
         .typed
         .types
@@ -234,8 +247,7 @@ pub(crate) fn compute_module_repr_plan(input: ModuleReprInput<'_>) -> ori_repr::
         .filter_map(|te| te.repr.map(|r| (te.idx, r)))
         .collect();
 
-    // Extract public type indices — their field layout is an ABI contract
-    // that integer narrowing must not violate.
+    // INVARIANT: public field layouts cannot be integer-narrowed.
     let mut pub_type_indices: Vec<Idx> = type_result
         .typed
         .types
@@ -244,20 +256,14 @@ pub(crate) fn compute_module_repr_plan(input: ModuleReprInput<'_>) -> ori_repr::
         .map(|te| te.idx)
         .collect();
 
-    // Also mark collection wrapper types from public function signatures as
-    // public. A public `@f (xs: [int]) -> [int]` means the `[int]` type's
-    // element layout is an ABI surface — callers construct lists with canonical
-    // element widths. Without this, integer narrowing Phase C could narrow the
-    // element repr while callers still use 8-byte strides.
+    // INVARIANT: public collection element layouts retain their caller-visible widths.
     ori_types::collect_public_collection_types(
         pool,
         &type_result.typed.functions,
         &mut pub_type_indices,
     );
 
-    // Collect unconstrained function names (pub + trait impl) for
-    // interprocedural range analysis. Qualified names are a cross-phase
-    // contract consumed by compute_repr_plan_with_interner.
+    // INVARIANT: range analysis consumes qualified public and trait-impl names.
     let unconstrained_fn_names = ori_repr::collect_unconstrained_fn_names(
         &type_result.typed.functions,
         &type_result.typed.trait_impl_fn_names,

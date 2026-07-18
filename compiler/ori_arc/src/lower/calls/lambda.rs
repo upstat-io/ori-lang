@@ -46,12 +46,8 @@ impl ArcLowerer<'_> {
             "lambda: lower"
         );
 
-        // Expose the outer Function/Scheme shape so its parameter list can be
-        // read. Parameter children themselves retain their nominal identity:
-        // collapsing a Named/Applied child through `resolve_fully` would make
-        // the target signature differ from the PartialApply closure signature.
-        // The shared post-lowering materializer owns deep Var/BoundVar link
-        // substitution before AIMS and executable-artifact closure.
+        // Resolve only the outer callable shape: collapsing nominal parameter
+        // children would disagree with the PartialApply closure signature.
         let resolved_ty = self.pool.resolve_fully(ty);
         // Unwrap Scheme to reach the inner Function type.
         // Why: A polymorphic lambda's `Function` tag is inside its `Scheme`;
@@ -102,10 +98,8 @@ impl ArcLowerer<'_> {
             });
         }
 
-        // The target's result is the callable's declared result, not the
-        // possibly narrower type inferred for its body expression (for example
-        // `DoubleEndedIterator<T>` under a declared `Iterator<T>` result).
-        // Exact agreement is required by every executable backend's closure ABI.
+        // Closure ABI uses the declared result rather than a narrower type
+        // inferred for the body expression.
         let body_ty = declared_return_type.unwrap_or_else(|| {
             let raw_body_ty = self.expr_type(body);
             if self.pool.tag(raw_body_ty) == Tag::Scheme {

@@ -4,28 +4,6 @@ use ori_repr::{EnumTag, IntWidth};
 // TagEncoding from Explicit { I64 } (backward compat baseline)
 
 #[test]
-fn explicit_i64_tag_width() {
-    let enc = TagEncoding::new(
-        EnumTag::Explicit {
-            width: IntWidth::I64,
-        },
-        3,
-    );
-    assert_eq!(enc.tag_width(), Some(IntWidth::I64));
-}
-
-#[test]
-fn explicit_i64_tag_gep_index() {
-    let enc = TagEncoding::new(
-        EnumTag::Explicit {
-            width: IntWidth::I64,
-        },
-        3,
-    );
-    assert_eq!(enc.tag_gep_index(), Some(0));
-}
-
-#[test]
 fn explicit_i64_variant_to_tag_value() {
     let enc = TagEncoding::new(
         EnumTag::Explicit {
@@ -36,17 +14,6 @@ fn explicit_i64_variant_to_tag_value() {
     assert_eq!(enc.variant_to_tag_value(0), 0);
     assert_eq!(enc.variant_to_tag_value(1), 1);
     assert_eq!(enc.variant_to_tag_value(2), 2);
-}
-
-#[test]
-fn explicit_i64_payload_gep_index() {
-    let enc = TagEncoding::new(
-        EnumTag::Explicit {
-            width: IntWidth::I64,
-        },
-        3,
-    );
-    assert_eq!(enc.payload_gep_index(), 1);
 }
 
 #[test]
@@ -62,86 +29,7 @@ fn explicit_i64_needs_tag_store() {
     assert!(enc.needs_tag_store(2));
 }
 
-// TagEncoding from Explicit { I8 } (discriminant narrowing)
-
-#[test]
-fn explicit_i8_tag_width() {
-    let enc = TagEncoding::new(
-        EnumTag::Explicit {
-            width: IntWidth::I8,
-        },
-        4,
-    );
-    assert_eq!(enc.tag_width(), Some(IntWidth::I8));
-}
-
-#[test]
-fn explicit_i8_payload_gep_index() {
-    let enc = TagEncoding::new(
-        EnumTag::Explicit {
-            width: IntWidth::I8,
-        },
-        4,
-    );
-    // Payload still at GEP index 1 (after the tag field)
-    assert_eq!(enc.payload_gep_index(), 1);
-}
-
-// TagEncoding from Explicit { I16 }
-
-#[test]
-fn explicit_i16_tag_width() {
-    let enc = TagEncoding::new(
-        EnumTag::Explicit {
-            width: IntWidth::I16,
-        },
-        300,
-    );
-    assert_eq!(enc.tag_width(), Some(IntWidth::I16));
-}
-
 // TagEncoding from Niche
-
-#[test]
-fn niche_tag_width_is_none() {
-    // Niche encoding has no separate tag field
-    let enc = TagEncoding::new(
-        EnumTag::Niche {
-            field_index: 0,
-            niche_value: 2,
-            niche_variant_idx: 1,
-        },
-        2, // e.g. Option<bool>: Some(0/1), None(niche=2)
-    );
-    assert_eq!(enc.tag_width(), None);
-}
-
-#[test]
-fn niche_tag_gep_index_is_none() {
-    let enc = TagEncoding::new(
-        EnumTag::Niche {
-            field_index: 0,
-            niche_value: 2,
-            niche_variant_idx: 1,
-        },
-        2,
-    );
-    assert_eq!(enc.tag_gep_index(), None);
-}
-
-#[test]
-fn niche_payload_gep_index_is_zero() {
-    // No tag field → payload starts at offset 0
-    let enc = TagEncoding::new(
-        EnumTag::Niche {
-            field_index: 0,
-            niche_value: 2,
-            niche_variant_idx: 1,
-        },
-        2,
-    );
-    assert_eq!(enc.payload_gep_index(), 0);
-}
 
 #[test]
 fn niche_variant_to_tag_value_niche_variant() {
@@ -173,20 +61,6 @@ fn niche_needs_tag_store() {
     // Only the niche variant (last) needs a tag store
     assert!(!enc.needs_tag_store(0)); // Some — payload write is enough
     assert!(enc.needs_tag_store(1)); // None — must write niche value
-}
-
-#[test]
-fn niche_is_niche() {
-    let enc = TagEncoding::new(
-        EnumTag::Niche {
-            field_index: 0,
-            niche_value: 2,
-            niche_variant_idx: 1,
-        },
-        2,
-    );
-    assert!(enc.is_niche());
-    assert!(!enc.is_tagless());
 }
 
 #[test]
@@ -251,34 +125,9 @@ fn niche_at_index_zero_accessors() {
 // TagEncoding from None (single-variant / newtype erasure)
 
 #[test]
-fn none_tag_width_is_none() {
-    let enc = TagEncoding::new(EnumTag::None, 1);
-    assert_eq!(enc.tag_width(), None);
-}
-
-#[test]
-fn none_tag_gep_index_is_none() {
-    let enc = TagEncoding::new(EnumTag::None, 1);
-    assert_eq!(enc.tag_gep_index(), None);
-}
-
-#[test]
-fn none_payload_gep_index_is_zero() {
-    let enc = TagEncoding::new(EnumTag::None, 1);
-    assert_eq!(enc.payload_gep_index(), 0);
-}
-
-#[test]
 fn none_needs_tag_store_is_false() {
     let enc = TagEncoding::new(EnumTag::None, 1);
     assert!(!enc.needs_tag_store(0));
-}
-
-#[test]
-fn none_is_tagless() {
-    let enc = TagEncoding::new(EnumTag::None, 1);
-    assert!(enc.is_tagless());
-    assert!(!enc.is_niche());
 }
 
 #[test]
@@ -316,6 +165,6 @@ fn from_enum_repr_explicit() {
         align: 8,
     };
     let enc = TagEncoding::from_enum_repr(&repr);
-    assert_eq!(enc.tag_width(), Some(IntWidth::I64));
-    assert_eq!(enc.variant_count(), 2);
+    assert_eq!(enc.variant_to_tag_value(1), 1);
+    assert!(enc.needs_tag_store(1));
 }

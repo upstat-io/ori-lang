@@ -37,7 +37,7 @@ struct PlanSeed {
     receiver: Idx,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) struct DerivedCallClosureSources<'a> {
     pub(super) generic_type_params: &'a FxHashMap<Name, Vec<Name>>,
     pub(super) traits: &'a TraitRegistry,

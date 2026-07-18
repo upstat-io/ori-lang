@@ -1,8 +1,4 @@
-//! Value and literal emission for ARC IR → LLVM IR.
-//!
-//! Handles `ArcValue` emission (variables, literals, primitive operations),
-//! hash combine, and catch cleanup. These are the leaf operations that
-//! `emit_instr` delegates to for `Let` instructions.
+//! LLVM emission for ARC values, literals, primitive operations, and catch cleanup.
 
 use ori_arc::ir::{ArcFunction, ArcVarId, LitValue, PrimOp};
 use ori_types::Idx;
@@ -47,16 +43,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let s = self.interner.lookup(*name);
                 let str_ty = self.resolve_type(ori_types::Idx::STR);
                 if s.is_empty() {
-                    // Empty string: call ori_str_empty() directly. Returns SSO
-                    // OriStr::EMPTY (no heap allocation, no RC). Avoids creating
-                    // a global constant and calling ori_str_from_raw(ptr, 0).
+                    // Why: The empty-string runtime path avoids a global and heap ownership.
                     let func_id = self.builder.runtime_fn("ori_str_empty");
                     self.call_with_sret(func_id, &[], str_ty, "str.empty")
                         .expect("ori_str_empty returns Str via sret")
                 } else {
-                    // Non-empty: create global string constant and call
-                    // ori_str_from_raw to produce SSO or RC-managed heap copy.
-                    // Uses emitter's call_with_sret for sret forwarding support.
                     let global = self.builder.build_global_string_ptr(s, "str");
                     let len = self.builder.const_i64(s.len() as i64);
                     let func_id = self.builder.runtime_fn("ori_str_from_raw");
@@ -127,16 +118,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.xor(a, sum3, "hc.result")
     }
 
-    /// Emit `ori_catch_cleanup(exc_ptr)` to free a caught Rust exception.
+    /// Free a caught Rust exception through its Itanium unwind cleanup callback.
     ///
-    /// Calls `_Unwind_DeleteException` via the runtime wrapper, which invokes
-    /// the cleanup callback in the Itanium ABI `_Unwind_Exception` header.
-    /// This properly frees the Rust-allocated panic payload without requiring
-    /// C++ EH ABI functions (`__cxa_begin_catch`/`__cxa_end_catch`), which
-    /// are incompatible with Rust's panic infrastructure.
-    ///
-    /// Called in catch-style unwind blocks right after the landing pad,
-    /// before any RC cleanup or catch handler logic.
+    /// This avoids incompatible C++ exception-handling entry points and runs
+    /// before RC cleanup or catch-handler logic.
     pub(super) fn emit_catch_cleanup(&mut self, exc_ptr: ValueId) {
         let func_id = self.builder.runtime_fn("ori_catch_cleanup");
         self.emit_rt_call(func_id, &[exc_ptr], "");

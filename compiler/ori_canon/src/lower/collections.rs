@@ -1,8 +1,4 @@
-//! Collection and container lowering — calls, blocks, lists, tuples, maps, structs.
-//!
-//! Handles lowering of composite expression types that contain child
-//! expressions or ranges: function calls, method calls, blocks, and
-//! literal collection constructors.
+//! Canonical lowering for calls and composite collection expressions.
 
 use ori_ir::canon::{CanExpr, CanField, CanId, CanMapEntry};
 use ori_ir::{ExprId, ExprRange, Name, Span, TypeId};
@@ -26,12 +22,7 @@ impl Lowerer<'_> {
     ) -> CanId {
         let func_kind = *self.src.expr_kind(func);
         let func = self.lower_expr(func);
-        // Positional / zero-arg calls carry no argument names — route them through
-        // the SAME reorder+default-fill primitive the named-call path uses so an
-        // omitted trailing default is FILLED before ARC/LLVM lowering. Without this
-        // the AOT/LLVM call is emitted under-arity. Over-arity args are preserved
-        // verbatim (E2004 already fired in typeck); variadic extras pass through
-        // unchanged.
+        // INVARIANT: Positional calls receive the same default filling as named calls.
         let src_ids: Vec<ExprId> = self.src.get_expr_list(args).to_vec();
         let src_args: Vec<(Option<Name>, ExprId)> =
             src_ids.into_iter().map(|id| (None, id)).collect();
@@ -43,15 +34,10 @@ impl Lowerer<'_> {
         can_id
     }
 
-    /// Iterable->Iterator desugar. When the type checker routes a method call
-    /// through the iterator surface (ordinary Iterable fallthrough or an eager
-    /// direct Range method), synthesize `recv.iter()` and return it as the new
-    /// receiver with the frozen route types, so both method-call lowering paths
-    /// thread it identically. Making the iterator a
-    /// real `MethodCall` IR node lets AIMS freeze its ownership and cleanup
-    /// obligations correctly (vs a backend-hidden materialization that makes a
-    /// counter projection double-free element-extracting consumers like
-    /// `find`). Returns `None` when the call was not routed.
+    /// Materialize a type-checked Iterable-to-Iterator route as `recv.iter()`.
+    ///
+    /// The explicit canonical node preserves ownership and cleanup obligations;
+    /// `None` means type checking selected no iterator route.
     pub(crate) fn lower_iter_routed_receiver(
         &mut self,
         call_expr_id: ExprId,
@@ -72,18 +58,11 @@ impl Lowerer<'_> {
             span,
             iter_ty,
         );
-        // The `receiver_ty` the callers thread into `resolve_method_params` is the
-        // pool `Idx` form (matching `typed.expr_type`), NOT the node `TypeId`.
+        // INVARIANT: Default lookup consumes pool indices, not canonical `TypeId`s.
         Some((iter_call, Some(route.iter_ty), route.adapter_ty))
     }
 
-    /// Lower a method-call receiver, threading the Iterable->Iterator route
-    /// when the type checker recorded one, else lowering the plain
-    /// receiver. Returns the lowered receiver node, the `Idx`-form receiver
-    /// type fed into `resolve_method_params`, and the optional eager adapter
-    /// type. Single home for the route-or-fallback the
-    /// positional (`lower_method_call`) and named (`lower_method_call_named`)
-    /// paths share.
+    /// Lower a method receiver and preserve its type-checked iterator route.
     pub(crate) fn lower_method_receiver(
         &mut self,
         call_expr_id: ExprId,
@@ -147,12 +126,8 @@ impl Lowerer<'_> {
         span: Span,
         ty: TypeId,
     ) -> CanId {
-        // Module-alias qualified call (`alias.func(args)`): the type checker
-        // recorded this call's rewrite target. Lower it as a free `Call` to the
-        // qualified imported function — the namespace receiver is NOT threaded
-        // as a `self` argument (it is not a value). Both backends then see one
-        // shape (a plain `Call`), matching the eval `Value::ModuleNamespace`
-        // result on the AOT/LLVM path.
+        // Lower a module-alias-qualified call as a free call; its namespace
+        // receiver is not a runtime `self` value.
         if let Some(qualified) = self.typed.resolve_module_alias_call(call_expr_id) {
             let src_args: Vec<(Option<Name>, ExprId)> = self
                 .src
@@ -162,10 +137,8 @@ impl Lowerer<'_> {
                 .collect();
             return self.lower_module_alias_call(call_expr_id, qualified, &src_args, span, ty);
         }
-        // Capture the SOURCE receiver's resolved type before `receiver` is shadowed
-        // by its lowered CanId — used to disambiguate same-named methods across impls
-        // so each receiver fills its own defaults. A routed call threads
-        // `recv.iter()` as the receiver (typed as the iterator).
+        // Preserve the source receiver type before lowering so same-named impl
+        // methods fill defaults from the correct signature.
         let (receiver, receiver_ty, adapter_ty) =
             self.lower_method_receiver(call_expr_id, receiver, span);
         // Same positional/zero-arg default-fill as lower_call: a method

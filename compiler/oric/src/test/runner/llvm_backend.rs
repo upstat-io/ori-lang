@@ -26,7 +26,17 @@ pub(super) struct LlvmTestFile<'a> {
     pub(super) interner: &'a crate::ir::StringInterner,
 }
 
-#[derive(Clone, Copy)]
+// The compiler database stays opaque; the path is the stable identity needed
+// when diagnosing one LLVM test-file compilation.
+impl std::fmt::Debug for LlvmTestFile<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LlvmTestFile")
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub(super) struct LlvmTestSelection<'a> {
     pub(super) tests: &'a [&'a crate::ir::TestDef],
     pub(super) skippable: &'a rustc_hash::FxHashSet<crate::ir::Name>,
@@ -128,15 +138,12 @@ impl TestRunner {
         test: &crate::ir::TestDef,
         interner: &crate::ir::StringInterner,
     ) -> TestResult {
-        // Check if test is skipped
         if let Some(reason) = test.skip_reason {
             return TestResult::skipped_for(test, reason, interner);
         }
 
-        // Time the test execution
         let start = Instant::now();
 
-        // Run the test from the compiled module (no recompilation!)
         match compiled.run_test(test.name) {
             Ok(_) => TestResult::passed(test.name, test.targets.clone(), start.elapsed()),
             Err(e) => {

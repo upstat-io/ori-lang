@@ -95,9 +95,7 @@ fn mangle_two_type_params() {
         &pool,
     );
 
-    // Length prefix replaces inter-arg "_" separator: each arg carries its
-    // own byte length, so successive prefixed payloads concatenate
-    // unambiguously: "3_int" then "4_bool".
+    // INVARIANT: Length-prefixed payloads concatenate unambiguously without separators.
     assert_eq!(interner.lookup(mangled), "make_pair$m$3_int4_bool");
 }
 
@@ -314,10 +312,8 @@ fn collect_resolves_top_level_via_import_sigs() {
 
 #[test]
 fn collect_does_not_consult_import_sigs_for_methods() {
-    // INVARIANT: a method instance (receiver_type=Some) MUST NOT fall
-    // through to import_sigs even when the name matches — methods are
-    // dispatched via the impl_sigs / inherent-method path, never the
-    // top-level imported-fn path.
+    // Receiver-bearing methods must resolve through impl/inherent signatures,
+    // never through a same-named top-level import.
     let interner = make_interner();
     let pool = Pool::new();
     let generic_sig = make_generic_sig(&interner);
@@ -603,10 +599,8 @@ fn mangle_method_no_impl_args() {
 
 #[test]
 fn mangle_method_swapped_args_distinct() {
-    // INVARIANT (injection bijectivity): swapping impl_args and method_args
-    // produces structurally distinct mangled symbols even when the type
-    // sets are identical. With length-prefix encoding plus the $im$
-    // separator there is no possible collision between the two shapes.
+    // Length-prefix encoding and the `$im$` separator keep swapped impl and
+    // method argument partitions injectively distinct.
     let interner = make_interner();
     let pool = Pool::new();
     let bar_name = interner.intern("bar");
@@ -665,10 +659,8 @@ fn make_method_sig(interner: &StringInterner, method_name: Name, self_ty: Idx) -
 
 #[test]
 fn collect_resolves_same_method_name_on_distinct_receiver_shells() {
-    // Two impl blocks register method `get` on distinct generic heads
-    // (`Box<T>` and `Wrap<T>`). The (name, shell)-keyed table resolves each
-    // receiver to its own sig — the name-only first-match would have dropped
-    // the second registration and mis-dispatched one of the instances.
+    // Name-and-shell lookup distinguishes same-named methods on two generic
+    // receiver heads; name-only lookup would mis-dispatch one instance.
     let interner = make_interner();
     let mut pool = Pool::new();
     let get_name = interner.intern("get");
@@ -759,11 +751,8 @@ fn collect_resolves_same_method_name_on_distinct_receiver_shells() {
 
 #[test]
 fn collect_resolves_no_self_assoc_fn_by_owning_receiver_shell() {
-    // INVARIANT: a no-`self` associated function (`@new (v: T) -> Box<T>`) is
-    // keyed by its OWNING receiver shell (`Box<_>`), NOT by `param_types.first()`
-    // (the value param `v: T`, whose shell differs) — a registration keyed on
-    // the value param misses the receiver-shell lookup and drops the
-    // specialization (LLVM panics `no method new on type int`).
+    // A no-`self` associated function is keyed by its owning receiver shell,
+    // not by its first value parameter's unrelated shell.
     let interner = make_interner();
     let mut pool = Pool::new();
     let new_name = interner.intern("new");

@@ -6,6 +6,8 @@
 use ori_ir::FieldOp;
 use ori_types::VariantDef;
 
+use crate::codegen::ir_builder::IntegerSignedness;
+
 use super::super::super::function_compiler::FunctionCompiler;
 use super::super::super::type_info::TypeLayoutResolver;
 use super::super::super::value_id::ValueId;
@@ -41,9 +43,9 @@ pub(super) fn emit_enum_lexicographic<'a>(
     };
 
     // Compare tags as unsigned (variant declaration order)
-    let tag_ord = fc
-        .builder_mut()
-        .emit_icmp_ordering(ts, to, "cmp.tags", false);
+    let tag_ord =
+        fc.builder_mut()
+            .emit_icmp_ordering(ts, to, "cmp.tags", IntegerSignedness::Unsigned);
 
     // check for non-void payload fields, not just non-unit variants.
     let has_payload = variants

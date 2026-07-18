@@ -9,7 +9,7 @@ use ori_types::Idx;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-use super::super::ArcIrEmitter;
+use super::{super::ArcIrEmitter, RenderStyle};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Create an `OriStr` from a string literal via `ori_str_from_raw`.
@@ -87,7 +87,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Mirrors [`emit_element_debug`](Self::emit_element_debug) exactly, but
     /// applies Printable (not Debug) leaf semantics: strings are returned raw
     /// (not quoted/escaped), chars render as the raw codepoint (not single-
-    /// quoted), and compound types recurse with `is_debug = false`.
+    /// quoted), and compound types recurse with [`RenderStyle::Printable`].
     ///
     /// Returns a placeholder for truly unsupported types (closures) after
     /// failing the derived-`to_str` lookup.
@@ -129,7 +129,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
                 let is_some = self.builder.icmp_eq(tag, some, "tstr.opt.is_some");
                 let payload = self.builder.extract_value(val, 1, "tstr.opt.payload")?;
-                self.emit_option_debug_branch(is_some, payload, inner, false)
+                self.emit_option_debug_branch(is_some, payload, inner, RenderStyle::Printable)
             }
 
             // Result: recursive Printable
@@ -139,32 +139,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             } => {
                 let ok_ty = *ok_ty;
                 let err_ty = *err_ty;
-                self.emit_nested_result_render(val, ty, ok_ty, err_ty, false)
+                self.emit_nested_result_render(val, ty, ok_ty, err_ty, RenderStyle::Printable)
             }
 
             // List: element-wise Printable loop
             TypeInfo::List { element } => {
                 let element = *element;
-                self.emit_list_debug(val, element, false)
+                self.emit_list_debug(val, element, RenderStyle::Printable)
             }
 
             // Tuple: field-wise Printable
             TypeInfo::Tuple { elements } => {
                 let elements = elements.clone();
-                self.emit_tuple_debug(val, &elements, false)
+                self.emit_tuple_debug(val, &elements, RenderStyle::Printable)
             }
 
             // Map: entry-wise Printable as `{key: value, ...}`
             TypeInfo::Map { key, value } => {
                 let key = *key;
                 let value = *value;
-                self.emit_map_debug(val, ty, key, value, false)
+                self.emit_map_debug(val, ty, key, value, RenderStyle::Printable)
             }
 
             // Set: element-wise Printable as `Set {elem, ...}`
             TypeInfo::Set { element } => {
                 let element = *element;
-                self.emit_set_debug(val, element, false)
+                self.emit_set_debug(val, element, RenderStyle::Printable)
             }
 
             // Generic dispatch: look up the type's compiled .to_str() method
@@ -240,7 +240,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
                 let is_some = self.builder.icmp_eq(tag, some, "dbg.opt.is_some");
                 let payload = self.builder.extract_value(val, 1, "dbg.opt.payload")?;
-                self.emit_option_debug_branch(is_some, payload, inner, true)
+                self.emit_option_debug_branch(is_some, payload, inner, RenderStyle::Debug)
             }
 
             // Result: recursive Debug
@@ -250,32 +250,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             } => {
                 let ok_ty = *ok_ty;
                 let err_ty = *err_ty;
-                self.emit_nested_result_render(val, ty, ok_ty, err_ty, true)
+                self.emit_nested_result_render(val, ty, ok_ty, err_ty, RenderStyle::Debug)
             }
 
             // List: element-wise Debug loop
             TypeInfo::List { element } => {
                 let element = *element;
-                self.emit_list_debug(val, element, true)
+                self.emit_list_debug(val, element, RenderStyle::Debug)
             }
 
             // Tuple: field-wise Debug
             TypeInfo::Tuple { elements } => {
                 let elements = elements.clone();
-                self.emit_tuple_debug(val, &elements, true)
+                self.emit_tuple_debug(val, &elements, RenderStyle::Debug)
             }
 
             // Map: entry-wise Debug as `{key: value, ...}`
             TypeInfo::Map { key, value } => {
                 let key = *key;
                 let value = *value;
-                self.emit_map_debug(val, ty, key, value, true)
+                self.emit_map_debug(val, ty, key, value, RenderStyle::Debug)
             }
 
             // Set: element-wise Debug as `Set {elem, ...}`
             TypeInfo::Set { element } => {
                 let element = *element;
-                self.emit_set_debug(val, element, true)
+                self.emit_set_debug(val, element, RenderStyle::Debug)
             }
 
             // Generic dispatch: look up the type's compiled .debug() method.

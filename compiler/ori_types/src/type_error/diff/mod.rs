@@ -28,10 +28,6 @@ pub fn diff_types(pool: &Pool, expected: Idx, found: Idx) -> Vec<TypeProblem> {
 }
 
 /// Inner diffing logic that accumulates problems.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive (Tag, Tag) mismatch categorization"
-)]
 fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<TypeProblem>) {
     // Same type? No problem.
     if expected == found {
@@ -103,32 +99,12 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
 
         // Using Option<T> where T is expected - needs unwrap
         (other, Tag::Option) if other != Tag::Option => {
-            let inner = Idx::from_raw(pool.data(found));
-            if inner == expected || types_compatible(pool, expected, inner) {
-                problems.push(TypeProblem::NeedsUnwrap { inner_type: inner });
-            } else {
-                problems.push(TypeProblem::TypeMismatch {
-                    expected_category: tag_name(other),
-                    found_category: "option",
-                });
-            }
+            diff_found_option(pool, expected, found, other, problems);
         }
 
         // Map mismatches
         (Tag::Map, Tag::Map) => {
-            let exp_key = pool.map_key(expected);
-            let found_key = pool.map_key(found);
-            let exp_val = pool.map_value(expected);
-            let found_val = pool.map_value(found);
-
-            if exp_key != found_key {
-                problems.push(TypeProblem::MapKeyMismatch);
-                diff_types_inner(pool, exp_key, found_key, problems);
-            }
-            if exp_val != found_val {
-                problems.push(TypeProblem::MapValueMismatch);
-                diff_types_inner(pool, exp_val, found_val, problems);
-            }
+            diff_map_types(pool, expected, found, problems);
         }
 
         // Wrong collection type
@@ -189,6 +165,40 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
                 found_category: tag_name(found_tag),
             });
         }
+    }
+}
+
+fn diff_map_types(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<TypeProblem>) {
+    let expected_key = pool.map_key(expected);
+    let found_key = pool.map_key(found);
+    let expected_value = pool.map_value(expected);
+    let found_value = pool.map_value(found);
+
+    if expected_key != found_key {
+        problems.push(TypeProblem::MapKeyMismatch);
+        diff_types_inner(pool, expected_key, found_key, problems);
+    }
+    if expected_value != found_value {
+        problems.push(TypeProblem::MapValueMismatch);
+        diff_types_inner(pool, expected_value, found_value, problems);
+    }
+}
+
+fn diff_found_option(
+    pool: &Pool,
+    expected: Idx,
+    found: Idx,
+    expected_tag: Tag,
+    problems: &mut Vec<TypeProblem>,
+) {
+    let inner = Idx::from_raw(pool.data(found));
+    if inner == expected || types_compatible(pool, expected, inner) {
+        problems.push(TypeProblem::NeedsUnwrap { inner_type: inner });
+    } else {
+        problems.push(TypeProblem::TypeMismatch {
+            expected_category: tag_name(expected_tag),
+            found_category: "option",
+        });
     }
 }
 

@@ -11,19 +11,22 @@ use rustc_hash::FxHashMap;
 
 use super::MonoFunction;
 
+type MonoSignature = (Name, Vec<u64>);
+type MonoCandidates = Vec<(Vec<Idx>, Name)>;
+
 /// Lookup tables used to replace generic call names with concrete function names.
 pub struct MonoTargetMaps {
     instances: FxHashMap<MonoInstanceId, Name>,
-    generics: FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
+    generics: FxHashMap<MonoSignature, MonoCandidates>,
     methods: FxHashMap<(MethodProducer, Idx), Name>,
 }
 
 impl MonoTargetMaps {
-    /// Build deterministic lookup tables from realized monomorphizations.
+    /// Create deterministic lookup tables from realized monomorphizations.
     #[must_use]
-    pub fn build(mono_functions: &[MonoFunction], pool: &Pool) -> Self {
+    pub fn new(mono_functions: &[MonoFunction], pool: &Pool) -> Self {
         let mut mono_by_id = FxHashMap::default();
-        let mut mono_by_generic: FxHashMap<Name, Vec<(Vec<Idx>, Name)>> = FxHashMap::default();
+        let mut mono_by_generic: FxHashMap<MonoSignature, MonoCandidates> = FxHashMap::default();
         let mut mono_by_method_producer = FxHashMap::default();
         for mono_function in mono_functions {
             for &instance_id in mono_function.identity.instance_ids() {
@@ -34,9 +37,13 @@ impl MonoTargetMaps {
                 .param_types
                 .iter()
                 .map(|&ty| pool.resolve_fully(ty))
-                .collect();
+                .collect::<Vec<_>>();
+            let signature_hashes = parameter_types
+                .iter()
+                .map(|&ty| pool.hash(ty))
+                .collect::<Vec<_>>();
             mono_by_generic
-                .entry(mono_function.identity.original_name())
+                .entry((mono_function.identity.original_name(), signature_hashes))
                 .or_default()
                 .push((parameter_types, mono_function.mangled_name));
             let producer = mono_function.identity.method_producer().cloned();
@@ -99,7 +106,7 @@ pub fn rewrite_apply_targets_for_monos<S: BuildHasher>(
     pool: &Pool,
     interner: &StringInterner,
 ) {
-    let maps = MonoTargetMaps::build(mono_functions, pool);
+    let maps = MonoTargetMaps::new(mono_functions, pool);
     for (function, lambdas) in arc_cache.values_mut() {
         maps.rewrite_function(function, lambdas, pool, interner);
     }
@@ -108,7 +115,7 @@ pub fn rewrite_apply_targets_for_monos<S: BuildHasher>(
 fn rewrite_function_targets(
     function: &mut ArcFunction,
     mono_by_id: &FxHashMap<MonoInstanceId, Name>,
-    mono_by_generic: &FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
+    mono_by_generic: &FxHashMap<MonoSignature, MonoCandidates>,
     mono_by_method_producer: &FxHashMap<(MethodProducer, Idx), Name>,
     pool: &Pool,
     interner: &StringInterner,
@@ -184,7 +191,7 @@ fn collect_target_updates(
 
 struct TargetResolver<'a> {
     mono_by_id: &'a FxHashMap<MonoInstanceId, Name>,
-    mono_by_generic: &'a FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
+    mono_by_generic: &'a FxHashMap<MonoSignature, MonoCandidates>,
     mono_by_method_producer: &'a FxHashMap<(MethodProducer, Idx), Name>,
     pool: &'a Pool,
     interner: &'a StringInterner,
@@ -235,10 +242,14 @@ impl TargetResolver<'_> {
             .iter()
             .map(|argument| self.pool.resolve_fully(function.var_type(*argument)))
             .collect();
+        let signature_hashes = argument_types
+            .iter()
+            .map(|&ty| self.pool.hash(ty))
+            .collect::<Vec<_>>();
         let skip_self =
             callee_shadows_builtin_method(self.pool, self.interner, callee, arguments, function);
         self.mono_by_generic
-            .get(&callee)?
+            .get(&(callee, signature_hashes))?
             .iter()
             .find_map(|(parameters, target)| {
                 let target_matches = (!skip_self || *target != function.name)

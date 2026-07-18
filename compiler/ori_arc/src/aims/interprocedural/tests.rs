@@ -302,12 +302,8 @@ fn list_concat_return_is_unique_but_not_frozen_as_self_allocated() {
 
 #[test]
 fn extract_contract_iter_consume_propagates_through_forwarding_wrapper() {
-    // fn wrapper(words: [str]) -> int { iterate_words(words) }
-    // where iterate_words.iter_consumes[0] == true (computed callee-first per
-    // IC-1). The wrapper forwards its param to the iter-consuming callee, so the
-    // wrapper's param contract MUST inherit `iter_consumes` (RL-2 transitive
-    // inward transfer). A borrow-read callee (iter_consumes=false) would NOT
-    // propagate.
+    // A wrapper forwarding its parameter to an iter-consuming callee inherits
+    // `iter_consumes`; a borrow-only callee would not propagate it.
     let iterate_words = name(7);
     let mut callee_contract = MemoryContract::conservative(1);
     callee_contract.params[0].iter_consumes = true;
@@ -376,16 +372,8 @@ fn extract_contract_iter_consume_propagates_through_forwarding_wrapper() {
 
 #[test]
 fn extract_contract_project_return_alias_propagates_through_forwarder() {
-    // fn unbox(b: Box<[int]>) -> [int] = unwrap(b)
-    // where unwrap.params[0].return_alias == Project { field: 0 } (the callee
-    // returns `b.value`, a borrow-view of param field 0). The forwarder returns
-    // that borrow-view UNCHANGED via an Invoke terminator (the real @unbox
-    // shape), so the forwarder's param b MUST inherit Project { field: 0 } —
-    // forwarder-transitivity of the same-allocation-identity relation (proven
-    // net-0 single-release: scratch ForwardedProjectReturn
-    // forwarded_joint_release_exactly_once; governing RL-2 RL2_release_exactly_once
-    // + TF-4 borrow-view). Without it, @main drops the Box before the projected
-    // list's last use — the BUG-floor box_list_int_unwrap UAF.
+    // INVARIANT: A forwarder preserves the callee's projected return alias so
+    // callers retain the owning box through the view's last use.
     let unwrap = name(11);
     let mut callee_contract = MemoryContract::conservative(1);
     callee_contract.params[0].return_alias =
@@ -474,14 +462,8 @@ fn extract_contract_project_return_alias_propagates_through_forwarder() {
 
 #[test]
 fn extract_contract_construct_project_roundtrip_records_direct() {
-    // fn f(xs: [int]) -> [int] = { let w = Wrap { items: xs }; w.items }
-    // The param is moved into a struct Construct then projected back out as the
-    // Return value. `Project (Construct args) field == args[field]` (TF-3 + TF-4),
-    // so the return ALIASES the param — Direct. The construct-project round-trip
-    // resolver must record Direct + transfers_through_return (the caller defers
-    // its premature param drop; the in-callee container suppression defers the
-    // callee's). Proven net-0:
-    // `ConstructProjectRoundtrip.cure_restores_balance`.
+    // INVARIANT: Projecting a just-constructed field back out preserves the
+    // original parameter identity and transfers it through the return.
     let wrap = name(20);
     let f = ArcFunction {
         name: name(21),
@@ -583,11 +565,8 @@ fn extract_contract_construct_project_roundtrip_records_direct() {
 
 #[test]
 fn borrowed_read_only_true_for_param_at_borrowed_user_call_position() {
-    // fn fwd(xs: [int]) -> int { read_only(xs) }  where read_only's param is
-    // Borrowed AND borrowed_read_only (a pure borrow-read callee). The param flows
-    // ONLY to a borrowed, read-only-forwarded position → fwd's param is
-    // `borrowed_read_only` (the caller carve-out may un-exclude a fresh-local
-    // collection passed to the callee). Spec: Annex E §AIMS RL-2.
+    // A parameter forwarded only to a borrowed read-only callee remains
+    // `borrowed_read_only` under Annex E §AIMS RL-2.
     let read_only = name(7);
     let mut callee = MemoryContract::conservative(1);
     callee.params[0].access = AccessClass::Borrowed;
@@ -851,13 +830,9 @@ fn exact_callable_named_like_cow_builtin_does_not_publish_credit() {
 
 #[test]
 fn borrowed_read_only_false_for_param_at_owned_consumer_position() {
-    // fn fwd(xs: [int]) -> int { consume(xs) }  where consume's param is Owned
-    // (a COW-mutating / transferring callee — the Owned analogue of `xs.push(v)`).
-    // The param flows to an OWNED position → fwd's param is NOT borrowed_read_only,
-    // so the caller carve-out keeps a collection passed to the callee EXCLUDED (un-excluding
-    // a COW-shared buffer would double-free). This is the load-bearing over-fire
-    // guard. Spec: Annex E §AIMS RL-2 (a COW-mutated param is NOT
-    // ApplyToBorrowedParam).
+    // Forwarding to an owned, COW-mutating position must clear the RL-2
+    // read-only fact, preventing the caller carve-out from admitting a shared
+    // buffer.
     let consume = name(7);
     let mut callee = MemoryContract::conservative(1);
     callee.params[0].access = AccessClass::Owned;
@@ -1055,12 +1030,8 @@ fn analyze_program_callee_before_caller() {
 
 #[test]
 fn pure_function_call_preserves_caller_uniqueness() {
-    // callee: fn g(x: T) -> T { return x }  — pure, no alloc, no share
-    // caller: fn f(a: T) -> T { let r = g(a); return r }
-    //
-    // Since callee is pure (may_share=false), borrowed args preserve uniqueness.
-    // The caller should pass `a` as Borrowed (callee only uses once) and the
-    // callee's contract should have may_share=false.
+    // A pure identity callee borrows its once-used argument without widening
+    // uniqueness or reporting sharing.
     let callee = ArcFunction {
         name: name(1),
         params: vec![ArcParam {
@@ -1206,12 +1177,8 @@ fn function_without_allocations_is_fbip() {
 
 #[test]
 fn effect_propagation_through_scc_converges() {
-    // Two mutually recursive functions:
-    // fn a(x: T) -> T { let r = b(x); return r }
-    // fn b(x: T) -> T { let r = a(x); return r }
-    //
-    // Neither allocates, neither shares — effects should converge to
-    // may_allocate=false, may_share=false through the SCC fixpoint.
+    // Two pure mutually recursive identity functions should converge to no
+    // allocation and no sharing through the SCC fixed point.
     let func_a = ArcFunction {
         name: name(1),
         params: vec![ArcParam {
@@ -1312,12 +1279,8 @@ fn effect_propagation_through_scc_converges() {
 
 #[test]
 fn demand_propagation_single_caller_owned_linear_once() {
-    // callee(p0: T) -> T: { return p0 }
-    // caller(): { v0 = Construct; v1 = callee(v0); return v1 }
-    //
-    // caller passes a freshly constructed value (Owned, Linear, Once)
-    // to callee's param 0. Since this is the ONLY caller, the all-callers
-    // condition is satisfied → callee.params[0].uniqueness should be Unique.
+    // The sole caller passes one fresh, linear value to the identity callee,
+    // satisfying the all-callers uniqueness condition.
     let callee = ArcFunction {
         name: name(1),
         params: vec![ArcParam {
@@ -1378,11 +1341,8 @@ fn demand_propagation_single_caller_owned_linear_once() {
 
 #[test]
 fn demand_propagation_multiple_callers_all_satisfy() {
-    // callee(p0: T) -> T: { return p0 }
-    // caller_a(): { v0 = Construct; v1 = callee(v0); return v1 }
-    // caller_b(): { v0 = Construct; v1 = callee(v0); return v1 }
-    //
-    // Both callers pass Owned+Linear+Once → callee param should be Unique.
+    // Every caller passes one fresh, linear value, so the callee parameter is
+    // unique under the all-callers condition.
     let callee = ArcFunction {
         name: name(1),
         params: vec![ArcParam {
@@ -1451,12 +1411,8 @@ fn demand_propagation_multiple_callers_all_satisfy() {
 
 #[test]
 fn demand_propagation_one_caller_violates() {
-    // callee(p0: T) -> T: { return p0 }
-    // caller_good(): { v0 = Construct; v1 = callee(v0); return v1 }
-    // caller_bad(p0: T): { v1 = callee(p0); v2 = callee(p0); return v2 }
-    //
-    // caller_bad passes p0 twice (cardinality=Many) → all-callers condition
-    // NOT satisfied → callee param stays MaybeShared.
+    // One caller passes the same value twice, so the all-callers uniqueness
+    // condition fails and the callee parameter remains maybe-shared.
     let callee = ArcFunction {
         name: name(1),
         params: vec![ArcParam {
@@ -1656,11 +1612,8 @@ fn demand_propagation_forwarded_param_stays_maybe_shared() {
 /// unguarded `construct_vars.contains` membership check would leave open.
 #[test]
 fn demand_propagation_construct_var_at_two_sites_stays_maybe_shared() {
-    // callee(p0: T) -> T: { return p0 }
-    // caller(): { v0 = Construct; v1 = callee(v0); v2 = callee(v0); return v2 }
-    //
-    // v0 starts with one fresh owner but is passed to the
-    // SAME (callee, param 0) twice → count_var_uses(v0) == 2 → not Unique.
+    // Passing one fresh value to the same callee parameter twice disqualifies
+    // uniqueness despite its single initial owner.
     let callee = ArcFunction {
         name: name(1),
         params: vec![ArcParam {
@@ -1738,11 +1691,8 @@ fn demand_propagation_construct_var_at_two_sites_stays_maybe_shared() {
 /// unique, which would make ownership-event elision unsound.
 #[test]
 fn demand_propagation_construct_var_with_burden_op_use_stays_maybe_shared() {
-    // callee(p0: T) -> T: { return p0 }
-    // caller(): { v0 = Construct; v1 = callee(v0); BurdenInc(v0); return v1 }
-    //
-    // v0 starts with one fresh owner but is used twice: once as the Apply
-    // arg, once as a BurdenInc operand → count_var_uses(v0) == 2 → not Unique.
+    // A fresh value used by both an apply and a burden increment has multiple
+    // uses and cannot prove callee-parameter uniqueness.
     let callee = ArcFunction {
         name: name(1),
         params: vec![ArcParam {
@@ -1961,11 +1911,8 @@ fn extract_contract_net_positive_produces_bounded() {
 
 #[test]
 fn extract_contract_conditional_requires_unique_vector() {
-    // fn f(x: T, y: int, z: T) -> T { v3 = Construct; return v3 }
-    // x (v0) is consumed non-scalar → requires unique.
-    // y (v1) is scalar → excluded.
-    // z (v2) is consumed non-scalar → requires unique.
-    // 1 Construct, 2 consumed params → balanced → Conditional with [true, false, true].
+    // One allocation balances two consumed non-scalar parameters; the scalar
+    // middle parameter is excluded from the conditional uniqueness mask.
     let func = ArcFunction {
         name: name(1),
         params: vec![
@@ -2078,13 +2025,8 @@ fn extract_contract_no_trmc_has_default_context_behavior() {
 
 #[test]
 fn extract_contract_with_trmc_computes_context_behavior() {
-    // Simulate a TRMC candidate: function builds Construct(T, [field0, rec_call_result])
-    // where the rec call result fills field 1 (the "hole").
-    //
-    // fn map(xs: [T]) -> [T] {
-    //   v1 = Construct(Cons, [head, map(tail)])  // context region
-    //   return v1
-    // }
+    // Simulate TRMC by placing a recursive call result into field 1 of a
+    // returned constructor context.
     let func = ArcFunction {
         name: name(1),
         params: vec![ArcParam {
@@ -2295,15 +2237,8 @@ fn extract_contract_branchy_wrap_publishes_containment() {
 
 #[test]
 fn loop_threaded_push_rebuild_return_certifies_fresh_self_alloc() {
-    // fn f() -> [T] {
-    //   bb0: %0 = Construct List(); %4 = 1 (cond); Jump bb1(%0)
-    //   bb1(%1): Branch %4 ? bb2 : bb3
-    //   bb2: %2 = Apply push(%1, %5); %5 = lit; Jump bb1(%2)   [backedge]
-    //   bb3: Return %1
-    // }
-    // The loop-threaded rebuild: %1's feeders are {%0 fresh, %2 = push(%1)} —
-    // the greatest-fixpoint fresh-lineage trace keeps the self-consistent
-    // cycle, so the threaded return certifies `returns_fresh_self_alloc`.
+    // INVARIANT: A loop parameter fed only by a fresh seed and its COW rebuild
+    // remains in the fresh-allocation fixed point.
     let interner = ori_ir::StringInterner::new();
     let push = interner.intern("push");
     let func = ArcFunction {
@@ -2397,10 +2332,8 @@ fn loop_threaded_push_rebuild_return_certifies_fresh_self_alloc() {
 
 #[test]
 fn loop_threaded_param_rooted_return_stays_conservative() {
-    // Same CFG shape, but bb0 threads the function PARAM (caller-visible)
-    // instead of a fresh Construct — the fresh-lineage trace must evict the
-    // whole cycle (one non-member external feeder) and the return stays
-    // uncertified.
+    // Threading a caller-visible parameter rather than a fresh allocation into
+    // the same cycle must evict the lineage and leave the return uncertified.
     let interner = ori_ir::StringInterner::new();
     let push = interner.intern("push");
     let func = ArcFunction {

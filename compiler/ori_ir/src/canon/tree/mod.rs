@@ -1,17 +1,5 @@
-//! Decision tree types for pattern matching.
-//!
-//! These types represent compiled decision trees as produced by the Maranget (2008)
-//! algorithm. They are shared between `ori_canon` (builds them during lowering),
-//! `ori_eval` (interprets them), and `ori_arc` (emits them as ARC IR blocks).
-//!
-//! # Architecture
-//!
-//! These shared type definitions represent trees produced during canonical
-//! lowering and consumed by evaluation and ARC IR emission.
-//!
-//! # References
-//!
-//! - Maranget (2008) "Compiling Pattern Matching to Good Decision Trees"
+//! Maranget-style decision trees shared by canonicalization, evaluation, and
+//! ARC block emission.
 
 use super::CanId;
 use crate::Name;
@@ -343,16 +331,13 @@ impl FlatPattern {
                 }
             }
             FlatPattern::Or(alternatives) => {
-                // All alternatives bind the same names (enforced by type checker).
-                // Use the first alternative's bindings.
+                // INVARIANT: Type checking gives every alternative identical bindings.
                 if let Some(first) = alternatives.first() {
                     first.collect_bindings(path, out);
                 }
             }
             FlatPattern::At { name, inner } => {
-                // Bind the name at the current path (the whole scrutinee).
                 out.push((*name, path.clone()));
-                // Then collect bindings from the inner pattern.
                 inner.collect_bindings(path, out);
             }
         }

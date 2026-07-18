@@ -2,7 +2,7 @@ use super::*;
 use crate::{Expected, ExpectedOrigin, Pool, TypeErrorKind};
 
 #[test]
-fn test_literal_inference() {
+fn primitive_literal_helpers_return_builtin_types() {
     let mut pool = Pool::new();
     let engine = InferEngine::new(&mut pool);
 
@@ -16,7 +16,7 @@ fn test_literal_inference() {
 }
 
 #[test]
-fn test_scope_management() {
+fn scope_entry_increases_rank_and_exit_restores_it() {
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
 
@@ -33,7 +33,45 @@ fn test_scope_management() {
 }
 
 #[test]
-fn test_context_management() {
+#[should_panic(expected = "try propagation boundary stack is empty")]
+fn try_boundary_pop_rejects_empty_stack() {
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+
+    let _ = engine.pop_try_boundary();
+}
+
+#[test]
+#[should_panic(expected = "expected try propagation boundary, found function barrier")]
+fn try_boundary_pop_rejects_function_barrier() {
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.push_try_boundary_barrier();
+
+    let _ = engine.pop_try_boundary();
+}
+
+#[test]
+#[should_panic(expected = "try propagation function barrier stack is unbalanced")]
+fn try_boundary_barrier_pop_rejects_empty_stack() {
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+
+    engine.pop_try_boundary_barrier();
+}
+
+#[test]
+#[should_panic(expected = "try propagation function barrier stack is unbalanced")]
+fn try_boundary_barrier_pop_rejects_try_boundary() {
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+    engine.push_try_boundary();
+
+    engine.pop_try_boundary_barrier();
+}
+
+#[test]
+fn context_stack_restores_previous_context_after_pop() {
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
 
@@ -59,7 +97,7 @@ fn test_context_management() {
 }
 
 #[test]
-fn test_with_context() {
+fn with_context_scopes_context_to_callback() {
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
 
@@ -76,7 +114,7 @@ fn test_with_context() {
 }
 
 #[test]
-fn test_expression_type_storage() {
+fn expression_type_store_round_trips_and_missing_index_is_none() {
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
 
@@ -91,7 +129,7 @@ fn test_expression_type_storage() {
 }
 
 #[test]
-fn test_collection_inference() {
+fn collection_helpers_construct_list_and_tuple_types() {
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
 
@@ -110,7 +148,7 @@ fn test_collection_inference() {
 }
 
 #[test]
-fn test_check_type_success() {
+fn matching_type_check_succeeds_without_diagnostic() {
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
 
@@ -126,7 +164,7 @@ fn test_check_type_success() {
 }
 
 #[test]
-fn test_check_type_with_variable() {
+fn type_check_unifies_variable_with_expected_type() {
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
 
@@ -145,7 +183,7 @@ fn test_check_type_with_variable() {
 }
 
 #[test]
-fn test_check_type_failure() {
+fn mismatched_type_check_records_one_diagnostic() {
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
 
@@ -166,7 +204,7 @@ fn test_check_type_failure() {
 
 #[test]
 #[expect(clippy::expect_used, reason = "Test code uses expect for clarity")]
-fn test_let_polymorphism() {
+fn generalized_identity_instantiations_are_independent() {
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
 

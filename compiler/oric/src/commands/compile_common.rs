@@ -1,46 +1,23 @@
-//! Shared compilation utilities for AOT build and run commands.
+//! Shared AOT build and run compilation utilities.
 //!
-//! # Salsa/ArtifactCache Boundary
-//!
-//! The compilation pipeline uses a **hybrid caching strategy**:
-//!
-//! - **Salsa** handles the front-end: `SourceFile → tokens() → parsed() → typed()`.
-//!   Salsa's early cutoff skips dependent queries when results are unchanged
-//!   (e.g., whitespace-only edits don't trigger re-parsing).
-//!
-//! - **`ArtifactCache`** handles the back-end: object code caching (future).
-//!   Codegen is **not** a Salsa query because LLVM types (`Module`,
-//!   `FunctionValue`, `BasicBlock`) are lifetime-bound to an LLVM `Context`
-//!   and do not satisfy Salsa's `Clone + Eq + Hash` requirements.
-//!
-//! - **ARC/AIMS realization** closes one complete body batch before any
-//!   physical backend projects it.
+//! Salsa caches the source-to-typed front end. Lifetime-bound LLVM values stay
+//! outside Salsa, while closed ARC/AIMS realization is shared by physical
+//! backend projection.
 
-#[cfg(feature = "llvm")]
 use std::path::Path;
 
-#[cfg(feature = "llvm")]
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
-#[cfg(feature = "llvm")]
 use ori_ir::canon::CanonResult;
-#[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
-#[cfg(feature = "llvm")]
 use ori_repr::RealizedProgram;
-#[cfg(feature = "llvm")]
 use ori_types::{FunctionSig, Idx, Pool, TypeCheckResult};
-#[cfg(feature = "llvm")]
 use oric::ir::Name;
-#[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
-#[cfg(feature = "llvm")]
 use oric::{CompilerDb, Db, SourceFile};
 
-#[cfg(feature = "llvm")]
 use super::backend::{BackendChoice, LlvmBackend};
 
 /// Information about an imported function for codegen.
-#[cfg(feature = "llvm")]
 #[derive(Debug, Clone)]
 pub struct ImportedFunctionInfo {
     /// The mangled name of the function (e.g., `_ori_helper$add`).
@@ -66,8 +43,7 @@ pub struct ImportedFunctionInfo {
 /// the `ori_arc` and `ori_llvm` backends and cached session-scoped in
 /// `CanonCache`. Uses the `typed()` Salsa query so the type-check result is
 /// reused by later consumers (e.g. `evaluated()`).
-#[cfg(feature = "llvm")]
-pub fn check_source(
+pub(super) fn check_source(
     db: &CompilerDb,
     file: SourceFile,
     path: &str,
@@ -77,7 +53,6 @@ pub fn check_source(
     std::sync::Arc<Pool>,
     ori_ir::canon::SharedCanonResult,
 )> {
-    // Create emitter with source context for rich snippet rendering
     let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
     let mut emitter = TerminalEmitter::with_color_mode(std::io::stderr(), ColorMode::Auto, is_tty)
         .with_source(file.text(db).as_str())
@@ -115,7 +90,6 @@ pub fn check_source(
 /// builds the `ImportedMonoState` ahead of this call via
 /// `build_imported_mono_state`; `imported_state.merged_pool` MUST outlive the
 /// returned LLVM module — `'ctx` ties context, pool, and module together.
-#[cfg(feature = "llvm")]
 #[derive(Clone, Copy)]
 pub struct ImportedMonoCompilation<'ctx, 'a> {
     pub context: &'ctx Context,
@@ -130,7 +104,18 @@ pub struct ImportedMonoCompilation<'ctx, 'a> {
     pub narrowing_policy: ori_repr::NarrowingPolicy,
 }
 
-#[cfg(feature = "llvm")]
+// LLVM context, compiler database, and imported surfaces have independent
+// diagnostic owners. Report the stable compilation identity and policy.
+impl std::fmt::Debug for ImportedMonoCompilation<'_, '_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImportedMonoCompilation")
+            .field("source_path", &self.source_path)
+            .field("target_triple", &self.target_triple)
+            .field("narrowing_policy", &self.narrowing_policy)
+            .finish_non_exhaustive()
+    }
+}
+
 pub fn compile_to_llvm_with_imported_monos<'ctx>(
     input: ImportedMonoCompilation<'ctx, '_>,
 ) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
@@ -157,11 +142,11 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
         canon,
         source_path,
         module_name,
-        symbol_prefix: "", // No symbol prefix for single-file compilation
+        symbol_prefix: "",
         target_triple,
         narrowing_policy,
-        imported_type_metadata: &[], // Single-file: no imported type metadata
-        imported_collection_surfaces: &[], // Single-file: no imported collection surfaces
+        imported_type_metadata: &[],
+        imported_collection_surfaces: &[],
     };
     let backend = BackendChoice::Llvm(LlvmBackend {
         context,
@@ -184,7 +169,6 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
 /// drives symbol mangling. `imported` carries the `ImportedMonoFn` entries
 /// plus re-interned canons for cross-module generic body specialization
 /// (both empty when the host has no imported generic instantiations).
-#[cfg(feature = "llvm")]
 #[derive(Clone, Copy)]
 pub struct ImportedModuleCompilation<'ctx, 'a> {
     pub context: &'ctx Context,
@@ -203,7 +187,25 @@ pub struct ImportedModuleCompilation<'ctx, 'a> {
     pub narrowing_policy: ori_repr::NarrowingPolicy,
 }
 
-#[cfg(feature = "llvm")]
+// Backend and database state stay opaque; module diagnostics expose the exact
+// source identity and imported ABI-surface dimensions.
+impl std::fmt::Debug for ImportedModuleCompilation<'_, '_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImportedModuleCompilation")
+            .field("source_path", &self.source_path)
+            .field("module_name", &self.module_name)
+            .field("imported_function_count", &self.imported_functions.len())
+            .field("imported_type_count", &self.imported_type_metadata.len())
+            .field(
+                "imported_collection_surface_count",
+                &self.imported_collection_surfaces.len(),
+            )
+            .field("target_triple", &self.target_triple)
+            .field("narrowing_policy", &self.narrowing_policy)
+            .finish_non_exhaustive()
+    }
+}
+
 pub fn compile_to_llvm_with_imports<'ctx>(
     input: ImportedModuleCompilation<'ctx, '_>,
 ) -> Result<super::codegen_pipeline::LlvmCodegenOutput<'ctx>, String> {
@@ -224,10 +226,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         narrowing_policy,
     } = input;
     let interner = db.interner();
-    // Registration key = the call-site local/aliased name (matching the ARC
-    // IR callee Name resolve_callee probes); the LLVM extern symbol stays the
-    // exporting module's exact mangled name. A function the host never
-    // imports by name keeps its mangled-name key (unreachable from ARC IR).
+    // INVARIANT: call-site aliases key registration; externs retain exported symbols.
     let import_sigs: Vec<ori_repr::monomorphize::ImportSig> = imported_functions
         .iter()
         .map(|info| {
@@ -259,7 +258,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         canon,
         source_path,
         module_name,
-        symbol_prefix: module_name, // Multi-file: symbol prefix matches module name
+        symbol_prefix: module_name,
         target_triple,
         narrowing_policy,
         imported_type_metadata,

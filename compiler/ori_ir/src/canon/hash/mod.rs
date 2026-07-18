@@ -69,10 +69,61 @@ fn hash_node(arena: &CanArena, id: CanId, state: &mut FxHasher) {
 ///
 /// Organized by variant category for clarity. Each arm hashes non-child
 /// data first, then recurses into child `CanId`s in a deterministic order.
-#[expect(clippy::too_many_lines, reason = "exhaustive CanExpr hashing dispatch")]
 fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
+    match kind {
+        expr @ (CanExpr::Int(_)
+        | CanExpr::Float(_)
+        | CanExpr::Bool(_)
+        | CanExpr::Char(_)
+        | CanExpr::Duration { .. }
+        | CanExpr::Size { .. }
+        | CanExpr::Unit
+        | CanExpr::None
+        | CanExpr::SelfRef
+        | CanExpr::HashLength
+        | CanExpr::Error
+        | CanExpr::Constant(_)
+        | CanExpr::Str(_)
+        | CanExpr::Ident(_)
+        | CanExpr::Const(_)
+        | CanExpr::FunctionRef(_)
+        | CanExpr::TypeRef(_)
+        | CanExpr::Binary { .. }
+        | CanExpr::Unary { .. }
+        | CanExpr::Cast { .. }
+        | CanExpr::Field { .. }
+        | CanExpr::Index { .. }) => hash_value_expr(arena, expr, state),
+        expr @ (CanExpr::Call { .. }
+        | CanExpr::MethodCall { .. }
+        | CanExpr::If { .. }
+        | CanExpr::Match { .. }
+        | CanExpr::For { .. }
+        | CanExpr::Loop { .. }
+        | CanExpr::Break { .. }
+        | CanExpr::Continue { .. }
+        | CanExpr::Try(_)
+        | CanExpr::Await(_)
+        | CanExpr::Unsafe(_)
+        | CanExpr::Ok(_)
+        | CanExpr::Err(_)
+        | CanExpr::Some(_)
+        | CanExpr::Block { .. }
+        | CanExpr::Let { .. }
+        | CanExpr::Assign { .. }
+        | CanExpr::Lambda { .. }) => hash_flow_expr(arena, expr, state),
+        expr @ (CanExpr::List(_)
+        | CanExpr::Tuple(_)
+        | CanExpr::Map(_)
+        | CanExpr::Struct { .. }
+        | CanExpr::Range { .. }
+        | CanExpr::WithCapability { .. }
+        | CanExpr::FunctionExp { .. }
+        | CanExpr::FormatWith { .. }) => hash_aggregate_expr(arena, expr, state),
+    }
+}
+
+fn hash_value_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
     match *kind {
-        // Literals — hash value directly
         CanExpr::Int(v) => v.hash(state),
         CanExpr::Float(v) => v.hash(state),
         CanExpr::Bool(v) => v.hash(state),
@@ -89,7 +140,6 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             // No additional data — discriminant + type already hashed.
         }
 
-        // References
         CanExpr::Constant(id) => id.raw().hash(state),
         CanExpr::Str(name)
         | CanExpr::Ident(name)
@@ -97,7 +147,6 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
         | CanExpr::FunctionRef(name)
         | CanExpr::TypeRef(name) => name.raw().hash(state),
 
-        // Operators
         CanExpr::Binary { op, left, right } => {
             mem::discriminant(&op).hash(state);
             hash_node(arena, left, state);
@@ -117,7 +166,20 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             hash_node(arena, expr, state);
         }
 
-        // Calls
+        CanExpr::Field { receiver, field } => {
+            field.raw().hash(state);
+            hash_node(arena, receiver, state);
+        }
+        CanExpr::Index { receiver, index } => {
+            hash_node(arena, receiver, state);
+            hash_node(arena, index, state);
+        }
+        _ => unreachable!("value expression classifier is exhaustive"),
+    }
+}
+
+fn hash_flow_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
+    match *kind {
         CanExpr::Call { func, args } => {
             hash_node(arena, func, state);
             hash_range(arena, args, state);
@@ -132,17 +194,6 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             hash_range(arena, args, state);
         }
 
-        // Access
-        CanExpr::Field { receiver, field } => {
-            field.raw().hash(state);
-            hash_node(arena, receiver, state);
-        }
-        CanExpr::Index { receiver, index } => {
-            hash_node(arena, receiver, state);
-            hash_node(arena, index, state);
-        }
-
-        // Control flow
         CanExpr::If {
             cond,
             then_branch,
@@ -193,7 +244,6 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             hash_node(arena, child, state);
         }
 
-        // Bindings
         CanExpr::Block { stmts, result } => {
             hash_range(arena, stmts, state);
             hash_node(arena, result, state);
@@ -212,13 +262,16 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             hash_node(arena, value, state);
         }
 
-        // Functions
         CanExpr::Lambda { params, body } => {
             hash_params(arena, params, state);
             hash_node(arena, body, state);
         }
+        _ => unreachable!("flow expression classifier is exhaustive"),
+    }
+}
 
-        // Collections
+fn hash_aggregate_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
+    match *kind {
         CanExpr::List(range) | CanExpr::Tuple(range) => hash_range(arena, range, state),
         CanExpr::Map(entries) => hash_map_entries(arena, entries, state),
         CanExpr::Struct { name, fields } => {
@@ -237,7 +290,6 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             hash_node(arena, step, state);
         }
 
-        // Capabilities
         CanExpr::WithCapability {
             capability,
             provider,
@@ -248,17 +300,16 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             hash_node(arena, body, state);
         }
 
-        // Special forms
         CanExpr::FunctionExp { kind, props } => {
             mem::discriminant(&kind).hash(state);
             hash_named_exprs(arena, props, state);
         }
 
-        // Formatting
         CanExpr::FormatWith { expr, spec } => {
             spec.raw().hash(state);
             hash_node(arena, expr, state);
         }
+        _ => unreachable!("aggregate expression classifier is exhaustive"),
     }
 }
 

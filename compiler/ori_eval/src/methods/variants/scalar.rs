@@ -152,7 +152,6 @@ pub fn dispatch_char_method(
 }
 
 /// Dispatch methods on byte values.
-#[expect(clippy::too_many_lines, reason = "exhaustive byte method dispatch")]
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
@@ -230,50 +229,52 @@ pub fn dispatch_byte_method(
             #[expect(clippy::arithmetic_side_effects, reason = "divisor != 0 checked above")]
             Ok(Value::Byte(b % other))
         }
-    // Bitwise operators
-    } else if method == n.bit_and {
+    } else {
+        dispatch_byte_tail(b, method, &args, ctx)
+    }
+}
+
+fn dispatch_byte_tail(byte: u8, method: Name, args: &[Value], ctx: &DispatchCtx<'_>) -> EvalResult {
+    let n = ctx.names;
+    if method == n.bit_and {
         require_args("bit_and", 1, args.len())?;
-        let other = require_byte_arg("bit_and", &args, 0)?;
-        Ok(Value::Byte(b & other))
+        Ok(Value::Byte(byte & require_byte_arg("bit_and", args, 0)?))
     } else if method == n.bit_or {
         require_args("bit_or", 1, args.len())?;
-        let other = require_byte_arg("bit_or", &args, 0)?;
-        Ok(Value::Byte(b | other))
+        Ok(Value::Byte(byte | require_byte_arg("bit_or", args, 0)?))
     } else if method == n.bit_xor {
         require_args("bit_xor", 1, args.len())?;
-        let other = require_byte_arg("bit_xor", &args, 0)?;
-        Ok(Value::Byte(b ^ other))
+        Ok(Value::Byte(byte ^ require_byte_arg("bit_xor", args, 0)?))
     } else if method == n.bit_not {
         require_args("bit_not", 0, args.len())?;
-        Ok(Value::Byte(!b))
-    } else if method == n.shl {
-        require_args("shl", 1, args.len())?;
-        let shift = require_scalar_int_arg("shl", &args, 0)?;
-        byte_shift_left(b, shift.raw())
-    } else if method == n.shr {
-        require_args("shr", 1, args.len())?;
-        let shift = require_scalar_int_arg("shr", &args, 0)?;
-        byte_shift_right(b, shift.raw())
-    // Predicates
+        Ok(Value::Byte(!byte))
+    } else if method == n.shl || method == n.shr {
+        let name = if method == n.shl { "shl" } else { "shr" };
+        require_args(name, 1, args.len())?;
+        let shift = require_scalar_int_arg(name, args, 0)?.raw();
+        if method == n.shl {
+            byte_shift_left(byte, shift)
+        } else {
+            byte_shift_right(byte, shift)
+        }
     } else if method == n.is_ascii {
         require_args("is_ascii", 0, args.len())?;
         Ok(Value::Bool(true))
     } else if method == n.is_ascii_alpha {
         require_args("is_ascii_alpha", 0, args.len())?;
-        Ok(Value::Bool(b.is_ascii_alphabetic()))
+        Ok(Value::Bool(byte.is_ascii_alphabetic()))
     } else if method == n.is_ascii_digit {
         require_args("is_ascii_digit", 0, args.len())?;
-        Ok(Value::Bool(b.is_ascii_digit()))
+        Ok(Value::Bool(byte.is_ascii_digit()))
     } else if method == n.is_ascii_whitespace {
         require_args("is_ascii_whitespace", 0, args.len())?;
-        Ok(Value::Bool(b.is_ascii_whitespace()))
-    // Conversions
+        Ok(Value::Bool(byte.is_ascii_whitespace()))
     } else if method == n.to_char {
         require_args("to_char", 0, args.len())?;
-        Ok(Value::Char(char::from(b)))
+        Ok(Value::Char(char::from(byte)))
     } else if method == n.to_int {
         require_args("to_int", 0, args.len())?;
-        Ok(Value::int(i64::from(b)))
+        Ok(Value::int(i64::from(byte)))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "byte").into())
     }

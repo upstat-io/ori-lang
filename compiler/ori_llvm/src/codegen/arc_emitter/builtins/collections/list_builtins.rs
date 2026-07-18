@@ -6,6 +6,7 @@
 //! COW mutation methods (push, pop, concat, reverse, set, insert, remove,
 //! sort) are in the sibling `list_cow` module.
 
+use ori_arc::ir::ArgOwnership;
 use ori_types::{Idx, Tag};
 
 use crate::codegen::type_info::TypeInfo;
@@ -286,7 +287,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         receiver_ty: Idx,
         elem_ty: Idx,
-        owns_data: bool,
+        ownership: ArgOwnership,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_list");
 
@@ -299,7 +300,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // RC ref) → true (Drop decs); a borrowed-rooted receiver (the flatten
         // inner sub.iter() on a trampoline-closure param) → false (Drop does NOT
         // dec; the outer container's elem_dec_fn frees the buffer once).
-        let owns_data_val = self.builder.const_bool(owns_data);
+        let owns_data_val = self.builder.const_bool(ownership == ArgOwnership::Owned);
 
         let list_iter = self.emit_rt_call(
             func_id,

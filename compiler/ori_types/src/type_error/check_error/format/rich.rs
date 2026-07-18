@@ -20,17 +20,98 @@ impl TypeCheckError {
     ///   (e.g., `|idx| pool.format_type(idx)`)
     /// - `format_name`: Resolves an interned `Name` to its string value
     ///   (e.g., `|name| interner.lookup(name).to_string()`)
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive TypeErrorKind → rich message dispatch"
-    )]
     pub fn format_message_rich(
         &self,
         format_type: &dyn Fn(Idx) -> String,
         format_name: &dyn Fn(Name) -> String,
     ) -> String {
-        use std::fmt::Write;
+        if let Some(message) = self.rich_resolution_message(format_type, format_name) {
+            return message;
+        }
+        if let Some(message) = self.rich_inference_message(format_type, format_name) {
+            return message;
+        }
+        if let Some(message) = self.rich_trait_message(format_type, format_name) {
+            return message;
+        }
+        if let Some(message) = self.rich_derive_message(format_type, format_name) {
+            return message;
+        }
+        if let Some(message) = self.rich_conversion_message(format_type, format_name) {
+            return message;
+        }
+        if let Some(message) = self.rich_ownership_message(format_type, format_name) {
+            return message;
+        }
+
         match &self.kind {
+            TypeErrorKind::Mismatch { .. }
+            | TypeErrorKind::UnknownIdent { .. }
+            | TypeErrorKind::UnresolvedTrait { .. }
+            | TypeErrorKind::UndefinedField { .. }
+            | TypeErrorKind::UnknownMethod { .. }
+            | TypeErrorKind::ArityMismatch { .. }
+            | TypeErrorKind::MissingCapability { .. }
+            | TypeErrorKind::InfiniteType { .. }
+            | TypeErrorKind::AmbiguousType { .. }
+            | TypeErrorKind::PatternMismatch { .. }
+            | TypeErrorKind::NonExhaustiveMatch { .. }
+            | TypeErrorKind::RigidMismatch { .. }
+            | TypeErrorKind::ImportError { .. }
+            | TypeErrorKind::MissingAssocType { .. }
+            | TypeErrorKind::UnsatisfiedBound { .. }
+            | TypeErrorKind::NotAStruct { .. }
+            | TypeErrorKind::MissingFields { .. }
+            | TypeErrorKind::DuplicateField { .. }
+            | TypeErrorKind::UninhabitedStructField { .. }
+            | TypeErrorKind::UnsupportedOperator { .. }
+            | TypeErrorKind::DuplicateImpl { .. }
+            | TypeErrorKind::OverlappingImpls { .. }
+            | TypeErrorKind::ConflictingDefaults { .. }
+            | TypeErrorKind::AmbiguousMethod { .. }
+            | TypeErrorKind::NotObjectSafe { .. }
+            | TypeErrorKind::NotIndexable { .. }
+            | TypeErrorKind::IndexKeyMismatch { .. }
+            | TypeErrorKind::AmbiguousIndex { .. }
+            | TypeErrorKind::CannotDeriveForSumType { .. }
+            | TypeErrorKind::CannotDeriveWithoutSupertrait { .. }
+            | TypeErrorKind::HashInvariantViolation { .. }
+            | TypeErrorKind::NonHashableMapKey { .. }
+            | TypeErrorKind::FieldMissingTraitInDerive { .. }
+            | TypeErrorKind::TraitNotDerivable { .. }
+            | TypeErrorKind::InvalidFormatSpec { .. }
+            | TypeErrorKind::FormatTypeMismatch { .. }
+            | TypeErrorKind::IntoNotImplemented { .. }
+            | TypeErrorKind::AmbiguousInto { .. }
+            | TypeErrorKind::MissingPrintable { .. }
+            | TypeErrorKind::AssignToImmutable { .. }
+            | TypeErrorKind::IndexAssignNotSupported { .. }
+            | TypeErrorKind::AssignThroughParameter { .. }
+            | TypeErrorKind::UnsupportedFeature { .. }
+            | TypeErrorKind::InvalidReprAttribute { .. }
+            | TypeErrorKind::ConditionalPartialMove { .. }
+            | TypeErrorKind::UseAfterDropEarly { .. }
+            | TypeErrorKind::DropPartialMove { .. }
+            | TypeErrorKind::ValueDropConflict { .. }
+            | TypeErrorKind::PreContractNotBool { .. }
+            | TypeErrorKind::PostContractVoidReturn
+            | TypeErrorKind::PreContractUnknownIdent { .. }
+            | TypeErrorKind::RefutablePattern { .. }
+            | TypeErrorKind::BreakValueInVoidLoop { .. }
+            | TypeErrorKind::ContinueValueInNonCollectingLoop { .. }
+            | TypeErrorKind::OrPatternBindingMismatch { .. } => {
+                unreachable!("type error kind was not handled by its message family")
+            }
+        }
+    }
+
+    fn rich_resolution_message(
+        &self,
+        format_type: &dyn Fn(Idx) -> String,
+        format_name: &dyn Fn(Name) -> String,
+    ) -> Option<String> {
+        use std::fmt::Write;
+        let message = match &self.kind {
             TypeErrorKind::Mismatch {
                 expected,
                 found,
@@ -38,7 +119,7 @@ impl TypeCheckError {
             } => {
                 for problem in problems {
                     if let Some(detail) = problem_message_rich(problem, format_type) {
-                        return format!("type mismatch: {detail}");
+                        return Some(format!("type mismatch: {detail}"));
                     }
                 }
                 format!(
@@ -98,6 +179,17 @@ impl TypeCheckError {
             TypeErrorKind::MissingCapability { required, .. } => {
                 format!("missing required capability `{}`", format_name(*required))
             }
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn rich_inference_message(
+        &self,
+        format_type: &dyn Fn(Idx) -> String,
+        format_name: &dyn Fn(Name) -> String,
+    ) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::InfiniteType { var_name } => {
                 if let Some(name) = var_name {
                     format!(
@@ -183,6 +275,17 @@ impl TypeCheckError {
                     format_name(*struct_name)
                 )
             }
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn rich_trait_message(
+        &self,
+        format_type: &dyn Fn(Idx) -> String,
+        format_name: &dyn Fn(Name) -> String,
+    ) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::UnsupportedOperator { ty, op, trait_name } => {
                 let type_name = format_type(*ty);
                 format!(
@@ -258,6 +361,17 @@ impl TypeCheckError {
                     reasons.join("; ")
                 )
             }
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn rich_derive_message(
+        &self,
+        format_type: &dyn Fn(Idx) -> String,
+        format_name: &dyn Fn(Name) -> String,
+    ) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::NotIndexable { ty } => {
                 format!(
                     "type `{}` does not support indexing; implement `Index` trait",
@@ -334,6 +448,17 @@ impl TypeCheckError {
             TypeErrorKind::TraitNotDerivable { trait_name } => {
                 format!("trait `{}` cannot be derived", format_name(*trait_name))
             }
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn rich_conversion_message(
+        &self,
+        format_type: &dyn Fn(Idx) -> String,
+        format_name: &dyn Fn(Name) -> String,
+    ) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::InvalidFormatSpec { spec, reason } => {
                 format!("invalid format specification `{spec}`: {reason}")
             }
@@ -386,10 +511,7 @@ impl TypeCheckError {
                 )
             }
             TypeErrorKind::AssignThroughParameter { name } => {
-                format!(
-                    "cannot assign through parameter `{}`",
-                    format_name(*name)
-                )
+                format!("cannot assign through parameter `{}`", format_name(*name))
             }
             TypeErrorKind::UnsupportedFeature { feature } => {
                 format!("`{feature}` is not yet supported")
@@ -397,6 +519,17 @@ impl TypeCheckError {
             TypeErrorKind::InvalidReprAttribute { reason, .. } => {
                 format!("invalid `#repr` attribute: {reason}")
             }
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn rich_ownership_message(
+        &self,
+        format_type: &dyn Fn(Idx) -> String,
+        format_name: &dyn Fn(Name) -> String,
+    ) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::ConditionalPartialMove { aggregate, field } => {
                 format!(
                     "conditional partial move of `{}.{}` not statically computable; \
@@ -412,7 +545,11 @@ impl TypeCheckError {
                     format_name(*binding)
                 )
             }
-            TypeErrorKind::DropPartialMove { aggregate, field, type_name } => {
+            TypeErrorKind::DropPartialMove {
+                aggregate,
+                field,
+                type_name,
+            } => {
                 format!(
                     "cannot partially move field `{}.{}` of type `{}` (implements `Drop`); \
                      use full move, field borrow, or match-destructuring instead",
@@ -475,6 +612,8 @@ impl TypeCheckError {
                     ),
                 }
             }
-        }
+            _ => return None,
+        };
+        Some(message)
     }
 }

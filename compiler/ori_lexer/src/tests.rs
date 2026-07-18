@@ -1,4 +1,5 @@
 use super::*;
+use ori_ir::StringInterner;
 
 // LexOutput Tests
 
@@ -122,12 +123,8 @@ fn test_blank_line_with_comment_between() {
 #[test]
 fn test_blank_line_after_comment() {
     let interner = StringInterner::new();
-    // Comment followed by blank line
-    // "a\n// comment\n\nb"
-    // Line 1: a
-    // Line 2: // comment
-    // Line 3: (blank)
-    // Line 4: b
+    // A line comment followed by a blank line must preserve all four logical
+    // lines in `a\n// comment\n\nb`.
     let output = lex_with_comments("a\n// comment\n\nb", &interner);
 
     // There should be a blank line (the line after the comment)

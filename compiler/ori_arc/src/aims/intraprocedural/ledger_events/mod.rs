@@ -1,18 +1,12 @@
 //! Per-class ledger-event classifier over the birth-site partition.
 //!
 //! Classifies every partition-class member use into the per-class event
-//! vocabulary BIRTH / CREDIT / CONSUME / READ / MUTATE. The classification
-//! mirrors the proven ledger calculus: events derive from the committed
-//! RL-2 twelve-kind terminal-use table
-//! (`AimsProof.Realization::rl2_use_transfers_ownership`) and the per-class
-//! derivation (`AimsProof.Ledger::deriveLedger`); call-boundary events
-//! classify through the callee contract (`AimsProof.ContractBoundary`),
-//! never by re-deriving the callee body.
+//! vocabulary BIRTH / CREDIT / CONSUME / READ / MUTATE. RL-2 terminal-use
+//! rules and callee contracts determine events without re-deriving callees.
 //!
-//! Pure analysis: reads the IR, the converged state map, and the populated
-//! partition; emits per-block class-instruction streams plus per-class
-//! origin attribution. Placement is the emitter's job — this module mutates
-//! nothing and emits no burden ops.
+//! This pure analysis emits per-block streams and class origins; placement is
+//! left to the emitter. Diagnostics intentionally share the
+//! `ori_arc::aims::class_ledger` target with the owning planner.
 
 mod dispatch;
 mod types;
@@ -232,13 +226,8 @@ impl Classifier<'_> {
             if self.excluded(param.var) {
                 continue;
             }
-            // An ABSENT param books NO events regardless of its declared
-            // ownership: every call site passes it BORROWED (the
-            // `contract_to_params` convention maps `Cardinality::Absent` to
-            // `Ownership::Borrowed`), so the caller retains and releases —
-            // the callee owes nothing (the borrowed-boundary discipline,
-            // `RL2_borrowed_param_emits_caller_dec`). VF-2
-            // (`AbsentParamHasUses`) guards the no-live-uses premise.
+            // Absent parameters are caller-retained borrowed arguments and book
+            // no callee events; VF-2 guards the no-live-use premise.
             if own_absent.get(position).copied().unwrap_or(false) {
                 tracing::trace!(
                     target: "ori_arc::aims::class_ledger",
@@ -335,13 +324,9 @@ pub(crate) fn classify_function_with_admitted(
         classifier.out.blocks.push(stream);
         classifier.out.sites.push(sites);
     }
-    // An ADMITTED user-drop scalar whose partition class carries NO ledger
-    // event has no booking surface (a scalar-literal alias lineage mints no
-    // birth), so the empty-surface admission counts it excluded-equivalent:
-    // the empty plan correctly emits nothing for it. A NON-admitted live var
-    // with no events stays a decline (a classifier coverage gap). Once
-    // booking exists for the shape, its class carries events and the
-    // forgiveness stops applying.
+    // An admitted user-drop scalar without any ledger event has no booking
+    // surface and is empty-plan equivalent. Other live eventless variables
+    // remain classifier gaps, and any booking ends the exemption.
     let mut evented_reps = rustc_hash::FxHashSet::default();
     let mut consumed_reps = rustc_hash::FxHashSet::default();
     for block_idx in 0..classifier.out.blocks.len() {

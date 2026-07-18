@@ -11,8 +11,20 @@ use super::AimsPipelineConfig;
 /// RC emitter, so setting this leaves the function unreplaced and realization
 /// fails loud rather than synthesizing fallback RC. This is a negative-pin
 /// probe, never a build mode. Read once at first access.
-static BURDEN_OPS_DISABLED: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() == Ok("1"));
+static BURDEN_OPS_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    report_burden_ops_toggle(std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() == Ok("1"))
+});
+
+fn report_burden_ops_toggle(disabled: bool) -> bool {
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_BURDEN_OPS",
+            effect = "decline class-ledger burden-op emission",
+            "ablation toggle fired"
+        );
+    }
+    disabled
+}
 
 /// `ORI_DUMP_AFTER_BURDEN=1` dumps each function's ARC IR to stderr immediately
 /// after Step 4b burden emission, before any realization. Surfaces the
@@ -61,4 +73,17 @@ pub(super) fn dump_after_class_ledger_emission_compat(
         "=== ARC IR after class_ledger_emission (ORI_DUMP_AFTER_BURDEN_ELIM compatibility) ===\n{}",
         crate::ir::format::format_function(func, config.pool, config.interner)
     );
+}
+
+#[cfg(test)]
+mod toggle_tests {
+    #[test]
+    fn burden_ops_toggle_reports_effect() {
+        crate::test_helpers::assert_ablation_env_event(
+            concat!(module_path!(), "::burden_ops_toggle_reports_effect"),
+            "ORI_DISABLE_BURDEN_OPS",
+            "decline class-ledger burden-op emission",
+            || !super::burden_ops_enabled(),
+        );
+    }
 }

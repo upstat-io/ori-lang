@@ -152,7 +152,7 @@ impl LoweredArcBatch {
         validate_family_identities(&self.groups, interner)?;
 
         if !mono_functions.is_empty() {
-            let maps = ori_repr::monomorphize::MonoTargetMaps::build(mono_functions, pool);
+            let maps = ori_repr::monomorphize::MonoTargetMaps::new(mono_functions, pool);
             for group in &mut self.groups {
                 maps.rewrite_function(&mut group.parent, &mut group.lambdas, pool, interner);
             }

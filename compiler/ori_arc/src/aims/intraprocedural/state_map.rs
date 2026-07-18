@@ -296,6 +296,22 @@ pub struct AimsStateMap {
     cross_dimension_detected: bool,
 }
 
+// The optional birth-site partition has an independent diagnostic contract.
+// Report the state map's sparse dimensions and convergence flags directly.
+impl std::fmt::Debug for AimsStateMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AimsStateMap")
+            .field("block_count", &self.block_exit_states.len())
+            .field("invoke_edge_count", &self.invoke_edge_states.len())
+            .field("borrow_source_count", &self.borrow_sources.len())
+            .field("event_block_count", &self.events.len())
+            .field("scalar_count", &self.scalars.len())
+            .field("changed", &self.changed)
+            .field("cross_dimension_detected", &self.cross_dimension_detected)
+            .finish_non_exhaustive()
+    }
+}
+
 impl AimsStateMap {
     /// Create a new state map for the given function.
     ///

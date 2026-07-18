@@ -1,16 +1,11 @@
-//! Type check phase test utilities.
-//!
-//! Provides helpers for testing the type checker.
+//! Type-check phase test utilities.
 
 use ori_ir::StringInterner;
 use ori_lexer::lex;
 use ori_parse::parse;
 use ori_types::{TypeCheckError, TypeCheckResult};
 
-/// Type check source code.
-///
-/// Handles lexing, parsing, and type checking in one step. Returns the
-/// `TypeCheckResult` which contains type information and any errors.
+/// Lex, parse, and type-check source without asserting its disposition.
 ///
 /// # Example
 ///
@@ -81,7 +76,7 @@ pub fn typecheck_err(source: &str, expected_error: &str) {
     let tokens = lex(source, &interner);
     let parsed = parse(&tokens, &interner);
 
-    // Parse errors are acceptable - they might be what we're testing
+    // Why: parser diagnostics may satisfy the expected negative result.
     if parsed.has_errors() {
         let has_expected = parsed
             .errors

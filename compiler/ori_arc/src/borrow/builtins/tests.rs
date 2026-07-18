@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn borrowing_builtin_names_returns_correct_count() {
+fn borrowing_builtin_names_match_registry_and_protocol_ownership() {
     let interner = StringInterner::default();
     let names = borrowing_builtin_names(&interner);
     // The interned set is derived from ori_registry::borrowing_method_names()
@@ -49,7 +49,7 @@ fn consuming_receiver_method_names_no_duplicates() {
 }
 
 #[test]
-fn consuming_receiver_builtin_names_returns_correct_count() {
+fn consuming_receiver_builtin_names_match_declared_sources() {
     let interner = StringInterner::default();
     let names = consuming_receiver_builtin_names(&interner);
     let mut expected = intern_name_set(CONSUMING_RECEIVER_METHOD_NAMES, &interner);
@@ -215,7 +215,7 @@ fn consuming_second_arg_method_names_no_duplicates() {
 }
 
 #[test]
-fn consuming_second_arg_builtin_names_returns_correct_count() {
+fn consuming_second_arg_builtin_names_match_declared_sources() {
     let interner = StringInterner::default();
     let names = consuming_second_arg_builtin_names(&interner);
     let mut expected = intern_name_set(CONSUMING_SECOND_ARG_METHOD_NAMES, &interner);
@@ -271,7 +271,7 @@ fn consuming_receiver_only_method_names_no_duplicates() {
 }
 
 #[test]
-fn consuming_receiver_only_builtin_names_returns_correct_count() {
+fn consuming_receiver_only_builtin_names_match_declared_source() {
     let interner = StringInterner::default();
     let names = consuming_receiver_only_builtin_names(&interner);
     assert_eq!(
@@ -344,14 +344,8 @@ fn set_binary_ops_in_consuming_receiver_only() {
 
 // Registry sync tests — verify hardcoded lists match ori_registry definitions
 
-/// Every method in `CONSUMING_RECEIVER_METHOD_NAMES` must exist as a method on
-/// at least one collection type (List, Map, or Set) in the registry, OR be an
-/// operator trait method dispatched via the operator system.
-///
-/// Catches stale entries: if a method is renamed or removed from the registry
-/// but left in this list, the ARC pipeline would silently produce wrong ownership
-/// annotations (consuming semantics for a non-existent method = no-op, but the
-/// borrowing set would also be wrong).
+/// Every consuming-receiver catalog entry resolves through a collection or
+/// operator method authority.
 #[test]
 fn consuming_receiver_methods_exist_in_registry() {
     use ori_registry::TypeTag;
@@ -374,18 +368,12 @@ fn consuming_receiver_methods_exist_in_registry() {
             found,
             "CONSUMING_RECEIVER_METHOD_NAMES contains \"{method}\" but it does not \
              exist as a method on List, Map, or Set in ori_registry. \
-             Was it renamed or removed?"
+             Remove the stale ownership entry or register the method."
         );
     }
 }
 
-/// Every method in `CONSUMING_RECEIVER_ONLY_METHOD_NAMES` must exist as a method
-/// on Map or Set in the registry.
-///
-/// These are Map/Set COW methods where only the receiver is consumed. If a method
-/// remains in the borrow catalog, the type-qualified authority
-/// would publish an ownership transfer for a method the runtime doesn't
-/// recognize.
+/// Every receiver-only COW catalog entry resolves through Map or Set.
 #[test]
 fn consuming_receiver_only_methods_exist_in_registry() {
     use ori_registry::TypeTag;
@@ -400,17 +388,12 @@ fn consuming_receiver_only_methods_exist_in_registry() {
             found,
             "CONSUMING_RECEIVER_ONLY_METHOD_NAMES contains \"{method}\" but it does not \
              exist as a method on Map or Set in ori_registry. \
-             Was it renamed or removed?"
+             Remove the stale ownership entry or register the method."
         );
     }
 }
 
-/// Every method in `SHARING_METHOD_NAMES` must exist in the registry.
-///
-/// Sharing methods return values that reference the receiver's heap data
-/// (slices, substrings). If a method is renamed or removed from the registry
-/// but remains in the borrow catalog, uniqueness analysis would incorrectly mark it as producing
-/// `MaybeShared` results — benign (conservative) but misleading.
+/// Every sharing-method catalog entry resolves through a collection registry.
 #[test]
 fn sharing_methods_exist_in_registry() {
     use ori_registry::TypeTag;
@@ -424,7 +407,7 @@ fn sharing_methods_exist_in_registry() {
         assert!(
             found,
             "SHARING_METHOD_NAMES contains \"{method}\" but it does not exist \
-             as a method on List or Str in ori_registry. Was it renamed or removed?"
+             as a method on List or Str in ori_registry. Remove the stale entry or register it."
         );
     }
 }

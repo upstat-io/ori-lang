@@ -29,6 +29,7 @@ use shard::InternShard;
 /// # Thread Safety
 /// Uses `RwLock` per shard for concurrent read/write access.
 /// Can be wrapped in Arc for sharing across threads.
+#[derive(Debug)]
 pub struct StringInterner {
     shards: [RwLock<InternShard>; Name::NUM_SHARDS],
     /// Total count of interned strings across all shards (O(1) `len()`).

@@ -69,11 +69,7 @@ pub(crate) fn infer_lambda(
 
     let closure_idx = engine.infer_function(&param_types, body_ty);
 
-    // Register a conservative logical callable identity so the AIMS burden
-    // walk accounts for closure ownership on every execution path. Exact
-    // capture topology is frozen later from realized closure sites; a physical
-    // projection may erase a non-capturing environment only from that proof.
-    // This registration selects no storage, header, or counter mechanism.
+    // INVARIANT: logical closure burdens precede realized capture topology.
     let closure_burden = compose_closure_burden_spec(closure_idx, &[], &[]);
     engine.record_composed_burden(closure_idx, closure_burden);
 

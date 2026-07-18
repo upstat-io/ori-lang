@@ -1,7 +1,7 @@
 //! Phase 7 mechanical lowering: surviving whole-var and field-grain burden
 //! ops to their realized RC instructions.
 //!
-//! Split out of [`super`] to keep both files under the 500-line hygiene cap.
+//! This module owns the final burden-to-RC spelling boundary.
 
 use std::sync::LazyLock;
 
@@ -58,7 +58,7 @@ pub(super) fn lower_burden_ops_to_rc(
 ) {
     let mut fresh_inc_elided: FxHashSet<ArcVarId> = FxHashSet::default();
     let mut elided_sites: Vec<(usize, usize)> = Vec::new();
-    let lower_field_grain = !*FIELD_GRAIN_DEC_LOWERING_DISABLED;
+    let lower_field_grain = !field_grain_dec_lowering_disabled();
     for block_idx in 0..func.blocks.len() {
         let body_len = func.blocks[block_idx].body.len();
         for instr_idx in 0..body_len {
@@ -70,10 +70,8 @@ pub(super) fn lower_burden_ops_to_rc(
             else {
                 continue;
             };
-            // Elide the ONE redundant fresh-site inc: the first `BurdenInc` for
-            // an elidable FRESH self-alloc var (allocation already supplies the
-            // `+1`). Later incs for the var are genuine dup-alias acquires and
-            // lower normally.
+            // Allocation supplies the first fresh-owner credit; later burden
+            // increments are genuine duplicate-alias acquisitions.
             if matches!(
                 func.blocks[block_idx].body[instr_idx],
                 ArcInstr::BurdenInc { .. }
@@ -91,11 +89,8 @@ pub(super) fn lower_burden_ops_to_rc(
             };
             let ty = func.var_type(var);
             let has_user_drop = type_has_user_drop(ty, type_registry);
-            // Why: a Scalar carries no logical ownership-count obligation — skip it
-            // (no RC op) UNLESS
-            // its type has a user `@drop`, which falls through to the `UserDrop`
-            // strategy in the match that follows (the `@drop` call alone).
-            // Spec: Annex E §AIMS RL-DROP.
+            // Scalars have no count obligation unless RL-DROP requires their
+            // user drop strategy.
             if matches!(repr, crate::ir::ValueRepr::Scalar) && !has_user_drop {
                 continue;
             }
@@ -127,7 +122,7 @@ pub(super) fn lower_burden_ops_to_rc(
             func.blocks[block_idx].body[instr_idx] = lowered;
         }
     }
-    if !*ELIDED_FRESH_INC_REMOVAL_DISABLED {
+    if !elided_fresh_inc_removal_disabled() {
         remove_elided_fresh_inc_sites(func, &elided_sites);
     }
 }
@@ -136,8 +131,26 @@ pub(super) fn lower_burden_ops_to_rc(
 /// `BurdenInc` as a codegen-no-op marker instead of removing it. Bisection
 /// surface: isolates a behavior change to the marker removal vs the elision
 /// verdict. Default (unset): elided incs are removed.
-static ELIDED_FRESH_INC_REMOVAL_DISABLED: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL").as_deref() == Ok("1"));
+static ELIDED_FRESH_INC_REMOVAL_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    report_elided_fresh_inc_removal_toggle(
+        std::env::var("ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL").as_deref() == Ok("1"),
+    )
+});
+
+fn report_elided_fresh_inc_removal_toggle(disabled: bool) -> bool {
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL",
+            effect = "retain elided fresh-site BurdenInc markers",
+            "ablation toggle fired"
+        );
+    }
+    disabled
+}
+
+fn elided_fresh_inc_removal_disabled() -> bool {
+    *ELIDED_FRESH_INC_REMOVAL_DISABLED
+}
 
 /// `ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING=1` keeps `BurdenDecPartial` /
 /// `BurdenDecField` / `BurdenDecVariant` in burden spelling through Phase 7
@@ -145,8 +158,26 @@ static ELIDED_FRESH_INC_REMOVAL_DISABLED: LazyLock<bool> =
 /// surface: isolates a gated-verification change to the field-grain
 /// re-spelling vs the rest of the lowering. Default (unset): field-grain decs
 /// lower to `RcDecPartial` / `RcDecField` / `RcDecVariant`.
-static FIELD_GRAIN_DEC_LOWERING_DISABLED: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING").as_deref() == Ok("1"));
+static FIELD_GRAIN_DEC_LOWERING_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    report_field_grain_dec_lowering_toggle(
+        std::env::var("ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING").as_deref() == Ok("1"),
+    )
+});
+
+fn report_field_grain_dec_lowering_toggle(disabled: bool) -> bool {
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING",
+            effect = "retain field-grain decrements in burden spelling",
+            "ablation toggle fired"
+        );
+    }
+    disabled
+}
+
+fn field_grain_dec_lowering_disabled() -> bool {
+    *FIELD_GRAIN_DEC_LOWERING_DISABLED
+}
 
 /// RE-2 backstop for the field-grain re-spelling: a field-grain dec on a
 /// provably-Scalar (or repr-unpopulated) subject is an upstream admission
@@ -214,5 +245,34 @@ fn remove_elided_fresh_inc_sites(func: &mut ArcFunction, sites: &[(usize, usize)
             idx += 1;
             keep
         });
+    }
+}
+
+#[cfg(test)]
+mod toggle_tests {
+    #[test]
+    fn elided_fresh_inc_removal_toggle_reports_effect() {
+        crate::test_helpers::assert_ablation_env_event(
+            concat!(
+                module_path!(),
+                "::elided_fresh_inc_removal_toggle_reports_effect"
+            ),
+            "ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL",
+            "retain elided fresh-site BurdenInc markers",
+            super::elided_fresh_inc_removal_disabled,
+        );
+    }
+
+    #[test]
+    fn field_grain_dec_lowering_toggle_reports_effect() {
+        crate::test_helpers::assert_ablation_env_event(
+            concat!(
+                module_path!(),
+                "::field_grain_dec_lowering_toggle_reports_effect"
+            ),
+            "ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING",
+            "retain field-grain decrements in burden spelling",
+            super::field_grain_dec_lowering_disabled,
+        );
     }
 }

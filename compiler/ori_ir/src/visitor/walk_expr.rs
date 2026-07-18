@@ -19,16 +19,76 @@ fn walk_access_steps<'ast, V: Visitor<'ast> + ?Sized>(
 }
 
 /// Walk an expression's children.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive ExprKind child-walking dispatch"
-)]
 pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
     visitor: &mut V,
     expr: &Expr,
     arena: &'ast ExprArena,
 ) {
     match &expr.kind {
+        kind @ (ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::String(_)
+        | ExprKind::Char(_)
+        | ExprKind::Duration { .. }
+        | ExprKind::Size { .. }
+        | ExprKind::Unit
+        | ExprKind::Ident(_)
+        | ExprKind::Const(_)
+        | ExprKind::SelfRef
+        | ExprKind::FunctionRef(_)
+        | ExprKind::HashLength
+        | ExprKind::None
+        | ExprKind::TemplateFull(_)
+        | ExprKind::Error
+        | ExprKind::Unary { .. }
+        | ExprKind::Try(_)
+        | ExprKind::Await(_)
+        | ExprKind::Some(_)
+        | ExprKind::Unsafe(_)
+        | ExprKind::Cast { .. }
+        | ExprKind::Loop { .. }
+        | ExprKind::While { .. }
+        | ExprKind::Break { .. }
+        | ExprKind::Continue { .. }
+        | ExprKind::Ok(_)
+        | ExprKind::Err(_)
+        | ExprKind::Binary { .. }
+        | ExprKind::Index { .. }
+        | ExprKind::Assign { .. }
+        | ExprKind::AssignTarget { .. }
+        | ExprKind::Field { .. }) => walk_simple_expr(visitor, kind, arena),
+        kind @ (ExprKind::Call { .. }
+        | ExprKind::CallNamed { .. }
+        | ExprKind::MethodCall { .. }
+        | ExprKind::MethodCallNamed { .. }
+        | ExprKind::If { .. }
+        | ExprKind::Match { .. }
+        | ExprKind::For { .. }
+        | ExprKind::Block { .. }
+        | ExprKind::Let { .. }
+        | ExprKind::Lambda { .. }) => walk_flow_expr(visitor, kind, arena),
+        kind @ (ExprKind::List(_)
+        | ExprKind::Tuple(_)
+        | ExprKind::Map(_)
+        | ExprKind::Struct { .. }
+        | ExprKind::StructWithSpread { .. }
+        | ExprKind::ListWithSpread(_)
+        | ExprKind::MapWithSpread(_)
+        | ExprKind::Range { .. }
+        | ExprKind::WithCapability { .. }
+        | ExprKind::FunctionSeq(_)
+        | ExprKind::FunctionExp(_)
+        | ExprKind::TemplateLiteral { .. }) => walk_aggregate_expr(visitor, kind, arena),
+    }
+}
+
+fn walk_simple_expr<'ast, V: Visitor<'ast> + ?Sized>(
+    visitor: &mut V,
+    kind: &ExprKind,
+    arena: &'ast ExprArena,
+) {
+    match kind {
         // Literals - no children
         ExprKind::Int(_)
         | ExprKind::Float(_)
@@ -101,7 +161,16 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
             visitor.visit_expr_id(*receiver, arena);
         }
 
-        // Calls
+        _ => unreachable!("simple expression classifier is exhaustive"),
+    }
+}
+
+fn walk_flow_expr<'ast, V: Visitor<'ast> + ?Sized>(
+    visitor: &mut V,
+    kind: &ExprKind,
+    arena: &'ast ExprArena,
+) {
+    match kind {
         ExprKind::Call { func, args } => {
             visitor.visit_expr_id(*func, arena);
             for arg_id in arena.get_expr_list(*args).iter().copied() {
@@ -176,7 +245,16 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
             visitor.visit_expr_id(*body, arena);
         }
 
-        // Collections
+        _ => unreachable!("flow expression classifier is exhaustive"),
+    }
+}
+
+fn walk_aggregate_expr<'ast, V: Visitor<'ast> + ?Sized>(
+    visitor: &mut V,
+    kind: &ExprKind,
+    arena: &'ast ExprArena,
+) {
+    match kind {
         ExprKind::List(items) | ExprKind::Tuple(items) => {
             for item_id in arena.get_expr_list(*items).iter().copied() {
                 visitor.visit_expr_id(item_id, arena);
@@ -246,5 +324,6 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
                 visitor.visit_expr_id(part.expr, arena);
             }
         }
+        _ => unreachable!("aggregate expression classifier is exhaustive"),
     }
 }

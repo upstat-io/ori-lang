@@ -48,3 +48,26 @@ fn ancestor_at_binding_suppresses_descendant_wildcard_cleanup() {
     assert_eq!(compiled.leaf_discard_paths.len(), 1);
     assert!(compiled.leaf_discard_paths[0].is_empty());
 }
+
+#[test]
+#[should_panic(expected = "column count mismatch at row 0")]
+fn compile_rejects_matrix_path_misalignment() {
+    let _ = compile(vec![row(FlatPattern::Wildcard)], Vec::new());
+}
+
+#[test]
+#[should_panic(expected = "column count mismatch at row 1")]
+fn compile_later_row_path_misalignment_panics() {
+    let later_row = PatternRow {
+        patterns: Vec::new(),
+        arm_index: 1,
+        guard: None,
+        bindings: Vec::new(),
+        discard_paths: Vec::new(),
+    };
+
+    let _ = compile(
+        vec![row(FlatPattern::Wildcard), later_row],
+        vec![Vec::new()],
+    );
+}

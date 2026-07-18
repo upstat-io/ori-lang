@@ -1,6 +1,3 @@
-// Golden test: Concurrent task orchestration
-// Spec: 10-patterns.md § parallel, spawn, timeout
-// Design: tooling/formatter/design/appendices/A-edge-cases.md
 use std.testing { assert_eq }
 
 type TaskResult = Success(value: int) | Failure(reason: str) | Timeout;

@@ -135,6 +135,17 @@ pub(crate) struct HazardCureInputs<'a> {
     full_move_arms: &'a [events::FullMoveArm],
 }
 
+// CFG regions and full-move carriers own separate diagnostic surfaces. Keep
+// them opaque while exposing the cure input's structural dimensions.
+impl std::fmt::Debug for HazardCureInputs<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HazardCureInputs")
+            .field("predecessor_blocks", &self.preds.len())
+            .field("full_move_arm_count", &self.full_move_arms.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'a> HazardCureInputs<'a> {
     pub(crate) fn new(
         func: &'a ArcFunction,
@@ -163,6 +174,18 @@ pub(crate) struct HazardCureState<'a> {
     classes: &'a mut [ClassPlan],
     verdicts: &'a mut [(NodeIdx, ClassVerdict)],
     declined: &'a mut Vec<(NodeIdx, emit::DeclineReason)>,
+}
+
+// The mutable birth-site partition has its own diagnostic owner. Report the
+// cure accumulators without requiring that owner to expose its internals.
+impl std::fmt::Debug for HazardCureState<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HazardCureState")
+            .field("class_count", &self.classes.len())
+            .field("verdict_count", &self.verdicts.len())
+            .field("declined_count", &self.declined.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> HazardCureState<'a> {

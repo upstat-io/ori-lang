@@ -8,6 +8,7 @@
 
 use ori_types::Idx;
 
+use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::value_id::ValueId;
 
 use super::super::super::ArcIrEmitter;
@@ -63,9 +64,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let tags_eq = self.builder.icmp_eq(lhs_tag, rhs_tag, "tags_eq");
 
         // Tags differ: reversed order (None(1) < Some(0) semantically).
-        let tag_cmp = self
-            .builder
-            .emit_icmp_ordering(rhs_tag, lhs_tag, "tag_cmp", false);
+        let tag_cmp = self.builder.emit_icmp_ordering(
+            rhs_tag,
+            lhs_tag,
+            "tag_cmp",
+            IntegerSignedness::Unsigned,
+        );
 
         // Tags equal: None+None → Equal, Some+Some → compare payloads.
         let lhs_val = self.builder.extract_value(lhs, 1, "opt.lhs.val")?;

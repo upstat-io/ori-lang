@@ -1,20 +1,9 @@
-//! Map operations for AOT-compiled Ori programs.
+//! C ABI hash-map runtime for AOT-compiled programs.
 //!
-//! Ori maps use a hash table with open addressing and linear probing.
-//! Buffer layout: `[metadata | keys | values]` where metadata is 1 byte
-//! per bucket (EMPTY/OCCUPIED/TOMBSTONE), keys and values are indexed by
-//! bucket number. Single RC header enables one uniqueness check for COW.
-//!
-//! All key lookups use `key_hash` + `key_eq` callbacks for type-agnostic
-//! hashing and comparison. The codegen generates type-specific thunks.
-//!
-//! # Submodules
-//!
-//! - `cow` — COW mutation functions (`ori_map_insert_cow`, etc.) with consuming
-//!   semantics: fast path mutates in place when RC==1, slow path copies.
-//! - `cow_updated` — `ori_map_updated_cow` (`IndexSet.updated`): insert-or-replace
-//!   with consuming (moved) value semantics.
-//! - `hash_table` — Core hash table logic (layout, probing, rehashing).
+//! Open addressing uses `[metadata | keys | values]` buffers with one metadata
+//! byte per bucket and a shared RC header for COW uniqueness. Type-specific
+//! hash and equality thunks drive lookup. Consuming mutations update unique
+//! buffers in place and copy shared buffers before insertion or replacement.
 
 pub mod cow;
 pub mod cow_updated;
@@ -36,6 +25,7 @@ pub(crate) use hash_table::{
 /// `cap` = number of buckets (power-of-two). `len` = number of entries.
 /// Single RC header enables one uniqueness check for COW.
 #[repr(C)]
+#[derive(Debug)]
 pub struct OriMap {
     pub len: i64,
     pub cap: i64,

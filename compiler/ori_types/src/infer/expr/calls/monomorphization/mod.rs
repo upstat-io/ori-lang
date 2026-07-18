@@ -81,7 +81,6 @@ pub(super) fn maybe_record_mono_instance(
         let name_str = engine.lookup_name(fn_name).map(str::to_string);
         let pool = engine.pool();
         tracing::debug!(
-            target: "ori_types::mono",
             name = ?name_str,
             sig_params = ?param_types.iter().map(|&p| (pool.tag(p), pool.flags(p))).collect::<Vec<_>>(),
             actual_args = ?resolved_args.iter().map(|&p| (pool.tag(p), pool.flags(p))).collect::<Vec<_>>(),
@@ -103,7 +102,6 @@ pub(super) fn maybe_record_mono_instance(
     );
 
     tracing::debug!(
-        target: "ori_types::mono",
         ?fn_name,
         var_subst_len = var_subst.len(),
         scheme_len = scheme_var_ids.len(),

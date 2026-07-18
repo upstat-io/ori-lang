@@ -1,7 +1,6 @@
 //! Type instantiation and substitution.
 //!
-//! Handles instantiation of type schemes (replacing generalized variables
-//! with fresh unbound variables) and general type variable substitution.
+//! Instantiates schemes with fresh variables and substitutes type variables.
 
 use rustc_hash::FxHashMap;
 
@@ -10,12 +9,8 @@ use crate::{Idx, Tag};
 use super::UnifyEngine;
 
 impl UnifyEngine<'_> {
-    /// Instantiate a type scheme with fresh variables.
-    ///
-    /// For each quantified variable in the scheme, creates a fresh unbound
-    /// variable at the current rank, then substitutes throughout the body.
-    ///
-    /// Returns the type unchanged if it's not a scheme.
+    /// Replace each quantified variable with a fresh variable at the current rank.
+    /// Returns non-scheme types unchanged.
     ///
     /// # Example
     ///
@@ -49,7 +44,6 @@ impl UnifyEngine<'_> {
             return (body, FxHashMap::default());
         }
 
-        // Create fresh variables for each quantified variable
         let mut subst: FxHashMap<u32, Idx> = FxHashMap::default();
         for var_id in vars {
             let fresh = self.fresh_var();

@@ -1,17 +1,10 @@
-//! `IterState::next_back()` dispatch and per-variant backward advancement.
+//! Backward advancement for double-ended iterator states.
 //!
-//! Mirrors `next.rs` for the double-ended protocol. Only the double-ended
-//! variants (`List`, `Range`, `Reversed`, `Str`) and adapters whose source is
-//! double-ended (`Mapped`, `Filtered`) advance from the back; every other
-//! variant returns `false` (the type checker restricts `next_back` to
-//! `DoubleEndedIterator`, so the non-double-ended arms are never reached for a
-//! well-typed program).
-//!
-//! Each variant pops the high end of its window: the source variants shrink the
-//! back boundary (`len` for `List`/`Str`, `end` for `Range`); the eager
-//! `Reversed` adapter advances `front` over `[front, pos)`. The popped element is
-//! copied out without an inc; its ownership is decided by the surrounding ARC IR.
-//! Each `next_back_*` doc states its per-variant `Drop` interaction.
+//! `List`, `Range`, and `Str` shrink their back boundary; `Reversed` advances
+//! its front boundary. `Mapped` and `Filtered` delegate to double-ended
+//! sources. Other variants return `false` because type checking excludes them.
+//! Copy-out does not retain the yielded bytes; iterator state keeps ownership
+//! until its normal drop path runs.
 
 use std::ptr;
 
@@ -27,7 +20,7 @@ impl IterState {
     ///
     /// `out_ptr` must be writable for the variant's output layout and must not
     /// overlap any source allocation. `elem_size` must match that layout.
-    // SAFETY: The caller supplies the disjoint output region, while each double-ended variant preserves its source allocation and window invariants.
+    // SAFETY: The caller supplies the output region; each variant preserves its live window.
     pub(crate) unsafe fn next_back(&mut self, out_ptr: *mut u8, _elem_size: i64) -> bool {
         match self {
             Self::List {
@@ -69,8 +62,6 @@ impl IterState {
                 byte_offset,
                 ..
             } => Self::next_back_str(*data, len, *byte_offset, out_ptr),
-            // Non-double-ended variants — the type checker forbids next_back on
-            // these, so a well-typed program never reaches this arm.
             _ => false,
         }
     }
@@ -81,7 +72,7 @@ impl IterState {
     /// front boundary) is untouched, so forward and backward iteration share
     /// one contiguous window. The owned buffer is unchanged; `Drop` releases
     /// `[0, len)` per the V5 header.
-    // SAFETY: `data` owns `len * es` initialized bytes, `[pos, len)` is the live window, and `out_ptr` is disjoint and writable for `es` bytes.
+    // SAFETY: `data` owns the live `[pos, len)` window; the output is disjoint and writable.
     unsafe fn next_back_list(
         data: *mut u8,
         len: &mut i64,
@@ -103,7 +94,7 @@ impl IterState {
     /// Mirrors `IteratorValue::next_back` (`ori_patterns`): compute the count of
     /// remaining values, derive the last aligned value, set the bound exclusive
     /// at that value so the next backward step yields its predecessor.
-    // SAFETY: `out_ptr` is a disjoint writable `i64` slot, and the range state stores live aligned scalar bounds copied before mutation.
+    // SAFETY: The range bounds are live scalars; `out_ptr` is a disjoint writable `i64`.
     unsafe fn next_back_range(
         current: i64,
         end: &mut i64,
@@ -111,8 +102,7 @@ impl IterState {
         inclusive: &mut bool,
         out_ptr: *mut u8,
     ) -> bool {
-        // Unbounded descending ranges are not double-ended — the type checker
-        // forbids next_back on them. Guard defensively.
+        // Why: An unbounded descending range has no final value to yield.
         if step == 0 || (*end == i64::MAX && step < 0) {
             return false;
         }
@@ -120,8 +110,7 @@ impl IterState {
         if n == 0 {
             return false;
         }
-        // last = current + (n - 1) * step. n derives from i64 arithmetic so the
-        // product stays in range for any reachable sequence.
+        // INVARIANT: `n` counts reachable values, so the last aligned value remains in range.
         let last = current + (n - 1) * step;
         *end = last;
         *inclusive = false;
@@ -133,8 +122,7 @@ impl IterState {
         true
     }
 
-    /// Mapped: pull `next_back` from the source, apply the transform.
-    // SAFETY: `in_size` fits `ElemBuf`, `out_ptr` matches the mapped output layout, and the source plus trampoline environments remain live for this call.
+    // SAFETY: `in_size` fits `ElemBuf`; the source, trampoline, and output layouts remain live.
     unsafe fn next_back_mapped(
         source: &mut IterState,
         transform_fn: TransformFn,
@@ -151,8 +139,7 @@ impl IterState {
         true
     }
 
-    /// Filtered: pull `next_back` from the source until the predicate passes.
-    // SAFETY: `out_ptr` is writable for `es` bytes, and the live source and predicate environment remain valid until the yielded value is accepted or released.
+    // SAFETY: The source and predicate remain live; `out_ptr` is writable for `es` bytes.
     unsafe fn next_back_filtered(
         source: &mut IterState,
         predicate_fn: PredicateFn,
@@ -172,12 +159,9 @@ impl IterState {
         }
     }
 
-    /// Reversed: pop the low end of the `[front, pos)` window, yielding the
-    /// pre-collected `elements` in source order (the back of the reversed
-    /// sequence). Mirrors `next_reversed` (which pops the high end). Copies the
-    /// master out without an inc and advances `front`; `Drop` still decs every
-    /// stored master, so the copy-out semantics match the forward direction.
-    // SAFETY: `[front, pos)` indexes whole elements inside `elements`, and `out_ptr` is disjoint and writable for one `elem_size` element.
+    /// Pop the low end of `[front, pos)` without retaining the copied owner.
+    /// `Drop` remains responsible for every stored master.
+    // SAFETY: `[front, pos)` indexes whole elements; `out_ptr` is disjoint and writable.
     unsafe fn next_back_reversed(
         elements: &[u8],
         front: &mut i64,
@@ -195,8 +179,7 @@ impl IterState {
         true
     }
 
-    /// Str: pop the last UTF-8 codepoint, shrinking the byte window.
-    // SAFETY: `data` points to `len` live string bytes, `byte_offset` bounds the active window, and `out_ptr` is a disjoint writable `i32` slot.
+    // SAFETY: `data` contains the active byte window; `out_ptr` is a disjoint `i32` slot.
     unsafe fn next_back_str(
         data: *mut u8,
         len: &mut i64,
@@ -206,8 +189,7 @@ impl IterState {
         if data.is_null() || byte_offset >= *len {
             return false;
         }
-        // Walk back over UTF-8 continuation bytes (0b10xxxxxx) to find the start
-        // of the final codepoint in `[byte_offset, len)`.
+        // INVARIANT: A codepoint starts at the first non-continuation byte found in reverse.
         let mut start = *len - 1;
         while start > byte_offset {
             let b = *data.add(start as usize);
@@ -231,8 +213,7 @@ impl IterState {
     }
 }
 
-/// Count of values a range `[current, end)` (or `[current, end]` when
-/// `inclusive`) yields under `step`. Mirrors `ori_patterns::range_len`.
+/// Count values yielded by `[current, end)` or `[current, end]` under `step`.
 fn range_len(current: i64, end: i64, step: i64, inclusive: bool) -> i64 {
     if step == 0 {
         return 0;

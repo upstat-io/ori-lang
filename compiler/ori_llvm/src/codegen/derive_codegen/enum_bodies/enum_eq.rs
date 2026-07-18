@@ -82,10 +82,6 @@ pub(super) fn emit_enum_all_true<'a>(
 }
 
 /// Emit per-variant payload comparison for Eq via switch on tag.
-#[expect(
-    clippy::too_many_lines,
-    reason = "enum Eq emits per-variant switch with field comparisons"
-)]
 fn emit_enum_payload_eq<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     setup: &DeriveSetup,
@@ -112,22 +108,9 @@ fn emit_enum_payload_eq<'a>(
             })
         });
 
-    // Build switch cases — one block per variant.
-    // Use const_int_matching to match the narrowed tag type.
-    let mut cases = Vec::with_capacity(variants.len());
-    let mut variant_bbs = Vec::with_capacity(variants.len());
-    for (tag_idx, variant) in variants.iter().enumerate() {
-        let variant_name = fc.lookup_name(variant.name).to_owned();
-        let bb = fc
-            .builder_mut()
-            .append_block(func_id, &format!("eq.v.{variant_name}"));
+    let (cases, variant_bbs) = build_enum_eq_cases(fc, variants, tag_self, func_id);
 
-        let tag_val = fc
-            .builder_mut()
-            .const_int_matching(tag_self, tag_idx as u64);
-        cases.push((tag_val, bb));
-        variant_bbs.push(bb);
-    }
+    fc.builder_mut().switch(tag_self, false_bb, &cases);
 
     if all_single_slot {
         // Fast path: extractvalue chains — no alloca+store+GEP.
@@ -140,8 +123,6 @@ fn emit_enum_payload_eq<'a>(
             .builder_mut()
             .extract_value(other_val, 1, "eq.other.payload")
             .expect("other should be struct");
-
-        fc.builder_mut().switch(tag_self, false_bb, &cases);
 
         for (tag_idx, variant) in variants.iter().enumerate() {
             fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
@@ -206,77 +187,115 @@ fn emit_enum_payload_eq<'a>(
             }
         }
     } else {
-        // Slow path: alloca+store+GEP for multi-word fields.
-        let enum_llvm_ty = fc.resolve_type(setup.type_idx);
-        let enum_ty_id = fc.builder_mut().register_type(enum_llvm_ty);
-        let self_alloca = fc.entry_alloca(enum_ty_id, "eq.self");
-        let other_alloca = fc.entry_alloca(enum_ty_id, "eq.other");
-        fc.builder_mut().store(self_val, self_alloca);
-        fc.builder_mut().store(other_val, other_alloca);
+        emit_multiword_payload_eq(
+            fc,
+            setup,
+            variants,
+            field_op,
+            &variant_bbs,
+            true_bb,
+            false_bb,
+        );
+    }
+}
 
-        let self_payload =
-            fc.builder_mut()
-                .struct_gep(enum_ty_id, self_alloca, 1, "eq.self.payload");
+fn build_enum_eq_cases<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    variants: &[VariantDef],
+    tag: ValueId,
+    function: crate::codegen::value_id::FunctionId,
+) -> (Vec<(ValueId, BlockId)>, Vec<BlockId>) {
+    let mut cases = Vec::with_capacity(variants.len());
+    let mut blocks = Vec::with_capacity(variants.len());
+    for (tag_index, variant) in variants.iter().enumerate() {
+        let variant_name = fc.lookup_name(variant.name).to_owned();
+        let block = fc
+            .builder_mut()
+            .append_block(function, &format!("eq.v.{variant_name}"));
+        let tag_value = fc.builder_mut().const_int_matching(tag, tag_index as u64);
+        cases.push((tag_value, block));
+        blocks.push(block);
+    }
+    (cases, blocks)
+}
 
-        let other_payload =
-            fc.builder_mut()
-                .struct_gep(enum_ty_id, other_alloca, 1, "eq.other.payload");
+/// Compare enum payloads containing fields wider than one LLVM slot.
+fn emit_multiword_payload_eq<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    setup: &DeriveSetup,
+    variants: &[VariantDef],
+    field_op: FieldOp,
+    variant_bbs: &[BlockId],
+    true_bb: BlockId,
+    false_bb: BlockId,
+) {
+    let self_val = setup.self_val.expect("Eq has self");
+    let other_val = setup.other_val.expect("Eq has other");
+    let str_ty_id = setup.str_ty_id.expect("Eq needs str_ty_id");
+    let enum_llvm_ty = fc.resolve_type(setup.type_idx);
+    let enum_ty_id = fc.builder_mut().register_type(enum_llvm_ty);
+    let self_alloca = fc.entry_alloca(enum_ty_id, "eq.self");
+    let other_alloca = fc.entry_alloca(enum_ty_id, "eq.other");
+    fc.builder_mut().store(self_val, self_alloca);
+    fc.builder_mut().store(other_val, other_alloca);
 
-        fc.builder_mut().switch(tag_self, false_bb, &cases);
+    let self_payload = fc
+        .builder_mut()
+        .struct_gep(enum_ty_id, self_alloca, 1, "eq.self.payload");
+    let other_payload =
+        fc.builder_mut()
+            .struct_gep(enum_ty_id, other_alloca, 1, "eq.other.payload");
 
-        let i64_ty = fc.builder_mut().i64_type();
-        for (tag_idx, variant) in variants.iter().enumerate() {
-            fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
-            // filter zero-sized fields to match LLVM layout.
-            let field_types = variant_non_void_field_types(&variant.fields, fc.pool());
-            if field_types.is_empty() {
-                fc.builder_mut().br(true_bb);
-                continue;
-            }
+    let i64_ty = fc.builder_mut().i64_type();
+    for (tag_idx, variant) in variants.iter().enumerate() {
+        fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
+        let field_types = variant_non_void_field_types(&variant.fields, fc.pool());
+        if field_types.is_empty() {
+            fc.builder_mut().br(true_bb);
+            continue;
+        }
 
-            let comparison_order = scalar_first_payload_fields(fc, &field_types);
-            for (comparison_index, (field_index, field_type, i64_offset)) in
-                comparison_order.into_iter().enumerate()
-            {
-                let (self_field, _) = super::load_payload_slot_field(
-                    fc,
-                    i64_ty,
-                    self_payload,
-                    i64_offset,
-                    field_type,
-                    &format!("eq.v{tag_idx}.self.f{field_index}"),
-                    &format!("eq.v{tag_idx}.self.f{field_index}.val"),
+        let comparison_order = scalar_first_payload_fields(fc, &field_types);
+        for (comparison_index, (field_index, field_type, i64_offset)) in
+            comparison_order.into_iter().enumerate()
+        {
+            let (self_field, _) = super::load_payload_slot_field(
+                fc,
+                i64_ty,
+                self_payload,
+                i64_offset,
+                field_type,
+                &format!("eq.v{tag_idx}.self.f{field_index}"),
+                &format!("eq.v{tag_idx}.self.f{field_index}.val"),
+            );
+            let (other_field, _) = super::load_payload_slot_field(
+                fc,
+                i64_ty,
+                other_payload,
+                i64_offset,
+                field_type,
+                &format!("eq.v{tag_idx}.other.f{field_index}"),
+                &format!("eq.v{tag_idx}.other.f{field_index}.val"),
+            );
+            let comparison = emit_field_operation(
+                fc,
+                field_op,
+                self_field,
+                Some(other_field),
+                field_type,
+                &format!("eq.v{tag_idx}.f{field_index}"),
+                str_ty_id,
+            );
+
+            if comparison_index + 1 < field_types.len() {
+                let next_bb = fc.builder_mut().append_block(
+                    setup.func_id,
+                    &format!("eq.v{tag_idx}.f{}", comparison_index + 1),
                 );
-
-                let (other_field, _) = super::load_payload_slot_field(
-                    fc,
-                    i64_ty,
-                    other_payload,
-                    i64_offset,
-                    field_type,
-                    &format!("eq.v{tag_idx}.other.f{field_index}"),
-                    &format!("eq.v{tag_idx}.other.f{field_index}.val"),
-                );
-
-                let cmp = emit_field_operation(
-                    fc,
-                    field_op,
-                    self_field,
-                    Some(other_field),
-                    field_type,
-                    &format!("eq.v{tag_idx}.f{field_index}"),
-                    str_ty_id,
-                );
-
-                if comparison_index + 1 < field_types.len() {
-                    let next_bb = fc
-                        .builder_mut()
-                        .append_block(func_id, &format!("eq.v{tag_idx}.f{}", comparison_index + 1));
-                    fc.builder_mut().cond_br(cmp, next_bb, false_bb);
-                    fc.builder_mut().position_at_end(next_bb);
-                } else {
-                    fc.builder_mut().cond_br(cmp, true_bb, false_bb);
-                }
+                fc.builder_mut().cond_br(comparison, next_bb, false_bb);
+                fc.builder_mut().position_at_end(next_bb);
+            } else {
+                fc.builder_mut().cond_br(comparison, true_bb, false_bb);
             }
         }
     }

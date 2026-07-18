@@ -14,8 +14,26 @@ use super::{
 /// path). Bisection surface: isolates a panic-path leak / double-free to the
 /// panic-message ownership transfer vs the rest of the contract seeding.
 /// Spec: Annex E §AIMS RL-2 (ownership-transferring terminal use).
-static PANIC_MSG_TRANSFER_DISABLED: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_DISABLE_PANIC_MSG_TRANSFER").as_deref() == Ok("1"));
+static PANIC_MSG_TRANSFER_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    report_panic_msg_transfer_toggle(
+        std::env::var("ORI_DISABLE_PANIC_MSG_TRANSFER").as_deref() == Ok("1"),
+    )
+});
+
+fn report_panic_msg_transfer_toggle(disabled: bool) -> bool {
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_PANIC_MSG_TRANSFER",
+            effect = "seed ori_panic with the conservative borrowed-parameter contract",
+            "ablation toggle fired"
+        );
+    }
+    disabled
+}
+
+fn panic_msg_transfer_disabled() -> bool {
+    *PANIC_MSG_TRANSFER_DISABLED
+}
 
 /// Seed contracts for internal `ori_*` runtime functions used by ARC IR lowering.
 ///
@@ -41,16 +59,10 @@ pub(super) fn seed_internal_runtime_contracts(
         is_fbip: false,
     });
 
-    // ori_panic(msg: Owned) — RL-2 ownership TRANSFER. The panic machinery
-    // copies the message into thread-local state before unwinding and the
-    // runtime releases the original (slice/SSO/immortal-aware) — the caller
-    // emits NO release on any panic path (no unwind-edge cleanup can reach
-    // the message in frames between the panic site and the catch). Passing a
-    // still-live message dup-incs per RL-1, keeping caller-side references
-    // valid across a caught panic. Effects stay CONSERVATIVE so the seeded
-    // contract narrows ONLY param ownership vs the no-contract default
-    // (`may_throw` MUST stay true — ori_panic always unwinds).
-    if !*PANIC_MSG_TRANSFER_DISABLED {
+    // RL-2 transfers panic-message ownership to the runtime before unwind;
+    // conservative effects preserve `may_throw`, while RL-1 duplicates a
+    // still-live caller reference.
+    if !panic_msg_transfer_disabled() {
         let ori_panic = interner.intern("ori_panic");
         sigs.entry(ori_panic).or_insert_with(|| MemoryContract {
             params: vec![PARAM_OWNED_LINEAR],
@@ -62,15 +74,9 @@ pub(super) fn seed_internal_runtime_contracts(
         });
     }
 
-    // __ori_inject_trace(err: Owned) — the compiler-injected `?`-hop trace
-    // operation. It is a closed logical runtime-call identity; each physical
-    // adapter must realize it without changing this contract. RL-34
-    // forwarder-identity: the receiver Error is consumed and transfers through
-    // the by-value return (returns the receiver type directly), so the caller
-    // emits NO dec on the arg and exactly one release on the result. The
-    // EffectSummary sets may_allocate + may_deallocate because trace extension
-    // may replace owned trace storage; a default summary would under-approximate.
-    // Spec: Annex E §AIMS RL-2 (ApplyToOwnedParam transfer) + RL-34.
+    // RL-34 treats injected trace extension as an owned identity forwarder:
+    // the argument transfers to the result, while storage replacement permits
+    // both allocation and deallocation.
     let ori_inject_trace = interner.intern("__ori_inject_trace");
     sigs.entry(ori_inject_trace)
         .or_insert_with(|| MemoryContract {
@@ -90,13 +96,8 @@ pub(super) fn seed_internal_runtime_contracts(
             is_fbip: false,
         });
 
-    // ori_print(s: Borrowed READ-ONLY) — a pure stdout read of the string's
-    // bytes (`ori_rt::io::ori_print`): never observes or changes ownership
-    // state, never COW-mutates, never retains. The `borrowed_read_only` claim keeps the
-    // may-COW conservative over-approximation (`callee_may_cow_arg`) from
-    // flagging a fresh str borrowed by `print` as COW-mutated — which would
-    // block the Phase-7 surplus fresh-inc elision and leak one allocation per
-    // printed heap template string. Spec: Annex E §AIMS RL-1.
+    // `ori_print` only reads string bytes; marking it RL-1 read-only prevents
+    // conservative COW classification from blocking fresh-inc elision.
     let ori_print = interner.intern("ori_print");
     sigs.entry(ori_print).or_insert_with(|| MemoryContract {
         params: vec![PARAM_BORROWED_READ_ONLY],
@@ -107,12 +108,8 @@ pub(super) fn seed_internal_runtime_contracts(
         is_fbip: false,
     });
 
-    // ori_list_slice_drop returns a seamless slice (negative cap, interior data
-    // pointer) sharing the parent buffer's RC. Without an explicit MaybeShared
-    // contract, backward demand narrows uniqueness to Unique, drop_hints flag
-    // it as is_unique_drop, and codegen emits ori_buffer_drop_unique which
-    // panics on slice caps (`ori_buffer_drop_unique` in ori_rt/src/rc/list_rc.rs). The MaybeShared
-    // contract routes drops through the slice-aware ori_buffer_rc_dec.
+    // Seamless slices share their parent's buffer and use a negative cap;
+    // MaybeShared routes release through slice-aware `ori_buffer_rc_dec`.
     let ori_list_slice_drop = interner.intern("ori_list_slice_drop");
     sigs.entry(ori_list_slice_drop)
         .or_insert_with(sharing_return_contract);
@@ -122,21 +119,9 @@ pub(super) fn seed_internal_runtime_contracts(
     sigs.entry(ori_list_slice_take)
         .or_insert_with(sharing_return_contract);
 
-    // Iterator adapter and consumer runtime functions.
-    //
-    // Every `ori_iter_*` adapter/consumer that takes `iter: *mut u8` as
-    // its first parameter **consumes** that iterator via
-    // `Box::from_raw(iter.cast::<IterState>())`. Before the iterator
-    // triviality flip, this was invisible to the ARC pipeline because
-    // iterators were Scalar and no drops were emitted. Now that
-    // iterators are non-trivial, the borrow inference must mark
-    // these calls as consumption events — otherwise the ARC
-    // pipeline inserts a scope-exit `ori_iter_drop` for the same
-    // handle that the adapter/consumer already freed (double-free).
-    //
-    // The remaining arguments (transform_fn, elem_size, predicates,
-    // out pointers, etc.) are borrowed — they're raw function pointers,
-    // element size constants, or scratch buffers that the caller owns.
+    // Iterator adapters consume their first raw handle via `Box::from_raw`;
+    // recording that transfer prevents a second scope-exit drop. Remaining
+    // function-pointer, size, and scratch-buffer arguments are borrowed.
     seed_iter_consuming_runtime(sigs, interner);
 }
 
@@ -216,5 +201,21 @@ fn seed_iter_consuming_runtime(
             fip: FipContract::Never,
             is_fbip: false,
         });
+    }
+}
+
+#[cfg(test)]
+mod toggle_tests {
+    #[test]
+    fn panic_message_transfer_toggle_reports_effect() {
+        crate::test_helpers::assert_ablation_env_event(
+            concat!(
+                module_path!(),
+                "::panic_message_transfer_toggle_reports_effect"
+            ),
+            "ORI_DISABLE_PANIC_MSG_TRANSFER",
+            "seed ori_panic with the conservative borrowed-parameter contract",
+            super::panic_msg_transfer_disabled,
+        );
     }
 }

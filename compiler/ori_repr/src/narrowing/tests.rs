@@ -512,8 +512,6 @@ fn non_int_fields_untouched() {
     }
 }
 
-// Already-narrowed field (not I64) is left alone
-
 #[test]
 fn already_narrow_field_untouched() {
     let pool = Pool::new();
@@ -532,13 +530,9 @@ fn already_narrow_field_untouched() {
     );
 }
 
-// Tuple element narrowing
-
 #[test]
 fn tuple_elements_not_narrowed_by_field_pass() {
-    // Phase A: tuples are skipped — they're used as collection elements,
-    // iterator state, and intermediate values where element_store_size()
-    // assumes canonical field widths. Tuple narrowing is Phase C.
+    // Why: Collection and iterator layouts require canonical tuple element widths.
     let pool = Pool::new();
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
 
@@ -556,7 +550,6 @@ fn tuple_elements_not_narrowed_by_field_pass() {
 
     narrow_struct_fields(&mut plan, &pool);
 
-    // Tuple fields stay at I64 (canonical) — not narrowed in Phase A.
     assert_eq!(
         tuple_element_width(&plan, idx, 0),
         Some(IntWidth::I64),
@@ -1266,10 +1259,6 @@ fn strategy_widen_i16_to_i32() {
 #[test]
 fn strategy_widen_to_i64_for_large_multiplication() {
     // [0, 100_000] * [0, 100_000] = [0, 10_000_000_000] — overflows i32
-    // Next wider is I64, and the result fits in I64 → WidenCompute { I64 }
-    //
-    // `UseCanonical` is unreachable for signed `i64`: overflow below `i64`
-    // fits the next width, while `i64` is the canonical ceiling.
     let lhs = ValueRange::Bounded { lo: 0, hi: 100_000 };
     let rhs = ValueRange::Bounded { lo: 0, hi: 100_000 };
     assert_eq!(
@@ -1386,9 +1375,6 @@ fn semantic_pin_all_arithmetic_ops_overflow_detection() {
     ));
 }
 
-// Phase C — Collection element narrowing
-
-/// Helper: set up a list collection type `[int]` in the plan.
 fn setup_list_collection(plan: &mut ReprPlan, collection_idx: Idx) {
     plan.set_repr(
         collection_idx,
@@ -1406,7 +1392,6 @@ fn setup_list_collection(plan: &mut ReprPlan, collection_idx: Idx) {
     );
 }
 
-/// Helper: get the element int width of a collection after narrowing.
 fn collection_element_width(plan: &ReprPlan, idx: Idx) -> Option<IntWidth> {
     match plan.get_repr(idx)? {
         MachineRepr::FatPointer(FatRepr::Collection { element_repr }) => {
@@ -1751,9 +1736,6 @@ fn imported_surface_allows_elem_narrowing() {
     );
 }
 
-/// Negative pin: local public function DOES suppress Phase C narrowing.
-/// Counterpart to `phase_c_imported_surface_allows_narrowing` — proves
-/// the `is_public_type()` gate is still active for same-module public APIs.
 #[test]
 fn local_public_blocks_elem_narrowing() {
     let mut pool = Pool::default();
@@ -1761,7 +1743,7 @@ fn local_public_blocks_elem_narrowing() {
 
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     setup_list_collection(&mut plan, list_int);
-    plan.set_pub_type_indices([list_int]); // Local public function has [int] in signature
+    plan.set_pub_type_indices([list_int]);
 
     plan.join_element_range(list_int, ValueRange::Bounded { lo: -128, hi: 127 });
     narrow_collection_elements(&mut plan, &pool);
@@ -1773,11 +1755,6 @@ fn local_public_blocks_elem_narrowing() {
     );
 }
 
-// Phase C — update_element_summaries: Apply instruction handling
-
-/// Regression: An Apply instruction returning [int] must widen
-/// the element summary to Top, preventing unsound narrowing when push/map/
-/// user functions produce elements outside the literal-only range.
 #[test]
 fn apply_returning_list_int_widens_to_top() {
     use ori_arc::ir::{ArcInstr, ArgOwnership};
@@ -1788,7 +1765,6 @@ fn apply_returning_list_int_widens_to_top() {
     let list_int = pool.list(Idx::INT);
     let int_ty = Idx::INT;
 
-    // Simulate: let dst: [int] = push(src, elem)
     let dst = ArcVarId::new(0);
     let src = ArcVarId::new(1);
     let elem = ArcVarId::new(2);
@@ -1816,8 +1792,6 @@ fn apply_returning_list_int_widens_to_top() {
     );
 }
 
-/// When both a literal construction [1] and an Apply returning [int] exist,
-/// the joined element range must be Top (not [1,1]).
 #[test]
 fn literal_plus_apply_widens_to_top() {
     use ori_arc::ir::{ArcInstr, ArgOwnership, CtorKind};
@@ -1833,7 +1807,6 @@ fn literal_plus_apply_widens_to_top() {
     let dst_apply = ArcVarId::new(2);
     let src_var = ArcVarId::new(3);
 
-    // First: Construct(ListLiteral, [elem_var]) where elem_var range = [1, 1]
     let literal_instr = ArcInstr::Construct {
         dst: dst_literal,
         ty: list_int,
@@ -1841,7 +1814,6 @@ fn literal_plus_apply_widens_to_top() {
         args: vec![elem_var],
     };
 
-    // Then: Apply { func: "push", ty: [int] }
     let apply_instr = ArcInstr::Apply {
         dst: dst_apply,
         ty: list_int,
@@ -1857,7 +1829,6 @@ fn literal_plus_apply_widens_to_top() {
 
     let mut table = ElementSummaryTable::new();
 
-    // Process literal first — sets range to [1, 1]
     update_element_summaries(&literal_instr, &ranges, &var_types, &pool, &mut table);
     assert_eq!(
         table.element_range(list_int),
@@ -1865,7 +1836,6 @@ fn literal_plus_apply_widens_to_top() {
         "after literal only, range should be [1, 1]"
     );
 
-    // Process Apply — must widen to Top
     update_element_summaries(&apply_instr, &ranges, &var_types, &pool, &mut table);
     assert_eq!(
         table.element_range(list_int),
@@ -1911,9 +1881,6 @@ fn apply_returning_int_does_not_affect_elements() {
     );
 }
 
-/// Invoke (unwinding call) returning [int] must also widen to Top.
-/// This is the most common path for push/insert — they're lowered as
-/// Invoke because they can panic.
 #[test]
 fn invoke_returning_list_int_widens_to_top() {
     use crate::range::field_summary::update_element_summaries_from_terminator;

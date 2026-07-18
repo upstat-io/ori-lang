@@ -393,8 +393,6 @@ fn trace_entries_on_named_error_struct_resolves_to_trace_entry_list() {
     let interner = ori_ir::StringInterner::new();
     engine.set_interner(&interner);
 
-    // Register the user-facing `Error` struct as a Named type and record it as
-    // the error-struct SSOT — mirrors `register_error_type` (Pass 0a).
     let error_name = engine
         .intern_name("Error")
         .unwrap_or_else(|| panic!("interner set — Error must intern"));

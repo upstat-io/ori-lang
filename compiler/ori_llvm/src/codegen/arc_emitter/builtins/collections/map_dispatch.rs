@@ -1,19 +1,35 @@
 //! Collection builtin dispatch declarations.
 
+use ori_arc::ir::ArgOwnership;
+
 use crate::codegen::type_info::TypeInfo;
+
+use super::super::RenderStyle;
 
 declare_builtins! { emitter, ctx;
     // map
     ("map", "debug") => {
         if let TypeInfo::Map { key, value } = ctx.type_info {
-            emitter.emit_map_debug(ctx.arg_vals[0], ctx.receiver_ty, *key, *value, true)
+            emitter.emit_map_debug(
+                ctx.arg_vals[0],
+                ctx.receiver_ty,
+                *key,
+                *value,
+                RenderStyle::Debug,
+            )
         } else {
             None
         }
     },
     ("map", "to_str") => {
         if let TypeInfo::Map { key, value } = ctx.type_info {
-            emitter.emit_map_debug(ctx.arg_vals[0], ctx.receiver_ty, *key, *value, false)
+            emitter.emit_map_debug(
+                ctx.arg_vals[0],
+                ctx.receiver_ty,
+                *key,
+                *value,
+                RenderStyle::Printable,
+            )
         } else {
             None
         }
@@ -117,9 +133,14 @@ declare_builtins! { emitter, ctx;
             // Same credit gate as the list path. Borrowed-rooted receivers stay
             // non-owning unless the final callee contract demanded a whole-value
             // credit (for example, one retained by a closure adapter).
-            let owns_data = !emitter.is_var_borrowed_rooted(ctx.arc_args[0])
-                || emitter.iter_receiver_owns_via_contract(ctx.arc_args[0]);
-            emitter.emit_map_iter(ctx.arg_vals[0], *key, *value, ctx.receiver_ty, owns_data)
+            let ownership = if !emitter.is_var_borrowed_rooted(ctx.arc_args[0])
+                || emitter.iter_receiver_owns_via_contract(ctx.arc_args[0])
+            {
+                ArgOwnership::Owned
+            } else {
+                ArgOwnership::Borrowed
+            };
+            emitter.emit_map_iter(ctx.arg_vals[0], *key, *value, ctx.receiver_ty, ownership)
         } else {
             None
         }

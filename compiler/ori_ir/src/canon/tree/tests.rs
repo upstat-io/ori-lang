@@ -295,7 +295,6 @@ fn decision_tree_nested_switch() {
 
     if let DecisionTree::Switch { edges, .. } = &tree {
         assert_eq!(edges.len(), 2);
-        // First edge leads to another Switch (nested).
         assert!(matches!(&edges[0].1, DecisionTree::Switch { .. }));
     } else {
         panic!("expected Switch");

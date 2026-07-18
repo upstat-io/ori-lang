@@ -8,6 +8,7 @@
 //! Spacing rules cover binary operators, delimiters, keywords and punctuation,
 //! and context-dependent pairs. Spec: Annex D (formatting).
 
+use super::prelude::*;
 use super::{SpaceAction, TokenCategory, TokenMatcher};
 
 /// A declarative spacing rule.
@@ -66,11 +67,6 @@ impl SpaceRule {
 
 // Helper constants for rule definitions
 
-#[allow(
-    clippy::enum_glob_use,
-    reason = "70+ spacing rules are much more readable with short names; pedantic lint fires only under the full pedantic config, so #[allow] (not #[expect]) is correct here"
-)]
-use TokenCategory::*;
 use TokenMatcher::{Any, Category, Exact};
 
 // Common token groups as static slices
@@ -170,10 +166,8 @@ pub static SPACE_RULES: &[SpaceRule] = &[
         SpaceAction::None,
     )
     .with_priority(30),
-    // Spread operator: no space after ...
-    // Note: DotDotDot doesn't exist in TokenKind, it's parsed as DotDot + Dot
-    // Priority 35: Special identifier-adjacent rules
-    // No space between @ and identifier (function names): @foo
+    // `...` is tokenized as DotDot + Dot. Priority 35 handles special
+    // identifier adjacency, including no space in function names like `@foo`.
     SpaceRule::new("AtIdent", Exact(At), Exact(Ident), SpaceAction::None).with_priority(35),
     // No space between $ and identifier (constants): $FOO
     SpaceRule::new(

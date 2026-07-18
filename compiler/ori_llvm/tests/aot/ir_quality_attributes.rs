@@ -406,11 +406,9 @@ fn test_panic_declarations_have_noreturn() {
         "fixtures/ir_quality_attributes/panic_declarations_have_noreturn.ori"
     ));
 
-    // Check ori_panic_cstr has noreturn via its attribute group
     assert_fn_has_attr(&ir, "ori_panic_cstr", "noreturn");
     assert_fn_lacks_attr(&ir, "ori_panic_cstr", "nounwind");
 
-    // Check ori_panic has noreturn via its attribute group
     assert_fn_has_attr(&ir, "ori_panic", "noreturn");
     assert_fn_lacks_attr(&ir, "ori_panic", "nounwind");
 }
@@ -669,11 +667,7 @@ fn test_iter_nested_for_loops() {
     assert_eq!(exit, 6, "expected 6 (1+2+3)");
 }
 
-/// Struct element field access in for-loop body.
-///
-/// Iterates over `[Point]` and accesses `p.x` — the element is a struct
-/// passed by value. Tests that the scratch buffer optimization correctly
-/// handles struct elements with field projection.
+/// Pins scratch-buffer field projection for by-value struct iterator elements.
 #[test]
 fn test_iter_for_loop_struct_field_access() {
     let exit = crate::util::compile_and_run(include_str!(
@@ -805,14 +799,10 @@ fn test_closure_wrapper_sret_no_noundef() {
          the capturing closure returning str must emit a wrapper",
     );
 
-    // The sret pointer (param 0) should NOT have noundef.
-    // Parse: "define void @_ori_partial_N(ptr noalias sret(...) <NO noundef here>, ptr noundef ...)"
-    // Split at sret(...) and check the text BEFORE the next comma doesn't contain noundef
-    // after the sret attribute.
+    // INVARIANT: The first parameter segment containing sret excludes `noundef`.
     let sret_pos = decl
         .find("sret(")
         .expect("wrapper matched sret( in search but not here");
-    // Text from sret( to next comma is the sret param
     let after_sret = &decl[sret_pos..];
     let sret_param_end = after_sret
         .find(',')

@@ -9,6 +9,7 @@
 
 use ori_types::Idx;
 
+use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::value_id::ValueId;
 
 use super::super::super::ArcIrEmitter;
@@ -44,7 +45,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs_tag = self.builder.extract_value(rhs, 0, "res.rhs.tag")?;
         let tags_eq = self.builder.icmp_eq(lhs_tag, rhs_tag, "tags_eq");
 
-        // Create all blocks upfront.
         let same_tag_bb = self
             .builder
             .append_block(self.current_function, "res_eq.same");
@@ -123,11 +123,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs_tag = self.builder.extract_value(rhs, 0, "res.rhs.tag")?;
         let tags_eq = self.builder.icmp_eq(lhs_tag, rhs_tag, "tags_eq");
 
-        let tag_cmp = self
-            .builder
-            .emit_icmp_ordering(lhs_tag, rhs_tag, "tag_cmp", false);
+        let tag_cmp = self.builder.emit_icmp_ordering(
+            lhs_tag,
+            rhs_tag,
+            "tag_cmp",
+            IntegerSignedness::Unsigned,
+        );
 
-        // Create all blocks upfront.
         let same_tag_bb = self
             .builder
             .append_block(self.current_function, "res_cmp.same");
@@ -201,7 +203,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let tag = self.builder.extract_value(val, 0, "res.tag")?;
 
-        // Create blocks for tag-based dispatch.
         let ok_bb = self
             .builder
             .append_block(self.current_function, "res_hash.ok");

@@ -64,15 +64,9 @@ pub extern "C-unwind" fn ori_iter_join(
     let Some(mut state) = take_iter(iter) else {
         return;
     };
-    // Reconstruct OriStr from the 3 struct fields passed by LLVM codegen.
-    // The fields are the raw bits of {len, cap, data} — for SSO strings these
-    // are the inline bytes reinterpreted through the heap layout. OriStr's
-    // is_sso() detects SSO by checking byte 23 (the MSB of the data pointer
-    // in heap layout, or the flags byte in SSO layout).
-    // NOTE: SSO discrimination relies on canonical 64-bit addressing (pointer
-    // MSB clear for heap pointers). This is true on all current targets
-    // (x86_64, aarch64) but would break on exotic architectures with
-    // high-bit-set user-space pointers.
+    // Reconstruct the raw `{len, cap, data}` bits; SSO stores inline bytes in
+    // that layout. Its flag occupies pointer MSB position, relying on canonical
+    // 64-bit user addresses with a clear high bit.
     let sep_str = OriStr {
         heap: crate::string::OriStrHeap {
             len: sep_field0,
@@ -80,21 +74,16 @@ pub extern "C-unwind" fn ori_iter_join(
             data: sep_field2 as *mut u8,
         },
     };
-    // Borrow directly — no allocation needed. SSO bytes are inline in
-    // sep_str (stack-local), heap bytes are RC-managed by the caller.
-    // Both outlive the loop below.
-    // SAFETY: sep_str was reconstructed from valid OriStr fields passed
-    // by codegen; the data pointer (heap) or inline bytes (SSO) are valid.
+    // Borrow SSO bytes from the local value or heap bytes from caller-owned RC storage.
+    // SAFETY: codegen supplied a valid OriStr layout that outlives this loop.
     let sep = unsafe { sep_str.as_str() };
 
     let mut result = String::new();
     let mut elem_buf = ElemBuf::new();
     let mut first = true;
 
-    // SAFETY: `state` is a live `IterState` (constructed by codegen, freed
-    // below), `elem_buf` is 16-byte aligned (`ElemBuf` repr, covers OriStr's
-    // 8-byte alignment), and `elem_size` was asserted `<= MAX_ELEM_SIZE`; each
-    // `next` writes at most `elem_size` bytes into the buffer.
+    // SAFETY: `state` is live, `elem_buf` exceeds OriStr alignment, and the
+    // checked element size bounds every `next` write.
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         if !first {
             result.push_str(sep);
@@ -118,13 +107,9 @@ pub extern "C-unwind" fn ori_iter_join(
             // bytes (SSO) are valid for the borrow's lifetime (until the next
             // loop iteration overwrites `str_buf`, after `push_str` copies out).
             result.push_str(unsafe { s.as_str() });
-            // Free the temporary OriStr created by the trampoline.
-            // OriStr is Copy (no Drop), so heap-backed temporaries leak without
-            // explicit cleanup. ori_str_rc_dec handles SSO (no-op) and slice
-            // encoding. ori_str_drop_buffer reads the size from the RC header
-            // and calls ori_rc_free to deallocate.
-            // SAFETY: `s.heap.data`/`cap` are the trampoline-produced buffer's
-            // fields; releasing exactly the value this branch produced.
+            // Copy OriStr temporaries need explicit release; the helper handles
+            // SSO and slices before freeing heap storage.
+            // SAFETY: `s` is exactly the trampoline-produced value owned here.
             unsafe {
                 crate::rc::ori_str_rc_dec(
                     s.heap.data,
@@ -132,27 +117,20 @@ pub extern "C-unwind" fn ori_iter_join(
                     Some(crate::rc::ori_str_drop_buffer),
                 );
             }
-            // Release the consumed INPUT element — a SEPARATE obligation from
-            // the produced-string dec above. Null for scalar element types by
-            // construction, so the int/float/bool path is behavior-unchanged.
-            // `dec` is codegen's element-type-matched release thunk over the
-            // (aligned) `elem_buf`.
+            // Input-element release is separate from produced-string release;
+            // codegen provides a type-matched thunk only for managed elements.
             if let Some(dec) = elem_dec_fn {
                 (dec)(elem_buf.as_mut_ptr());
             }
         } else {
-            // Element is already an OriStr (24 bytes).
-            // SAFETY: `elem_buf` holds a complete OriStr (str-element chain);
-            // read_unaligned tolerates the buffer's storage layout. OriStr is
-            // Copy, so the read-out is sound.
+            // SAFETY: A string-element chain writes a complete Copy OriStr;
+            // unaligned read supports the scratch-buffer layout.
             let s = unsafe { ptr::read_unaligned(elem_buf.as_ptr().cast::<OriStr>()) };
             // SAFETY: `s` is a valid OriStr; its bytes are copied out by
             // push_str before the buffer is reused.
             result.push_str(unsafe { s.as_str() });
-            // Release the consumed element after its bytes were copied into
-            // the accumulator. Non-null only for chains codegen proved
-            // adapter-produced; source-borrowed chains pass null (the source
-            // buffer's cleanup owns those elements).
+            // Only adapter-produced chains supply a release thunk; source-
+            // borrowed elements remain owned by source-buffer cleanup.
             if let Some(dec) = elem_dec_fn {
                 (dec)(elem_buf.as_mut_ptr());
             }

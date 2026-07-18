@@ -1,69 +1,8 @@
-//! Module-level type checker.
+//! Multi-pass module type checking.
 //!
-//! The `ModuleChecker` orchestrates type checking of an entire module,
-//! coordinating the `InferEngine`, registries, and output generation.
-//!
-//! # Architecture
-//!
-//! Type checking follows a multi-pass approach:
-//!
-//! ```text
-//! Pass 0: Registration
-//!   0a: Built-in types (Ordering, etc.)
-//!   0b: User-defined types (structs, enums, newtypes)
-//!   0c: Traits and implementations
-//!   0d: Derived implementations
-//!   0e: Config variables
-//!
-//! Pass 1: Function Signatures
-//!   - Collect all function signatures before body checking
-//!   - Enables mutual recursion and forward references
-//!   - Create type schemes for polymorphic functions
-//!   - Freeze base environment
-//!
-//! Pass 2: Function Bodies
-//!   - Type check function bodies against signatures
-//!   - Handle let bindings with let-polymorphism
-//!
-//! Pass 3: Test Bodies
-//!   - Type check test bodies (implicit void return)
-//!
-//! Pass 4: Impl Method Bodies
-//!   - Type check implementation method bodies
-//! ```
-//!
-//! # Usage
-//!
-//! ```rust
-//! use ori_ir::StringInterner;
-//!
-//! let interner = StringInterner::new();
-//! let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/doc_main.ori"));
-//! let tokens = ori_lexer::lex(source, &interner);
-//! let parsed = ori_parse::parse(&tokens, &interner);
-//! let result = ori_types::check_module(&parsed.module, &parsed.arena, &interner);
-//! assert!(!result.has_errors(), "{:?}", result.errors());
-//! ```
-//!
-//! # Design Notes
-//!
-//! Key design decisions:
-//! - Uses `Idx` for type handles (compact u32 pool indices)
-//! - Uses `Pool` for interned type storage
-//! - Uses `InferEngine` for Hindley-Milner inference
-
-use ori_ir::{ExprArena, ExprId, Name, StringInterner};
-use rustc_hash::{FxHashMap, FxHashSet};
-
-use crate::{
-    FunctionSig, Idx, MethodRegistry, PatternKey, PatternResolution, Pool, TraitRegistry,
-    TypeCheckWarning, TypeEnv, TypeRegistry,
-};
-
-// Re-export main API
-pub use api::{
-    check_module, check_module_with_imports, check_module_with_pool, check_module_with_registries,
-};
+//! Registration precedes signature collection and body checking. Signatures
+//! freeze before function, test, and impl bodies so recursion resolves against
+//! one stable environment. [`ModuleChecker`] coordinates inference and output.
 
 mod accessors;
 mod api;
@@ -79,15 +18,22 @@ mod signatures;
 pub(crate) mod validators;
 mod well_known;
 
+use ori_ir::{ExprArena, ExprId, Name, StringInterner};
+use rustc_hash::{FxHashMap, FxHashSet};
+
+use crate::{
+    FunctionSig, Idx, MethodRegistry, PatternKey, PatternResolution, Pool, TraitRegistry,
+    TypeCheckWarning, TypeEnv, TypeRegistry,
+};
+
+// Re-export main API
+pub use api::{
+    check_module, check_module_with_imports, check_module_with_pool, check_module_with_registries,
+};
+
 // Expose object-safety helpers to type-inference callers.
 pub(crate) use object_safety::{check_parsed_type_object_safety, ObjectSafetyChecker};
 pub(crate) use well_known::{is_concrete_named_type, resolve_well_known_generic, WellKnownNames};
-
-#[cfg(test)]
-mod integration_tests;
-
-#[cfg(test)]
-mod test_utils;
 
 /// Module-level type checker.
 ///
@@ -230,9 +176,7 @@ pub struct ModuleChecker<'a> {
     /// stored in [`crate::TypedModule::module_alias_call_map`].
     module_alias_calls: Vec<(ExprId, ori_ir::Name)>,
 
-    /// Iterable->Iterator route entries from all checked bodies.
-    /// Keys are module-wide AST call `ExprId`s; sorted in `finish_with_pool`,
-    /// then stored in [`crate::TypedModule::iter_route_map`].
+    /// Module-wide iterable routes, sorted for [`crate::TypedModule::iter_route_map`].
     iter_route_desugars: Vec<(ExprId, crate::IterMethodRoute)>,
 
     // Impl Method Signatures
@@ -407,6 +351,12 @@ impl<'a> ModuleChecker<'a> {
         self.imported_collection_surfaces = surfaces;
     }
 }
+
+#[cfg(test)]
+mod integration_tests;
+
+#[cfg(test)]
+mod test_utils;
 
 #[cfg(test)]
 mod tests;

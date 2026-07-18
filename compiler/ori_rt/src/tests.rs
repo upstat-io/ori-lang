@@ -1,6 +1,6 @@
 //! Tests for `ori_rt` core functions (memory, refcounting, panic).
 //!
-//! All RC tests acquire `lock_rc()` (from `crate::test_helpers`) because
+//! All RC tests acquire `lock_rc()` (from `crate::test_support`) because
 //! `RC_LIVE_COUNT` is a global atomic counter modified by
 //! `ori_rc_alloc`/`ori_rc_free`. Without serialization, parallel tests
 //! cause TOCTOU races in live-count assertions.
@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
 
-use crate::test_helpers::{lock_rc, AbiOutput};
+use crate::test_support::{lock_rc, AbiOutput};
 
 /// Free a heap `OriStr`'s RC allocation in tests.
 ///
@@ -55,8 +55,6 @@ fn valid_str(s: &OriStr) -> &str {
     std::str::from_utf8(s.as_bytes()).expect("OriStr test value must contain valid UTF-8")
 }
 
-// Basic RC lifecycle
-
 #[test]
 fn rc_alloc_initializes_count_to_one() {
     let _g = lock_rc();
@@ -74,8 +72,6 @@ fn rc_inc_increments_count() {
     assert_eq!(ori_rc_count(ptr), 2);
     ori_rc_inc(ptr);
     assert_eq!(ori_rc_count(ptr), 3);
-    // Clean up: dec back to 0, then free the allocation.
-    // Using None for drop_fn since we handle cleanup explicitly.
     ori_rc_dec(ptr, None);
     ori_rc_dec(ptr, None);
     ori_rc_dec(ptr, None);
@@ -164,7 +160,7 @@ fn drop_function_not_called_above_zero() {
 // Concurrent refcount operations
 
 #[test]
-fn concurrent_increments_are_correct() {
+fn concurrent_increments_preserve_exact_reference_count() {
     let _g = lock_rc();
     let ptr = ori_rc_alloc(16, 8);
     let data_ptr = ptr as usize; // Send across threads
@@ -199,7 +195,7 @@ fn concurrent_increments_are_correct() {
 }
 
 #[test]
-fn concurrent_inc_and_dec_are_correct() {
+fn concurrent_increments_and_decrements_balance_reference_count() {
     let _g = lock_rc();
     let ptr = ori_rc_alloc(16, 8);
     let data_ptr = ptr as usize;
@@ -279,32 +275,16 @@ fn rc_live_count_nonzero_after_alloc_without_free() {
         "live count should increase after allocation"
     );
 
-    // Clean up so we don't pollute other tests
     ori_rc_free(ptr, 16, 8);
 }
 
-/// Positive control for leak detection: verifies that an unfreed allocation
-/// is detectable via `RC_LIVE_COUNT`, which is the mechanism `ori_check_leaks()`
-/// uses to return exit code 2.
-///
-/// This is the reproducible verification artifact for the leak detection pipeline:
-///   1. `ori_rc_alloc()` increments `RC_LIVE_COUNT`
-///   2. Without `ori_rc_free()`, the count stays elevated
-///   3. `check_leaks_and_exit()` reads `RC_LIVE_COUNT` — if non-zero, returns 2
-///   4. The LLVM main wrapper uses that return value as the process exit code
-///
-/// This test exercises steps 1–2 directly. Step 3 is 3 lines of trivial logic
-/// (`if count != 0 { return 2; }`). Step 4 is tested by every AOT test running
-/// with `ORI_CHECK_LEAKS=1` (1800+ tests, all returning exit code 0).
 #[test]
 fn leak_detection_positive_control() {
     let _g = lock_rc();
     let baseline = ori_rc_live_count();
 
-    // Step 1: allocate WITHOUT freeing — deliberate leak
     let leaked_ptr = ori_rc_alloc(16, 8);
 
-    // Step 2: verify the unfreed allocation is visible in RC_LIVE_COUNT
     let after_alloc = ori_rc_live_count();
     assert_eq!(
         after_alloc,
@@ -312,14 +292,11 @@ fn leak_detection_positive_control() {
         "Positive control: ori_rc_alloc without ori_rc_free must increment RC_LIVE_COUNT"
     );
 
-    // This is the invariant that check_leaks_and_exit() relies on:
-    // RC_LIVE_COUNT != 0 → exit code 2 (leak detected)
     assert!(
         after_alloc > 0,
         "Positive control: non-zero RC_LIVE_COUNT triggers exit code 2 in ori_check_leaks()"
     );
 
-    // Clean up to avoid polluting other tests
     ori_rc_free(leaked_ptr, 16, 8);
     assert_eq!(
         ori_rc_live_count(),
@@ -423,7 +400,6 @@ fn rc_inc_skips_at_max_refcount() {
         "refcount should remain at MAX_REFCOUNT after ori_rc_inc"
     );
 
-    // Clean up: reset refcount to 1 so we can free.
     // SAFETY: `ptr` still owns the live 8-byte-aligned allocation and its
     // initialized i64 header; restoring one permits the final decrement.
     unsafe {
@@ -456,7 +432,6 @@ fn rc_dec_skips_at_max_refcount() {
         "refcount should remain at MAX_REFCOUNT after ori_rc_dec"
     );
 
-    // Clean up: reset refcount to 1 so we can free.
     // SAFETY: `ptr` still owns the live 8-byte-aligned allocation and its
     // initialized i64 header; restoring one permits the final decrement.
     unsafe {
@@ -503,7 +478,6 @@ fn buffer_rc_dec_skips_at_max_refcount() {
         "elem_dec_fn must not be called on immortal buffer"
     );
 
-    // Clean up: reset refcount to 1 so we can free.
     // SAFETY: `data` still owns the live 8-byte-aligned allocation and its
     // initialized i64 header; restoring one permits explicit cleanup.
     unsafe {
@@ -648,7 +622,6 @@ fn slice_buffer_rc_dec_skips_at_max_refcount() {
         "elem_dec_fn must not be called when slice's original buffer is immortal"
     );
 
-    // Clean up: reset refcount to 1 so we can free.
     // SAFETY: `original_data` still owns the live aligned allocation and its
     // initialized i64 header; restoring one permits explicit cleanup.
     unsafe {
@@ -887,7 +860,6 @@ fn leak_attribution_reports_unfreed_allocations() {
     // In debug builds, attribution lines include alloc_id, ptr, size, align
     #[cfg(debug_assertions)]
     {
-        // Attribution lines start with "  #"
         let attrib_lines: Vec<&str> = stderr.lines().filter(|l| l.starts_with("  #")).collect();
         assert_eq!(
             attrib_lines.len(),
@@ -897,7 +869,6 @@ fn leak_attribution_reports_unfreed_allocations() {
             attrib_lines.join("\n")
         );
 
-        // Each line should contain ptr=, size=, align=, (unfreed)
         for line in &attrib_lines {
             assert!(line.contains("ptr=0x"), "missing ptr: {line}");
             assert!(line.contains("size="), "missing size: {line}");
@@ -905,7 +876,6 @@ fn leak_attribution_reports_unfreed_allocations() {
             assert!(line.contains("(unfreed)"), "missing (unfreed): {line}");
         }
 
-        // First allocation (24 bytes), second allocation (16 bytes) — sorted by ID
         assert!(
             attrib_lines[0].contains("#0"),
             "first attribution should be #0: {}",
@@ -1292,18 +1262,15 @@ fn semantic_pin_header_based_element_cleanup() {
         CLEANUP_COUNT.fetch_add(1, Ordering::SeqCst);
     }
 
-    // Allocate a buffer for 2 elements of 8 bytes each
     let elem_size: i64 = 8;
     let cap: i64 = 2;
     let data_size = (cap as usize) * (elem_size as usize);
     let data = ori_rc_alloc(data_size, 8);
     assert!(!data.is_null());
 
-    // Bump RC to 2 so the first dec doesn't free
     ori_rc_inc(data);
     assert_eq!(ori_rc_count(data), 2);
 
-    // First dec with real elem_dec_fn (RC 2 → 1, stores in header)
     ori_buffer_rc_dec(data, cap, cap, elem_size, Some(count_cleanup));
     assert_eq!(ori_rc_count(data), 1);
     assert_eq!(
@@ -1312,8 +1279,6 @@ fn semantic_pin_header_based_element_cleanup() {
         "no cleanup at RC=1"
     );
 
-    // Second dec with NULL elem_dec_fn (RC 1 → 0, frees)
-    // Header-based cleanup should still call count_cleanup on 2 elements
     ori_buffer_rc_dec(data, cap, cap, elem_size, None);
     assert_eq!(
         CLEANUP_COUNT.load(Ordering::SeqCst),
@@ -1406,7 +1371,7 @@ fn drop_unique_reads_from_header() {
 }
 
 #[test]
-fn memcpy_elements_copies_correctly() {
+fn memcpy_elements_copies_all_nonoverlapping_elements() {
     let src: [u64; 4] = [10, 20, 30, 40];
     let mut dst: [u64; 4] = [0; 4];
 
@@ -1605,11 +1570,9 @@ fn list_free_drops_initialized_elements_from_buffer_header() {
     ori_list_push(list.cast(), std::ptr::from_ref(&first).cast(), 8);
     ori_list_push(list.cast(), std::ptr::from_ref(&second).cast(), 8);
 
-    // For-yield codegen records the element drop function in the scratch
-    // buffer header as elements are pushed. Cleanup receives only the opaque
-    // list handle and element size, so it must consume that stored metadata.
-    // SAFETY: `list` is a live `OriList` from `ori_list_new`; its data pointer
-    // owns two initialized i64 elements and an aligned collection header.
+    // Cleanup must use the element-drop metadata recorded in the scratch header.
+    // SAFETY: `list` is live and owns two initialized i64 elements in an
+    // aligned collection allocation.
     unsafe {
         crate::rc::store_elem_dec_fn((*list).data, Some(count_element_drop));
         crate::rc::store_elem_count((*list).data, (*list).len);
@@ -2060,29 +2023,22 @@ fn concat_null_pointers() {
     assert_eq!(valid_str(&result3), "");
 }
 
-// Chain of 100 concats on unique string with proper cleanup (borrow semantics)
 #[test]
 fn concat_chain_amortized_growth() {
     let _g = lock_rc();
     let before = ori_rc_live_count();
-    // Start > 23 bytes so every concat stays in heap territory
     let seed = b"this seed exceeds sso!!"; // 23 bytes
     let mut s = OriStr::from_heap(seed);
     let chunk = OriStr::from_sso(b"x");
     for _ in 0..100 {
         let old = s;
         s = ori_str_concat(&old, &chunk);
-        // Borrow semantics: concat doesn't consume `old`, so we must release it.
-        // Case 2 (in-place append) shares data pointer → RC was inc'd to 2,
-        // so dec brings to 1. Case 4 (fresh alloc) leaves old at RC=1, so
-        // free releases it.
+        // INVARIANT: `concat` borrows `old`, so each iteration releases that owner.
         if let Some(old_ptr) = old.heap_data_ptr() {
             let new_ptr = s.heap_data_ptr();
             if new_ptr == Some(old_ptr) {
-                // Case 2: shared allocation, just dec (RC: 2 → 1)
                 ori_rc_dec(old_ptr, None);
             } else {
-                // Case 4: different allocation, free the old one
                 free_heap_str(&old);
             }
         }
@@ -2090,7 +2046,6 @@ fn concat_chain_amortized_growth() {
     assert_eq!(s.len(), seed.len() + 100);
     assert!(valid_str(&s).starts_with("this seed exceeds sso!!"));
     assert_eq!(&valid_str(&s)[seed.len()..], "x".repeat(100).as_str());
-    // After proper cleanup, only the final string is live
     assert_eq!(
         ori_rc_live_count(),
         before + 1,
@@ -2099,16 +2054,14 @@ fn concat_chain_amortized_growth() {
     free_heap_str(&s);
 }
 
-// Verify capacity grows with amortized doubling
 #[test]
 fn concat_capacity_growth_is_amortized() {
     let _g = lock_rc();
-    // Both sides must combine to > 23 bytes, so we exercise the heap path
+    // Why: A combined length above the SSO limit exercises heap-capacity growth.
     let a = OriStr::from_heap(b"seed data exceeding sso!"); // 24 bytes, cap = len = 24
     let b = OriStr::from_sso(b"!");
     let result = ori_str_concat(&a, &b);
     assert!(!result.is_sso());
-    // Fresh allocation uses next_capacity for amortized growth.
     let heap = heap_parts(&result);
     assert!(
         heap.cap > heap.len,
@@ -2116,7 +2069,7 @@ fn concat_capacity_growth_is_amortized() {
         heap.cap,
         heap.len,
     );
-    // Borrow semantics: both `a` and `result` are live
+    // INVARIANT: `concat` leaves both the input and result owners live.
     free_heap_str(&a);
     free_heap_str(&result);
 }
@@ -3041,7 +2994,7 @@ fn cow_set_at_index_zero() {
         data,
         3,
         4,
-        0, // first index
+        0,
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
@@ -3620,7 +3573,6 @@ fn cow_concat_shared_list1_unique_list2() {
         assert_eq!(*result_data.cast::<i64>().add(3), 40);
     }
 
-    // data2 consumed by runtime (unique → freed). Free data1 (our remaining ref) and result.
     ori_rc_free(data1, 4 * es, 8);
     ori_rc_free(result_data, cap as usize * es, 8);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
@@ -3738,16 +3690,13 @@ fn cow_concat_empty_list1_shared_list2() {
         assert_eq!(*result_data.cast::<i64>().add(1), 40);
     }
 
-    // Free data2 (our remaining ref) and result
     ori_rc_free(data2, 2 * es, 8);
     ori_rc_free(result_data, cap as usize * es, 8);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
-// COW concat: inc_fn counting tests
-//
-// These tests use a counting inc_fn to verify that the runtime correctly
-// skips RC increments when list2 is uniquely owned (moved, not copied).
+// A counting increment function verifies that COW concat moves a uniquely
+// owned second list without incrementing its elements.
 
 static INC_COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -4466,9 +4415,6 @@ fn cow_sort_stable_preserves_equal_element_order() {
 
 #[test]
 fn cow_sort_unstable_may_not_preserve_order() {
-    // This test verifies that sort_stable and sort_unstable CAN differ on ordering
-    // of equal elements. We don't assert that unstable MUST reorder (it may or may not),
-    // but we verify stable sort is deterministic.
     let _g = lock_rc();
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>();
@@ -4820,11 +4766,8 @@ fn rc_alloc_i64_map(keys: &[i64], values: &[i64], min_capacity: usize) -> (*mut 
 /// - All metadata bytes and every occupied bucket's aligned key/value slots
 ///   must be initialized.
 /// - The caller must retain ownership and prevent mutation for the call.
-// SAFETY:
-// - The caller supplies the documented live, initialized, i64-aligned layout
-//   and retains its allocation for the call.
-// - The body probes only that `cap`-bucket layout and reads a value only after
-//   its occupied metadata establishes initialization.
+// SAFETY: The caller retains a live, initialized, i64-aligned `cap`-bucket
+// layout; occupied metadata guards every value read.
 unsafe fn map_lookup_val(data: *const u8, cap: usize, key: i64) -> Option<i64> {
     let ks = std::mem::size_of::<i64>();
     let vs = std::mem::size_of::<i64>();
@@ -4865,11 +4808,8 @@ unsafe fn map_lookup_val(data: *const u8, cap: usize, key: i64) -> Option<i64> {
 /// - All metadata bytes and every occupied bucket's aligned key/value slots
 ///   must be initialized.
 /// - The caller must retain ownership and prevent mutation for the scan.
-// SAFETY:
-// - The caller supplies the documented live, initialized, i64-aligned layout
-//   and retains its allocation for the scan.
-// - The body scans only `0..cap` and dereferences key/value slots only after
-//   their occupied metadata establishes initialization.
+// SAFETY: The caller retains a live, initialized, i64-aligned `cap`-bucket
+// layout; occupied metadata guards every scanned key/value pair.
 unsafe fn map_collect_entries(data: *const u8, cap: usize) -> Vec<(i64, i64)> {
     let ks = std::mem::size_of::<i64>();
     let vs = std::mem::size_of::<i64>();
@@ -6176,11 +6116,8 @@ fn rc_alloc_i64_set(elems: &[i64], min_capacity: usize) -> (*mut u8, usize) {
 /// - All metadata bytes and every occupied bucket's aligned i64 slot must be
 ///   initialized.
 /// - The caller must retain ownership and prevent mutation for the lookup.
-// SAFETY:
-// - The caller supplies the documented live, initialized, i64-aligned layout
-//   and retains its allocation for the lookup.
-// - The body probes only that `cap`-bucket layout; the table helper dereferences
-//   key slots only after occupied metadata establishes initialization.
+// SAFETY: The caller retains a live, initialized, i64-aligned `cap`-bucket
+// layout; the table helper checks occupancy before dereferencing elements.
 unsafe fn set_lookup_elem(data: *const u8, cap: usize, elem: i64) -> bool {
     let es = std::mem::size_of::<i64>();
     let layout = map::hash_table::HashTableLayout::for_set(cap, es);
@@ -6213,11 +6150,8 @@ unsafe fn set_lookup_elem(data: *const u8, cap: usize, elem: i64) -> bool {
 /// - All metadata bytes and every occupied bucket's aligned i64 slot must be
 ///   initialized.
 /// - The caller must retain ownership and prevent mutation for the scan.
-// SAFETY:
-// - The caller supplies the documented live, initialized, i64-aligned layout
-//   and retains its allocation for the scan.
-// - The body scans only `0..cap` and dereferences an element slot only after
-//   its occupied metadata establishes initialization.
+// SAFETY: The caller retains a live, initialized, i64-aligned `cap`-bucket
+// layout; occupied metadata guards every scanned element.
 unsafe fn set_collect_elements(data: *const u8, cap: usize) -> Vec<i64> {
     let es = std::mem::size_of::<i64>();
     let layout = map::hash_table::HashTableLayout::for_set(cap, es);
@@ -6413,11 +6347,8 @@ fn cow_set_insert_shared_copies() {
     assert_eq!(ori_rc_count(result_data), 1, "new buffer RC=1");
     assert_eq!(ori_rc_count(data), 1, "old buffer RC decremented");
 
-    // SAFETY:
-    // - `result_data` is the live returned set buffer for `result_cap` buckets.
-    // - `data` is the still-live original set buffer for `cap` buckets.
-    // - Both layouts have initialized i64-aligned slots and remain RC-owned
-    //   until this test calls `free_i64_set` for each allocation.
+    // SAFETY: Both buffers are live, RC-owned, initialized i64-aligned set
+    // layouts for their stated capacities until `free_i64_set` is called.
     unsafe {
         assert!(
             set_lookup_elem(result_data, result_cap as usize, 10),
@@ -6664,11 +6595,8 @@ fn cow_set_remove_shared_copies() {
     assert_eq!(ori_rc_count(result_data), 1, "new buffer RC=1");
     assert_eq!(ori_rc_count(data), 1, "old buffer RC decremented");
 
-    // SAFETY:
-    // - `result_data` is the live returned set buffer for `result_cap` buckets.
-    // - `data` is the still-live original set buffer for `cap` buckets.
-    // - Both layouts have initialized i64-aligned slots and remain RC-owned
-    //   until this test calls `free_i64_set` for each allocation.
+    // SAFETY: Both buffers are live, RC-owned, initialized i64-aligned set
+    // layouts for their stated capacities until `free_i64_set` is called.
     unsafe {
         assert!(
             set_lookup_elem(result_data, result_cap as usize, 10),
@@ -6996,11 +6924,8 @@ fn cow_set_union_shared_copies() {
     assert_eq!(ori_rc_count(result), 1, "new buffer RC=1");
     assert_eq!(ori_rc_count(d1), 1, "old buffer RC decremented");
 
-    // SAFETY:
-    // - `result` is the live returned set buffer for `result_cap` buckets.
-    // - `d1` is the still-live original set buffer for `cap1` buckets.
-    // - Both layouts have initialized i64-aligned slots and remain RC-owned
-    //   until this test calls `free_i64_set` for each allocation.
+    // SAFETY: Both buffers are live, RC-owned, initialized i64-aligned set
+    // layouts for their stated capacities until `free_i64_set` is called.
     unsafe {
         assert!(
             set_lookup_elem(result, result_cap as usize, 10),
@@ -7227,11 +7152,8 @@ fn cow_set_intersection_shared_copies() {
     assert_eq!(ori_rc_count(result), 1, "new buffer RC=1");
     assert_eq!(ori_rc_count(d1), 1, "old buffer RC decremented");
 
-    // SAFETY:
-    // - `result` is the live returned set buffer for `result_cap` buckets.
-    // - `d1` is the still-live original set buffer for `cap1` buckets.
-    // - Both layouts have initialized i64-aligned slots and remain RC-owned
-    //   until this test calls `free_i64_set` for each allocation.
+    // SAFETY: Both buffers are live, RC-owned, initialized i64-aligned set
+    // layouts for their stated capacities until `free_i64_set` is called.
     unsafe {
         assert!(
             set_lookup_elem(result, result_cap as usize, 20),
@@ -7502,11 +7424,8 @@ fn cow_set_difference_shared_copies() {
     assert_eq!(ori_rc_count(result), 1, "new buffer RC=1");
     assert_eq!(ori_rc_count(d1), 1, "old buffer RC decremented");
 
-    // SAFETY:
-    // - `result` is the live returned set buffer for `result_cap` buckets.
-    // - `d1` is the still-live original set buffer for `cap1` buckets.
-    // - Both layouts have initialized i64-aligned slots and remain RC-owned
-    //   until this test calls `free_i64_set` for each allocation.
+    // SAFETY: Both buffers are live, RC-owned, initialized i64-aligned set
+    // layouts for their stated capacities until `free_i64_set` is called.
     unsafe {
         assert!(
             set_lookup_elem(result, result_cap as usize, 10),
@@ -7593,8 +7512,7 @@ fn cow_set_difference_disjoint_noop() {
 
 /// Semantic pin: slice outlives original, ALL elements must be cleaned up.
 /// This test ONLY passes if `slice_buffer_rc_dec` uses the full element count
-/// from the header, not the slice's `len`. Currently fails: only slice-visible
-/// elements get `elem_dec_fn`.
+/// from the header rather than the slice's visible `len`.
 #[test]
 fn slice_last_owner_cleans_all_elements() {
     let _g = lock_rc();
@@ -7614,10 +7532,8 @@ fn slice_last_owner_cleans_all_elements() {
     let original = ori_rc_alloc(data_size, 8);
     assert!(!original.is_null());
 
-    // Store elem_dec_fn in header
-    // SAFETY: `original` is a live, 8-byte-aligned RC allocation whose
-    // collection header was initialized by `ori_rc_alloc`; this test owns it
-    // until the final buffer decrement.
+    // SAFETY: `original` is a live, aligned RC allocation with an initialized
+    // collection header and remains owned until the final decrement.
     unsafe { crate::rc::store_elem_dec_fn(original, Some(count_cleanup)) };
 
     // Create a slice covering elements 1..3 (middle 2 of 4)
@@ -7911,12 +7827,8 @@ fn cow_updated_shared_copies_and_keeps_old_element_in_old_buffer() {
 
     // Old buffer untouched, RC dec'd to 1
     assert_eq!(ori_rc_count(data), 1, "old buffer RC dec'd to 1");
-    // SAFETY:
-    // - `data` remains a live RC-owned list allocation with three initialized,
-    //   8-byte-aligned i64 elements.
-    // - `result_data` is a distinct live RC-owned allocation with three
-    //   initialized, 8-byte-aligned i64 elements.
-    // - This test retains both allocations until their `ori_rc_free` calls.
+    // SAFETY: Both distinct buffers remain live and RC-owned until freed, with
+    // three initialized, aligned i64 elements each.
     unsafe {
         assert_eq!(*data.cast::<i64>().add(2), 30, "old buffer unchanged");
         assert_eq!(*result_data.cast::<i64>().add(2), 77, "new buffer replaced");
@@ -8077,10 +7989,8 @@ fn panic_releases_transferred_heap_message_exactly_once() {
     assert_eq!(ori_rc_count(data), 2, "two references pre-panic");
 
     PANIC_MSG_PTR.with(|c| c.set(&raw const msg));
-    // SAFETY:
-    // - The callback has the required `extern "C" fn()` ABI.
-    // - `PANIC_MSG_PTR` points to the live, initialized `msg` for the call.
-    // - `jit_run_protected` installs the recovery boundary before invoking it.
+    // SAFETY: The callback has the required ABI, its thread-local message is
+    // live for the call, and `jit_run_protected` installs recovery first.
     let result = unsafe { jit_run_protected(panic_with_thread_local_msg) };
     let err = result.expect_err("panic must be reported");
     assert!(
@@ -8105,10 +8015,8 @@ fn panic_sso_message_release_no_ops() {
     assert!(msg.heap_data_ptr().is_none(), "SSO string expected");
 
     PANIC_MSG_PTR.with(|c| c.set(&raw const msg));
-    // SAFETY:
-    // - The callback has the required `extern "C" fn()` ABI.
-    // - `PANIC_MSG_PTR` points to the live, initialized inline `msg`.
-    // - `jit_run_protected` installs the recovery boundary before invoking it.
+    // SAFETY: The callback has the required ABI, its inline thread-local message
+    // is live for the call, and `jit_run_protected` installs recovery first.
     let result = unsafe { jit_run_protected(panic_with_thread_local_msg) };
     let err = result.expect_err("panic must be reported");
     assert!(err.contains("short sso"), "SSO text intact: {err}");
@@ -8131,10 +8039,8 @@ fn panic_immortal_message_release_skipped() {
     }
 
     PANIC_MSG_PTR.with(|c| c.set(&raw const msg));
-    // SAFETY:
-    // - The callback has the required `extern "C" fn()` ABI.
-    // - `PANIC_MSG_PTR` points to the live, initialized `msg` for the call.
-    // - `jit_run_protected` installs the recovery boundary before invoking it.
+    // SAFETY: The callback has the required ABI, its thread-local message is
+    // live for the call, and `jit_run_protected` installs recovery first.
     let result = unsafe { jit_run_protected(panic_with_thread_local_msg) };
     let err = result.expect_err("panic must be reported");
     assert!(err.contains("immortal panic message"), "text intact: {err}");

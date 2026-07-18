@@ -14,10 +14,6 @@ use super::super::InferEngine;
 /// resolves via the current impl's `Self` binding, falling back to a
 /// fresh var; `AssociatedType` resolves via the base type's trait impls,
 /// falling back to a fresh var.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive ParsedType variant resolution covering all primitive, container, and user-defined types"
-)]
 pub fn resolve_parsed_type(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -70,107 +66,7 @@ pub fn resolve_parsed_type(
 
         // Named Types
         ParsedType::Named { name, type_args } => {
-            // Resolve type arguments if present
-            let resolved_args: Vec<Idx> = if type_args.is_empty() {
-                Vec::new()
-            } else {
-                resolve_parsed_type_list(engine, arena, *type_args)
-            };
-
-            // Well-known generic types must use their dedicated Pool constructors
-            // to match types created during inference.
-            if !resolved_args.is_empty() {
-                // Grab cache pointer before mutably borrowing pool
-                let wk = engine.well_known();
-                let resolved = if let Some(wk) = wk {
-                    wk.resolve_generic(engine.pool_mut(), *name, &resolved_args)
-                } else if let Some(name_str) = engine.lookup_name(*name) {
-                    crate::check::resolve_well_known_generic(
-                        engine.pool_mut(),
-                        name_str,
-                        &resolved_args,
-                    )
-                } else {
-                    None
-                };
-                if let Some(idx) = resolved {
-                    return idx;
-                }
-                return engine.pool_mut().applied(*name, &resolved_args);
-            }
-
-            // No type args — check for builtin primitive names via cache
-            if let Some(wk) = engine.well_known() {
-                if let Some(idx) = wk.resolve_primitive(*name) {
-                    return idx;
-                }
-            } else if let Some(name_str) = engine.lookup_name(*name) {
-                match name_str {
-                    "int" => return Idx::INT,
-                    "float" => return Idx::FLOAT,
-                    "bool" => return Idx::BOOL,
-                    "str" => return Idx::STR,
-                    "char" => return Idx::CHAR,
-                    "byte" => return Idx::BYTE,
-                    "void" | "()" => return Idx::UNIT,
-                    "never" | "Never" => return Idx::NEVER,
-                    "Duration" | "duration" => return Idx::DURATION,
-                    "Size" | "size" => return Idx::SIZE,
-                    "ordering" | "Ordering" => return Idx::ORDERING,
-                    // `Error` is a registered builtin struct, NOT a
-                    // primitive — fall through to nominal-type resolution (no
-                    // re-map to the Idx::ERROR poison sentinel).
-                    _ => {}
-                }
-            }
-
-            // Check if it's a known user-defined type in the TypeRegistry
-            if let Some(registry) = engine.type_registry() {
-                if registry.get_by_name(*name).is_some() {
-                    return engine.pool_mut().named(*name);
-                }
-            }
-
-            // Check if it's bound in the current environment (type parameter or local)
-            if let Some(ty) = engine.env().lookup(*name) {
-                return engine.instantiate(ty);
-            }
-
-            // FFI types (CPtr, c_int, ...) are valid concrete types absent from
-            // the TypeRegistry; give the Named entry a resolution so downstream
-            // phases (ARC, LLVM) classify them instead of leaving unbound vars.
-            if let Some(wk) = engine.well_known() {
-                // Capture both carrier components before the wk borrow ends
-                // (both Copy), then attach the pair via attach_ffi_carrier.
-                let concrete = wk.resolve_ffi_concrete(*name);
-                let kind = wk.resolve_ffi_cabi_kind(*name);
-                if let (Some(concrete_idx), Some(kind)) = (concrete, kind) {
-                    let named_idx = engine.pool_mut().named(*name);
-                    engine
-                        .pool_mut()
-                        .attach_ffi_carrier(named_idx, concrete_idx, kind);
-                    return named_idx;
-                }
-            } else if let Some(name_str) = engine.lookup_name(*name) {
-                // well_known-absent fallback: derive BOTH the kind AND the
-                // ergonomic concrete Idx from the single str-surface inventory
-                // `CAbiKind::from_name` — no separate hardcoded c_* list here.
-                if let Some(kind) = ori_ir::CAbiKind::from_name(name_str) {
-                    let concrete_idx = if kind.is_float() {
-                        Idx::FLOAT
-                    } else {
-                        Idx::INT
-                    };
-                    let named_idx = engine.pool_mut().named(*name);
-                    engine
-                        .pool_mut()
-                        .attach_ffi_carrier(named_idx, concrete_idx, kind);
-                    return named_idx;
-                }
-            }
-
-            // Unknown type — create a named var for inference
-            engine.fresh_named_var(*name)
+            resolve_named_type(engine, arena, *name, *type_args)
         }
 
         // Inference Markers
@@ -214,6 +110,98 @@ pub fn resolve_parsed_type(
             }
         }
     }
+}
+
+fn resolve_named_type(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    name: Name,
+    type_args: ParsedTypeRange,
+) -> Idx {
+    let resolved_args = resolve_named_type_args(engine, arena, type_args);
+    if !resolved_args.is_empty() {
+        return resolve_applied_named_type(engine, name, &resolved_args);
+    }
+
+    if let Some(primitive) = resolve_named_primitive(engine, name) {
+        return primitive;
+    }
+    if engine
+        .type_registry()
+        .is_some_and(|registry| registry.get_by_name(name).is_some())
+    {
+        return engine.pool_mut().named(name);
+    }
+    if let Some(ty) = engine.env().lookup(name) {
+        return engine.instantiate(ty);
+    }
+    if let Some(ffi_type) = resolve_named_ffi_type(engine, name) {
+        return ffi_type;
+    }
+    engine.fresh_named_var(name)
+}
+
+fn resolve_named_type_args(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    type_args: ParsedTypeRange,
+) -> Vec<Idx> {
+    if type_args.is_empty() {
+        Vec::new()
+    } else {
+        resolve_parsed_type_list(engine, arena, type_args)
+    }
+}
+
+fn resolve_applied_named_type(engine: &mut InferEngine<'_>, name: Name, args: &[Idx]) -> Idx {
+    let resolved = if let Some(wk) = engine.well_known() {
+        wk.resolve_generic(engine.pool_mut(), name, args)
+    } else if let Some(name_str) = engine.lookup_name(name) {
+        crate::check::resolve_well_known_generic(engine.pool_mut(), name_str, args)
+    } else {
+        None
+    };
+    resolved.unwrap_or_else(|| engine.pool_mut().applied(name, args))
+}
+
+fn resolve_named_primitive(engine: &InferEngine<'_>, name: Name) -> Option<Idx> {
+    if let Some(wk) = engine.well_known() {
+        return wk.resolve_primitive(name);
+    }
+    match engine.lookup_name(name)? {
+        "int" => Some(Idx::INT),
+        "float" => Some(Idx::FLOAT),
+        "bool" => Some(Idx::BOOL),
+        "str" => Some(Idx::STR),
+        "char" => Some(Idx::CHAR),
+        "byte" => Some(Idx::BYTE),
+        "void" | "()" => Some(Idx::UNIT),
+        "never" | "Never" => Some(Idx::NEVER),
+        "Duration" | "duration" => Some(Idx::DURATION),
+        "Size" | "size" => Some(Idx::SIZE),
+        "ordering" | "Ordering" => Some(Idx::ORDERING),
+        _ => None,
+    }
+}
+
+fn resolve_named_ffi_type(engine: &mut InferEngine<'_>, name: Name) -> Option<Idx> {
+    let carrier = if let Some(wk) = engine.well_known() {
+        wk.resolve_ffi_concrete(name)
+            .zip(wk.resolve_ffi_cabi_kind(name))
+    } else {
+        let kind = ori_ir::CAbiKind::from_name(engine.lookup_name(name)?)?;
+        let concrete = if kind.is_float() {
+            Idx::FLOAT
+        } else {
+            Idx::INT
+        };
+        Some((concrete, kind))
+    }?;
+    let named_idx = engine.pool_mut().named(name);
+    engine
+        .pool_mut()
+        .attach_ffi_carrier(named_idx, carrier.0, carrier.1);
+    Some(named_idx)
 }
 
 /// Resolve a list of parsed types into a vector of pool indices.

@@ -1,25 +1,8 @@
-//! Internal protocol intercepts for ARC IR function calls.
+//! Internal ARC protocol-call intercepts.
 //!
-//! These are pseudo-calls emitted by the ARC lowering pipeline that don't
-//! correspond to user-visible functions. Each protocol has a specific
-//! calling convention and result type that differs from the standard
-//! Apply emission path.
-//!
-//! Protocol builtins are dispatched via [`ProtocolBuiltin::from_name()`],
-//! ensuring an exhaustive match — adding a new variant to the enum forces
-//! a handler. `ori_list_take` is NOT a protocol builtin (it's a real
-//! runtime function with special sret handling).
-//!
-//! | Protocol              | Purpose                                  | Intercepted?     |
-//! |-----------------------|------------------------------------------|------------------|
-//! | `__iter_next`         | For-loop iteration protocol              | Yes              |
-//! | `__collect_set`       | Collect iterator into `Set<T>`           | Yes              |
-//! | `__index`             | `receiver[index]` desugaring             | Yes              |
-//! | `__cast`              | `value as Target` conversion             | Yes (supported pairs) |
-//! | `iter`                | Iterator creation (borrow inference only) | No (normal call) |
-//! | `ori_iter_drop`       | Iterator cleanup (borrow inference only)  | No (normal call) |
-//! | `ori_list_take`       | For-yield list finalization (non-PB)     | Yes (non-PB)     |
-//! | `ori_list_slice_drop` | List rest pattern (non-PB)               | Yes (non-PB)     |
+//! Pseudo-calls with nonstandard results or ABIs bypass ordinary Apply dispatch.
+//! Exhaustive [`ProtocolBuiltin`] dispatch covers intercepted registry entries;
+//! list finalization runtime calls use a separate manual-sret path.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
@@ -42,21 +25,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         args: &[ArcVarId],
         func: &ArcFunction,
     ) -> bool {
-        // Central protocol dispatch — exhaustive match enforced by compiler.
-        // Adding a ProtocolBuiltin variant makes this match non-exhaustive.
-        // `from_name` is the registry's str-keyed accessor; protocol identity
-        // checks use pre-interned `Name`s per interning discipline.
+        // INVARIANT: Exhaustive dispatch makes new protocol variants compiler-checked.
         if let Some(protocol) = ProtocolBuiltin::from_name(self.interner.lookup(callee)) {
-            // IterNext uses decomposed emission (tag + scratch pointer separately)
-            // to avoid building an intermediate {i64, T} wrapper struct.
+            // Why: IterNext keeps its tag and scratch pointer decomposed.
             if matches!(protocol, ProtocolBuiltin::IterNext) {
                 self.emit_decomposed_iter_next(dst, args, func);
                 return true;
             }
 
-            // Iter and IterDrop are registered as ProtocolBuiltin for borrow
-            // inference only — they go through normal function dispatch
-            // (real runtime calls), not protocol intercept.
+            // Why: Borrow inference registers Iter and IterDrop without intercepting them.
             if !protocol.is_intercepted() {
                 return false;
             }
@@ -70,9 +47,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 ProtocolBuiltin::Index => {
                     require_protocol_result("__index", self.emit_index_protocol(args, func))
                 }
-                // IterNext returns before generic protocol emission.
                 ProtocolBuiltin::IterNext => unreachable!("IterNext uses decomposed emission"),
-                // `is_intercepted` excludes Iter and IterDrop.
                 ProtocolBuiltin::Iter | ProtocolBuiltin::IterDrop => {
                     unreachable!("Iter/IterDrop are not intercepted protocols")
                 }
@@ -81,8 +56,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return true;
         }
 
-        // ori_list_take: NOT a protocol builtin — it's a real runtime function
-        // with special sret handling (has `ori_` prefix, exists in RT_FUNCTIONS).
+        // Why: `ori_list_take` is a runtime function with a nonstandard sret ABI.
         if callee == self.list_rt_names.take && !args.is_empty() {
             let result =
                 require_protocol_result("ori_list_take", self.emit_list_take(dst, args[0], func));
@@ -90,9 +64,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return true;
         }
 
-        // ori_list_slice_drop: emitted by decision tree ListRest path resolution.
-        // args[0] = list struct, args[1] = start index (int constant).
-        // Expands to ori_list_slice_drop(data, len, cap, n, elem_size, out_ptr).
         if callee == self.list_rt_names.slice_drop && args.len() >= 2 {
             let list_ty = func.var_type(args[0]);
             let result = require_protocol_result(
@@ -195,11 +166,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (data, len, cap) =
             self.extract_collection_fields(list_val, "slice.data", "slice.len", "slice.cap")?;
 
-        // Compute element size from the list's element type
-        // (narrowed element size when available). A non-List receiver on the
-        // ListRest slice-drop path is a phase-contract violation — a silent
-        // element-size fallback would feed a wrong stride into the runtime's
-        // buffer walk (memory corruption), so fail loud instead.
+        // INVARIANT: ListRest must supply a list; a fallback stride could corrupt memory.
         let resolved = self.pool.resolve_fully(list_ty);
         assert!(
             self.pool.tag(resolved) == ori_types::Tag::List,
@@ -219,20 +186,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         )
     }
 
-    /// Emit `ori_list_take(list_ptr, out_ptr)` with manual sret handling.
+    /// Emit `ori_list_take(list_ptr, out_ptr)` and attach result-buffer cleanup metadata.
     ///
-    /// `ori_list_take` uses an explicit sret pattern: `void(ptr list, ptr out)`.
-    /// We alloca a `{i64, i64, ptr}` result, call the function, then load.
-    ///
-    /// The moved-out result buffer's V5 RC header carries no `elem_dec_fn` —
-    /// `ori_list_take` moves the data buffer out without populating it. When the
-    /// for-yield result is freed solely via `IterState::Drop` (the iter-consumed
-    /// shape, caller `elem_dec_fn = None`), the null header runs zero element
-    /// cleanup and heap elements leak. Store `elem_dec_fn` + `elem_count` on the
-    /// result, mirroring the Construct List / collect-consumer finalizers
-    /// (CG:RT-4 `elem_dec_fn` contract). The element type is derived from the
-    /// RESULT `dst`'s `[T]` type — `list_var` is the scratch `OriList` handle
-    /// (`Tag::Int` in ARC IR) and would mis-type the dec fn.
+    /// The element type comes from `dst`; `list_var` is an untyped scratch handle.
     fn emit_list_take(
         &mut self,
         dst: ArcVarId,
@@ -246,10 +202,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let result =
             self.call_with_manual_sret_out(func_id, &[list_ptr], list_struct_ty, "list_take")?;
 
-        // Populate the result buffer's V5 elem header from the dst `[T]` type.
-        // `get_or_generate_elem_dec_fn` returns a null pointer for scalar
-        // elements (CG:RT-4), so `[int]`/`[byte]` results store a NULL
-        // elem_dec_fn — no spurious per-element dec fn is attached.
+        // INVARIANT: Scalar elements carry a null destructor in the result header.
         let dst_ty = func.var_type(dst);
         let resolved = self.pool.resolve_fully(dst_ty);
         if self.pool.tag(resolved) == ori_types::Tag::List {
@@ -268,10 +221,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(result)
     }
 
-    /// The canonical `{ i64, i64, ptr }` fat-pointer LLVM type — the runtime
-    /// ABI shape (RT-6) `ori_list_take` / `ori_list_slice_drop` write through
-    /// their out-pointer, independent of the receiver's repr. Single
-    /// definition site for the manual-sret result layout.
+    /// Return the canonical `{ i64, i64, ptr }` manual-sret result type.
+    /// Runtime list finalizers write this shape independent of receiver repr.
     pub(super) fn fat_ptr_llvm_type(&mut self) -> crate::codegen::value_id::LLVMTypeId {
         let scx = self.builder.scx();
         let st = scx.type_struct(
@@ -285,9 +236,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.register_type(st.into())
     }
 
-    /// Call a runtime function using the manual-sret convention: the result
-    /// pointer is appended as the LAST argument (`void(args..., ptr out)`),
-    /// then the result struct is loaded from the alloca.
+    /// Call `void(args..., ptr out)` and load the manual-sret result.
     fn call_with_manual_sret_out(
         &mut self,
         func_id: crate::codegen::value_id::FunctionId,

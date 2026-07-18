@@ -237,7 +237,59 @@ fn decision_tree_pool_push_and_get() {
     };
     let id = pool.push(tree.clone());
     assert_eq!(*pool.get(id), tree);
+    let carriers = pool.leaf_discard_paths(id);
+    assert_eq!(carriers.len(), 1);
+    assert!(carriers[0].is_empty());
     assert_eq!(pool.len(), 1);
+}
+
+#[test]
+#[should_panic(expected = "1 success nodes but 0 cleanup carriers")]
+fn decision_tree_pool_rejects_misaligned_cleanup_carriers() {
+    let mut pool = DecisionTreePool::new();
+    let tree = DecisionTree::Leaf {
+        arm_index: 0,
+        bindings: vec![],
+    };
+
+    let _ = pool.push_with_leaf_discards(tree, Vec::new());
+}
+
+#[test]
+fn decision_tree_pool_composite_tree_creates_carrier_per_success() {
+    let mut pool = DecisionTreePool::new();
+    let tree = DecisionTree::Switch {
+        path: Vec::new(),
+        test_kind: TestKind::IntEq,
+        edges: vec![
+            (
+                TestValue::Int(0),
+                DecisionTree::Leaf {
+                    arm_index: 0,
+                    bindings: Vec::new(),
+                },
+            ),
+            (
+                TestValue::Int(1),
+                DecisionTree::Guard {
+                    arm_index: 1,
+                    bindings: Vec::new(),
+                    guard: CanId::new(0),
+                    on_fail: Box::new(DecisionTree::Leaf {
+                        arm_index: 2,
+                        bindings: Vec::new(),
+                    }),
+                },
+            ),
+        ],
+        default: Some(Box::new(DecisionTree::Fail)),
+    };
+
+    let id = pool.push(tree);
+    let carriers = pool.leaf_discard_paths(id);
+
+    assert_eq!(carriers.len(), 3);
+    assert!(carriers.iter().all(Vec::is_empty));
 }
 
 // CanonResult

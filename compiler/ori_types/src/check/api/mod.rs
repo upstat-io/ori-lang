@@ -1,29 +1,7 @@
-//! Public API for module-level type checking.
+//! Module type-checking entry points.
 //!
-//! Provides the main entry points for checking modules.
-//!
-//! # Pool Lifecycle
-//!
-//! Each `check_module*` call creates a fresh [`Pool`] inside a [`ModuleChecker`].
-//! The Pool owns all type data for that module. After checking:
-//!
-//! - **`check_module()`**: Pool is discarded. Use when only the [`TypeCheckResult`]
-//!   is needed (e.g., Salsa `typed()` query).
-//! - **`check_module_with_pool()`** / **`check_module_with_imports()`**: Returns
-//!   `(TypeCheckResult, Pool)`. Use when the Pool is needed for:
-//!   - Error rendering (`Pool::format_type()` resolves `Idx` to type names)
-//!   - Code generation (LLVM codegen needs full type information)
-//!   - LSP features (hover, completion)
-//!
-//! The evaluator (`ori_eval`) only needs `&[Idx]` (expression types) for
-//! type-directed dispatch — it does NOT need the Pool at runtime.
-//!
-//! In the Salsa pipeline (`oric/src/query/mod.rs`):
-//! ```text
-//! typed()     → calls type_check_with_imports() → discards Pool
-//! evaluated() → calls type_check_with_imports_and_pool() → passes &[Idx] to evaluator
-//! ori check   → calls type_check_with_imports_and_pool() → uses Pool for error rendering
-//! ```
+//! Basic checks return [`TypeCheckResult`] and discard their fresh [`Pool`].
+//! Pool-returning variants retain type data for diagnostics, evaluation, or codegen.
 
 use ori_ir::{ExprArena, Module, StringInterner};
 
@@ -164,11 +142,7 @@ pub fn check_module_with_imports<F>(
 where
     F: FnOnce(&mut ModuleChecker<'_>),
 {
-    // Ensure sufficient stack for the entire type checking pipeline.
-    // The register_fn closure triggers Salsa queries (parsed, tokens) for imports,
-    // and check_module_impl processes all function bodies. On macOS ARM64, the
-    // combined depth of Salsa framework + tracing spans + body checking can
-    // exhaust worker thread stacks.
+    // Why: nested Salsa queries and body checking can exhaust macOS worker stacks.
     ori_stack::ensure_sufficient_stack(|| {
         let mut checker = ModuleChecker::new(arena, interner);
         register_fn(&mut checker);
@@ -192,55 +166,30 @@ where
     impls = module.impls.len(),
 ))]
 fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
-    // Pass 0a: Register built-in types
     register_builtin_types(checker);
-
-    // Pass 0b: Register user-defined types
     register_user_types(checker, module);
 
-    // Pass 0b.5: Register burden specs for extern-declared types.
-    // Spec: Annex E §FFI — `#free(fn)` annotation populates user_drop;
-    // absence falls back to EMPTY_BURDEN_SPEC at lookup time
-    // (proposal:643-645).
+    // Spec: Annex E §FFI.
     register_extern_burdens(checker, module);
 
-    // Pass 0c: Register traits and implementations.
-    // The trait/impl side runs in two phases:
-    //   1. `register_traits` — register every trait skeleton + each trait's
-    //      *direct* object-safety violations from its own items.
-    //   2. `register_object_safety_violations` — propagate `GenericMethod`
-    //      violations from super-traits to children via the transitive DAG.
-    // Phase 2 MUST run before `register_impls` so impl-resolution sees the
-    // correct violation set on parent traits when constructing trait-object
-    // types (Spec: Clause 8.8).
+    // INVARIANT: Object-safety propagation precedes impl registration.
+    // Spec: Clause 8.8.
     register_traits(checker, module);
     register_object_safety_violations(checker, module);
     register_impls(checker, module);
-    // Index builtin-type extension methods (`extend str { @m }`) so they are not
-    // false-rejected as unknown by `emit_unknown_method`.
+    // Why: Extension methods must be indexed before unknown-method diagnostics.
     register_builtin_extensions(checker, module);
 
-    // Pass 0d: Register derived implementations
     register_derived_impls(checker, module);
-
-    // Pass 0e: Register config variables
     register_consts(checker, module);
     tracing::debug!("registration passes complete");
 
-    // Pass 1: Collect function signatures
     collect_signatures(checker, module);
     tracing::debug!("signature collection complete");
 
-    // Pass 2: Check function bodies
     check_function_bodies(checker, module);
-
-    // Pass 3: Check test bodies
     check_test_bodies(checker, module);
-
-    // Pass 4: Check impl method bodies
     check_impl_bodies(checker, module);
-
-    // Pass 5: Check def impl method bodies
     check_def_impl_bodies(checker, module);
     tracing::debug!("body checking complete");
 }

@@ -53,20 +53,25 @@ pub(crate) fn rc_remarks_enabled() -> bool {
 /// conformance. The envelope's
 /// `burden_path` is derived from this so `burden_path: true` is truthful and a
 /// default-path stream is honestly `false`.
-#[allow(
-    dead_code,
-    reason = "schema contract: consumed by the cli-producer sibling section + RcRemarkStreamEnvelope::new"
-)]
 pub(crate) fn on_burden_sole_path() -> bool {
-    std::env::var("ORI_DISABLE_PREDICATE_STACK_RC").as_deref() == Ok("1")
+    report_predicate_stack_rc_toggle(
+        std::env::var("ORI_DISABLE_PREDICATE_STACK_RC").as_deref() == Ok("1"),
+    )
+}
+
+fn report_predicate_stack_rc_toggle(disabled: bool) -> bool {
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_PREDICATE_STACK_RC",
+            effect = "compile through the burden-only RC projection",
+            "ablation toggle fired"
+        );
+    }
+    disabled
 }
 
 /// Version of the RC-remark record + envelope schema. Bumped when a field is
 /// added/removed/retyped so consumers can detect producer drift.
-#[allow(
-    dead_code,
-    reason = "schema contract: consumed by the cli-producer sibling section stream driver"
-)]
 pub(crate) const RC_SCHEMA_VERSION: u32 = 1;
 
 /// The once-per-stream header for a JSONL remark stream: schema version,
@@ -137,7 +142,7 @@ pub fn write_rc_remarks_header(source_file: &str, compiler_sha: &str) {
 }
 
 /// LLVM opt-record remark kind. A surviving (non-eliminated) RC op is `Missed`.
-#[allow(
+#[expect(
     dead_code,
     reason = "schema contract: Passed/Analysis constructed by the emission-seam sibling section"
 )]
@@ -228,7 +233,7 @@ impl RcRemarkOp {
 /// The AIMS lattice dimension whose proof failure blocked elimination. Pinned
 /// to the 7 dimensions in `aims::lattice::dimensions` (one variant per
 /// dimension identity — NOT the per-dimension value set).
-#[allow(
+#[expect(
     dead_code,
     reason = "schema contract: Access/Uniqueness/Shape/Effect constructed by the emission-seam sibling section"
 )]
@@ -364,8 +369,8 @@ pub(crate) struct RcSurvivorSite<'a> {
 }
 
 /// Emit one `missed` remark for a surviving `BurdenInc` when `ORI_RC_REMARKS`
-/// is set; a no-op otherwise. Append-only, one JSON line per call. The seam +
-/// span-attribution siblings populate the currently-null fields.
+/// is set; a no-op otherwise. Append-only, one JSON line per call. The record
+/// permits null seam and span-attribution fields.
 pub(crate) fn emit_rc_survivor_remark(site: &RcSurvivorSite) {
     let Some(path) = RC_REMARKS_PATH.as_ref() else {
         return;
@@ -392,11 +397,8 @@ pub(crate) fn emit_rc_survivor_remark(site: &RcSurvivorSite) {
             ),
         },
         burden_net: None,
-        // Reuse the burden_balance taxonomy helpers (no parallel enum) — the
-        // def-site + machine-repr attribution for the surviving var. The raw
-        // byte-offset span is carried here (None for synthetic ops); oric-side
-        // resolution to `debug_loc` via `LineOffsetTable` is the cli-producer's
-        // job (ori_arc holds byte offsets, not a source map).
+        // Reuse burden-balance taxonomy and carry only the raw byte span;
+        // oric resolves source locations because ori_arc has no source map.
         args: vec![
             format!("def_kind={}", site.def_kind),
             format!("var_repr={}", site.var_repr),
@@ -424,5 +426,18 @@ pub(crate) fn emit_rc_survivor_remark(site: &RcSurvivorSite) {
                 "rc-remark file open failed"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod toggle_tests {
+    #[test]
+    fn predicate_stack_rc_toggle_reports_effect() {
+        crate::test_helpers::assert_ablation_env_event(
+            concat!(module_path!(), "::predicate_stack_rc_toggle_reports_effect"),
+            "ORI_DISABLE_PREDICATE_STACK_RC",
+            "compile through the burden-only RC projection",
+            super::on_burden_sole_path,
+        );
     }
 }

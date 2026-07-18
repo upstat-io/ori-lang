@@ -105,7 +105,6 @@ pub(super) fn build_file_multi(path: &str, options: &BuildOptions, start: std::t
     let db = CompilerDb::new();
     let opt_config = build_optimization_config(options);
 
-    // Create compilation context (avoids passing many parameters to helper)
     let compile_ctx = ModuleCompileContext {
         db: &db,
         target: &target,
@@ -160,6 +159,19 @@ pub(super) struct ModuleCompileContext<'a> {
     pub(super) narrowing_policy: ori_repr::NarrowingPolicy,
 }
 
+// Database and backend configuration owners expose their own diagnostics.
+// Keep them opaque while reporting this module compilation's stable paths.
+impl std::fmt::Debug for ModuleCompileContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModuleCompileContext")
+            .field("base_dir", &self.base_dir)
+            .field("obj_dir", &self.obj_dir)
+            .field("verbose", &self.verbose)
+            .field("narrowing_policy", &self.narrowing_policy)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Producer export projected from the same closed artifact LLVM consumed.
 pub(super) type ExportedFunctionInfo = crate::commands::codegen_pipeline::RealizedCallableExport;
 
@@ -178,6 +190,23 @@ pub(super) struct CompiledModuleInfo {
     /// Merkle hashes of collection types in public function signatures.
     /// Forwarded as metadata only; does not suppress narrowing.
     pub(super) exported_collection_surfaces: Vec<u64>,
+}
+
+// Callable exports keep backend-bound metadata opaque. Module diagnostics need
+// the source identity and exported-surface dimensions.
+impl std::fmt::Debug for CompiledModuleInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompiledModuleInfo")
+            .field("path", &self.path)
+            .field("has_cli_entry", &self.has_cli_entry)
+            .field("public_function_count", &self.public_functions.len())
+            .field("exported_type_count", &self.exported_type_metadata.len())
+            .field(
+                "exported_collection_surface_count",
+                &self.exported_collection_surfaces.len(),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 /// Compile a single module's typed + canonicalized IR to an LLVM module.

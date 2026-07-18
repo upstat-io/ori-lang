@@ -1,30 +1,22 @@
 //! Build imported monomorphization `MonoFunction` structs for the AOT path.
 //!
-//! For each `MonoInstance` in the host module's type-check output that
-//! references an imported generic, construct the concrete `MonoFunction` —
-//! mangled name, concrete sig, fresh `body_type_map` — keyed to merged-pool
-//! `Idx` values. The caller owns the merged pool; this module mutates it
-//! via `build_mono_body_type_map` (which pre-interns scheme-var `BoundVar`
-//! entries per the type pool's re-intern contract).
+//! Imported generic demands become concrete `MonoFunction`s keyed to merged-pool
+//! indices. Body-map construction preserves the pool's `BoundVar` re-interning
+//! contract.
 
-#[cfg(feature = "llvm")]
 use rustc_hash::FxHashMap;
 
-#[cfg(feature = "llvm")]
 use ori_types::{
     FunctionSig, GenericArg, Idx, MethodProducer, MonoInstance, Pool, TypeCheckResult,
 };
 
-#[cfg(feature = "llvm")]
 mod impl_templates;
 
-#[cfg(feature = "llvm")]
 pub(crate) use impl_templates::{
     collect_imported_impl_templates, ImportedImplTemplate, ImportedImplTemplateSource,
 };
 
 /// Exact source body namespace for one imported specialization.
-#[cfg(feature = "llvm")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ImportedMonoBody {
     /// Top-level source function, looked up by name.
@@ -34,7 +26,6 @@ pub(crate) enum ImportedMonoBody {
 }
 
 /// One resolved imported specialization and its exact producer body.
-#[cfg(feature = "llvm")]
 #[derive(Clone, Debug)]
 pub(crate) struct ImportedMonoFn {
     pub(crate) function: ori_repr::monomorphize::MonoFunction,
@@ -43,7 +34,6 @@ pub(crate) struct ImportedMonoFn {
 }
 
 /// Prelude module surfaces used to register implicit generic functions.
-#[cfg(feature = "llvm")]
 #[derive(Clone, Copy)]
 pub(crate) struct ImportedPreludeSource<'a> {
     pub(crate) parse: &'a crate::parser::ParseOutput,
@@ -53,7 +43,6 @@ pub(crate) struct ImportedPreludeSource<'a> {
 }
 
 /// Mutable merged-pool state shared by one module's re-interning operations.
-#[cfg(feature = "llvm")]
 pub(crate) struct PoolReinternState<'a> {
     pub(crate) merged_pool: &'a mut Pool,
     pub(crate) cache: &'a mut FxHashMap<Idx, Idx>,
@@ -67,7 +56,6 @@ pub(crate) struct PoolReinternState<'a> {
 /// `compile_to_llvm_with_imports` → `run_codegen_pipeline` →
 /// the shared ARC batch lowerer. The merged pool stays a separate parameter — its
 /// `'ctx` lifetime ties to the LLVM context.
-#[cfg(feature = "llvm")]
 #[derive(Clone, Copy)]
 pub(crate) struct ImportedSurfaces<'a> {
     /// One exact source owner per unique imported mono instance.
@@ -81,7 +69,6 @@ pub(crate) struct ImportedSurfaces<'a> {
 ///
 /// Returns one entry per unique imported mono instance. Dedups by mangled
 /// name; skips instances whose `fn_name` is not in `imported_generic_sigs`.
-#[cfg(feature = "llvm")]
 pub(crate) fn build_imported_mono_functions(
     type_result: &TypeCheckResult,
     imported_generic_sigs: &FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)>,
@@ -100,13 +87,7 @@ pub(crate) fn build_imported_mono_functions(
         };
         let instance_id = ori_ir::canon::MonoInstanceId::new(raw_instance_id);
 
-        // Defense-in-depth: a poison MonoInstance (a generic/impl/method arg
-        // carrying a type-error) that slipped the ori_types record gates must
-        // never materialize — its body codegens method invokes on the poison
-        // receiver (AOT missing-mono). Read the canonical TypeFlags::is_recordable
-        // predicate, not a bare Idx::ERROR slot compare — is_recordable also
-        // refuses compound poison (List<Idx::ERROR> via HAS_ERROR on PROPAGATE_MASK)
-        // and residual var/infer args. is_recordable in ori_types is the primary cure.
+        // INVARIANT: Imported instances contain only recordable type arguments.
         if instance
             .generic_args
             .iter()
@@ -317,7 +298,6 @@ fn build_method_body_type_map(
 /// caller owns the merged pool; the sig is re-interned into it via the shared
 /// per-module var-remap so scheme-var ids stay coherent with the prelude's
 /// re-interned canon.
-#[cfg(feature = "llvm")]
 pub(crate) fn register_prelude_generic_sigs(
     imported_generic_sigs: &mut FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)>,
     source: ImportedPreludeSource<'_>,
@@ -335,11 +315,12 @@ pub(crate) fn register_prelude_generic_sigs(
         if !sig.is_generic() {
             continue;
         }
-        // First registration wins — an explicit import shadowing a prelude name
-        // (e.g. `use mymod { min }`) already registered the explicit sig.
-        if imported_generic_sigs.contains_key(&func.name) {
+        // INVARIANT: explicit imports retain precedence over prelude signatures.
+        let std::collections::hash_map::Entry::Vacant(entry) =
+            imported_generic_sigs.entry(func.name)
+        else {
             continue;
-        }
+        };
         let re_interned = ori_types::re_intern_sig_with_var_remap(
             sig,
             source.source_pool,
@@ -347,7 +328,7 @@ pub(crate) fn register_prelude_generic_sigs(
             &mut *cache,
             &mut *var_remap,
         );
-        imported_generic_sigs.insert(func.name, (re_interned, source.module_index, func.name));
+        entry.insert((re_interned, source.module_index, func.name));
     }
 }
 
@@ -359,7 +340,6 @@ pub(crate) fn register_prelude_generic_sigs(
 /// `build_mono_body_type_map` (which handles the `HAS_VAR|HAS_BOUND_VAR`
 /// mask + scheme-var `BoundVar` pre-intern contract). Var capacity is
 /// ensured up front because `substitute_in_pool` panics on out-of-bounds ids.
-#[cfg(feature = "llvm")]
 fn build_body_type_map(
     merged_pool: &mut Pool,
     instance: &MonoInstance,
@@ -390,5 +370,4 @@ fn build_body_type_map(
 }
 
 #[cfg(test)]
-#[cfg(feature = "llvm")]
 mod tests;

@@ -1,57 +1,28 @@
-//! Codegen pipeline implementation for AOT compilation.
+//! AOT LLVM codegen orchestration.
 //!
-//! Contains the heavy implementation details:
-//! - LLVM codegen orchestration (`run_codegen_pipeline`)
-//!
-//! Supporting modules divide the pipeline by responsibility:
-//! - [`borrow_inference`]: complete pre-AIMS ARC batch lowering
-//! - [`exports`]: callable-contract and public-export projection
-//! - [`pc2_hooks`]: PC-2 invariant checks for AOT pre-mono and mono sites
-//! - [`finalize`]: ARC phase dumps, diagnostics, and verification
-//!
-//! Called from `compile_common::compile_to_llvm_with_imported_monos` and
-//! `compile_common::compile_to_llvm_with_imports`.
+//! The pipeline lowers the complete ARC batch, projects callable exports, checks
+//! PC-2 invariants, emits LLVM, and finalizes dumps and verification.
 
-#[cfg(feature = "llvm")]
 mod borrow_inference;
-#[cfg(feature = "llvm")]
 mod exports;
-#[cfg(feature = "llvm")]
 mod finalize;
-#[cfg(feature = "llvm")]
 pub(crate) mod imported_mono;
-#[cfg(feature = "llvm")]
 mod pc2_hooks;
 
-#[cfg(feature = "llvm")]
 use imported_mono::ImportedSurfaces;
-#[cfg(feature = "llvm")]
 use ori_ir::{canon::CanonResult, Name, StringInterner};
-#[cfg(feature = "llvm")]
 use ori_llvm::codegen::eh_model::EhModel;
-#[cfg(feature = "llvm")]
 use ori_llvm::codegen::function_compiler::FunctionCompiler;
-#[cfg(feature = "llvm")]
 use ori_llvm::codegen::ir_builder::IrBuilder;
-#[cfg(feature = "llvm")]
 use ori_llvm::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
-#[cfg(feature = "llvm")]
 use ori_llvm::codegen::type_registration;
-#[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
-#[cfg(feature = "llvm")]
 use ori_llvm::SimpleCx;
-#[cfg(feature = "llvm")]
 use ori_repr::executable::{ExecutableProgram, UserDropBinding};
-#[cfg(feature = "llvm")]
 use ori_repr::monomorphize::MonoFunction;
-#[cfg(feature = "llvm")]
 use ori_types::{FunctionSig, Pool, TypeCheckResult};
-#[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
-#[cfg(feature = "llvm")]
 use oric::{CompilerDb, Db};
-#[cfg(feature = "llvm")]
 use std::mem::ManuallyDrop;
 
 /// One producer export projected from the same closed artifact LLVM consumes.
@@ -60,7 +31,6 @@ use std::mem::ManuallyDrop;
 /// pool. Multi-module import assembly re-interns the provider's typed
 /// signature into the consumer's merged pool before pairing it with these
 /// frozen facts.
-#[cfg(feature = "llvm")]
 pub(crate) struct RealizedCallableExport {
     pub(crate) mangled_name: String,
     pub(crate) source_name: String,
@@ -68,13 +38,11 @@ pub(crate) struct RealizedCallableExport {
 }
 
 /// LLVM module plus producer-authored callable facts from one realization.
-#[cfg(feature = "llvm")]
 pub struct LlvmCodegenOutput<'ctx> {
     pub(crate) module: ori_llvm::inkwell::module::Module<'ctx>,
     pub(crate) exports: Vec<RealizedCallableExport>,
 }
 
-#[cfg(feature = "llvm")]
 #[derive(Clone, Copy)]
 pub(super) struct CodegenPipelineInput<'ctx, 'a> {
     pub(super) context: &'ctx Context,
@@ -94,7 +62,6 @@ pub(super) struct CodegenPipelineInput<'ctx, 'a> {
     pub(super) imported_collection_surfaces: &'a [u64],
 }
 
-#[cfg(feature = "llvm")]
 struct AnalysisProducts {
     prepared: crate::realization::PreparedArcBatch,
     mono_functions: Vec<MonoFunction>,
@@ -102,7 +69,6 @@ struct AnalysisProducts {
     impl_emission_names: Vec<Option<Name>>,
 }
 
-#[cfg(feature = "llvm")]
 struct RealizedCodegen {
     executable: ExecutableProgram,
     function_sigs: Vec<FunctionSig>,
@@ -118,7 +84,6 @@ struct RealizedCodegen {
 /// main-wrapper generation.
 /// `symbol_prefix`: `""` (single-file) or the module name (multi-file).
 /// `import_sigs`: external symbols from other modules; `&[]` for single-file.
-#[cfg(feature = "llvm")]
 #[expect(
     unsafe_code,
     reason = "SimpleCx owns the LLVM context borrowed by CodegenCx for this function"
@@ -149,7 +114,6 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     Ok(LlvmCodegenOutput { module, exports })
 }
 
-#[cfg(feature = "llvm")]
 fn realize_codegen_program(
     input: &CodegenPipelineInput<'_, '_>,
     pool: &mut Pool,
@@ -224,7 +188,6 @@ fn realize_codegen_program(
     })
 }
 
-#[cfg(feature = "llvm")]
 fn prepare_analysis_products(
     input: &CodegenPipelineInput<'_, '_>,
     pool: &mut Pool,
@@ -289,7 +252,6 @@ fn prepare_analysis_products(
     })
 }
 
-#[cfg(feature = "llvm")]
 fn lower_arc_functions(
     input: &CodegenPipelineInput<'_, '_>,
     pool: &Pool,
@@ -324,7 +286,6 @@ fn lower_arc_functions(
     }
 }
 
-#[cfg(feature = "llvm")]
 fn lowering_problem<T: std::fmt::Debug>(phase: &str, problems: &[T]) -> String {
     format!(
         "{phase} ARC lowering failed with {} problem(s): {problems:?}",
@@ -332,7 +293,6 @@ fn lowering_problem<T: std::fmt::Debug>(phase: &str, problems: &[T]) -> String {
     )
 }
 
-#[cfg(feature = "llvm")]
 fn emit_realized_program<'ctx>(
     scx: &'ctx SimpleCx<'ctx>,
     input: &CodegenPipelineInput<'ctx, '_>,
@@ -383,7 +343,6 @@ fn emit_realized_program<'ctx>(
     ))
 }
 
-#[cfg(feature = "llvm")]
 fn emit_all_functions<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     compiler: &mut FunctionCompiler<'a, 'scx, 'ctx, 'tcx>,
     input: &CodegenPipelineInput<'_, '_>,
@@ -450,7 +409,6 @@ fn emit_all_functions<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     }
 }
 
-#[cfg(feature = "llvm")]
 /// Env: `ORI_VERIFY_ARC` — enables expensive ARC correctness checks, debug-only.
 fn verify_arc_enabled() -> bool {
     std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok_and(|value| value != "0")

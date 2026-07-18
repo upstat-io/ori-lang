@@ -20,6 +20,7 @@ use super::{ArcIrBuilder, ArcProblem, VariantCtors};
 // Loop context
 
 /// Context for the enclosing loop (used by `break`/`continue`).
+#[derive(Debug)]
 pub(crate) struct LoopContext {
     /// Target label of this loop (`Name::EMPTY` = unlabeled). A labeled
     /// break/continue walks the loop-context stack for the matching label.
@@ -49,7 +50,7 @@ pub(crate) struct LoopContext {
 /// Bundles the binding pattern, guard, body, and result type — the four
 /// comprehension inputs that travel together through `lower_for_yield` and
 /// both its `_option` / `_iterator` strategy methods.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct ForYieldShape {
     pub pattern: ori_ir::canon::CanBindingPatternId,
     pub guard: CanId,
@@ -62,7 +63,7 @@ pub(crate) struct ForYieldShape {
 /// Bundles the binding pattern, iterable, guard, body, result type, yield
 /// flag, and label — the seven for-loop inputs destructured together from the
 /// `CanExpr::For` node and threaded into the variant-specific lowering paths.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct ForLoop {
     pub pattern: ori_ir::canon::CanBindingPatternId,
     pub iter: CanId,
@@ -77,6 +78,7 @@ pub(crate) struct ForLoop {
 ///
 /// Enables `lower_break`/`lower_continue` to push values to the
 /// accumulating list and prepend the collection phantom to jump args.
+#[derive(Debug)]
 pub(crate) struct ForYieldContext {
     /// The `ori_list_new` result pointer — used with `ori_list_push`.
     pub list_ptr: crate::ir::ArcVarId,
@@ -149,6 +151,19 @@ pub(crate) struct ArcLowerer<'a> {
     pub(crate) const_bindings: Option<&'a [MonoConstBinding]>,
 }
 
+// Builder and scope internals have independent diagnostic owners. Report the
+// lowerer's active control-flow and accumulated-output coordinates.
+impl std::fmt::Debug for ArcLowerer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArcLowerer")
+            .field("loop_depth", &self.loop_ctx_stack.len())
+            .field("problem_count", &self.problems.len())
+            .field("lambda_count", &self.lambdas.len())
+            .field("hash_length", &self.hash_length)
+            .finish_non_exhaustive()
+    }
+}
+
 impl ArcLowerer<'_> {
     /// Resolve an interned `Name` to its string for diagnostic/tracing output.
     #[inline]
@@ -180,12 +195,9 @@ impl ArcLowerer<'_> {
                 if let Some(resolved) = map.get(&ty).copied() {
                     resolved
                 } else {
-                    // Monomorphization residual detector: a body type that still
-                    // carries a rigid/var leaf but is NOT a `body_type_map` key
-                    // survives to codegen as `Tag::rigid_var` (PC-2 break). The
-                    // exact-Idx map covers leaves + recording-time composites;
-                    // a body composite interned after the call-site recording
-                    // (e.g. `[T]` from a method body) misses this resolution path.
+                    // A generic body composite interned after call-site
+                    // recording can miss the exact-Idx map and leave a rigid
+                    // leaf for codegen; diagnose that residual here.
                     if self
                         .pool
                         .flags(ty)
@@ -247,10 +259,7 @@ impl ArcLowerer<'_> {
                 self.emit_unit()
             }
         } else if self.pool.tag(self.pool.resolve_fully(ty)) == Tag::Function {
-            // Named function used as a value — emit zero-capture closure.
-            // This handles `CanExpr::Ident` for top-level functions that weren't
-            // rewritten to `CanExpr::FunctionRef` by the canonicalizer (e.g.,
-            // `apply(f: double, x: 21)` where `double` is a named function).
+            // Why: Named function identifiers are valid zero-capture closures.
             self.builder
                 .emit_partial_apply(ty, name, vec![], Some(span))
         } else {
@@ -330,11 +339,8 @@ impl ArcLowerer<'_> {
             },
             Some(span),
         );
-        // Div / Mod / FloorDiv / Shl / Shr panic on div-by-zero, overflow, or
-        // out-of-range shift count; Add / Sub / Mul panic on overflow (Spec:
-        // Clause 14.3). The checked integer representations (`int`, `byte`,
-        // `Duration`, and `Size`) use operations that may unwind.
-        // Float, bool, and char operations never panic.
+        // Checked integer-like arithmetic may unwind under Spec Clause 14.3;
+        // float, bool, and char operations do not.
         if op.may_panic_on_int()
             && self
                 .pool
@@ -355,11 +361,8 @@ impl ArcLowerer<'_> {
     ) -> ArcVarId {
         let arg = self.lower_expr(operand);
 
-        // A divergent operand (`break` / `continue` in operand position — e.g.
-        // the `!cond` desugar of `while (break) do ...`) terminates the current
-        // block before the unary op can be emitted; the op's result is
-        // unreachable. Return the (unit) operand var without emitting a dead
-        // PrimOp into a terminated block. Mirrors the `lower_if` condition guard.
+        // A divergent operand has already terminated the block; return its unit
+        // value instead of emitting an unreachable primitive operation.
         if self.builder.is_terminated() {
             return arg;
         }

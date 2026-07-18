@@ -70,11 +70,8 @@ impl Lowerer<'_> {
             .map(|a| (a.name, a.value))
             .collect();
 
-        // Module-alias qualified named call (`alias.func(a: v, ...)`): the type
-        // checker recorded this call's rewrite target. Lower it as a free `Call`
-        // to the qualified imported function — the namespace receiver is dropped
-        // (not lowered, not threaded as `self`). This is the path ALL named
-        // alias-qualified spec cases take. Mirrors `lower_method_call`.
+        // Lower a module-alias-qualified named call as a free call; its
+        // namespace receiver is not a runtime `self` value.
         if let Some(qualified) = self.typed.resolve_module_alias_call(call_expr_id) {
             return self.lower_module_alias_call(call_expr_id, qualified, &src_args, span, ty);
         }
@@ -103,11 +100,8 @@ impl Lowerer<'_> {
             method_ty,
         );
         let can_id = self.finish_eager_iter_adapter(adapter_call, adapter_ty, span, ty);
-        // Named-arg method calls desugar to the same positional `MethodCall` as
-        // `lower_method_call`; also publish the typeck mono-dispatch entry so
-        // a monomorphized method invoked with named args (e.g. `h.map(f: ...)`)
-        // carries its `mono_instance_id` to codegen. Without it the apply falls
-        // to the arg-type fallback, which mis-handles closure-typed params.
+        // Named-argument methods share the positional MethodCall shape and
+        // must retain typecheck's mono-dispatch identity for closure parameters.
         self.record_mono_dispatch_if_present(call_expr_id, can_id);
         can_id
     }
@@ -146,32 +140,26 @@ impl Lowerer<'_> {
                     }
                 }
 
-                // Fill empty slots: first try unnamed positional args, then defaults.
                 let mut unnamed_iter = unnamed.into_iter();
                 for (i, slot) in slots.iter_mut().enumerate() {
                     if slot.is_none() {
                         if let Some(val) = unnamed_iter.next() {
                             *slot = Some(val);
                         } else if let Some(default_expr) = params[i].1 {
-                            // Lower the default expression from the function signature.
                             *slot = Some(self.lower_expr(default_expr));
                         }
                     }
                 }
 
-                // Collect: all slots (filled by named args, positional args, or defaults),
-                // then any remaining unnamed args (error recovery — more args than params).
+                // INVARIANT: Excess positional arguments remain ordered for recovery.
                 let mut result: Vec<ori_ir::canon::CanId> = slots.into_iter().flatten().collect();
                 result.extend(unnamed_iter);
                 result
             }
-            _ => {
-                // No signature available — keep source order.
-                src_args
-                    .iter()
-                    .map(|&(_, value)| self.lower_expr(value))
-                    .collect()
-            }
+            _ => src_args
+                .iter()
+                .map(|&(_, value)| self.lower_expr(value))
+                .collect(),
         }
     }
 
@@ -228,12 +216,8 @@ impl Lowerer<'_> {
             })
             .map(|entry| {
                 let sig = &entry.sig;
-                // A method's `self` receiver is param[0] in the signature, but the
-                // call's positional args exclude it (it is the separate receiver).
-                // Drop the leading `self` so positional alignment + omitted-default
-                // fill in reorder_and_lower_args match the non-self params only —
-                // else a provided positional arg lands in `self`'s slot and the
-                // first real param is wrongly default-filled.
+                // Positional method arguments exclude the separate `self`
+                // receiver, so drop its signature slot before aligning defaults.
                 let skip = usize::from(sig.param_names.first().copied() == Some(self_name));
                 sig.param_names
                     .iter()

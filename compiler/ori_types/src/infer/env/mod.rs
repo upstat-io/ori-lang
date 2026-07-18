@@ -176,10 +176,7 @@ impl TypeEnv {
         self.0.bindings.iter().map(|(name, b)| (*name, b.ty))
     }
 
-    /// Iterate over all bound names in this environment.
-    ///
-    /// Includes names from parent scopes. Names may be duplicated
-    /// if shadowed.
+    /// Iterate names through parent scopes, retaining shadowed duplicates.
     pub fn names(&self) -> impl Iterator<Item = Name> + '_ {
         NamesIterator {
             current: Some(self),
@@ -226,7 +223,6 @@ impl TypeEnv {
 
         let threshold = default_threshold(target_str.len());
 
-        // Collect (name, distance) pairs, deduplicating by name
         let mut seen = rustc_hash::FxHashSet::default();
         let mut matches: Vec<(Name, usize)> = self
             .names()

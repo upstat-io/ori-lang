@@ -105,10 +105,11 @@ declare_builtins! { emitter, ctx;
     ("Ordering", "reverse") => emitter.emit_ordering_method(ctx.method, ctx.arg_vals),
 }
 
+use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-use super::super::ArcIrEmitter;
+use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a trait method (equals, compare, hash, `is_less`, etc.) for primitive types.
@@ -150,12 +151,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         match method {
             // Binary: Ordering.equals(other) / Ordering.compare(other)
             "equals" if has_other => Some(self.builder.icmp_eq(receiver, arg_vals[1], "ord_eq")),
-            "compare" if has_other => {
-                Some(
-                    self.builder
-                        .emit_icmp_ordering(receiver, arg_vals[1], "ord_cmp", false),
-                )
-            }
+            "compare" if has_other => Some(self.builder.emit_icmp_ordering(
+                receiver,
+                arg_vals[1],
+                "ord_cmp",
+                IntegerSignedness::Unsigned,
+            )),
 
             // Unary predicates on the Ordering value itself
             "is_less" => {
@@ -229,14 +230,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         match type_info {
             TypeInfo::Unit => Some(self.builder.const_i8(1)),
-            TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
-                Some(self.builder.emit_icmp_ordering(lhs, rhs, "cmp", true))
-            }
+            TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => Some(
+                self.builder
+                    .emit_icmp_ordering(lhs, rhs, "cmp", IntegerSignedness::Signed),
+            ),
             TypeInfo::Float => Some(self.builder.emit_fcmp_ordering(lhs, rhs, "cmp")),
             // Bool/Char/Byte use unsigned comparison (0 < 1 for bool, Unicode for char)
-            TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte => {
-                Some(self.builder.emit_icmp_ordering(lhs, rhs, "cmp", false))
-            }
+            TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte => Some(
+                self.builder
+                    .emit_icmp_ordering(lhs, rhs, "cmp", IntegerSignedness::Unsigned),
+            ),
             _ => None,
         }
     }
@@ -363,9 +366,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arg_vals: &[ValueId],
     ) -> Option<ValueId> {
         match method {
-            "equals" | "is_equal" if arg_vals.len() >= 2 => {
-                Some(self.emit_str_runtime_call("ori_str_eq", arg_vals[0], arg_vals[1], false))
-            }
+            "equals" | "is_equal" if arg_vals.len() >= 2 => Some(self.emit_str_runtime_call(
+                "ori_str_eq",
+                arg_vals[0],
+                arg_vals[1],
+                StringRuntimeReturnAbi::BoolDirect,
+            )),
             "compare" if arg_vals.len() >= 2 => {
                 self.emit_str_compare_call(arg_vals[0], arg_vals[1])
             }

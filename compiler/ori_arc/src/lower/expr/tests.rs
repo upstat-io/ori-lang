@@ -403,10 +403,8 @@ fn lambda_target_preserves_callable_signature_identity() {
 
 #[test]
 fn lower_with_capability_binds_provider_for_body() {
-    // `with Cap = 42 in Cap` — the body READS the capability. The arm lowers
-    // the provider into a defined var, binds the capability name to it, then
-    // lowers the body; the body's capability-ref MUST resolve to that var
-    // (a `Let Var(_)`), NOT the unbound-ident Unit fallthrough.
+    // In `with Cap = 42 in Cap`, the body reference must resolve to the bound
+    // provider variable rather than the unbound-identifier unit fallback.
     let cap_name = Name::from_raw(300);
     let mut arena = CanArena::with_capacity(100);
     let provider = arena.push(CanNode::new(

@@ -15,6 +15,41 @@ use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Tag;
 
 use super::ArcIrEmitter;
+use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
+
+struct MapDropState {
+    data: ValueId,
+    cap: ValueId,
+    key_size: ValueId,
+    value_size: ValueId,
+    key_dec: Option<FunctionId>,
+    value_dec: Option<FunctionId>,
+    key_may_unwind: bool,
+    value_may_unwind: bool,
+    function: FunctionId,
+    i64_type: LLVMTypeId,
+    i8_type: LLVMTypeId,
+    one: ValueId,
+    zero8: ValueId,
+    one8: ValueId,
+    align8: ValueId,
+    personality: FunctionId,
+    occupied_fn: FunctionId,
+    free_fn: FunctionId,
+    cleanup_enter_fn: FunctionId,
+    cleanup_exit_fn: FunctionId,
+    keys_offset: ValueId,
+    values_offset: ValueId,
+    total_size: ValueId,
+    index: ValueId,
+    pending_key: ValueId,
+    header: BlockId,
+    body: BlockId,
+    live: BlockId,
+    continuation: BlockId,
+    cleanup: BlockId,
+    done: BlockId,
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     // Buffer RC dec helpers
@@ -378,8 +413,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// at the post-free continuation block for the caller.
     #[expect(
         clippy::too_many_arguments,
-        clippy::too_many_lines,
-        reason = "Map-buffer drop-on-unwind is one indivisible IR-emission sequence; the 8 params are the buffer-drop descriptor"
+        reason = "data, sizes, drop functions, and unwind flags form the map-buffer drop descriptor"
     )]
     fn emit_codegen_buffer_drop_map_unwind(
         &mut self,
@@ -440,142 +474,214 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let cleanup = self.builder.append_block(cur, "mdrop.cleanup");
         let done = self.builder.append_block(cur, "mdrop.done");
 
-        self.builder.br(hdr);
+        let state = MapDropState {
+            data,
+            cap,
+            key_size: key_size_v,
+            value_size: val_size_v,
+            key_dec: key_dec_fid,
+            value_dec: val_dec_fid,
+            key_may_unwind,
+            value_may_unwind: val_may_unwind,
+            function: cur,
+            i64_type: i64_ty,
+            i8_type: i8_ty,
+            one,
+            zero8,
+            one8,
+            align8,
+            personality,
+            occupied_fn: occ_fn,
+            free_fn,
+            cleanup_enter_fn: cl_enter,
+            cleanup_exit_fn: cl_exit,
+            keys_offset: keys_off,
+            values_offset: vals_off,
+            total_size: total,
+            index: idx,
+            pending_key: pk,
+            header: hdr,
+            body,
+            live,
+            continuation: cont,
+            cleanup,
+            done,
+        };
 
-        // hdr: i = *idx; if i >= cap -> done else body
-        self.builder.position_at_end(hdr);
-        let i = self.builder.load(i64_ty, idx, "mdrop.i.v");
-        let ge = self.builder.icmp_sge(i, cap, "mdrop.ge");
-        self.builder.cond_br(ge, done, body);
+        self.emit_map_drop_primary_loop(&state);
 
-        // body: occupied(data, i)? -> live : cont
-        self.builder.position_at_end(body);
-        let i_b = self.builder.load(i64_ty, idx, "mdrop.i.b");
-        let occ = self
-            .builder
-            .call(occ_fn, &[data, i_b], "mdrop.occ")
-            .expect("ori_map_bucket_occupied returns i8");
-        let is_occ = self.builder.icmp_ne(occ, zero8, "mdrop.is_occ");
-        self.builder.cond_br(is_occ, live, cont);
-
-        // live: value channel then key channel (each may invoke or plain-call).
-        self.builder.position_at_end(live);
-        if let Some(vfid) = val_dec_fid {
-            let il = self.builder.load(i64_ty, idx, "mdrop.iv");
-            let vm = self.builder.mul(il, val_size_v, "mdrop.vmul");
-            let vt = self.builder.add(vals_off, vm, "mdrop.vadd");
-            let vp = self.builder.gep(i8_ty, data, &[vt], "mdrop.vptr");
-            if val_may_unwind {
-                self.builder.store(one8, pk); // pending key at current bucket
-                let av = self.builder.append_block(cur, "mdrop.afterval");
-                self.builder.invoke(vfid, &[vp], av, cleanup, "");
-                self.builder.position_at_end(av);
-            } else {
-                self.builder.call(vfid, &[vp], "");
-            }
-        }
-        if let Some(kfid) = key_dec_fid {
-            let ik = self.builder.load(i64_ty, idx, "mdrop.ik");
-            let km = self.builder.mul(ik, key_size_v, "mdrop.kmul");
-            let kt = self.builder.add(keys_off, km, "mdrop.kadd");
-            let kp = self.builder.gep(i8_ty, data, &[kt], "mdrop.kptr");
-            if key_may_unwind {
-                self.builder.store(zero8, pk); // current bucket done if key panics
-                self.builder.invoke(kfid, &[kp], cont, cleanup, "");
-            } else {
-                self.builder.call(kfid, &[kp], "");
-                self.builder.br(cont);
-            }
-        } else {
-            self.builder.br(cont);
-        }
-
-        // cont: i++ ; -> hdr
-        self.builder.position_at_end(cont);
-        let i2 = self.builder.load(i64_ty, idx, "mdrop.i2");
-        let inc = self.builder.add(i2, one, "mdrop.inc");
-        self.builder.store(inc, idx);
-        self.builder.br(hdr);
-
-        // cleanup: landingpad; if a VALUE invoke panicked (pending_key == 1) the
-        // key at the current bucket still needs deccing; then advance past the
-        // bucket and drain the rest both channels (nested panic here
-        // double-unwinds -> abort via the depth guard); free; resume.
-        self.builder.position_at_end(cleanup);
-        let lp = self.builder.landingpad(personality, true, "mdrop.lp");
-        self.builder.call(cl_enter, &[], "");
-        let pk_v = self.builder.load(i8_ty, pk, "mdrop.pk.v");
-        let pk_set = self.builder.icmp_ne(pk_v, zero8, "mdrop.pk.set");
-        let cl_key = self.builder.append_block(cur, "mdrop.cl.key");
-        let cl_adv = self.builder.append_block(cur, "mdrop.cl.adv");
-        self.builder.cond_br(pk_set, cl_key, cl_adv);
-
-        self.builder.position_at_end(cl_key);
-        if let Some(kfid) = key_dec_fid {
-            let ci = self.builder.load(i64_ty, idx, "mdrop.cl.ci");
-            let km = self.builder.mul(ci, key_size_v, "mdrop.cl.kmul");
-            let kt = self.builder.add(keys_off, km, "mdrop.cl.kadd");
-            let kp = self.builder.gep(i8_ty, data, &[kt], "mdrop.cl.kptr");
-            self.builder.call(kfid, &[kp], "");
-        }
-        self.builder.br(cl_adv);
-
-        self.builder.position_at_end(cl_adv);
-        let ci2 = self.builder.load(i64_ty, idx, "mdrop.cl.ci2");
-        let cnext = self.builder.add(ci2, one, "mdrop.cl.cnext");
-        self.builder.store(cnext, idx);
-        let dhdr = self.builder.append_block(cur, "mdrop.drain.hdr");
-        let dbody = self.builder.append_block(cur, "mdrop.drain.body");
-        let dlive = self.builder.append_block(cur, "mdrop.drain.live");
-        let dnext = self.builder.append_block(cur, "mdrop.drain.next");
-        let dfree = self.builder.append_block(cur, "mdrop.drain.free");
-        self.builder.br(dhdr);
-
-        self.builder.position_at_end(dhdr);
-        let di = self.builder.load(i64_ty, idx, "mdrop.di");
-        let dge = self.builder.icmp_sge(di, cap, "mdrop.dge");
-        self.builder.cond_br(dge, dfree, dbody);
-
-        self.builder.position_at_end(dbody);
-        let di_b = self.builder.load(i64_ty, idx, "mdrop.di.b");
-        let docc = self
-            .builder
-            .call(occ_fn, &[data, di_b], "mdrop.docc")
-            .expect("ori_map_bucket_occupied returns i8");
-        let dis = self.builder.icmp_ne(docc, zero8, "mdrop.dis");
-        self.builder.cond_br(dis, dlive, dnext);
-
-        self.builder.position_at_end(dlive);
-        if let Some(vfid) = val_dec_fid {
-            let dii = self.builder.load(i64_ty, idx, "mdrop.dvi");
-            let dvm = self.builder.mul(dii, val_size_v, "mdrop.dvmul");
-            let dvt = self.builder.add(vals_off, dvm, "mdrop.dvadd");
-            let dvp = self.builder.gep(i8_ty, data, &[dvt], "mdrop.dvptr");
-            self.builder.call(vfid, &[dvp], "");
-        }
-        if let Some(kfid) = key_dec_fid {
-            let dki = self.builder.load(i64_ty, idx, "mdrop.dki");
-            let dkm = self.builder.mul(dki, key_size_v, "mdrop.dkmul");
-            let dkt = self.builder.add(keys_off, dkm, "mdrop.dkadd");
-            let dkp = self.builder.gep(i8_ty, data, &[dkt], "mdrop.dkptr");
-            self.builder.call(kfid, &[dkp], "");
-        }
-        self.builder.br(dnext);
-
-        self.builder.position_at_end(dnext);
-        let din = self.builder.load(i64_ty, idx, "mdrop.din");
-        let dinc = self.builder.add(din, one, "mdrop.dinc");
-        self.builder.store(dinc, idx);
-        self.builder.br(dhdr);
-
-        self.builder.position_at_end(dfree);
-        self.builder.call(free_fn, &[data, total, align8], "");
-        self.builder.call(cl_exit, &[], "");
-        self.builder.resume(lp);
+        self.emit_map_drop_cleanup(&state);
 
         // done: free buffer; leave builder here for the caller's continuation.
         self.builder.position_at_end(done);
         self.builder.call(free_fn, &[data, total, align8], "");
+    }
+
+    fn emit_map_drop_primary_loop(&mut self, state: &MapDropState) {
+        self.builder.br(state.header);
+
+        self.builder.position_at_end(state.header);
+        let index = self.builder.load(state.i64_type, state.index, "mdrop.i.v");
+        let finished = self.builder.icmp_sge(index, state.cap, "mdrop.ge");
+        self.builder.cond_br(finished, state.done, state.body);
+
+        self.builder.position_at_end(state.body);
+        let index = self.builder.load(state.i64_type, state.index, "mdrop.i.b");
+        let occupied = self
+            .builder
+            .call(state.occupied_fn, &[state.data, index], "mdrop.occ")
+            .expect("ori_map_bucket_occupied returns i8");
+        let is_occupied = self.builder.icmp_ne(occupied, state.zero8, "mdrop.is_occ");
+        self.builder
+            .cond_br(is_occupied, state.live, state.continuation);
+
+        self.builder.position_at_end(state.live);
+        if let Some(value_dec) = state.value_dec {
+            let index = self.builder.load(state.i64_type, state.index, "mdrop.iv");
+            let scaled = self.builder.mul(index, state.value_size, "mdrop.vmul");
+            let offset = self.builder.add(state.values_offset, scaled, "mdrop.vadd");
+            let value_ptr = self
+                .builder
+                .gep(state.i8_type, state.data, &[offset], "mdrop.vptr");
+            if state.value_may_unwind {
+                self.builder.store(state.one8, state.pending_key);
+                let after_value = self.builder.append_block(state.function, "mdrop.afterval");
+                self.builder
+                    .invoke(value_dec, &[value_ptr], after_value, state.cleanup, "");
+                self.builder.position_at_end(after_value);
+            } else {
+                self.builder.call(value_dec, &[value_ptr], "");
+            }
+        }
+
+        if let Some(key_dec) = state.key_dec {
+            let index = self.builder.load(state.i64_type, state.index, "mdrop.ik");
+            let scaled = self.builder.mul(index, state.key_size, "mdrop.kmul");
+            let offset = self.builder.add(state.keys_offset, scaled, "mdrop.kadd");
+            let key_ptr = self
+                .builder
+                .gep(state.i8_type, state.data, &[offset], "mdrop.kptr");
+            if state.key_may_unwind {
+                self.builder.store(state.zero8, state.pending_key);
+                self.builder
+                    .invoke(key_dec, &[key_ptr], state.continuation, state.cleanup, "");
+            } else {
+                self.builder.call(key_dec, &[key_ptr], "");
+                self.builder.br(state.continuation);
+            }
+        } else {
+            self.builder.br(state.continuation);
+        }
+
+        self.builder.position_at_end(state.continuation);
+        let index = self.builder.load(state.i64_type, state.index, "mdrop.i2");
+        let next = self.builder.add(index, state.one, "mdrop.inc");
+        self.builder.store(next, state.index);
+        self.builder.br(state.header);
+    }
+
+    fn emit_map_drop_cleanup(&mut self, state: &MapDropState) {
+        self.builder.position_at_end(state.cleanup);
+        let landing_pad = self.builder.landingpad(state.personality, true, "mdrop.lp");
+        self.builder.call(state.cleanup_enter_fn, &[], "");
+        let pending_key = self
+            .builder
+            .load(state.i8_type, state.pending_key, "mdrop.pk.v");
+        let key_pending = self
+            .builder
+            .icmp_ne(pending_key, state.zero8, "mdrop.pk.set");
+        let clean_key = self.builder.append_block(state.function, "mdrop.cl.key");
+        let advance = self.builder.append_block(state.function, "mdrop.cl.adv");
+        self.builder.cond_br(key_pending, clean_key, advance);
+
+        self.builder.position_at_end(clean_key);
+        if let Some(key_dec) = state.key_dec {
+            let index = self
+                .builder
+                .load(state.i64_type, state.index, "mdrop.cl.ci");
+            let scaled = self.builder.mul(index, state.key_size, "mdrop.cl.kmul");
+            let offset = self.builder.add(state.keys_offset, scaled, "mdrop.cl.kadd");
+            let key_ptr = self
+                .builder
+                .gep(state.i8_type, state.data, &[offset], "mdrop.cl.kptr");
+            self.builder.call(key_dec, &[key_ptr], "");
+        }
+        self.builder.br(advance);
+
+        self.builder.position_at_end(advance);
+        let index = self
+            .builder
+            .load(state.i64_type, state.index, "mdrop.cl.ci2");
+        let next = self.builder.add(index, state.one, "mdrop.cl.cnext");
+        self.builder.store(next, state.index);
+        let drain_header = self.builder.append_block(state.function, "mdrop.drain.hdr");
+        let drain_body = self
+            .builder
+            .append_block(state.function, "mdrop.drain.body");
+        let drain_live = self
+            .builder
+            .append_block(state.function, "mdrop.drain.live");
+        let drain_next = self
+            .builder
+            .append_block(state.function, "mdrop.drain.next");
+        let drain_free = self
+            .builder
+            .append_block(state.function, "mdrop.drain.free");
+        self.builder.br(drain_header);
+
+        self.builder.position_at_end(drain_header);
+        let index = self.builder.load(state.i64_type, state.index, "mdrop.di");
+        let finished = self.builder.icmp_sge(index, state.cap, "mdrop.dge");
+        self.builder.cond_br(finished, drain_free, drain_body);
+
+        self.builder.position_at_end(drain_body);
+        let index = self.builder.load(state.i64_type, state.index, "mdrop.di.b");
+        let occupied = self
+            .builder
+            .call(state.occupied_fn, &[state.data, index], "mdrop.docc")
+            .expect("ori_map_bucket_occupied returns i8");
+        let is_occupied = self.builder.icmp_ne(occupied, state.zero8, "mdrop.dis");
+        self.builder.cond_br(is_occupied, drain_live, drain_next);
+
+        self.builder.position_at_end(drain_live);
+        self.emit_map_drop_drain_bucket(state);
+        self.builder.br(drain_next);
+
+        self.builder.position_at_end(drain_next);
+        let index = self.builder.load(state.i64_type, state.index, "mdrop.din");
+        let next = self.builder.add(index, state.one, "mdrop.dinc");
+        self.builder.store(next, state.index);
+        self.builder.br(drain_header);
+
+        self.builder.position_at_end(drain_free);
+        self.builder.call(
+            state.free_fn,
+            &[state.data, state.total_size, state.align8],
+            "",
+        );
+        self.builder.call(state.cleanup_exit_fn, &[], "");
+        self.builder.resume(landing_pad);
+    }
+
+    fn emit_map_drop_drain_bucket(&mut self, state: &MapDropState) {
+        if let Some(value_dec) = state.value_dec {
+            let index = self.builder.load(state.i64_type, state.index, "mdrop.dvi");
+            let scaled = self.builder.mul(index, state.value_size, "mdrop.dvmul");
+            let offset = self.builder.add(state.values_offset, scaled, "mdrop.dvadd");
+            let value_ptr = self
+                .builder
+                .gep(state.i8_type, state.data, &[offset], "mdrop.dvptr");
+            self.builder.call(value_dec, &[value_ptr], "");
+        }
+        if let Some(key_dec) = state.key_dec {
+            let index = self.builder.load(state.i64_type, state.index, "mdrop.dki");
+            let scaled = self.builder.mul(index, state.key_size, "mdrop.dkmul");
+            let offset = self.builder.add(state.keys_offset, scaled, "mdrop.dkadd");
+            let key_ptr = self
+                .builder
+                .gep(state.i8_type, state.data, &[offset], "mdrop.dkptr");
+            self.builder.call(key_dec, &[key_ptr], "");
+        }
     }
 
     /// Emit `ori_map_buffer_drop_unique` for a provably unique map.

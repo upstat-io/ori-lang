@@ -12,7 +12,7 @@ use super::super::operands::{FrameSlot, OperandAccess};
 use super::super::value::VmValue;
 use super::super::Interpreter;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) struct RuntimeSite {
     frame: usize,
     destination: FrameSlot,

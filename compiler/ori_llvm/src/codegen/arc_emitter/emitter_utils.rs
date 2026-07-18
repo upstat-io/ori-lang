@@ -30,8 +30,43 @@ use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 ///
 /// Consolidating the order decision here means a change to the teardown order
 /// is made in ONE place; the walks cannot drift on the LIFO invariant.
-pub(crate) fn field_rc_walk_order<T: Copy>(decl_order: &[T], is_teardown: bool) -> Vec<T> {
-    if is_teardown {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FieldRcWalkOrder {
+    Forward,
+    Teardown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RcOperation {
+    Retain { count: u32 },
+    Release,
+}
+
+impl RcOperation {
+    pub(crate) const fn prefix(self) -> &'static str {
+        match self {
+            Self::Retain { .. } => "rc_inc",
+            Self::Release => "rc_dec",
+        }
+    }
+
+    pub(crate) const fn retain_count(self) -> Option<u32> {
+        match self {
+            Self::Retain { count } => Some(count),
+            Self::Release => None,
+        }
+    }
+
+    pub(crate) const fn field_walk_order(self) -> FieldRcWalkOrder {
+        match self {
+            Self::Retain { .. } => FieldRcWalkOrder::Forward,
+            Self::Release => FieldRcWalkOrder::Teardown,
+        }
+    }
+}
+
+pub(crate) fn field_rc_walk_order<T: Copy>(decl_order: &[T], order: FieldRcWalkOrder) -> Vec<T> {
+    if order == FieldRcWalkOrder::Teardown {
         decl_order.iter().rev().copied().collect()
     } else {
         decl_order.to_vec()

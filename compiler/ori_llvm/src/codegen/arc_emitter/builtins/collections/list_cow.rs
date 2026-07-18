@@ -11,6 +11,19 @@ use crate::codegen::value_id::{FunctionId, ValueId};
 
 use super::super::super::ArcIrEmitter;
 
+/// Read and report the result-buffer metadata-store ablation toggle.
+pub(in crate::codegen::arc_emitter) fn push_result_elem_header_store_disabled() -> bool {
+    let disabled = std::env::var_os("ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE").is_some();
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE",
+            effect = "skip result-buffer element destructor metadata stores",
+            "ablation toggle fired"
+        );
+    }
+    disabled
+}
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Shared out-param `sret`-style runtime-call tail for list COW mutation
     /// methods: allocates the `{i64,i64,ptr}` out slot, calls `func_id` with
@@ -66,19 +79,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 cow_mode,
             ],
         )?;
-        // Store elem_dec_fn and elem_count in the result buffer's RC header —
-        // ONLY for a RETURNED receiver lineage (the element-escape keep-alive's
-        // balancing release is this collection's `elem_dec_fn` run
-        // by the CALLER's drop; the runtime slow path cannot propagate a header
-        // when the source list is empty/null). An in-scope receiver holds
-        // UNFUNDED element views (the base accounting balances the source
-        // iter-drop against it) and MUST NOT dec them at free — no header.
-        // Same store discipline as the collect / list_take result sites.
-        // Env: ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE — restores the header-less
-        // push-grown buffer for bisection, debug-only
-        if !receiver_returned
-            || std::env::var_os("ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE").is_some()
-        {
+        // INVARIANT: only returned receivers own the element keep-alive credit.
+        let header_store_disabled = push_result_elem_header_store_disabled();
+        if !receiver_returned || header_store_disabled {
             return Some(result);
         }
         let result_data = self
@@ -93,39 +96,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder
             .call(store_count, &[result_data, result_len], "");
         Some(result)
-    }
-
-    /// Emit `list.pop()` — COW pop returning the list with last element removed.
-    ///
-    /// Fast path (unique): decrements len in place, O(1).
-    /// Slow path (shared): copies to new buffer with len-1 elements.
-    #[expect(dead_code, reason = "pop dispatch not yet wired — see task #3")]
-    pub(crate) fn emit_list_pop_cow(
-        &mut self,
-        receiver: ValueId,
-        elem_ty: Idx,
-        cow_mode: ValueId,
-        list_ty: Idx,
-    ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_list_pop_cow");
-
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
-        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
-        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-
-        self.emit_list_cow_call(
-            func_id,
-            "pop",
-            vec![
-                data_ptr,
-                len,
-                cap,
-                elem_size_val,
-                elem_align_val,
-                inc_fn,
-                cow_mode,
-            ],
-        )
     }
 
     /// Emit `list.set(index, value)` — COW index assignment returning modified list.
@@ -370,7 +340,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `fn(*const u8, *const u8) -> i32` and loads elements by type before
     /// comparing.
     ///
-    /// Currently supports primitive element types (int, float, bool, char, byte, str).
+    /// Supports primitive element types (int, float, bool, char, byte, str).
     pub(crate) fn emit_list_sort_cow(
         &mut self,
         receiver: ValueId,

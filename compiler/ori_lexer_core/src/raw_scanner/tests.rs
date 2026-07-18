@@ -683,8 +683,6 @@ fn unterminated_char_eof() {
 
 #[test]
 fn empty_char_literal() {
-    // '' — opening ' consumed, then immediate ' is "empty char" -> UnterminatedChar(1)
-    // Then second ' starts a new char_literal, consumes opening ', hits EOF -> UnterminatedChar(1)
     let tags = scan_tags("''");
     assert_eq!(
         tags,
@@ -694,16 +692,13 @@ fn empty_char_literal() {
 
 #[test]
 fn multichar_literal_recovered_as_single_token() {
-    // 'ab' — too many characters, but should produce ONE error token, not three.
-    // Before fix: UnterminatedChar('a), Ident(b), UnterminatedChar(')
     let tags = scan_tags("'ab'");
     assert_eq!(tags, vec![RawTag::UnterminatedChar]);
-    assert_eq!(scan("'ab'")[0].len, 4); // covers entire 'ab'
+    assert_eq!(scan("'ab'")[0].len, 4);
 }
 
 #[test]
 fn multichar_literal_three_chars() {
-    // 'xyz' — recovery consumes to closing quote
     let tags = scan_tags("'xyz'");
     assert_eq!(tags, vec![RawTag::UnterminatedChar]);
     assert_eq!(scan("'xyz'")[0].len, 5);
@@ -1077,7 +1072,7 @@ fn template_format_spec_with_multiple_interpolations() {
 }
 
 #[test]
-fn template_format_spec_length_correct() {
+fn format_spec_token_length_includes_leading_colon() {
     // Verify FormatSpec token length includes the leading ':'
     let tokens = scan("`{x:>10.2f}`");
     // Tokens: TemplateHead(`{), Ident(x), FormatSpec(:>10.2f), TemplateTail(}`)
@@ -1287,7 +1282,7 @@ fn char_unicode_escape_malformed_no_brace() {
 }
 
 #[test]
-fn string_unicode_escape_scans_correctly() {
+fn unicode_escape_scans_as_one_string_token_with_full_length() {
     // "\u{1F600}" — string with unicode escape
     // " (1) + \ (1) + u{1F600} (8) + " (1) = 11
     assert_eq!(scan_tags("\"\\u{1F600}\""), vec![RawTag::String]);

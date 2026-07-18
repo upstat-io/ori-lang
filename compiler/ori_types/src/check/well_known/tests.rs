@@ -490,10 +490,6 @@ fn non_primitive_idx_returns_false() {
 
 // Compound type satisfaction
 #[test]
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "exhaustive compound type trait matrix"
-)]
 fn compound_type_satisfaction_via_pool() {
     use crate::Pool;
 
@@ -511,72 +507,79 @@ fn compound_type_satisfaction_via_pool() {
     let iter_int = pool.iterator(Idx::INT);
     let dei_int = pool.double_ended_iterator(Idx::INT);
 
-    // List: eq, comparable, clone, hashable, printable, debug, add, len, is_empty, iterable
-    let list_yes = [
-        "Eq",
-        "Comparable",
-        "Clone",
-        "Hashable",
-        "Printable",
-        "Debug",
-        "Add",
-        "Len",
-        "IsEmpty",
-        "Iterable",
+    let cases: &[(Idx, &str, &[&str], &[&str])] = &[
+        (
+            list_int,
+            "List<int>",
+            &[
+                "Eq",
+                "Comparable",
+                "Clone",
+                "Hashable",
+                "Printable",
+                "Debug",
+                "Add",
+                "Len",
+                "IsEmpty",
+                "Iterable",
+            ],
+            &["Default"],
+        ),
+        (
+            map_str_int,
+            "Map<str, int>",
+            &["Iterable", "Debug"],
+            &["Comparable"],
+        ),
+        (set_int, "Set<int>", &["Len", "Debug"], &["Comparable"]),
+        (
+            opt_int,
+            "Option<int>",
+            &["Default", "Debug", "Iterable"],
+            &["Len"],
+        ),
+        (
+            res_int_str,
+            "Result<int, str>",
+            &["Comparable", "Debug"],
+            &["Default"],
+        ),
+        (tuple, "(int, str)", &["Len", "Debug"], &["Iterable"]),
+        (range_int, "Range<int>", &["Iterable", "IsEmpty"], &["Eq"]),
+        (iter_int, "Iterator<int>", &["Iterator"], &["Eq"]),
+        (
+            dei_int,
+            "DoubleEndedIterator<int>",
+            &["Iterator", "DoubleEndedIterator"],
+            &["Eq"],
+        ),
     ];
-    let list_no = ["Default"];
-    for name in list_yes {
+    for &(ty, label, satisfied, rejected) in cases {
+        assert_trait_matrix(&wk, &interner, &pool, ty, label, satisfied, rejected);
+    }
+}
+
+fn assert_trait_matrix(
+    wk: &WellKnownNames,
+    interner: &StringInterner,
+    pool: &crate::Pool,
+    ty: Idx,
+    label: &str,
+    satisfied: &[&str],
+    rejected: &[&str],
+) {
+    for &name in satisfied {
         assert!(
-            wk.type_satisfies_trait(list_int, interner.intern(name), &pool),
-            "List<int> should satisfy {name}"
+            wk.type_satisfies_trait(ty, interner.intern(name), pool),
+            "{label} should satisfy {name}"
         );
     }
-    for name in list_no {
+    for &name in rejected {
         assert!(
-            !wk.type_satisfies_trait(list_int, interner.intern(name), &pool),
-            "List<int> should NOT satisfy {name}"
+            !wk.type_satisfies_trait(ty, interner.intern(name), pool),
+            "{label} should NOT satisfy {name}"
         );
     }
-
-    // Map: eq, clone, hashable, printable, debug, len, is_empty, iterable (no comparable)
-    assert!(wk.type_satisfies_trait(map_str_int, interner.intern("Iterable"), &pool));
-    assert!(wk.type_satisfies_trait(map_str_int, interner.intern("Debug"), &pool));
-    assert!(!wk.type_satisfies_trait(map_str_int, interner.intern("Comparable"), &pool));
-
-    // Set: same as Map
-    assert!(wk.type_satisfies_trait(set_int, interner.intern("Len"), &pool));
-    assert!(wk.type_satisfies_trait(set_int, interner.intern("Debug"), &pool));
-    assert!(!wk.type_satisfies_trait(set_int, interner.intern("Comparable"), &pool));
-
-    // Option: eq, comparable, clone, hashable, printable, default, debug, iterable
-    assert!(wk.type_satisfies_trait(opt_int, interner.intern("Default"), &pool));
-    assert!(wk.type_satisfies_trait(opt_int, interner.intern("Debug"), &pool));
-    assert!(wk.type_satisfies_trait(opt_int, interner.intern("Iterable"), &pool));
-    assert!(!wk.type_satisfies_trait(opt_int, interner.intern("Len"), &pool));
-
-    // Result: eq, comparable, clone, hashable, printable, debug (no default)
-    assert!(wk.type_satisfies_trait(res_int_str, interner.intern("Comparable"), &pool));
-    assert!(wk.type_satisfies_trait(res_int_str, interner.intern("Debug"), &pool));
-    assert!(!wk.type_satisfies_trait(res_int_str, interner.intern("Default"), &pool));
-
-    // Tuple: eq, comparable, clone, hashable, printable, debug, len
-    assert!(wk.type_satisfies_trait(tuple, interner.intern("Len"), &pool));
-    assert!(wk.type_satisfies_trait(tuple, interner.intern("Debug"), &pool));
-    assert!(!wk.type_satisfies_trait(tuple, interner.intern("Iterable"), &pool));
-
-    // Range: printable, len, is_empty, iterable
-    assert!(wk.type_satisfies_trait(range_int, interner.intern("Iterable"), &pool));
-    assert!(wk.type_satisfies_trait(range_int, interner.intern("IsEmpty"), &pool));
-    assert!(!wk.type_satisfies_trait(range_int, interner.intern("Eq"), &pool));
-
-    // Iterator: iterator trait only
-    assert!(wk.type_satisfies_trait(iter_int, interner.intern("Iterator"), &pool));
-    assert!(!wk.type_satisfies_trait(iter_int, interner.intern("Eq"), &pool));
-
-    // DoubleEndedIterator: iterator + double_ended_iterator
-    assert!(wk.type_satisfies_trait(dei_int, interner.intern("Iterator"), &pool));
-    assert!(wk.type_satisfies_trait(dei_int, interner.intern("DoubleEndedIterator"), &pool));
-    assert!(!wk.type_satisfies_trait(dei_int, interner.intern("Eq"), &pool));
 }
 
 #[test]

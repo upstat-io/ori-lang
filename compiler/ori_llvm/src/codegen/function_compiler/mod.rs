@@ -62,9 +62,17 @@ use super::abi::CallConv;
 ///
 /// Read once at first access; reused for every function declaration.
 /// `true` omits the RL-31 param `noalias` emission (diagnostic bisection).
-// Env: ORI_DISABLE_RL31_NOALIAS — omits RL-31 param noalias emission for AIMS-noalias bisection, debug-only
 static RL31_NOALIAS_DISABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-    let disabled = std::env::var_os("ORI_DISABLE_RL31_NOALIAS").is_some();
+    report_rl31_noalias_toggle(std::env::var_os("ORI_DISABLE_RL31_NOALIAS").is_some())
+});
+
+/// Read the process-cached RL-31 `noalias` ablation toggle.
+pub(super) fn rl31_noalias_disabled() -> bool {
+    *RL31_NOALIAS_DISABLED
+}
+
+/// Report whether RL-31 `noalias` projection is disabled.
+pub(super) fn report_rl31_noalias_toggle(disabled: bool) -> bool {
     if disabled {
         tracing::info!(
             toggle = "ORI_DISABLE_RL31_NOALIAS",
@@ -73,7 +81,7 @@ static RL31_NOALIAS_DISABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::n
         );
     }
     disabled
-});
+}
 
 /// Two-pass function compiler.
 ///

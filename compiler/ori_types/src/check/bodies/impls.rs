@@ -1,7 +1,4 @@
-//! Impl method body type checking.
-//!
-//! Owns `check_impl_bodies` (Pass 4), its block/method helpers. See
-//! `bodies/mod.rs` for the architecture docstring that covers all four body passes.
+//! Impl-method body checking against registered signatures.
 
 use ori_ir::{ExprArena, ExprId, ImplMethod, Module, Name, Param, Span, TraitDef, TraitItem};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -36,25 +33,14 @@ fn check_impl_block(
     traits: &[TraitDef],
     impl_index: usize,
 ) {
-    // Impl-level generics (`impl<T: Bound>`) bind as `RigidVar`s so a
-    // body-internal `receiver.method()` whose receiver is an impl-level type
-    // parameter reaches the bound-chain (bounded calls dispatch, unbounded
-    // calls surface method-not-found) instead of resolving to an unresolved
-    // `Tag::Named`. The `RigidVar`s are
-    // allocated at `register_impls` (Pass 0c) and stored on the checker keyed by
-    // `module.impls` position; reuse them in Pass 4 via `prealloc` so a
-    // method mono recorded at a Pass-3 call site already sees the impl binder in
-    // `var_states` (the constructor composite `Pair<RigidVar(B), RigidVar(A)>`
-    // registers because the binder exists by Pass 0c, not Pass 4). `Self` +
-    // params + return resolve through the same overlay, keeping every reference
-    // to the impl-level binder at one identity.
+    // INVARIANT: Body checking reuses registered rigid binders so Self, parameters,
+    // returns, and recorded method instances share one identity.
     let impl_prealloc: Option<FxHashMap<Name, Idx>> =
         checker.impl_rigid_var_map(impl_index).cloned();
     let (impl_substitutions, impl_generic_params, _impl_const_params, impl_inline_bounds) =
         allocate_generic_binders(checker, impl_def.generics, impl_prealloc.as_ref());
 
-    // Resolve the Self type for this impl block through the impl-level overlay so
-    // `Box<T>`'s `T` is the impl `RigidVar`, not a fresh `Tag::Named`.
+    // INVARIANT: impl overlays resolve `Self` parameters to their rigid binders.
     let self_type = resolve_type_with_method_generics(
         checker,
         &impl_def.self_ty,
@@ -65,11 +51,7 @@ fn check_impl_block(
 
     let is_trait_impl = impl_def.trait_path.is_some();
 
-    // Build this impl's associated-type bindings (`assoc_name → Idx`) so a
-    // method whose declared param/return carries `Self.Item` resolves the
-    // projection at body-check time too (the registration arm resolves the
-    // registered signature; body-check re-resolves the declared type). Mirrors
-    // the registration scope in `register_impl`.
+    // INVARIANT: body checking resolves `Self.Item` with the registration-time bindings.
     let trait_idx = impl_def
         .trait_path
         .as_ref()
@@ -97,7 +79,6 @@ fn check_impl_block(
     };
 
     checker.with_impl_assoc_scope(assoc_bindings, trait_idx, |checker| {
-        // Check explicitly defined methods
         for method in &impl_def.methods {
             check_impl_method(checker, method, &impl_context);
             if is_trait_impl {

@@ -9,6 +9,13 @@ use super::traits::type_satisfies_trait;
 use crate::pool::substitute::substitute_in_pool;
 use crate::{GenericParamMeta, Idx, Tag, TypeCheckError, TypeFlags, WhereConstraint};
 
+struct PreparedCheck {
+    concrete_type: Idx,
+    projection: Option<Name>,
+    bound_entries: Vec<(Name, Idx)>,
+    trait_bound_entries: Vec<Idx>,
+}
+
 /// Validate that required capabilities are available at a call site.
 ///
 /// Looks up the callee's signature to find its `uses` capabilities,
@@ -57,23 +64,12 @@ pub(super) fn check_call_capabilities(
 /// 1. Mutable phase: resolve types and create pool entries
 /// 2. Immutable phase: check trait registry and collect violations
 /// 3. Mutable phase: push collected errors
-#[expect(
-    clippy::too_many_lines,
-    reason = "three-phase where clause checking: resolve, collect violations, push errors"
-)]
 pub(super) fn check_where_clauses(
     engine: &mut InferEngine<'_>,
     func_name: Name,
     params: &[Idx],
     call_span: Span,
 ) {
-    struct PreparedCheck {
-        concrete_type: Idx,
-        projection: Option<Name>,
-        bound_entries: Vec<(Name, Idx)>,
-        trait_bound_entries: Vec<Idx>,
-    }
-
     let Some(sig) = engine.get_signature(func_name) else {
         return;
     };
@@ -129,68 +125,74 @@ pub(super) fn check_where_clauses(
         });
     }
 
-    // Phase 2 (immutable): Check trait registry and collect error messages
-    let errors = {
-        let Some(trait_registry) = engine.trait_registry() else {
-            return;
-        };
-        let pool = engine.pool();
-        let well_known = engine.well_known();
-
-        let mut errors: Vec<String> = Vec::new();
-
-        for check in &prepared {
-            if let Some(projection) = check.projection {
-                // Where-clause with projection: `where C.Item: Eq`
-                for &trait_idx in &check.trait_bound_entries {
-                    let Some((_, impl_entry)) =
-                        trait_registry.find_impl(trait_idx, check.concrete_type)
-                    else {
-                        continue;
-                    };
-                    let Some(&projected_type) = impl_entry.assoc_types.get(&projection) else {
-                        continue;
-                    };
-                    for &(bound_name, bound_idx) in &check.bound_entries {
-                        if !trait_registry.has_impl(bound_idx, projected_type) {
-                            let satisfies = if let Some(wk) = well_known {
-                                wk.type_satisfies_trait(projected_type, bound_name, pool)
-                            } else {
-                                let s = engine.lookup_name(bound_name).unwrap_or("");
-                                type_satisfies_trait(projected_type, s, pool)
-                            };
-                            if !satisfies {
-                                let bound_str = engine.lookup_name(bound_name).unwrap_or("?");
-                                errors.push(format!("does not satisfy trait bound `{bound_str}`",));
-                            }
-                        }
-                    }
-                }
-            } else {
-                // Direct bound: `where T: Clone`
-                for &(bound_name, bound_idx) in &check.bound_entries {
-                    if !trait_registry.has_impl(bound_idx, check.concrete_type) {
-                        let satisfies = if let Some(wk) = well_known {
-                            wk.type_satisfies_trait(check.concrete_type, bound_name, pool)
-                        } else {
-                            let s = engine.lookup_name(bound_name).unwrap_or("");
-                            type_satisfies_trait(check.concrete_type, s, pool)
-                        };
-                        if !satisfies {
-                            let bound_str = engine.lookup_name(bound_name).unwrap_or("?");
-                            errors.push(format!("does not satisfy trait bound `{bound_str}`",));
-                        }
-                    }
-                }
-            }
-        }
-
-        errors
+    let Some(errors) = collect_where_clause_errors(engine, &prepared) else {
+        return;
     };
 
     // Phase 3 (mutable): Push collected errors
     for msg in errors {
         engine.push_error(TypeCheckError::unsatisfied_bound(call_span, msg));
+    }
+}
+
+fn collect_where_clause_errors(
+    engine: &InferEngine<'_>,
+    prepared: &[PreparedCheck],
+) -> Option<Vec<String>> {
+    let trait_registry = engine.trait_registry()?;
+    let mut errors = Vec::new();
+
+    for check in prepared {
+        if let Some(projection) = check.projection {
+            for &trait_idx in &check.trait_bound_entries {
+                let Some((_, impl_entry)) =
+                    trait_registry.find_impl(trait_idx, check.concrete_type)
+                else {
+                    continue;
+                };
+                let Some(&projected_type) = impl_entry.assoc_types.get(&projection) else {
+                    continue;
+                };
+                collect_bound_errors(engine, projected_type, &check.bound_entries, &mut errors);
+            }
+        } else {
+            collect_bound_errors(
+                engine,
+                check.concrete_type,
+                &check.bound_entries,
+                &mut errors,
+            );
+        }
+    }
+    Some(errors)
+}
+
+fn collect_bound_errors(
+    engine: &InferEngine<'_>,
+    concrete_type: Idx,
+    bounds: &[(Name, Idx)],
+    errors: &mut Vec<String>,
+) {
+    let Some(trait_registry) = engine.trait_registry() else {
+        return;
+    };
+    for &(bound_name, bound_idx) in bounds {
+        if trait_registry.has_impl(bound_idx, concrete_type) {
+            continue;
+        }
+        let satisfies = if let Some(wk) = engine.well_known() {
+            wk.type_satisfies_trait(concrete_type, bound_name, engine.pool())
+        } else {
+            type_satisfies_trait(
+                concrete_type,
+                engine.lookup_name(bound_name).unwrap_or(""),
+                engine.pool(),
+            )
+        };
+        if !satisfies {
+            let bound = engine.lookup_name(bound_name).unwrap_or("?");
+            errors.push(format!("does not satisfy trait bound `{bound}`"));
+        }
     }
 }
 

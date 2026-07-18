@@ -22,6 +22,8 @@ pub(super) use wrapper_cmp::emit_hash_combine;
 
 use ori_ir::{DerivedTrait, FieldOp};
 use ori_types::Idx;
+
+use crate::codegen::ir_builder::IntegerSignedness;
 use tracing::trace;
 
 use super::super::function_compiler::FunctionCompiler;
@@ -50,20 +52,24 @@ pub(super) fn emit_field_operation<'a>(
         // with bounded ranges. Hash requires canonical i64 width.
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => match op {
             FieldOp::Equals => fc.builder_mut().icmp_eq(lhs, expect_rhs(rhs), name),
-            FieldOp::Compare => {
-                fc.builder_mut()
-                    .emit_icmp_ordering(lhs, expect_rhs(rhs), name, true)
-            }
+            FieldOp::Compare => fc.builder_mut().emit_icmp_ordering(
+                lhs,
+                expect_rhs(rhs),
+                name,
+                IntegerSignedness::Signed,
+            ),
             FieldOp::Hash => fc.builder_mut().sext_to_i64_if_narrower(lhs, name),
         },
 
         // Unsigned small: unsigned compare, zext to i64 for hash
         TypeInfo::Byte | TypeInfo::Bool => match op {
             FieldOp::Equals => fc.builder_mut().icmp_eq(lhs, expect_rhs(rhs), name),
-            FieldOp::Compare => {
-                fc.builder_mut()
-                    .emit_icmp_ordering(lhs, expect_rhs(rhs), name, false)
-            }
+            FieldOp::Compare => fc.builder_mut().emit_icmp_ordering(
+                lhs,
+                expect_rhs(rhs),
+                name,
+                IntegerSignedness::Unsigned,
+            ),
             FieldOp::Hash => {
                 let i64_ty = fc.builder_mut().i64_type();
                 fc.builder_mut().zext(lhs, i64_ty, name)
@@ -73,10 +79,12 @@ pub(super) fn emit_field_operation<'a>(
         // Char/Ordering: unsigned compare, sext to i64 for hash
         TypeInfo::Char | TypeInfo::Ordering => match op {
             FieldOp::Equals => fc.builder_mut().icmp_eq(lhs, expect_rhs(rhs), name),
-            FieldOp::Compare => {
-                fc.builder_mut()
-                    .emit_icmp_ordering(lhs, expect_rhs(rhs), name, false)
-            }
+            FieldOp::Compare => fc.builder_mut().emit_icmp_ordering(
+                lhs,
+                expect_rhs(rhs),
+                name,
+                IntegerSignedness::Unsigned,
+            ),
             FieldOp::Hash => {
                 let i64_ty = fc.builder_mut().i64_type();
                 fc.builder_mut().sext(lhs, i64_ty, name)

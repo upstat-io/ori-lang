@@ -218,17 +218,9 @@ fn gate_rejection(
     if !allow_replacement {
         return Some(FallbackReason::BurdenEmissionDisabled);
     }
-    // Empty-surface admission: a function whose EVERY variable is excluded
-    // (scalar or immortal) carries no RC-bearing value anywhere — no births,
-    // no param lifecycle, no call-result entries — so the empty plan is the
-    // correct emission (zero classes -> zero placement obligations; the
-    // three placement clauses hold vacuously per
-    // `AimsProof.Ledger::three_clauses_iff_ledger_safe`). The later gates
-    // (`UserDropGlue` for a scalar-repr type carrying a user `@drop`,
-    // `ReuseShape`, ...) still run and decline the shapes an empty
-    // emission would mis-handle. A zero-class function with ANY non-excluded
-    // variable stays declined — the classifier missing a live heap
-    // value is a coverage gap, not a genuine zero-RC function.
+    // An all-excluded function has no placement obligations, but later gates
+    // still reject user-drop or reuse shapes an empty plan cannot carry. Any
+    // non-excluded variable with zero classes is a classifier coverage gap.
     if analysis.plan.classes.is_empty() && !analysis.all_vars_excluded {
         if tracing::enabled!(target: "ori_arc::aims::class_ledger", tracing::Level::TRACE) {
             let non_excluded: Vec<u32> = (0..func.var_types.len())
@@ -251,14 +243,9 @@ fn gate_rejection(
     if has_reuse_shape(func) {
         return Some(FallbackReason::ReuseShape);
     }
-    // The TRMC ContextHole fill-at-recursive-call IS modeled: the fill's
-    // `Set` classifies as mutate(context) + consume(filled value) — the K3
-    // derivation (`AimsProof.Ledger::holeFill_is_the_release`; a release
-    // placed after the fill is rejected, the fill IS the filled value's
-    // release). Spec: Annex E §AIMS §12 (compositional placement, K3).
-    // Env: ORI_DISABLE_TRMC_CONTEXT_LEDGER — restores the pre-K3
-    // conservative TrmcContext decline for bisection, debug-only
-    if trmc_context_ledger_disabled() && has_context_hole(func, state_map) {
+    // Under K3, the context-hole `Set` consumes the filled value and therefore
+    // is its release; a later release is invalid.
+    if has_context_hole(func, state_map) && trmc_context_ledger_disabled() {
         return Some(FallbackReason::TrmcContext);
     }
     if analysis.indirect_arg_handoff {
@@ -267,16 +254,9 @@ fn gate_rejection(
     if analysis.field_view_hazard {
         return Some(FallbackReason::FieldViewLiveness);
     }
-    // User `@drop` admission: a WHOLE-VAR planned release lowers to the
-    // standard drop glue (heap repr) or `RcStrategy::UserDrop` (scalar
-    // repr), running the user `@drop` exactly once at the class's death
-    // point per RL-DROP (`userDrop` is balance-neutral). Declines:
-    // (a) a FIELD-GRAIN release on a user-drop type — a partial dec
-    //     releases fields around the type's own drop glue, so `@drop`
-    //     would run never or on a gutted value;
-    // (b) a user-drop-typed var with NO whole-var planned release of its
-    //     own — an excluded scalar or a suppressed/transferred shape whose
-    //     `@drop` the plan does not carry.
+    // RL-DROP admits user drop only through a whole-variable release. Field-
+    // grain release would run drop on a partial value, while no planned
+    // release would omit it entirely.
     let user_drop_var = |var: crate::ir::ArcVarId| {
         func.var_types
             .get(var.index())
@@ -289,27 +269,17 @@ fn gate_rejection(
     }) {
         return Some(FallbackReason::UserDropGlue);
     }
-    // ADMITTED scalar user-drop vars (booked drop obligations) are verified
-    // by their class verdicts: Clean = every path discharges, by planned
-    // Dec or transfer-consume. Every OTHER user-drop var needs one of:
-    // a whole-var planned release of its own; a BORROWED-rooted alias of a
-    // borrowed param (the caller owns the release; the `@drop` impl body's
-    // own `self` and its aliases are the canonical case); or a CONSUME
-    // discharge on its class (the reference transfers to an owner — a
-    // `Construct` arg, an owned call arg, a `Return` — whose release chain
-    // runs the drop glue recursively, releasing the moved value through the
-    // owner's teardown).
+    // User-drop values must discharge via their clean scalar class, an owned
+    // whole-var release, a caller-owned borrowed root, or a consuming transfer
+    // that transfers the drop-glue obligation to the new owner.
     let admitted_scalar =
         |var: crate::ir::ArcVarId| state_map.is_scalar(var) && !state_map.is_immortal(var);
     let var_has_own_dec = |var: crate::ir::ArcVarId| {
         ops.iter()
             .any(|op| op.var == var && matches!(op.kind, super::emit::PlannedOpKind::Dec))
     };
-    // An OWNED param's `Let { Var }` alias closure names ONE caller-handed
-    // allocation; a whole-var planned release on ANY closure member is the
-    // param's own release (the impl-method `@eq(self [own], other [own])`
-    // bodies release through the alias the walk decs). Purely structural
-    // Let-alias lineage — no store/copy-out entanglement.
+    // All Let aliases of an owned parameter name the caller-supplied
+    // allocation, so any member's whole-var release covers the parameter.
     let mut owned_alias_dec_covered: rustc_hash::FxHashSet<crate::ir::ArcVarId> =
         rustc_hash::FxHashSet::default();
     for param in func
@@ -323,11 +293,8 @@ fn gate_rejection(
             owned_alias_dec_covered.extend(closure);
         }
     }
-    // Borrowed-ROOTED, not just the param var: a `Let { Var }` alias of a
-    // borrowed param names the SAME caller-released allocation (the @drop
-    // body's `%2 = %0` self alias is the canonical case), and a `Project`
-    // of one is a borrow-view of the same caller-owned allocation tree
-    // (the recursive-`@drop` body's field views).
+    // Let aliases and projections rooted at a borrowed parameter remain views
+    // of the caller-released allocation tree.
     let borrowed_rooted = super::emit::close_over_borrow_views(
         func,
         func.params
@@ -428,7 +395,20 @@ fn has_reuse_shape(func: &ArcFunction) -> bool {
 
 /// Whether any variable carries the TRMC `ContextHole` shape.
 fn trmc_context_ledger_disabled() -> bool {
-    std::env::var("ORI_DISABLE_TRMC_CONTEXT_LEDGER").as_deref() == Ok("1")
+    report_trmc_context_ledger_toggle(
+        std::env::var("ORI_DISABLE_TRMC_CONTEXT_LEDGER").as_deref() == Ok("1"),
+    )
+}
+
+fn report_trmc_context_ledger_toggle(disabled: bool) -> bool {
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_TRMC_CONTEXT_LEDGER",
+            effect = "decline class-ledger replacement for TRMC context-hole functions",
+            "ablation toggle fired"
+        );
+    }
+    disabled
 }
 
 fn has_context_hole(func: &ArcFunction, state_map: &AimsStateMap) -> bool {
@@ -438,4 +418,20 @@ fn has_context_hole(func: &ArcFunction, state_map: &AimsStateMap) -> bool {
         };
         state_map.var_shape(ArcVarId::new(raw)) == crate::aims::lattice::ShapeClass::ContextHole
     })
+}
+
+#[cfg(test)]
+mod toggle_tests {
+    #[test]
+    fn trmc_context_ledger_toggle_reports_effect() {
+        crate::test_helpers::assert_ablation_env_event(
+            concat!(
+                module_path!(),
+                "::trmc_context_ledger_toggle_reports_effect"
+            ),
+            "ORI_DISABLE_TRMC_CONTEXT_LEDGER",
+            "decline class-ledger replacement for TRMC context-hole functions",
+            super::trmc_context_ledger_disabled,
+        );
+    }
 }

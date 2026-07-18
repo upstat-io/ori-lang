@@ -15,6 +15,8 @@
 #   2. `ori_parse` retains spans on its public, module, declaration, expression,
 #      type, and item-parsing boundaries. Every required span uses `skip_all` so
 #      enabling parser traces does not eagerly format parser state.
+#   3. Every explicit tracing target and span-name literal is declared in the
+#      central tracing registry.
 #
 # Exit codes:
 #   0 = all checks pass
@@ -25,6 +27,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+TRACING_REGISTRY="$SCRIPT_DIR/tracing-registry.txt"
 USE_COLOR=auto
 
 while [[ $# -gt 0 ]]; do
@@ -62,6 +65,207 @@ if [[ ! -d "$COMPILER_DIR" ]]; then
     exit 2
 fi
 
+check_tracing_registry() {
+    python3 - "$COMPILER_DIR" "$TRACING_REGISTRY" <<'PY'
+from __future__ import annotations
+
+import pathlib
+import re
+import sys
+
+compiler_dir = pathlib.Path(sys.argv[1])
+registry_path = pathlib.Path(sys.argv[2])
+
+if not registry_path.is_file():
+    print(f"  MISSING: tracing registry not found at {registry_path}")
+    raise SystemExit(1)
+
+registered: dict[str, set[tuple[str, str]]] = {"target": set(), "span": set()}
+errors: list[str] = []
+for line_number, raw_line in enumerate(
+    registry_path.read_text(encoding="utf-8").splitlines(), start=1
+):
+    line = raw_line.strip()
+    if not line or line.startswith("#"):
+        continue
+    parts = [part.strip() for part in line.split(" | ")]
+    if len(parts) != 3:
+        errors.append(
+            f"  INVALID: {registry_path}:{line_number} must be `kind | name | compiler/path.rs`"
+        )
+        continue
+    kind, value, consumer = parts
+    if kind not in registered or not value or not consumer.startswith("compiler/"):
+        errors.append(
+            f"  INVALID: {registry_path}:{line_number} must name a target/span and compiler source path"
+        )
+        continue
+    entry = (value, consumer)
+    if entry in registered[kind]:
+        errors.append(f"  DUPLICATE: {kind} `{value}` in {consumer}")
+        continue
+    registered[kind].add(entry)
+
+macro_names = (
+    "enabled|trace|debug|info|warn|error|event|span|"
+    "trace_span|debug_span|info_span|warn_span|error_span"
+)
+macro_pattern = re.compile(
+    rf"(?<![A-Za-z0-9_:])(?:tracing::)?(?:{macro_names})!\s*\((.*?)\)",
+    re.DOTALL,
+)
+target_pattern = re.compile(r'\btarget\s*:\s*"([^"]+)"')
+level_span_pattern = re.compile(
+    r'(?<![A-Za-z0-9_:])(?:tracing::)?(?:trace|debug|info|warn|error)_span!\s*\(\s*'
+    r'(?:target\s*:\s*"[^"]+"\s*,\s*)?"([^"]+)"',
+    re.DOTALL,
+)
+generic_span_pattern = re.compile(
+    r'(?<![A-Za-z0-9_:])(?:tracing::)?span!\s*\(\s*'
+    r'(?:target\s*:\s*"[^"]+"\s*,\s*)?[^,]+,\s*"([^"]+)"',
+    re.DOTALL,
+)
+instrument_pattern = re.compile(
+    r'#\[\s*(?:tracing::)?instrument\s*\((.*?)\)\s*\]',
+    re.DOTALL,
+)
+instrument_name_pattern = re.compile(r'\bname\s*=\s*"([^"]+)"')
+instrument_target_pattern = re.compile(r'\btarget\s*=\s*"([^"]+)"')
+raw_string_prefix_pattern = re.compile(r'(?:br|r)(?P<hashes>#{0,255})"')
+tracing_literal_candidate_pattern = re.compile(
+    rf'(?:{macro_names})\s*!|(?:tracing::)?instrument'
+)
+
+
+def strip_rust_comments(source: str) -> tuple[str, list[tuple[int, int]]]:
+    """Blank Rust comments and locate strings while preserving source positions."""
+    output = list(source)
+    string_ranges: list[tuple[int, int]] = []
+    index = 0
+    source_len = len(source)
+
+    def blank(start: int, end: int) -> None:
+        for position in range(start, end):
+            if output[position] != "\n":
+                output[position] = " "
+
+    while index < source_len:
+        raw_match = (
+            raw_string_prefix_pattern.match(source, index)
+            if source[index] in {"b", "r"}
+            else None
+        )
+        if raw_match is not None:
+            string_start = index
+            terminator = '"' + raw_match.group("hashes")
+            content_start = raw_match.end()
+            terminator_start = source.find(terminator, content_start)
+            index = source_len if terminator_start < 0 else terminator_start + len(terminator)
+            string_ranges.append((string_start, index))
+            continue
+
+        if source[index] == '"':
+            string_start = index
+            index += 1
+            while index < source_len:
+                if source[index] == "\\":
+                    index += 2
+                elif source[index] == '"':
+                    index += 1
+                    break
+                else:
+                    index += 1
+            string_ranges.append((string_start, index))
+            continue
+
+        if source.startswith("//", index):
+            comment_end = source.find("\n", index + 2)
+            if comment_end < 0:
+                comment_end = source_len
+            blank(index, comment_end)
+            index = comment_end
+            continue
+
+        if source.startswith("/*", index):
+            depth = 1
+            comment_end = index + 2
+            while comment_end < source_len and depth > 0:
+                if source.startswith("/*", comment_end):
+                    depth += 1
+                    comment_end += 2
+                elif source.startswith("*/", comment_end):
+                    depth -= 1
+                    comment_end += 2
+                else:
+                    comment_end += 1
+            blank(index, comment_end)
+            index = comment_end
+            continue
+
+        index += 1
+
+    return "".join(output), string_ranges
+
+
+def inside_string(position: int, string_ranges: list[tuple[int, int]]) -> bool:
+    return any(start <= position < end for start, end in string_ranges)
+
+
+discovered: dict[str, set[tuple[str, str]]] = {"target": set(), "span": set()}
+for source_path in sorted(compiler_dir.glob("*/**/*.rs")):
+    consumer = (pathlib.Path("compiler") / source_path.relative_to(compiler_dir)).as_posix()
+    raw_source = source_path.read_text(encoding="utf-8")
+    if tracing_literal_candidate_pattern.search(raw_source) is None:
+        continue
+    source, string_ranges = strip_rust_comments(raw_source)
+    for macro_match in macro_pattern.finditer(source):
+        if inside_string(macro_match.start(), string_ranges):
+            continue
+        target_match = target_pattern.search(macro_match.group(1))
+        target_position = (
+            macro_match.start(1) + target_match.start() if target_match is not None else -1
+        )
+        if target_match is not None and not inside_string(target_position, string_ranges):
+            discovered["target"].add((target_match.group(1), consumer))
+    for span_match in level_span_pattern.finditer(source):
+        if not inside_string(span_match.start(), string_ranges):
+            discovered["span"].add((span_match.group(1), consumer))
+    for span_match in generic_span_pattern.finditer(source):
+        if not inside_string(span_match.start(), string_ranges):
+            discovered["span"].add((span_match.group(1), consumer))
+    for instrument_match in instrument_pattern.finditer(source):
+        if inside_string(instrument_match.start(), string_ranges):
+            continue
+        name_match = instrument_name_pattern.search(instrument_match.group(1))
+        name_position = (
+            instrument_match.start(1) + name_match.start() if name_match is not None else -1
+        )
+        if name_match is not None and not inside_string(name_position, string_ranges):
+            discovered["span"].add((name_match.group(1), consumer))
+        target_match = instrument_target_pattern.search(instrument_match.group(1))
+        target_position = (
+            instrument_match.start(1) + target_match.start() if target_match is not None else -1
+        )
+        if target_match is not None and not inside_string(target_position, string_ranges):
+            discovered["target"].add((target_match.group(1), consumer))
+
+for kind in ("target", "span"):
+    for value, consumer in sorted(discovered[kind] - registered[kind]):
+        errors.append(f"  UNREGISTERED: {kind} `{value}` in {consumer}")
+    for value, consumer in sorted(registered[kind] - discovered[kind]):
+        errors.append(f"  STALE: {kind} `{value}` is not present in {consumer}")
+
+if errors:
+    print("\n".join(errors))
+    raise SystemExit(1)
+
+print(
+    "  OK: "
+    f"{len(discovered['target'])} target sites and {len(discovered['span'])} span-name sites are registered"
+)
+PY
+}
+
 mapfile -t TRACING_MANIFESTS < <(
     grep -El '^[[:space:]]*tracing([.]workspace)?[[:space:]]*=' \
         "$COMPILER_DIR"/*/Cargo.toml 2>/dev/null | sort
@@ -96,6 +300,16 @@ for manifest in "${TRACING_MANIFESTS[@]}"; do
     fi
 done
 
+printf '\n%bChecking explicit tracing target and span-name registry%b\n' "$C_BOLD" "$C_NC"
+set +e
+registry_output="$(check_tracing_registry 2>&1)"
+registry_rc=$?
+set -e
+printf '%s\n' "$registry_output"
+if [[ $registry_rc -ne 0 ]]; then
+    issues=$((issues + 1))
+fi
+
 has_instrumented_symbol() {
     local path="$1"
     local symbol="$2"
@@ -128,9 +342,9 @@ if grep -qE '^[[:space:]]*tracing([.]workspace)?[[:space:]]*=' \
     "$ORI_PARSE_DIR/Cargo.toml" 2>/dev/null; then
     printf '\n%bChecking required ori_parse span boundaries%b\n' "$C_BOLD" "$C_NC"
     PARSER_ANCHORS=(
-        'src/lib.rs|parse'
-        'src/lib.rs|parse_with_metadata'
-        'src/lib.rs|parse_incremental'
+        'src/api.rs|parse'
+        'src/api.rs|parse_with_metadata'
+        'src/api.rs|parse_incremental'
         'src/module_parse.rs|parse_module'
         'src/module_parse.rs|parse_imports'
         'src/module_parse.rs|parse_module_incremental'

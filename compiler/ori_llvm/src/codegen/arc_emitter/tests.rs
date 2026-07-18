@@ -2,18 +2,18 @@
 //!
 //! Verifies that drop functions are generated with correct LLVM IR structure
 //! for each `DropKind` variant, and that caching / edge cases work.
-#![allow(
-    clippy::too_many_lines,
-    reason = "test setup for LLVM IR requires many sequential steps"
-)]
 
 use std::mem::ManuallyDrop;
 
 use inkwell::context::Context;
-use ori_arc::ir::VariableMetadataState;
+use ori_arc::ir::{
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcAtomicity, RcStrategy,
+    VariableMetadataState,
+};
 use ori_arc::{ArcClass, ArcClassification, DropInfo, DropKind};
-use ori_ir::StringInterner;
+use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool};
+use rustc_hash::FxHashSet;
 
 use crate::codegen::abi::FunctionAbi;
 use crate::codegen::ir_builder::IrBuilder;
@@ -49,6 +49,37 @@ impl ArcClassification for IdxSetClassifier {
         } else {
             ArcClass::Scalar
         }
+    }
+}
+
+fn direct_pair_abi(
+    interner: &StringInterner,
+    first: (&str, Idx),
+    second: (&str, Idx),
+    return_ty: Idx,
+) -> FunctionAbi {
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    FunctionAbi {
+        params: vec![
+            ParamAbi {
+                name: interner.intern(first.0),
+                ty: first.1,
+                passing: ParamPassing::Direct,
+                readonly: false,
+            },
+            ParamAbi {
+                name: interner.intern(second.0),
+                ty: second.1,
+                passing: ParamPassing::Direct,
+                readonly: false,
+            },
+        ],
+        return_abi: ReturnAbi {
+            ty: return_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
     }
 }
 
@@ -755,10 +786,7 @@ fn set_emits_struct_gep_and_store() {
     };
     use ori_arc::Ownership;
 
-    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
-
     let mut pool = Pool::new();
-    // Create a struct type with 2 int fields
     let struct_ty = pool.struct_type(
         ori_ir::Name::from_raw(200),
         &[
@@ -797,8 +825,6 @@ fn set_emits_struct_gep_and_store() {
         None,
     );
 
-    // ArcFunction: v0 (struct ptr), v1 (int), then Set v0.field(1) = v1, return v0
-    // v0 must have RcPointer repr — Set uses GEP+store which requires a pointer.
     let arc_func = ArcFunction {
         name: interner.intern("test_set_fn"),
         params: vec![
@@ -834,69 +860,35 @@ fn set_emits_struct_gep_and_store() {
         ..Default::default()
     };
 
-    let abi = FunctionAbi {
-        params: vec![
-            ParamAbi {
-                name: interner.intern("base"),
-                ty: struct_ty,
-                passing: ParamPassing::Direct,
-                readonly: false,
-            },
-            ParamAbi {
-                name: interner.intern("val"),
-                ty: Idx::INT,
-                passing: ParamPassing::Direct,
-                readonly: false,
-            },
-        ],
-        return_abi: ReturnAbi {
-            ty: struct_ty,
-            passing: ReturnPassing::Direct,
-        },
-        call_conv: CallConv::Fast,
-    };
+    let abi = direct_pair_abi(&interner, ("base", struct_ty), ("val", Idx::INT), struct_ty);
     em.emit_function(&arc_func, &abi);
 
     let ir = scx.llmod.print_to_string().to_string();
 
-    // Verify GEP-based field access (struct_gep for field 1)
     assert!(
         ir.contains("getelementptr inbounds"),
         "Expected struct GEP for in-place field set:\n{ir}"
     );
-    // Verify store instruction
     assert!(
         ir.contains("store"),
         "Expected store for in-place field mutation:\n{ir}"
     );
-    // Should NOT contain insert_value (old value-level approach)
     assert!(
         !ir.contains("insertvalue"),
         "Set should use GEP+store, not insertvalue:\n{ir}"
     );
 
     drop(em);
-} // set_emits_struct_gep_and_store
+}
 
 #[test]
 fn set_on_boxed_recursive_field_boxes_value_before_store() {
-    // INVARIANT: Set on a boxed recursive field (Node.next holds an RC box
-    // pointer per the boxing oracle) must allocate via `ori_rc_alloc`, store
-    // `value` into the box, then store the box pointer into the field slot —
-    // mirroring the Construct/Project box-and-load discipline. This test
-    // rejects a direct store of `value` into the field.
     use ori_arc::ir::{
         ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ValueRepr,
     };
     use ori_arc::Ownership;
 
-    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
-
     let mut pool = Pool::new();
-    // Build the self-recursive struct: `next` field's type is a Named
-    // placeholder resolved back to the struct itself, exactly how the type
-    // checker models a recursive back-edge. `resolve_fully` then maps the
-    // field type onto the owner, so the boxing oracle's self-cycle arm fires.
     let node_named = pool.named(ori_ir::Name::from_raw(0x0DE_2222));
     let node_ty = pool.struct_type(
         ori_ir::Name::from_raw(0x0DE_2222),
@@ -907,8 +899,6 @@ fn set_on_boxed_recursive_field_boxes_value_before_store() {
     );
     pool.set_resolution(node_named, node_ty);
 
-    // Sanity: the boxing oracle MUST classify field 1 (`next`) as boxed, else
-    // the test would assert against the non-boxed path and silently pass.
     assert!(
         crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed(
             &pool, node_ty, node_named
@@ -930,8 +920,6 @@ fn set_on_boxed_recursive_field_boxes_value_before_store() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    // Route the recursive node Idx through DefiniteRef so it is treated as
-    // heap-allocated (the Set fast path requires an RcPointer base).
     let cl = IdxSetClassifier {
         heap_idxs: vec![node_ty, node_named],
     };
@@ -949,8 +937,6 @@ fn set_on_boxed_recursive_field_boxes_value_before_store() {
         None,
     );
 
-    // v0 = base node (RcPointer); v1 = replacement child node (also a Node).
-    // Set v0.next(field 1) = v1, then return v0.
     let arc_func = ArcFunction {
         name: interner.intern("test_set_boxed_fn"),
         params: vec![
@@ -986,66 +972,33 @@ fn set_on_boxed_recursive_field_boxes_value_before_store() {
         ..Default::default()
     };
 
-    let abi = FunctionAbi {
-        params: vec![
-            ParamAbi {
-                name: interner.intern("base"),
-                ty: node_ty,
-                passing: ParamPassing::Direct,
-                readonly: false,
-            },
-            ParamAbi {
-                name: interner.intern("val"),
-                ty: node_ty,
-                passing: ParamPassing::Direct,
-                readonly: false,
-            },
-        ],
-        return_abi: ReturnAbi {
-            ty: node_ty,
-            passing: ReturnPassing::Direct,
-        },
-        call_conv: CallConv::Fast,
-    };
+    let abi = direct_pair_abi(&interner, ("base", node_ty), ("val", node_ty), node_ty);
     em.emit_function(&arc_func, &abi);
 
     let ir = scx.llmod.print_to_string().to_string();
 
-    // The boxed-field Set MUST allocate a box before storing into the slot.
-    // Assert the CALL site (not the runtime `declare`), so the pin fails when
-    // the boxing is reverted to a direct store — the `declare noalias ptr
-    // @ori_rc_alloc` line is always present and is NOT evidence of boxing.
     assert!(
         ir.contains("call ptr @ori_rc_alloc"),
         "Set on a boxed recursive field must box the value via a call to \
          ori_rc_alloc (not just store the inline aggregate):\n{ir}"
     );
-    // The in-place field write is still GEP + store of the box pointer.
     assert!(
         ir.contains("getelementptr inbounds") && ir.contains("store"),
         "Set must GEP the field slot and store the box pointer:\n{ir}"
     );
 
     drop(em);
-} // set_on_boxed_recursive_field_boxes_value_before_store
+}
 
 // BurdenDecField codegen wire matrix
 
-/// Positive pin: `BurdenDecField` on a heap-typed (str) field MUST emit
-/// GEP + load + `RcDec` on the prior field value BEFORE the upstream `Set`
-/// store clobbers the slot. The `emit_drop_rc_dec` SSOT dispatcher
-/// handles the heap-pointer extraction + drop-fn lookup; the
-/// `emit_drop_field_loop` shared SSOT-helper handles the GEP+load shape.
 #[test]
 fn burden_dec_field_str_field_emits_gep_load_rc_dec() {
     use ori_arc::ir::{ArcBlockId, ArcFunction, ArcParam, ArcTerminator, ArcVarId, ValueRepr};
     use ori_arc::Ownership;
 
     use super::test_utils::{burden_dec_field_first, entry_block, set_first};
-    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
-
     let mut pool = Pool::new();
-    // Struct with one str field — heap-burdened; MUST emit RcDec.
     let struct_ty = pool.struct_type(
         ori_ir::Name::from_raw(300),
         &[(ori_ir::Name::from_raw(301), Idx::STR)],
@@ -1112,70 +1065,34 @@ fn burden_dec_field_str_field_emits_gep_load_rc_dec() {
         ..Default::default()
     };
 
-    let abi = FunctionAbi {
-        params: vec![
-            ParamAbi {
-                name: interner.intern("base"),
-                ty: struct_ty,
-                passing: ParamPassing::Direct,
-                readonly: false,
-            },
-            ParamAbi {
-                name: interner.intern("val"),
-                ty: Idx::STR,
-                passing: ParamPassing::Direct,
-                readonly: false,
-            },
-        ],
-        return_abi: ReturnAbi {
-            ty: struct_ty,
-            passing: ReturnPassing::Direct,
-        },
-        call_conv: CallConv::Fast,
-    };
+    let abi = direct_pair_abi(&interner, ("base", struct_ty), ("val", Idx::STR), struct_ty);
     em.emit_function(&arc_func, &abi);
 
     let ir = scx.llmod.print_to_string().to_string();
 
-    // Pin 1: BurdenDecField emitted struct_gep for the field position.
     assert!(
         ir.contains("burden_dec_field.0.ptr"),
         "BurdenDecField MUST emit struct_gep for field position; ir:\n{ir}",
     );
-    // Pin 2: BurdenDecField emitted load to capture the field value.
     assert!(
         ir.contains("burden_dec_field.0 "),
         "BurdenDecField MUST emit load to capture prior field value; ir:\n{ir}",
     );
-    // Pin 3: emit_drop_rc_dec routed to ori_rc_dec for the heap-typed field.
-    // The loaded str value extracts data ptr + RcDec call lands in IR.
     assert!(
         ir.contains("ori_rc_dec"),
         "BurdenDecField on str-typed field MUST route through emit_drop_rc_dec → ori_rc_dec; ir:\n{ir}",
     );
 
     drop(em);
-} // burden_dec_field_str_field_emits_gep_load_rc_dec
+}
 
-/// Negative case per AIMS rule RE-2 scalar exemption: `BurdenDecField`
-/// on a scalar-typed (int) field MUST NOT emit `ori_rc_dec` — the
-/// `emit_drop_rc_dec` SSOT dispatcher returns early via the canonical
-/// scalar short-circuit. The GEP+load still emit (mechanical IR
-/// positioning via `emit_drop_field_loop`), but no `RcDec` call lands.
-/// Clamps the RE-2 invariant against a regression that inlined a scalar
-/// check would only pass if the inlined check matched the canonical SSOT
-/// semantics; routing through the SSOT keeps both paths in lockstep.
 #[test]
 fn burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit() {
     use ori_arc::ir::{ArcBlockId, ArcFunction, ArcParam, ArcTerminator, ArcVarId, ValueRepr};
     use ori_arc::Ownership;
 
     use super::test_utils::{burden_dec_field_first, entry_block, set_first};
-    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
-
     let mut pool = Pool::new();
-    // Struct with one scalar (int) field — NO heap burden; MUST
-    // skip RcDec emission per RE-2 scalar exemption.
     let struct_ty = pool.struct_type(
         ori_ir::Name::from_raw(310),
         &[(ori_ir::Name::from_raw(311), Idx::INT)],
@@ -1243,32 +1160,11 @@ fn burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit() {
         ..Default::default()
     };
 
-    let abi = FunctionAbi {
-        params: vec![
-            ParamAbi {
-                name: interner.intern("base"),
-                ty: struct_ty,
-                passing: ParamPassing::Direct,
-                readonly: false,
-            },
-            ParamAbi {
-                name: interner.intern("val"),
-                ty: Idx::INT,
-                passing: ParamPassing::Direct,
-                readonly: false,
-            },
-        ],
-        return_abi: ReturnAbi {
-            ty: struct_ty,
-            passing: ReturnPassing::Direct,
-        },
-        call_conv: CallConv::Fast,
-    };
+    let abi = direct_pair_abi(&interner, ("base", struct_ty), ("val", Idx::INT), struct_ty);
     em.emit_function(&arc_func, &abi);
 
     let ir = scx.llmod.print_to_string().to_string();
 
-    // Pin: GEP + load STILL emit (mechanical IR positioning).
     assert!(
         ir.contains("burden_dec_field.0.ptr"),
         "BurdenDecField on scalar field MUST still emit struct_gep; ir:\n{ir}",
@@ -1278,45 +1174,21 @@ fn burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit() {
         "BurdenDecField on scalar field MUST still emit load; ir:\n{ir}",
     );
 
-    // Negative assertion: NO ori_rc_dec call lands for the scalar field
-    // (RE-2 scalar exemption via emit_drop_rc_dec → extract_rc_data_ptrs
-    // empty-return short-circuit).
-    // The function may still contain other ori_rc_dec calls from drop
-    // function emission for the struct itself (its return path); we
-    // specifically check there's no rc_dec attributable to the
-    // burden_dec_field load — the loaded i64 is not a pointer so
-    // extract_rc_data_ptrs returns empty, no RcDec emitted at this site.
-    // A regression that re-implemented scalar checks inline incorrectly
-    // would emit an ori_rc_dec call referencing the burden_dec_field
-    // loaded value.
     assert!(
         !ir.contains("ori_rc_dec(ptr %burden_dec_field"),
         "BurdenDecField on scalar field MUST NOT emit ori_rc_dec on loaded value (RE-2); ir:\n{ir}",
     );
 
     drop(em);
-} // burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit
+}
 
-/// Regression: `BurdenDecField` on a BY-VALUE aggregate base (repr
-/// `Aggregate`, e.g. a struct phi `%vN = phi %ori.Record` flowing through
-/// a loop) MUST spill the aggregate to a stack alloca + store BEFORE
-/// `struct_gep` per AB-5 / `FastISel` discipline — a by-value aggregate has
-/// no addressable storage, so `struct_gep` on the SSA value itself is a
-/// `struct_gep on non-pointer value` (E5001). A non-`RcPointer` aggregate
-/// base must not be skipped as an unreachable scalar (that leaves the heap
-/// field uncleaned). Positive pin: the spill (`burden.spill` alloca +
-/// store) AND the field GEP+load+RcDec emit.
 #[test]
 fn burden_dec_field_aggregate_base_spills_to_alloca_before_gep() {
     use ori_arc::ir::{ArcBlockId, ArcFunction, ArcParam, ArcTerminator, ArcVarId, ValueRepr};
     use ori_arc::Ownership;
 
     use super::test_utils::{burden_dec_field_first, entry_block, set_first};
-    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
-
     let mut pool = Pool::new();
-    // Struct with one str field — heap-burdened; MUST emit RcDec. The base
-    // var carries repr Aggregate (by-value), NOT RcPointer.
     let struct_ty = pool.struct_type(
         ori_ir::Name::from_raw(320),
         &[(ori_ir::Name::from_raw(321), Idx::STR)],
@@ -1377,45 +1249,21 @@ fn burden_dec_field_aggregate_base_spills_to_alloca_before_gep() {
         )],
         entry: ArcBlockId::new(0),
         var_types: vec![struct_ty, Idx::STR],
-        // Base var (0) is a BY-VALUE aggregate (the bug shape), NOT RcPointer.
         var_reprs: vec![ValueRepr::Aggregate, ValueRepr::RcPointer],
         var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None, None]],
         ..Default::default()
     };
 
-    let abi = FunctionAbi {
-        params: vec![
-            ParamAbi {
-                name: interner.intern("base"),
-                ty: struct_ty,
-                passing: ParamPassing::Direct,
-                readonly: false,
-            },
-            ParamAbi {
-                name: interner.intern("val"),
-                ty: Idx::STR,
-                passing: ParamPassing::Direct,
-                readonly: false,
-            },
-        ],
-        return_abi: ReturnAbi {
-            ty: struct_ty,
-            passing: ReturnPassing::Direct,
-        },
-        call_conv: CallConv::Fast,
-    };
+    let abi = direct_pair_abi(&interner, ("base", struct_ty), ("val", Idx::STR), struct_ty);
     em.emit_function(&arc_func, &abi);
 
     let ir = scx.llmod.print_to_string().to_string();
 
-    // Semantic pin: the by-value aggregate is spilled to a stack alloca + store
-    // before any field addressing (AB-5).
     assert!(
         ir.contains("burden.spill") && ir.contains("alloca"),
         "BurdenDecField on a by-value aggregate base MUST spill to a `burden.spill` alloca; ir:\n{ir}",
     );
-    // Pin: the field GEP + load + RcDec still emit off the spilled pointer.
     assert!(
         ir.contains("burden_dec_field.0.ptr"),
         "BurdenDecField MUST emit struct_gep for field position off the spilled pointer; ir:\n{ir}",
@@ -1424,15 +1272,10 @@ fn burden_dec_field_aggregate_base_spills_to_alloca_before_gep() {
         ir.contains("ori_rc_dec"),
         "BurdenDecField on str-typed field of an aggregate base MUST route through ori_rc_dec; ir:\n{ir}",
     );
-    // Negative pin: the field GEP MUST address the spilled alloca pointer
-    // (`%burden.spill`), NEVER the by-value aggregate SSA value directly —
-    // the latter is `struct_gep on non-pointer value` (E5001). Assert the
-    // GEP operand is the spill slot.
     assert!(
         ir.contains("getelementptr inbounds nuw %ori.320, ptr %burden.spill"),
         "BurdenDecField field GEP MUST address the spilled alloca pointer, not a by-value aggregate; ir:\n{ir}",
     );
-    // The store-before-GEP ordering MUST hold (spill materialized first).
     let spill_store = ir.find("store ptr %0, ptr %burden.spill");
     let field_gep = ir.find("%burden_dec_field.0.ptr = getelementptr");
     assert!(
@@ -1441,7 +1284,7 @@ fn burden_dec_field_aggregate_base_spills_to_alloca_before_gep() {
     );
 
     drop(em);
-} // burden_dec_field_aggregate_base_spills_to_alloca_before_gep
+}
 
 // BurdenDecVariant codegen wire matrix
 
@@ -2921,19 +2764,52 @@ fn drop_fn_cache_prevents_infinite_generation() {
     drop(em);
 }
 
-/// AUGMENT drop body emits ZERO self-referencing RC dec (self-recursion inhibition).
-///
-/// A `Drop`-impl type's refcount-zero drop body runs the user `@drop`
-/// (borrowing `self`), walks + decs its RC'd fields, then releases the
-/// allocation via `ori_rc_free`. It MUST NOT emit any `ori_rc_dec` /
-/// `ori_rc_dec_unwind` keyed to the by-value `self` (the `data_ptr` param fed to
-/// the user `@drop`): a scope-exit dec on `self` inside the `@drop` body would
-/// re-enter `ori_rc_dec(data_ptr, _ori_drop$<ty>)` and recurse the cleanup
-/// infinitely (double-free). The compiler-side field walk + `emit_drop_rc_free`
-/// own the actual release; `self` is a borrowed view for the user body's
-/// duration. Verification surface sc-b45c533e (§04.3 Drop AUGMENT), same
-/// harness shape as `recursive_node_drop_fn_emits_self_referencing_rc_dec` and
-/// `drop_fn_closure_env_emits_gep_and_rc_dec`.
+fn assert_augment_drop_ir(ir: &str, mangled: &str) {
+    assert!(
+        ir.contains(&format!("define internal void @{mangled}(ptr")),
+        "AUGMENT drop fn MUST be defined:\n{ir}"
+    );
+    assert!(
+        ir.contains("guard_user_drop"),
+        "AUGMENT body MUST invoke the user @drop on self:\n{ir}"
+    );
+    assert!(
+        ir.contains("@ori_rc_dec"),
+        "AUGMENT body MUST dec its RC'd str field:\n{ir}"
+    );
+    assert!(
+        ir.contains("@ori_rc_free"),
+        "AUGMENT body MUST free the alloc:\n{ir}"
+    );
+
+    let def_needle = format!("@{mangled}(");
+    let start = ir.find(&def_needle).expect("drop fn define line") + def_needle.len();
+    let end = start + ir[start..].find(')').expect("param-list close");
+    let params = &ir[start..end];
+    let pct = params
+        .find('%')
+        .expect("ptr self param carries an SSA name");
+    let rest = &params[pct..];
+    let token_end = rest
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '%' || c == '.' || c == '_'))
+        .unwrap_or(rest.len());
+    let self_param = &rest[..token_end];
+
+    assert!(
+        ir.contains(&format!("@ori_rc_free(ptr {self_param},")),
+        "self (data_ptr `{self_param}`) MUST be released via ori_rc_free:\n{ir}"
+    );
+    assert!(
+        !ir.contains(&format!("@ori_rc_dec(ptr {self_param},")),
+        "AUGMENT body MUST NOT emit a self-referencing ori_rc_dec on `{self_param}` \
+         (self-recursion -> infinite drop / double-free):\n{ir}"
+    );
+    assert!(
+        !ir.contains(&format!("@ori_rc_dec_unwind(ptr {self_param},")),
+        "AUGMENT body MUST NOT emit a self-referencing ori_rc_dec_unwind on `{self_param}`:\n{ir}"
+    );
+}
+
 #[test]
 fn augment_drop_body_emits_zero_self_dec() {
     let mut pool = Pool::new();
@@ -2952,19 +2828,13 @@ fn augment_drop_body_emits_zero_self_dec() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    // Declare the user `@drop` impl the emitter will invoke on `self`.
     let ptr_ty = builder.ptr_type();
     let user_drop_fn = builder.get_or_declare_void_function("guard_user_drop", &[ptr_ty]);
 
-    // Route the Guard type through DefiniteRef (mirrors the recursive-node
-    // classifier setup); the str field is DefiniteRef via the Idx::STR arm.
     let cl = IdxSetClassifier {
         heap_idxs: vec![guard_ty],
     };
 
-    // CodegenContext resolving the user `@drop`: type-name map + a
-    // Reference-passing self param so `self` (data_ptr) is forwarded to
-    // `@drop` directly (no load / no layout resolution of the bare named type).
     let type_name = ori_ir::Name::from_raw(0x0A06_0DAB);
     let drop_name = interner.intern("drop");
     let guard_abi = FunctionAbi {
@@ -3001,9 +2871,6 @@ fn augment_drop_body_emits_zero_self_dec() {
         None,
     );
 
-    // Guard { s: str } with a user @drop — the AUGMENT shape. `user_drop` on
-    // the DropKind is None (matching the pool-walk synthesizer); codegen
-    // resolves the user `@drop` from `method_functions`, exactly as production.
     let info = DropInfo {
         ty: guard_ty,
         kind: DropKind::Fields {
@@ -3015,86 +2882,17 @@ fn augment_drop_body_emits_zero_self_dec() {
 
     let ir = scx.llmod.print_to_string().to_string();
     let mangled = format!("\"_ori_drop${}\"", guard_ty.raw());
-
-    // AUGMENT fired: the drop fn is defined AND runs the user @drop on self.
-    assert!(
-        ir.contains(&format!("define internal void @{mangled}(ptr")),
-        "AUGMENT drop fn MUST be defined:\n{ir}"
-    );
-    assert!(
-        ir.contains("guard_user_drop"),
-        "AUGMENT body MUST invoke the user @drop on self:\n{ir}"
-    );
-    // The RC'd str field is decremented (field walk) and the allocation freed.
-    assert!(
-        ir.contains("@ori_rc_dec"),
-        "AUGMENT body MUST dec its RC'd str field:\n{ir}"
-    );
-    assert!(
-        ir.contains("@ori_rc_free"),
-        "AUGMENT body MUST free the alloc:\n{ir}"
-    );
-
-    // Parse the drop fn's `self`/data_ptr param SSA name from its define line.
-    let self_param = {
-        let def_needle = format!("@{mangled}(");
-        let start = ir.find(&def_needle).expect("drop fn define line") + def_needle.len();
-        let end = start + ir[start..].find(')').expect("param-list close");
-        let params = &ir[start..end];
-        let pct = params
-            .find('%')
-            .expect("ptr self param carries an SSA name");
-        let rest = &params[pct..];
-        let tok_end = rest
-            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '%' || c == '.' || c == '_'))
-            .unwrap_or(rest.len());
-        rest[..tok_end].to_string()
-    };
-
-    // The self param IS released via ori_rc_free — the compiler-side free owns
-    // the release, never a self-dec.
-    assert!(
-        ir.contains(&format!("@ori_rc_free(ptr {self_param},")),
-        "self (data_ptr `{self_param}`) MUST be released via ori_rc_free:\n{ir}"
-    );
-
-    // ZERO-SELF-DEC PIN: no ori_rc_dec / ori_rc_dec_unwind keyed to `self`.
-    // A scope-exit RcDec on self (self-recursion) would emit
-    // `@ori_rc_dec(ptr {self_param}, ptr @"_ori_drop$<guard>")` and recurse the
-    // cleanup infinitely — this assertion fails on that revert.
-    assert!(
-        !ir.contains(&format!("@ori_rc_dec(ptr {self_param},")),
-        "AUGMENT body MUST NOT emit a self-referencing ori_rc_dec on `{self_param}` \
-         (self-recursion -> infinite drop / double-free):\n{ir}"
-    );
-    assert!(
-        !ir.contains(&format!("@ori_rc_dec_unwind(ptr {self_param},")),
-        "AUGMENT body MUST NOT emit a self-referencing ori_rc_dec_unwind on `{self_param}`:\n{ir}"
-    );
+    assert_augment_drop_ir(&ir, &mangled);
 
     drop(em);
 }
 
-// Method-fallback receiver-type gating (`lookup_method_fallback` /
-// `resolve_callee`).
-//
-// The diagnostic-only fallback step of `resolve_callee` fired a warning
-// whenever ANY registered type shared a method name with the callee,
-// regardless of the actual receiver — a builtin receiver (str, bool, ...)
-// legitimately falls through every typed dispatch step to
-// `try_emit_builtin_method`, but spuriously warned whenever some OTHER type
-// happened to register the same method name. The fix gates the warning on
-// the receiver's own resolved tag (`Tag::Applied | Tag::Struct | Tag::Enum`
-// — the domain `type_idx_to_name` is meant to cover).
+// Method-fallback receiver-type gating.
 
-/// In-memory tracing sink capturing every formatted event emitted while
-/// installed as the default subscriber — lets a test assert on whether (and
-/// what) `tracing::warn!` fired without a live `ORI_LOG` filter.
+/// In-memory tracing sink for subscriber assertions.
 #[expect(
     clippy::disallowed_types,
-    reason = "test-only tracing sink; tracing_subscriber::fmt::MakeWriter requires a cheaply \
-              Clone + 'static shared buffer across its callback boundary, the exact shared-ownership \
-              shape Arc exists for — not a production hot-path allocation"
+    reason = "MakeWriter requires a cloneable shared test buffer"
 )]
 #[derive(Clone, Default)]
 struct CapturingWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
@@ -3131,18 +2929,84 @@ impl CapturingWriter {
     }
 }
 
-/// Run `body` under a tracing subscriber capturing WARN-and-above events;
-/// return the formatted output.
-fn capture_warnings(body: impl FnOnce()) -> String {
+fn capture_events(level: tracing::Level, body: impl FnOnce()) -> String {
     let writer = CapturingWriter::default();
     let subscriber = tracing_subscriber::fmt()
         .with_writer(writer.clone())
-        .with_max_level(tracing::Level::WARN)
+        .with_max_level(level)
         .without_time()
         .with_target(false)
         .finish();
     tracing::subscriber::with_default(subscriber, body);
     writer.contents()
+}
+
+/// Run `body` under a tracing subscriber capturing WARN-and-above events.
+fn capture_warnings(body: impl FnOnce()) -> String {
+    capture_events(tracing::Level::WARN, body)
+}
+
+#[test]
+fn push_header_store_toggle_reports_effect() {
+    if std::env::var_os("ORI_PUSH_TOGGLE_TRACE_CHILD").is_none() {
+        run_toggle_trace_child(
+            "push_header_store_toggle_reports_effect",
+            "ORI_PUSH_TOGGLE_TRACE_CHILD",
+            "ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE",
+        );
+        return;
+    }
+
+    let output = capture_events(tracing::Level::INFO, || {
+        assert!(
+            super::builtins::push_result_elem_header_store_disabled(),
+            "enabled toggle must disable the stores"
+        );
+    });
+
+    assert!(output.contains("ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE"));
+    assert!(output.contains("skip result-buffer element destructor metadata stores"));
+}
+
+#[test]
+fn rl31_noalias_toggle_reports_effect() {
+    if std::env::var_os("ORI_RL31_TOGGLE_TRACE_CHILD").is_none() {
+        run_toggle_trace_child(
+            "rl31_noalias_toggle_reports_effect",
+            "ORI_RL31_TOGGLE_TRACE_CHILD",
+            "ORI_DISABLE_RL31_NOALIAS",
+        );
+        return;
+    }
+
+    let output = capture_events(tracing::Level::INFO, || {
+        assert!(
+            crate::codegen::function_compiler::rl31_noalias_disabled(),
+            "enabled toggle must disable the attribute"
+        );
+    });
+
+    assert!(output.contains("ORI_DISABLE_RL31_NOALIAS"));
+    assert!(output.contains("omit LLVM projection of RL-31 parameter facts"));
+}
+
+fn run_toggle_trace_child(test_name: &str, marker: &str, toggle: &str) {
+    let output = std::process::Command::new(
+        std::env::current_exe().expect("test executable path must be available"),
+    )
+    .arg(test_name)
+    .arg("--nocapture")
+    .env(marker, "1")
+    .env(toggle, "1")
+    .output()
+    .expect("toggle trace child must start");
+
+    assert!(
+        output.status.success(),
+        "toggle trace child failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 /// Minimal `FunctionAbi` for a zero-arg, void-returning dummy method — only
@@ -3370,13 +3234,40 @@ fn lookup_method_fallback_none_receiver_no_warning() {
     drop(em);
 }
 
+fn fallback_receiver_function(
+    interner: &StringInterner,
+    name: &str,
+    receiver_ty: Idx,
+) -> ArcFunction {
+    use ori_arc::ir::{ArcParam, ValueRepr};
+
+    ArcFunction {
+        name: interner.intern(name),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: receiver_ty,
+            ownership: ori_arc::Ownership::Owned,
+        }],
+        return_type: Idx::UNIT,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(1),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![receiver_ty, Idx::UNIT],
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
+        spans: vec![vec![None]],
+        ..Default::default()
+    }
+}
+
 #[test]
 fn resolve_callee_threads_receiver_type_into_fallback_gate() {
-    use ori_arc::ir::{
-        ArcBlock, ArcBlockId, ArcFunction, ArcParam, ArcTerminator, ArcVarId, ValueRepr,
-    };
-    use ori_arc::Ownership;
-
     let mut pool = Pool::new();
     let struct_ty = pool.struct_type(ori_ir::Name::from_raw(310), &[]);
 
@@ -3407,36 +3298,7 @@ fn resolve_callee_threads_receiver_type_into_fallback_gate() {
         None,
     );
 
-    // Every typed dispatch step misses (`type_idx_to_name`, `functions`,
-    // `mono_dispatch` are all empty) so `resolve_callee` reaches its
-    // diagnostic-only fallback for both receivers below.
-
-    // Struct receiver (registered domain) — resolve_callee's own
-    // `args.first()` + `func.var_type()` + `resolve_fully()` derivation
-    // MUST reach the fallback and fire the warning.
-    let struct_func = ArcFunction {
-        name: interner.intern("test_struct_receiver_fn"),
-        params: vec![ArcParam {
-            var: ArcVarId::new(0),
-            ty: struct_ty,
-            ownership: Ownership::Owned,
-        }],
-        return_type: Idx::UNIT,
-        blocks: vec![ArcBlock {
-            id: ArcBlockId::new(0),
-            params: vec![],
-            body: vec![],
-            terminator: ArcTerminator::Return {
-                value: ArcVarId::new(1),
-            },
-        }],
-        entry: ArcBlockId::new(0),
-        var_types: vec![struct_ty, Idx::UNIT],
-        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
-        var_metadata_state: VariableMetadataState::RepresentationsReady,
-        spans: vec![vec![None]],
-        ..Default::default()
-    };
+    let struct_func = fallback_receiver_function(&interner, "test_struct_receiver_fn", struct_ty);
     let struct_output = capture_warnings(|| {
         let resolved = em.resolve_callee(
             method_name,
@@ -3452,32 +3314,7 @@ fn resolve_callee_threads_receiver_type_into_fallback_gate() {
         "resolve_callee MUST warn on a Struct-tagged unregistered receiver:\n{struct_output}"
     );
 
-    // str receiver (builtin domain) — same missing-registration shape, but
-    // MUST NOT warn: this is the resolve_callee-level regression pin for
-    // the original bug.
-    let str_func = ArcFunction {
-        name: interner.intern("test_str_receiver_fn"),
-        params: vec![ArcParam {
-            var: ArcVarId::new(0),
-            ty: Idx::STR,
-            ownership: Ownership::Owned,
-        }],
-        return_type: Idx::UNIT,
-        blocks: vec![ArcBlock {
-            id: ArcBlockId::new(0),
-            params: vec![],
-            body: vec![],
-            terminator: ArcTerminator::Return {
-                value: ArcVarId::new(1),
-            },
-        }],
-        entry: ArcBlockId::new(0),
-        var_types: vec![Idx::STR, Idx::UNIT],
-        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
-        var_metadata_state: VariableMetadataState::RepresentationsReady,
-        spans: vec![vec![None]],
-        ..Default::default()
-    };
+    let str_func = fallback_receiver_function(&interner, "test_str_receiver_fn", Idx::STR);
     let str_output = capture_warnings(|| {
         let resolved = em.resolve_callee(
             method_name,
@@ -3494,4 +3331,196 @@ fn resolve_callee_threads_receiver_type_into_fallback_gate() {
     );
 
     drop(em);
+}
+
+fn dead_unwind_test_function(
+    make_terminator: impl FnOnce(ArcBlockId, ArcBlockId) -> ArcTerminator,
+) -> (ArcFunction, FxHashSet<usize>) {
+    let live_block = ArcBlockId::new(1);
+    let dead_block = ArcBlockId::new(2);
+    let func = ArcFunction {
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: make_terminator(live_block, dead_block),
+            },
+            ArcBlock {
+                id: live_block,
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Unreachable,
+            },
+            ArcBlock {
+                id: dead_block,
+                params: Vec::new(),
+                body: Vec::new(),
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..Default::default()
+    };
+
+    (func, FxHashSet::from_iter([dead_block.index()]))
+}
+
+fn function_with_rc_body(body: Vec<ArcInstr>) -> ArcFunction {
+    ArcFunction {
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body,
+            terminator: ArcTerminator::Unreachable,
+        }],
+        ..Default::default()
+    }
+}
+
+#[test]
+#[should_panic(expected = "dead unwind block is reachable via non-Invoke terminator")]
+fn dead_unwind_jump_to_dead_panics() {
+    let (func, dead) = dead_unwind_test_function(|_, dead_block| ArcTerminator::Jump {
+        target: dead_block,
+        args: Vec::new(),
+    });
+
+    super::dead_unwind::assert_dead_unwind_unreachable(&func, &dead);
+}
+
+#[test]
+#[should_panic(expected = "dead unwind block is reachable via non-Invoke terminator")]
+fn dead_unwind_branch_to_dead_panics() {
+    let (func, dead) = dead_unwind_test_function(|live_block, dead_block| ArcTerminator::Branch {
+        cond: ArcVarId::new(0),
+        then_block: live_block,
+        else_block: dead_block,
+    });
+
+    super::dead_unwind::assert_dead_unwind_unreachable(&func, &dead);
+}
+
+#[test]
+#[should_panic(expected = "dead unwind block is reachable via non-Invoke terminator")]
+fn dead_unwind_switch_case_to_dead_panics() {
+    let (func, dead) = dead_unwind_test_function(|live_block, dead_block| ArcTerminator::Switch {
+        scrutinee: ArcVarId::new(0),
+        cases: vec![(0, dead_block)],
+        default: live_block,
+    });
+
+    super::dead_unwind::assert_dead_unwind_unreachable(&func, &dead);
+}
+
+#[test]
+#[should_panic(expected = "dead unwind block is reachable via non-Invoke terminator")]
+fn dead_unwind_switch_default_to_dead_panics() {
+    let (func, dead) = dead_unwind_test_function(|live_block, dead_block| ArcTerminator::Switch {
+        scrutinee: ArcVarId::new(0),
+        cases: vec![(0, live_block)],
+        default: dead_block,
+    });
+
+    super::dead_unwind::assert_dead_unwind_unreachable(&func, &dead);
+}
+
+#[test]
+#[should_panic(expected = "dead unwind block is reachable via non-Invoke terminator")]
+fn dead_unwind_invoke_normal_to_dead_panics() {
+    let (func, dead) = dead_unwind_test_function(|live_block, dead_block| ArcTerminator::Invoke {
+        dst: ArcVarId::new(0),
+        ty: Idx::UNIT,
+        func: Name::EMPTY,
+        args: Vec::new(),
+        arg_ownership: Vec::new(),
+        mono_instance_id: None,
+        normal: dead_block,
+        unwind: live_block,
+    });
+
+    super::dead_unwind::assert_dead_unwind_unreachable(&func, &dead);
+}
+
+#[test]
+#[should_panic(expected = "dead unwind block is reachable via non-Invoke terminator")]
+fn dead_unwind_indirect_invoke_normal_to_dead_panics() {
+    let (func, dead) =
+        dead_unwind_test_function(|live_block, dead_block| ArcTerminator::InvokeIndirect {
+            dst: ArcVarId::new(0),
+            ty: Idx::UNIT,
+            closure: ArcVarId::new(1),
+            args: Vec::new(),
+            arg_ownership: Vec::new(),
+            normal: dead_block,
+            unwind: live_block,
+        });
+
+    super::dead_unwind::assert_dead_unwind_unreachable(&func, &dead);
+}
+
+#[test]
+fn dead_unwind_invoke_unwind_to_dead_passes() {
+    let (func, dead) = dead_unwind_test_function(|live_block, dead_block| ArcTerminator::Invoke {
+        dst: ArcVarId::new(0),
+        ty: Idx::UNIT,
+        func: Name::EMPTY,
+        args: Vec::new(),
+        arg_ownership: Vec::new(),
+        mono_instance_id: None,
+        normal: live_block,
+        unwind: dead_block,
+    });
+
+    super::dead_unwind::assert_dead_unwind_unreachable(&func, &dead);
+}
+
+#[test]
+#[should_panic(expected = "pointer-only param v0 has RC operation")]
+fn pointer_only_rc_increment_panics() {
+    let pointer_only = ArcVarId::new(0);
+    let func = function_with_rc_body(vec![ArcInstr::RcInc {
+        var: pointer_only,
+        count: 1,
+        strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::Atomic,
+    }]);
+    let pointer_only_params = FxHashSet::from_iter([pointer_only]);
+
+    super::emit_function::assert_pointer_only_params_have_no_rc(&func, &pointer_only_params);
+}
+
+#[test]
+#[should_panic(expected = "pointer-only param v0 has RC operation")]
+fn pointer_only_rc_decrement_panics() {
+    let pointer_only = ArcVarId::new(0);
+    let func = function_with_rc_body(vec![ArcInstr::RcDec {
+        var: pointer_only,
+        strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::Atomic,
+    }]);
+    let pointer_only_params = FxHashSet::from_iter([pointer_only]);
+
+    super::emit_function::assert_pointer_only_params_have_no_rc(&func, &pointer_only_params);
+}
+
+#[test]
+fn pointer_only_rc_on_other_variable_passes() {
+    let pointer_only = ArcVarId::new(0);
+    let other = ArcVarId::new(1);
+    let func = function_with_rc_body(vec![
+        ArcInstr::RcInc {
+            var: other,
+            count: 1,
+            strategy: RcStrategy::HeapPointer,
+            atomicity: RcAtomicity::Atomic,
+        },
+        ArcInstr::RcDec {
+            var: other,
+            strategy: RcStrategy::HeapPointer,
+            atomicity: RcAtomicity::Atomic,
+        },
+    ]);
+    let pointer_only_params = FxHashSet::from_iter([pointer_only]);
+
+    super::emit_function::assert_pointer_only_params_have_no_rc(&func, &pointer_only_params);
 }

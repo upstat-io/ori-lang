@@ -22,7 +22,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `debug-release-compare.sh` | Compare debug vs release build output | FastISel-only bugs, optimization divergences |
 | `class-ledger-census.sh` | Single-leg readiness census: per-function replaced vs fallback counts + ranked fallback-reason table over a corpus, under the gated burden-sole env; `--run` adds plain + leak-check behavior verdicts | The drain worklist for retiring the legacy fallback walk (`--limit`, `--family`, `--run`, `--timeout`) |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
-| `check-tracing-coverage.sh` | Validate direct tracing dependencies and required parser spans | After changing tracing dependencies or parser boundaries |
+| `check-tracing-coverage.sh` | Validate tracing dependencies, literal registry entries, and required parser spans | After changing tracing calls, dependencies, or parser boundaries |
 | `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |
 | `verify-build-stamp-freshness.sh` | Verify `oric`'s `build.rs` re-executes and refreshes its git-identity stamp on an ordinary rebuild | After touching `compiler/oric/build.rs` or its `git()`-based stamping logic |
 | `self-test.sh` | Self-test all scripts against fixtures | After modifying any diagnostic script |

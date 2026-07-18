@@ -109,7 +109,6 @@ fn log_unknown_mono_instance(
 ) {
     let name_str = interner.lookup(instance.fn_name);
     tracing::debug!(
-        target: "ori_llvm::mono",
         fn_name = ?instance.fn_name,
         name = name_str,
         is_method = instance.receiver_type.is_some(),
@@ -132,16 +131,9 @@ fn build_mono_function(
         .receiver_type
         .and_then(|receiver| nominal_type_name(pool, receiver));
     let mut body_type_map: FxHashMap<Idx, Idx> = instance.body_type_map.iter().copied().collect();
-    // For a method WITH `self`, the body references the generic receiver
-    // type (`Box<T>`) via `self`-projections; map it to the concrete
-    // receiver (`Box<int>`) so those projections resolve to the
-    // monomorphized layout. The generic sig keeps `self` as `param_types[0]`
-    // exactly when it has one MORE param than the instance's non-`self`
-    // concrete params (the same signal `concrete_sig_for_instance` uses for
-    // `receiver_self`). A no-`self` associated function has NO self
-    // projection — `param_types.first()` is a VALUE param, not the receiver —
-    // so this mapping is skipped (its body types come from
-    // `instance.body_type_map` alone).
+    // A method with `self` maps its generic receiver to the concrete layout;
+    // the one-slot arity difference identifies that receiver. No-`self`
+    // associated functions derive body types only from `body_type_map`.
     let has_self_receiver =
         instance.concrete_param_types.len() + 1 == resolved.signature.param_types.len();
     if let (Some(receiver), true, Some(&self_generic)) = (
@@ -181,19 +173,9 @@ pub fn collect_mono_functions(
     interner: &StringInterner,
     pool: &Pool,
 ) -> Vec<MonoFunction> {
-    // INVARIANT: receiver-type discrimination is enforced upstream by MonoInstance dedup.
-    // Inherent-method sigs are keyed by (method_name, receiver generic shell).
-    // The shell (`Box<_>`) discriminates per-receiver impl blocks so
-    // `Box<int>.unwrap` and `Box<str>.unwrap` resolve to distinct mono
-    // functions instead of colliding on a name-only first-match.
-    //
-    // `shell_pool` is a dedicated interning context: shells are content-
-    // addressed there, leaving the shared read-only `pool` untouched. The
-    // owning impl receiver type (`Box<T>`, `ImplSig::receiver`) carries the
-    // impl block's receiver pattern; its shell matches every concrete
-    // receiver's shell at lookup. Keying on the receiver — NOT
-    // `sig.param_types.first()` — is load-bearing for a no-`self` associated
-    // function, whose first param is a VALUE param, not the receiver.
+    // Method name plus owning receiver shell discriminates impl blocks; a
+    // dedicated shell pool preserves the shared pool. The owning receiver, not
+    // the first value parameter, also keys no-`self` associated functions.
     let signatures = MonoSignatureLookup::new(
         function_sigs,
         impl_sigs,
@@ -206,7 +188,6 @@ pub fn collect_mono_functions(
     let mut name_to_index: FxHashMap<Name, usize> = FxHashMap::default();
 
     tracing::debug!(
-        target: "ori_llvm::mono",
         instance_count = mono_instances.len(),
         names = ?mono_instances
             .iter()

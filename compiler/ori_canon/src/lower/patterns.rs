@@ -1,8 +1,4 @@
-//! Pattern and parameter lowering — match, multi-clause, binding patterns, params, `function_exp`.
-//!
-//! Handles lowering of match expressions (including pattern compilation and
-//! exhaustiveness checking), multi-clause function definitions, binding
-//! pattern destructuring, parameter lists, and function expressions.
+//! Canonical lowering for matches, binding patterns, and function parameters.
 
 use ori_ir::canon::{
     CanBindingPattern, CanBindingPatternId, CanExpr, CanId, CanNamedExpr, CanParam,
@@ -27,13 +23,12 @@ impl Lowerer<'_> {
     ) -> CanId {
         let scrutinee_id = self.lower_expr(scrutinee);
 
-        // Get scrutinee type for pattern flattening.
         let scrutinee_ty = self
             .typed
             .expr_type(scrutinee.index())
             .unwrap_or(ori_types::Idx::UNIT);
 
-        // Separating bodies permits moving patterns into `pattern_data` without cloning.
+        // Why: Separate bodies so pattern ownership moves without cloning source arms.
         let src_arms = self.src.get_arms(arms);
         let mut patterns_and_guards: Vec<_> = src_arms
             .iter()
@@ -41,9 +36,6 @@ impl Lowerer<'_> {
             .collect();
         let bodies: Vec<_> = src_arms.iter().map(|arm| arm.body).collect();
 
-        // Lower guards from ExprId → CanId and take ownership of patterns
-        // in a single pass. Guard lowering requires `&mut self`, whereas
-        // `compile_patterns` only borrows `&self`.
         let pattern_data: Vec<_> = patterns_and_guards
             .drain(..)
             .map(|(pat, guard)| {
@@ -54,8 +46,6 @@ impl Lowerer<'_> {
         let compiled =
             crate::patterns::compile_patterns(self, &pattern_data, arms.start, scrutinee_ty);
 
-        // Exhaustiveness check: capture arm spans from the source arms (still
-        // accessible since src_arms borrows the read-only source arena).
         let arm_spans: Vec<Span> = src_arms.iter().map(|arm| arm.span).collect();
         let check = crate::exhaustiveness::check_exhaustiveness(
             &compiled.tree,
@@ -72,9 +62,7 @@ impl Lowerer<'_> {
             .decision_trees
             .push_with_leaf_discards(compiled.tree, compiled.leaf_discard_paths);
 
-        // Lower arm bodies BEFORE building the expr list. lower_expr may
-        // recursively lower nested match expressions, which would push their
-        // own arm bodies into the flat expr_lists array, corrupting our range.
+        // INVARIANT: Nested matches finish before this arm list reserves its range.
         let lowered_bodies: Vec<CanId> = bodies.iter().map(|body| self.lower_expr(*body)).collect();
         let arms_range = self.arena.push_expr_list(&lowered_bodies);
 
@@ -118,11 +106,8 @@ impl Lowerer<'_> {
         let span = clauses[0].span;
         let ty = self.expr_type(clauses[0].body);
 
-        // Get parameter names from the FunctionSig (type checker output).
-        // The type checker stores the last clause's names (HashMap insert overwrites),
-        // which typically has all-variable params. The ARC lowering also uses these
-        // names (from ABI.params). The evaluator must also use these names for
-        // multi-clause function parameter binding.
+        // Multi-clause evaluator bindings must use the same signature names as
+        // ARC lowering; typecheck stores the last clause's parameter names.
         let first_params = self.src.get_params(clauses[0].params);
         let param_count = first_params.len();
         let fn_name = clauses[0].name;

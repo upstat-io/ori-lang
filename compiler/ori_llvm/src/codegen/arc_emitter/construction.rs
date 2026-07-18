@@ -1,7 +1,4 @@
-//! Value construction emission for [`ArcIrEmitter`].
-//!
-//! Handles `Construct` instructions: building structs/tuples, enum variants
-//! (with recursive field boxing), list literals, map literals, and set literals.
+//! LLVM emission for ARC aggregate and collection construction.
 
 use ori_arc::ir::{ArcVarId, CtorKind};
 use ori_types::{Idx, Tag};
@@ -366,12 +363,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .build_struct(llvm_ty, &[count_value, cap, data_ptr], "set")
     }
 
-    /// Construct a niche-encoded enum variant.
-    ///
-    /// Niche layout has no tag field — payload fields start at struct index 0.
-    /// For the niche variant (e.g., None), this creates a zero-initialized
-    /// struct whose `SetTag` instruction writes the niche value.
-    /// For the data variant (e.g., Some(val)): insert payload at index 0.
+    /// Construct a niche-encoded enum whose payload starts at field zero.
+    /// The empty variant stores its niche directly; data variants store payload fields.
     fn emit_niche_variant_construct(
         &mut self,
         llvm_ty: super::super::value_id::LLVMTypeId,
@@ -381,8 +374,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> ValueId {
         let mut result = self.builder.const_zero_ty(llvm_ty);
         if encoding.needs_tag_store(variant) {
-            // Niche variant (no payload): insert niche_value directly
-            // so that `SetTag` is not needed (avoids GEP-on-register issues).
+            // Why: Storing the niche directly avoids a GEP on an SSA register.
             let Some(niche_idx) = encoding.niche_field_index() else {
                 panic!("niche variant requiring a tag store must name its niche field");
             };
@@ -394,7 +386,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .builder
                 .insert_value(result, niche_const, niche_idx, "niche.tag");
         }
-        // Data variant: insert payload fields starting at index 0.
         for (i, &val) in arg_vals.iter().enumerate() {
             let Ok(idx) = u32::try_from(i) else {
                 panic!("niche payload field index must fit u32");
@@ -420,14 +411,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Box an inline value for a boxed recursive field/element slot.
-    ///
-    /// Allocates an RC box sized to `field_type`, stores the inline `val` into
-    /// it, and returns the box pointer. When the source variable is rooted at a
-    /// borrowed parameter (the caller retains a live reference), the inline
-    /// value's heap sub-pointers gain a second owner (the box) and are
-    /// incremented; for consumed (moved) values this is a move with no inc.
-    /// Mirrors the enum boxing in `emit_variant_via_alloca`.
+    /// Allocate an RC box for an inline recursive field and return its pointer.
+    /// Borrow-rooted values gain a second ownership credit; moved values do not.
     pub(super) fn box_recursive_field(
         &mut self,
         val: ValueId,

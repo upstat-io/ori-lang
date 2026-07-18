@@ -86,7 +86,6 @@ pub(super) fn resolve_impl_signature(
     };
 
     tracing::debug!(
-        target: "ori_types::mono",
         method = ?method,
         impl_type_params_len = impl_type_params.len(),
         method_mono_recorded = method_mono.is_some(),

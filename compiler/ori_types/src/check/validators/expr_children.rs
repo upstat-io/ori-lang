@@ -32,14 +32,10 @@ pub(crate) fn child_ids(arena: &ExprArena, expr_id: ExprId) -> Vec<ExprId> {
 /// [`push_map_entry_children`], [`push_map_element_children`],
 /// [`push_struct_children`], [`push_struct_lit_field_children`]) that own each
 /// variant family.
-#[expect(
-    clippy::too_many_lines,
-    reason = "Exhaustive dispatch table over every relevant ExprKind variant, \
-              one arm per variant. Splitting it would scatter the single \
-              structural-child enumeration across files and risk a variant going \
-              unhandled when ExprKind grows — this function IS that enumeration."
-)]
 fn push_children_for_kind(arena: &ExprArena, kind: ExprKind, out: &mut Vec<ExprId>) {
+    if push_control_flow_children(arena, kind, out) {
+        return;
+    }
     match kind {
         ExprKind::Binary { left, right, .. } => {
             out.push(left);
@@ -62,50 +58,6 @@ fn push_children_for_kind(arena: &ExprArena, kind: ExprKind, out: &mut Vec<ExprI
         ExprKind::Index { receiver, index } => {
             out.push(receiver);
             out.push(index);
-        }
-        ExprKind::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            out.push(cond);
-            out.push(then_branch);
-            out.push(else_branch);
-        }
-        ExprKind::Match { scrutinee, arms } => {
-            out.push(scrutinee);
-            for arm in arena.get_arms(arms) {
-                if let Some(g) = arm.guard {
-                    out.push(g);
-                }
-                out.push(arm.body);
-            }
-        }
-        ExprKind::For {
-            iter, guard, body, ..
-        } => {
-            out.push(iter);
-            if guard != ExprId::INVALID {
-                out.push(guard);
-            }
-            out.push(body);
-        }
-        ExprKind::Loop { body, .. } => out.push(body),
-        ExprKind::While { cond, body, .. } => {
-            out.push(cond);
-            out.push(body);
-        }
-        ExprKind::Block { stmts, result } => {
-            for stmt in arena.get_stmt_range(stmts) {
-                match stmt.kind {
-                    ori_ir::StmtKind::Expr(id) | ori_ir::StmtKind::Let { init: id, .. } => {
-                        out.push(id);
-                    }
-                }
-            }
-            if result != ExprId::INVALID {
-                out.push(result);
-            }
         }
         ExprKind::Let { init, .. } | ExprKind::Lambda { body: init, .. } => out.push(init),
         ExprKind::List(range) | ExprKind::Tuple(range) => {
@@ -172,6 +124,48 @@ fn push_children_for_kind(arena: &ExprArena, kind: ExprKind, out: &mut Vec<ExprI
         // post-canonicalization checks and does not descend.
         _ => {}
     }
+}
+
+fn push_control_flow_children(arena: &ExprArena, kind: ExprKind, out: &mut Vec<ExprId>) -> bool {
+    match kind {
+        ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => out.extend([cond, then_branch, else_branch]),
+        ExprKind::Match { scrutinee, arms } => {
+            out.push(scrutinee);
+            for arm in arena.get_arms(arms) {
+                out.extend(arm.guard);
+                out.push(arm.body);
+            }
+        }
+        ExprKind::For {
+            iter, guard, body, ..
+        } => {
+            out.push(iter);
+            if guard != ExprId::INVALID {
+                out.push(guard);
+            }
+            out.push(body);
+        }
+        ExprKind::Loop { body, .. } => out.push(body),
+        ExprKind::While { cond, body, .. } => out.extend([cond, body]),
+        ExprKind::Block { stmts, result } => {
+            for stmt in arena.get_stmt_range(stmts) {
+                match stmt.kind {
+                    ori_ir::StmtKind::Expr(id) | ori_ir::StmtKind::Let { init: id, .. } => {
+                        out.push(id);
+                    }
+                }
+            }
+            if result != ExprId::INVALID {
+                out.push(result);
+            }
+        }
+        _ => return false,
+    }
+    true
 }
 
 /// Push children of [`ExprKind::Call`] / [`ExprKind::MethodCall`] (positional args).

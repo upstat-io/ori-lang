@@ -8,6 +8,7 @@ use ori_ir::{FieldOp, OPTION_TAG_NONE};
 use ori_types::Idx;
 
 use crate::codegen::function_compiler::FunctionCompiler;
+use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::value_id::{LLVMTypeId, ValueId};
 
 use super::emit_field_operation;
@@ -194,9 +195,12 @@ pub(super) fn emit_option_compare<'a>(
         .icmp_eq(lhs_tag, rhs_tag, &format!("{name}.tags_eq"));
 
     // Tags differ: reversed order (None(1) < Some(0) semantically).
-    let tag_cmp =
-        fc.builder_mut()
-            .emit_icmp_ordering(rhs_tag, lhs_tag, &format!("{name}.tag_cmp"), false);
+    let tag_cmp = fc.builder_mut().emit_icmp_ordering(
+        rhs_tag,
+        lhs_tag,
+        &format!("{name}.tag_cmp"),
+        IntegerSignedness::Unsigned,
+    );
 
     let none_tag = fc.builder_mut().const_i64(OPTION_TAG_NONE);
     let is_none = fc

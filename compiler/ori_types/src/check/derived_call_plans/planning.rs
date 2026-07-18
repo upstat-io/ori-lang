@@ -38,7 +38,6 @@ fn collect_call_positions(
     let mut direct_positions = Vec::new();
     let resolved = pool.resolve_fully(receiver);
     tracing::debug!(
-        target: "ori_types::derived_call_plans",
         derived = ?accepted.id,
         trait_kind = ?accepted.trait_kind,
         receiver = ?receiver,
@@ -124,7 +123,6 @@ fn build_plan_from_positions(
     let mut calls = Vec::with_capacity(positions.methods.len());
     for (position, nested_receiver) in positions.methods {
         tracing::debug!(
-            target: "ori_types::derived_call_plans",
             derived = ?accepted.id,
             ?position,
             nested_receiver = ?nested_receiver,

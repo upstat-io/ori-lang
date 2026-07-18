@@ -14,16 +14,13 @@ use crate::codegen::arc_emitter::tag_access::TagEncoding;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-use super::super::ArcIrEmitter;
+use super::{super::ArcIrEmitter, RenderStyle};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Niche-encoded Option dispatch.
     ///
-    /// **fix (2026-04-07)**: `unwrap`/`expect`/`unwrap_or` now mirror
-    /// the explicit-tag pattern from `option_result.rs` — tag guard via
-    /// `emit_unwrap_branch`/`emit_expect_branch` and `inc_value_rc` on the
-    /// extracted payload to retain the inner heap data through the new
-    /// owning reference.
+    /// Unwrap operations guard the active variant and retain an extracted
+    /// payload when the result creates a new owning reference.
     pub(super) fn emit_option_niche(
         &mut self,
         method: &str,
@@ -98,33 +95,41 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             // Render mode is decided once at the dispatch boundary — the
             // shared body never re-compares the method name.
-            "debug" => {
-                self.emit_option_niche_render(receiver, receiver_ty, niche_idx, niche_value, true)
-            }
-            "to_str" => {
-                self.emit_option_niche_render(receiver, receiver_ty, niche_idx, niche_value, false)
-            }
+            "debug" => self.emit_option_niche_render(
+                receiver,
+                receiver_ty,
+                niche_idx,
+                niche_value,
+                RenderStyle::Debug,
+            ),
+            "to_str" => self.emit_option_niche_render(
+                receiver,
+                receiver_ty,
+                niche_idx,
+                niche_value,
+                RenderStyle::Printable,
+            ),
             "clone" => Some(receiver),
             _ => None,
         }
     }
 
     /// Shared `debug` / `to_str` rendering for niche-encoded Options.
-    /// `render_debug` selects Debug formatting over Printable.
+    /// `style` selects Debug or Printable formatting.
     fn emit_option_niche_render(
         &mut self,
         receiver: ValueId,
         receiver_ty: Idx,
         niche_idx: u32,
         niche_value: u64,
-        render_debug: bool,
+        style: RenderStyle,
     ) -> Option<ValueId> {
         let is_some = self.compute_option_is_some(receiver, niche_idx, niche_value)?;
         let payload = self.builder.extract_value(receiver, 0, "opt.payload")?;
         let TypeInfo::Option { inner } = self.type_info.get(receiver_ty) else {
             return None;
         };
-        self.emit_option_debug_branch(is_some, payload, inner, render_debug)
+        self.emit_option_debug_branch(is_some, payload, inner, style)
     }
 
     /// Compute the `is_some` predicate for a niche-encoded Option.
@@ -150,16 +155,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Niche-encoded Result dispatch.
     ///
-    /// **fix (2026-04-07)**: Previously, `unwrap`/`unwrap_err`/`unwrap_or`
-    /// were collapsed into a single match arm that ignored the method name and
-    /// returned the raw payload without any tag guard or RC retain. The
-    /// `expect`/`expect_err` arms had the same defects. This implementation now
-    /// mirrors the explicit-tag pattern from `option_result.rs` — each method
-    /// computes its own niche-aware variant predicate, calls
-    /// `emit_unwrap_branch`/`emit_expect_branch` (panic on the wrong variant
-    /// for unwrap-style) or a conditional `cond_br` (for `unwrap_or`), then
-    /// extracts the payload and retains it via `inc_value_rc` so the wrapper's
-    /// inner heap data is properly refcounted through the new owning reference.
+    /// Each operation computes its niche-aware variant predicate before
+    /// extracting a payload. Unwrap and expect operations guard the active
+    /// variant; payload-producing operations retain new owning references.
     pub(super) fn emit_result_niche(
         &mut self,
         method: &str,

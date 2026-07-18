@@ -469,10 +469,8 @@ fn test_with_capability_nested() {
 
 #[test]
 fn test_no_async_type_modifier() {
-    // Ori does not support `async` as a type modifier.
-    // Instead, use `uses Async` capability.
-    // `async` is not a keyword — it parses as an identifier, while `async int`
-    // is invalid because type position contains two identifiers.
+    // `async` is an identifier, not a type modifier; asynchronous effects use
+    // the `Async` capability, so `async int` is invalid.
     let result = parse_source(include_str!("fixtures/parser/no_async_type_modifier.ori"));
 
     // Should have parse error - two identifiers is not a valid type
@@ -704,10 +702,8 @@ fn test_struct_literal_in_if_then_body() {
 
 #[test]
 fn test_if_condition_disallows_struct_literal() {
-    // Struct literals are NOT allowed directly in if conditions
-    // This is a common pattern in many languages to prevent ambiguity
-    // Note: In Ori with `then` keyword, this is mostly for consistency,
-    // but it helps prevent confusing code like `if Point { ... }.valid then`
+    // Struct literals are excluded directly from conditions to avoid ambiguous
+    // forms such as `if Point { ... }.valid then`.
     let result = parse_source(include_str!(
         "fixtures/parser/if_condition_disallows_struct_literal.ori"
     ));
@@ -1997,14 +1993,8 @@ fn test_let_expr_default_mutable_on_pattern() {
     );
 }
 
-// Lambda grammar — typed parameters with inferred OR explicit return.
-//
-// Spec: grammar.ebnf §lambda / §lambda_tail
-//   lambda      = lambda_params "->" lambda_tail
-//   lambda_tail = type "=" expression | expression
-// Typed-param lambdas infer the return type unless a `type =` prefix is present
-// (proposal: typed-lambda-inferred-return). Untyped params in a typed lambda
-// are rejected with E1018.
+// Typed-parameter lambdas infer their return unless the tail starts with
+// `type =`; mixed typed/untyped parameters are rejected with E1018.
 
 #[test]
 fn test_typed_lambda_inferred_return_accepted() {
@@ -2047,10 +2037,8 @@ fn test_typed_lambda_multi_param_inferred_return_accepted() {
 
 #[test]
 fn test_typed_lambda_bare_return_type_parses_as_inferred_body() {
-    // (x: int) -> int : no `=`, so the speculative type parse restores and the
-    // tail `int` parses as the inferred-return body (the type name used as a
-    // value expression). Parsing accepts it; type checking rejects the type
-    // name as a value with E2005 when the lambda is used.
+    // Without `=`, speculative return-type parsing restores and treats `int`
+    // as the body expression; typechecking later rejects it as a value.
     let result = parse_source(fixture_without_trailing_newline(include_str!(
         "fixtures/parser/typed_lambda_bare_return_type_parses_as_inferred_body.ori"
     )));

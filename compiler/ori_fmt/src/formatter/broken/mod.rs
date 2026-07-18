@@ -3,9 +3,7 @@
 //! Methods for emitting expressions in broken (multi-line) format.
 //! Used when expressions don't fit on a single line.
 //!
-//! `if`/`let`/lambda/`with`/`for`/`while` rendering lives in
-//! [`control_flow`] — split out to keep this dispatch file under the
-//! workspace file-size limit.
+//! [`control_flow`] owns broken rendering for control-flow expressions.
 
 mod control_flow;
 
@@ -41,10 +39,6 @@ impl<I: StringLookup> Formatter<'_, I> {
     /// - **Always-stacked**: Block, Match, `FunctionSeq`, `FunctionExp` → `emit_stacked()`
     /// - **Leaf/atom**: Irreducible expressions → `emit_inline()` (parent breaks around them)
     /// - **Simple compound**: Subexpressions that don't benefit from breaking → `emit_inline()`
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive ExprKind broken formatting dispatch"
-    )]
     pub(super) fn emit_broken(&mut self, expr_id: ExprId) {
         let expr = self.arena.get_expr(expr_id);
 
@@ -58,205 +52,27 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.emit_binary_operand_broken(*right, *op, BinaryOperandSide::Right);
             }
 
-            // Calls - one argument per line
-            ExprKind::Call { func, args } => {
-                self.format_call_target(*func);
-                self.ctx.emit("(");
-                self.emit_broken_expr_list(*args);
-                self.ctx.emit(")");
+            kind @ (ExprKind::Call { .. }
+            | ExprKind::CallNamed { .. }
+            | ExprKind::MethodCall { .. }
+            | ExprKind::MethodCallNamed { .. }) => self.emit_broken_call(kind),
+
+            kind @ (ExprKind::List(_)
+            | ExprKind::ListWithSpread(_)
+            | ExprKind::Tuple(_)) => self.emit_broken_sequence(kind),
+            kind @ (ExprKind::Map(_) | ExprKind::MapWithSpread(_)) => {
+                self.emit_broken_map(kind);
             }
-            ExprKind::CallNamed { func, args } => {
-                self.format_call_target(*func);
-                self.ctx.emit("(");
-                self.emit_broken_call_args(*args);
-                self.ctx.emit(")");
-            }
-            ExprKind::MethodCall {
-                receiver,
-                method,
-                args,
-            } => {
-                // All-or-nothing chain breaking "Idempotency" +
-                // MethodChainRule::ALL_METHODS_BREAK: when this call breaks,
-                // any chained receiver must also break.
-                self.format_receiver_broken(*receiver);
-                self.ctx.emit(".");
-                self.ctx.emit(self.interner.lookup(*method));
-                self.ctx.emit("(");
-                self.emit_broken_expr_list(*args);
-                self.ctx.emit(")");
-            }
-            ExprKind::MethodCallNamed {
-                receiver,
-                method,
-                args,
-            } => {
-                self.format_receiver_broken(*receiver);
-                self.ctx.emit(".");
-                self.ctx.emit(self.interner.lookup(*method));
-                self.ctx.emit("(");
-                self.emit_broken_call_args(*args);
-                self.ctx.emit(")");
+            kind @ (ExprKind::Struct { .. } | ExprKind::StructWithSpread { .. }) => {
+                self.emit_broken_struct(kind);
             }
 
-            // Collections - one item per line for complex, wrap for simple
-            ExprKind::List(items) => {
-                if items.is_empty() {
-                    self.ctx.emit("[]");
-                } else {
-                    let items_slice = self.arena.get_expr_list(*items);
-                    self.ctx.emit("[");
-                    self.emit_broken_list(items_slice);
-                    self.ctx.emit("]");
-                }
-            }
-            ExprKind::Map(entries) => {
-                let entries_list = self.arena.get_map_entries(*entries);
-                if entries_list.is_empty() {
-                    self.ctx.emit("{}");
-                } else {
-                    self.ctx.emit("{");
-                    self.emit_broken_items(entries_list, |s, entry| {
-                        s.format_map_key(entry.key);
-                        s.ctx.emit(": ");
-                        s.format(entry.value);
-                    });
-                    self.ctx.emit("}");
-                }
-            }
-            ExprKind::MapWithSpread(elements) => {
-                let elements_list = self.arena.get_map_elements(*elements);
-                if elements_list.is_empty() {
-                    self.ctx.emit("{}");
-                } else {
-                    self.ctx.emit("{");
-                    self.emit_broken_items(elements_list, |s, element| match element {
-                        ori_ir::MapElement::Entry(entry) => {
-                            s.format_map_key(entry.key);
-                            s.ctx.emit(": ");
-                            s.format(entry.value);
-                        }
-                        ori_ir::MapElement::Spread { expr, .. } => {
-                            s.ctx.emit("...");
-                            s.format(*expr);
-                        }
-                    });
-                    self.ctx.emit("}");
-                }
-            }
-            ExprKind::ListWithSpread(elements) => {
-                let elements_list = self.arena.get_list_elements(*elements);
-                if elements_list.is_empty() {
-                    self.ctx.emit("[]");
-                } else {
-                    self.ctx.emit("[");
-                    self.emit_broken_items(elements_list, |s, element| match element {
-                        ori_ir::ListElement::Expr { expr, .. } => {
-                            s.format(*expr);
-                        }
-                        ori_ir::ListElement::Spread { expr, .. } => {
-                            s.ctx.emit("...");
-                            s.format(*expr);
-                        }
-                    });
-                    self.ctx.emit("]");
-                }
-            }
-            ExprKind::Struct { name, fields } => {
-                self.ctx.emit(self.interner.lookup(*name));
-                self.ctx.emit(" {");
-                let fields_list = self.arena.get_field_inits(*fields);
-                if fields_list.is_empty() {
-                    self.ctx.emit("}");
-                } else {
-                    self.emit_broken_items(fields_list, |s, field| {
-                        s.ctx.emit(s.interner.lookup(field.name));
-                        if let Some(value) = field.value {
-                            s.ctx.emit(": ");
-                            s.format(value);
-                        }
-                    });
-                    self.ctx.emit("}");
-                }
-            }
-            ExprKind::StructWithSpread { name, fields } => {
-                self.ctx.emit(self.interner.lookup(*name));
-                self.ctx.emit(" {");
-                let fields_list = self.arena.get_struct_lit_fields(*fields);
-                if fields_list.is_empty() {
-                    self.ctx.emit("}");
-                } else {
-                    self.emit_broken_items(fields_list, |s, field| match field {
-                        ori_ir::StructLitField::Field(init) => {
-                            s.ctx.emit(s.interner.lookup(init.name));
-                            if let Some(value) = init.value {
-                                s.ctx.emit(": ");
-                                s.format(value);
-                            }
-                        }
-                        ori_ir::StructLitField::Spread { expr, .. } => {
-                            s.ctx.emit("...");
-                            s.format(*expr);
-                        }
-                    });
-                    self.ctx.emit("}");
-                }
-            }
-            ExprKind::Tuple(items) => {
-                if items.is_empty() {
-                    self.ctx.emit("()");
-                } else {
-                    let items_slice = self.arena.get_expr_list(*items);
-                    self.ctx.emit("(");
-                    self.emit_broken_items(items_slice, |s, &item| s.format(item));
-                    self.ctx.emit(")");
-                }
-            }
-
-            // If - break at else, keeping "else if" chains flat.
-            ExprKind::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => self.emit_broken_if(*cond, *then_branch, *else_branch),
-
-            // Let binding — preserve type annotation per Annex D.
-            ExprKind::Let {
-                pattern,
-                ty,
-                init,
-                mutable: _,
-            } => self.emit_broken_let(*pattern, *ty, *init),
-
-            // Lambda with body on new line.
-            ExprKind::Lambda {
-                params,
-                ret_ty,
-                body,
-            } => self.emit_broken_lambda(*params, *ret_ty, *body),
-
-            // With capability - body on new line.
-            ExprKind::WithCapability {
-                capability,
-                provider,
-                body,
-            } => self.emit_broken_with_capability(*capability, *provider, *body),
-
-            // For - body on new line if needed.
-            ExprKind::For {
-                label,
-                pattern,
-                iter,
-                guard,
-                body,
-                is_yield,
-            } => self.emit_broken_for(*label, *pattern, *iter, *guard, *body, *is_yield),
-
-            // While - block body opens inline after `do`; non-block body on
-            // a new line.
-            ExprKind::While { label, cond, body } => {
-                self.emit_broken_while(*label, *cond, *body);
-            }
+            kind @ (ExprKind::If { .. }
+            | ExprKind::Let { .. }
+            | ExprKind::Lambda { .. }
+            | ExprKind::WithCapability { .. }
+            | ExprKind::For { .. }
+            | ExprKind::While { .. }) => self.emit_broken_control_flow(kind),
 
             // Always-stacked constructs: delegate to stacked rendering
             ExprKind::Block { .. }
@@ -303,6 +119,214 @@ impl<I: StringLookup> Formatter<'_, I> {
             | ExprKind::Loop { .. }
             | ExprKind::Range { .. }
             | ExprKind::TemplateLiteral { .. } => self.emit_inline(expr_id),
+        }
+    }
+
+    fn emit_broken_call(&mut self, kind: &ExprKind) {
+        match kind {
+            ExprKind::Call { func, args } => {
+                self.format_call_target(*func);
+                self.ctx.emit("(");
+                self.emit_broken_expr_list(*args);
+                self.ctx.emit(")");
+            }
+            ExprKind::CallNamed { func, args } => {
+                self.format_call_target(*func);
+                self.ctx.emit("(");
+                self.emit_broken_call_args(*args);
+                self.ctx.emit(")");
+            }
+            ExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
+                self.format_receiver_broken(*receiver);
+                self.ctx.emit(".");
+                self.ctx.emit(self.interner.lookup(*method));
+                self.ctx.emit("(");
+                self.emit_broken_expr_list(*args);
+                self.ctx.emit(")");
+            }
+            ExprKind::MethodCallNamed {
+                receiver,
+                method,
+                args,
+            } => {
+                self.format_receiver_broken(*receiver);
+                self.ctx.emit(".");
+                self.ctx.emit(self.interner.lookup(*method));
+                self.ctx.emit("(");
+                self.emit_broken_call_args(*args);
+                self.ctx.emit(")");
+            }
+            unexpected => unreachable!("unexpected broken call kind: {unexpected:?}"),
+        }
+    }
+
+    fn emit_broken_sequence(&mut self, kind: &ExprKind) {
+        match kind {
+            ExprKind::List(items) => {
+                if items.is_empty() {
+                    self.ctx.emit("[]");
+                } else {
+                    let items = self.arena.get_expr_list(*items);
+                    self.ctx.emit("[");
+                    self.emit_broken_list(items);
+                    self.ctx.emit("]");
+                }
+            }
+            ExprKind::ListWithSpread(elements) => {
+                let elements = self.arena.get_list_elements(*elements);
+                if elements.is_empty() {
+                    self.ctx.emit("[]");
+                } else {
+                    self.ctx.emit("[");
+                    self.emit_broken_items(elements, |formatter, element| match element {
+                        ori_ir::ListElement::Expr { expr, .. } => formatter.format(*expr),
+                        ori_ir::ListElement::Spread { expr, .. } => {
+                            formatter.ctx.emit("...");
+                            formatter.format(*expr);
+                        }
+                    });
+                    self.ctx.emit("]");
+                }
+            }
+            ExprKind::Tuple(items) => {
+                if items.is_empty() {
+                    self.ctx.emit("()");
+                } else {
+                    let items = self.arena.get_expr_list(*items);
+                    self.ctx.emit("(");
+                    self.emit_broken_items(items, |formatter, &item| formatter.format(item));
+                    self.ctx.emit(")");
+                }
+            }
+            unexpected => unreachable!("unexpected broken sequence kind: {unexpected:?}"),
+        }
+    }
+
+    fn emit_broken_map(&mut self, kind: &ExprKind) {
+        match kind {
+            ExprKind::Map(entries) => {
+                let entries = self.arena.get_map_entries(*entries);
+                if entries.is_empty() {
+                    self.ctx.emit("{}");
+                } else {
+                    self.ctx.emit("{");
+                    self.emit_broken_items(entries, |formatter, entry| {
+                        formatter.format_map_key(entry.key);
+                        formatter.ctx.emit(": ");
+                        formatter.format(entry.value);
+                    });
+                    self.ctx.emit("}");
+                }
+            }
+            ExprKind::MapWithSpread(elements) => {
+                let elements = self.arena.get_map_elements(*elements);
+                if elements.is_empty() {
+                    self.ctx.emit("{}");
+                } else {
+                    self.ctx.emit("{");
+                    self.emit_broken_items(elements, |formatter, element| match element {
+                        ori_ir::MapElement::Entry(entry) => {
+                            formatter.format_map_key(entry.key);
+                            formatter.ctx.emit(": ");
+                            formatter.format(entry.value);
+                        }
+                        ori_ir::MapElement::Spread { expr, .. } => {
+                            formatter.ctx.emit("...");
+                            formatter.format(*expr);
+                        }
+                    });
+                    self.ctx.emit("}");
+                }
+            }
+            unexpected => unreachable!("unexpected broken map kind: {unexpected:?}"),
+        }
+    }
+
+    fn emit_broken_struct(&mut self, kind: &ExprKind) {
+        match kind {
+            ExprKind::Struct { name, fields } => {
+                self.ctx.emit(self.interner.lookup(*name));
+                self.ctx.emit(" {");
+                let fields = self.arena.get_field_inits(*fields);
+                if fields.is_empty() {
+                    self.ctx.emit("}");
+                } else {
+                    self.emit_broken_items(fields, |formatter, field| {
+                        formatter.ctx.emit(formatter.interner.lookup(field.name));
+                        if let Some(value) = field.value {
+                            formatter.ctx.emit(": ");
+                            formatter.format(value);
+                        }
+                    });
+                    self.ctx.emit("}");
+                }
+            }
+            ExprKind::StructWithSpread { name, fields } => {
+                self.ctx.emit(self.interner.lookup(*name));
+                self.ctx.emit(" {");
+                let fields = self.arena.get_struct_lit_fields(*fields);
+                if fields.is_empty() {
+                    self.ctx.emit("}");
+                } else {
+                    self.emit_broken_items(fields, |formatter, field| match field {
+                        ori_ir::StructLitField::Field(init) => {
+                            formatter.ctx.emit(formatter.interner.lookup(init.name));
+                            if let Some(value) = init.value {
+                                formatter.ctx.emit(": ");
+                                formatter.format(value);
+                            }
+                        }
+                        ori_ir::StructLitField::Spread { expr, .. } => {
+                            formatter.ctx.emit("...");
+                            formatter.format(*expr);
+                        }
+                    });
+                    self.ctx.emit("}");
+                }
+            }
+            unexpected => unreachable!("unexpected broken struct kind: {unexpected:?}"),
+        }
+    }
+
+    fn emit_broken_control_flow(&mut self, kind: &ExprKind) {
+        match kind {
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => self.emit_broken_if(*cond, *then_branch, *else_branch),
+            ExprKind::Let {
+                pattern,
+                ty,
+                init,
+                mutable: _,
+            } => self.emit_broken_let(*pattern, *ty, *init),
+            ExprKind::Lambda {
+                params,
+                ret_ty,
+                body,
+            } => self.emit_broken_lambda(*params, *ret_ty, *body),
+            ExprKind::WithCapability {
+                capability,
+                provider,
+                body,
+            } => self.emit_broken_with_capability(*capability, *provider, *body),
+            ExprKind::For {
+                label,
+                pattern,
+                iter,
+                guard,
+                body,
+                is_yield,
+            } => self.emit_broken_for(*label, *pattern, *iter, *guard, *body, *is_yield),
+            ExprKind::While { label, cond, body } => {
+                self.emit_broken_while(*label, *cond, *body);
+            }
+            unexpected => unreachable!("unexpected broken control-flow kind: {unexpected:?}"),
         }
     }
 

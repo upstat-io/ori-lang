@@ -158,11 +158,8 @@ fn rule_boundary_aims_state_strategy() -> impl Strategy<Value = AimsState> {
             shape,
             effect: eff,
         }),
-        // Rule 6 trigger zone: Owned + HeapEscaping + Unique → MaybeShared.
-        // Rule 8 fires before Rule 6 in canonicalize_single_pass(). Rule 8
-        // clamps Borrowed+HeapEscaping to Borrowed+FunctionLocal, so Borrowed
-        // values NEVER reach Rule 6. Only Owned+HeapEscaping+Unique triggers
-        // Rule 6.
+        // Rule 8 first clamps borrowed heap-escaping values to function-local,
+        // so only owned, heap-escaping, unique values trigger Rule 6.
         (
             consumption_strategy(),
             cardinality_strategy(),
@@ -349,12 +346,8 @@ proptest! {
     }
 }
 
-// Partial-order axioms (canonical states only)
-//
-// Two orderings are tested:
-// 1. `lattice_leq`: `a.join(b) == b` — reflexive, antisymmetric, transitive.
-// 2. `componentwise_leq`: per-dimension `<=` — always a valid partial order.
-//    Used for monotonicity tests (04.4).
+// Canonical states test both join-derived lattice order and componentwise
+// order; monotonicity uses the latter.
 
 proptest! {
     // lattice_leq axioms (reflexive + antisymmetric only)
@@ -423,10 +416,7 @@ proptest! {
         );
     }
 
-    /// Componentwise partial order IS transitive (always valid).
-    ///
-    /// Uses constructive generation: build chains a <= b <= c via join,
-    /// then verify componentwise ordering holds transitively.
+    /// Componentwise order remains transitive for join-constructed chains.
     #[test]
     fn componentwise_leq_transitive(
         a in canonical_aims_state_strategy(),
@@ -435,7 +425,7 @@ proptest! {
     ) {
         let b = a.join(&diff_ab);
         let c = b.join(&diff_bc);
-        // Only test triples where the componentwise ordering holds
+        // Why: The property applies only to triples ordered componentwise.
         prop_assume!(componentwise_leq(&a, &b) && componentwise_leq(&b, &c));
         assert!(
             componentwise_leq(&a, &c),
@@ -559,18 +549,8 @@ proptest! {
 
 // Transfer function properties (canonical states)
 
-// Transfer functions in `aims/transfer/mod.rs` operate on ARC IR
-// instructions, not raw AimsState → AimsState. The pure state-level
-// decision functions test whether specific optimizations are safe:
-//
-//   - is_release_event_unnecessary: true when variable is dead or absent
-//   - is_additional_credit_elidable: true when used exactly once and consumed linearly
-//   - is_owned_and_unique: true when owned and unique
-//   - capture_state_update: computes state for captured closure variables
-//
-// These are optimization-decision predicates, not lattice morphisms. Their
-// correctness depends on giving conservative (safe) answers, not on
-// monotonicity w.r.t. the lattice partial order.
+// These state-level predicates make conservative optimization decisions; they
+// are not lattice morphisms because transfer functions operate on ARC IR.
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(5000))]

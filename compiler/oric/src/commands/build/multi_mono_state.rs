@@ -21,6 +21,7 @@ use rustc_hash::FxHashMap;
 /// against the original host pool) is ALSO valid in `merged_pool` because
 /// the merged pool is cloned from the host pool — host `Idx` values are
 /// preserved by clone.
+#[derive(Debug)]
 pub(crate) struct ImportedMonoState {
     /// Merged pool — host pool with imported types re-interned alongside.
     pub(crate) merged_pool: ori_types::Pool,

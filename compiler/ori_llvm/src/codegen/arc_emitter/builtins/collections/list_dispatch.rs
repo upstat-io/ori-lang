@@ -1,6 +1,10 @@
 //! Collection builtin dispatch declarations.
 
+use ori_arc::ir::ArgOwnership;
+
 use crate::codegen::type_info::TypeInfo;
+
+use super::super::RenderStyle;
 
 declare_builtins! { emitter, ctx;
     // list
@@ -235,42 +239,39 @@ declare_builtins! { emitter, ctx;
     },
     ("list", "debug") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_debug(ctx.arg_vals[0], *element, true)
+            emitter.emit_list_debug(ctx.arg_vals[0], *element, RenderStyle::Debug)
         } else {
             None
         }
     },
     ("list", "to_str") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_debug(ctx.arg_vals[0], *element, false)
+            emitter.emit_list_debug(ctx.arg_vals[0], *element, RenderStyle::Printable)
         } else {
             None
         }
     },
-    // Fixed-capacity conversions are value-identity at runtime: `[T]` and
-    // `[T, max N]` share the `{ len, cap, data }` fat-pointer layout; the
-    // capacity constraint is type-level only. Forward the receiver unchanged.
-    // Spec: Clause 8.2.2.
+    // Spec: Clause 8.2.2 gives fixed and dynamic lists the same runtime layout.
     ("list", "to_dynamic") => Some(ctx.arg_vals[0]),
     ("list", "to_fixed") => Some(ctx.arg_vals[0]),
     ("list", "iter") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            // `owns_data` follows the receiver's ownership credit. Ordinary
-            // borrowed-rooted receivers do not own the buffer. A closure adapter
-            // may, however, retain a borrowed ABI argument when the callee demands
-            // the whole value; then `.iter()` consumes that independent credit and
-            // its Drop balances it while the outer container keeps its own credit.
-            let owns_data = !emitter.is_var_borrowed_rooted(ctx.arc_args[0])
-                || emitter.iter_receiver_owns_via_contract(ctx.arc_args[0]);
+            // INVARIANT: retained closure arguments give iterators an independent credit.
+            let ownership = if !emitter.is_var_borrowed_rooted(ctx.arc_args[0])
+                || emitter.iter_receiver_owns_via_contract(ctx.arc_args[0])
+            {
+                ArgOwnership::Owned
+            } else {
+                ArgOwnership::Borrowed
+            };
             tracing::trace!(
-                target: "ori_llvm::codegen",
                 receiver = ctx.arc_args[0].index(),
-                owns_data,
+                ?ownership,
                 borrowed_rooted = emitter.is_var_borrowed_rooted(ctx.arc_args[0]),
                 owns_via_contract = emitter.iter_receiver_owns_via_contract(ctx.arc_args[0]),
                 "list iter owns_data decision"
             );
-            emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element, owns_data)
+            emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element, ownership)
         } else {
             None
         }

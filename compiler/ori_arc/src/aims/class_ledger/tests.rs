@@ -517,10 +517,8 @@ fn branch_death_gets_edge_dec_on_dying_arm_only() {
 /// binding's reference dies on the reassigned arm).
 #[test]
 fn merge_disagree_equalizes_with_per_edge_release() {
-    // The while-loop closure-reassignment CFG: b0 births C into the loop
-    // header's merge param %1; the body branches to a reassignment arm
-    // (b4: fresh D passed to the if-merge — %1 dies UNPASSED) or a
-    // passthrough arm (b5: %1 handed off); b6 jumps the back edge.
+    // The loop either replaces its closure merge parameter with a fresh value
+    // or passes it through before taking the back edge.
     let lit = |dst: u32| ArcInstr::Let {
         dst: v(dst),
         ty: ty(0),
@@ -973,10 +971,8 @@ fn replacement_admits_all_scalar_function_with_empty_plan() {
     assert_eq!(replaced.blocks, func.blocks);
 }
 
-/// A scalar-repr user-`@drop` value RETURNED from the function is admitted
-/// with its obligation discharged by the transfer: the Return consume moves
-/// the drop obligation to the caller, so the Clean books carry no dec and
-/// the empty-surface shape replaces (RL-DROP + RL-2 transfer discipline).
+/// Returning a scalar-repr user-`@drop` value transfers its drop obligation to
+/// the caller, so RL-DROP and RL-2 admit the clean empty-surface plan.
 #[test]
 fn replacement_admits_returned_scalar_user_drop_value() {
     use core::num::NonZeroU32;
@@ -1131,10 +1127,8 @@ fn replacement_admits_scalar_user_drop_container_with_post_release_view() {
         }),
     );
 
-    // The nested-destructure corpus shape: %0 Outer [own] param (admitted
-    // scalar user-drop); %1 = %0 alias; TWO Inner views of field 0 (%2, %4 —
-    // Inner is itself scalar user-drop); nested int reads %3 = %2.0 and
-    // %5 = %4.1 straddle the container's planned release; ret %5.
+    // Two nested views of an owned outer value straddle the container's
+    // planned release, with scalar user-drop types at both aggregate levels.
     let mut func = one_block_func(
         6,
         vec![
@@ -1331,10 +1325,8 @@ fn invoke_result_class_clean_and_placeable_across_unwind() {
 /// verifies Clean (never `MergeDisagree`).
 #[test]
 fn branch_exclusive_death_places_edge_dec_and_verifies_clean() {
-    // bb0: %1 = Construct; branch %0 ? bb1 : bb2   (%0 scalar cond)
-    // bb1: %4 = Let Var(%1); Jump bb3(%4)          (same class as %1)
-    // bb2: %5 = Construct;   Jump bb3(%5)          (distinct class)
-    // bb3(%6): Return %6                            (refused merge param)
+    // The merge receives an alias of one allocation on one arm and a distinct
+    // allocation on the other, so its parameter must remain refused.
     let func = func_with_blocks(
         7,
         vec![
@@ -1469,10 +1461,8 @@ fn owned_param_field_view_read_past_container_release_funds_itself() {
 /// agrees at 0 across the back-edge and the class verifies Clean.
 #[test]
 fn unused_loop_body_construct_releases_immediately_and_verifies_clean() {
-    // bb0: Jump bb1
-    // bb1: Branch %0 ? bb2 : bb3     (%0 scalar cond)
-    // bb2: %1 = Construct; Jump bb1  (unused, dead-on-creation, in-cycle)
-    // bb3: Return %0
+    // A dead-on-creation aggregate is born inside the loop body and never
+    // escapes the cycle.
     let func = func_with_blocks(
         2,
         vec![
@@ -1608,18 +1598,12 @@ fn trmc_context_hole_admitted_post_k3() {
 
 // Field-view hazard cures across loop / merge / select liveness shapes
 
-/// A container released by the plan (whole-var dec / consume) whose
-/// field-path view class carries its OWN events: the view funds itself with
-/// an inc at its extraction site (RL-1 dup — the container's recursive
-/// release and the view's independent reference each balance), so the
-/// function REPLACES with inc-at-project + dec-at-last-use on the view.
+/// A live field view of a released container funds its independent reference
+/// at extraction and releases it after the view's last use.
 #[test]
 fn live_field_view_of_released_container_funds_itself_at_extraction() {
-    // %0 = Apply f()          (opaque container — no field funding known)
-    // %1 = Project %0.0       (extracted view; container-held field class)
-    // %2 = IsShared %0        (container read; container dies after)
-    // %3 = IsShared %1        (view read AFTER the container's last use)
-    // Return %3 (scalar)
+    // A field view of an opaque call result remains live after the container's
+    // last use, but no field funding is known.
     let func = one_block_func(
         4,
         vec![
@@ -1733,10 +1717,8 @@ fn ttr_refund_across_invoke_normal_edge_needs_no_inc() {
 /// funding inc is planted and every class nets zero per iteration.
 #[test]
 fn rebind_loop_hand_off_plants_no_spurious_inc() {
-    // bb0: %0 = Construct (Nil); Jump bb1(%0)
-    // bb1(%1): Branch %4 ? bb2 : bb3
-    // bb2: %2 = Construct(%1) (Cons funding the param); Jump bb1(%2)
-    // bb3: Return %1
+    // The loop merge starts with Nil and receives a freshly constructed Cons
+    // on each back edge before returning the merge value.
     let func = func_with_blocks(
         5,
         vec![
@@ -1776,10 +1758,8 @@ fn rebind_loop_hand_off_plants_no_spurious_inc() {
 /// verifies Clean.
 #[test]
 fn immortal_seeded_accumulator_credits_the_entry_edge() {
-    // bb0: %0 = "" (immortal, excluded); Jump bb1(%0)
-    // bb1(%1): Branch %4 ? bb2 : bb3
-    // bb2: %2 = Construct(); Jump bb1(%2)     (fresh accumulator value)
-    // bb3: Return %1
+    // An immortal seed enters the loop merge, whose back edge supplies fresh
+    // accumulator values.
     let func = func_with_blocks(
         5,
         vec![
@@ -1817,10 +1797,7 @@ fn immortal_seeded_accumulator_credits_the_entry_edge() {
 /// merge class verifies Clean with one placed front dec.
 #[test]
 fn dead_cross_class_merge_credit_releases_at_receiving_front() {
-    // bb0: %0 = Construct []; %1 = Construct []; Branch %3 ? bb1 : bb2
-    // bb1: jump bb3(%0)
-    // bb2: jump bb3(%1)
-    // bb3(%2): Return %4          (the merged str is never read)
+    // Two fresh allocations merge into a parameter that is never read.
     let func = func_with_blocks(
         5,
         vec![
@@ -1864,10 +1841,7 @@ fn dead_cross_class_merge_credit_releases_at_receiving_front() {
 /// is the single balanced hand-off.
 #[test]
 fn loop_invariant_dominance_class_survives_the_loop_unreleased() {
-    // bb0: %0 = Construct []; jump bb1
-    // bb1: Branch %1 ? bb2 : bb3     (loop header)
-    // bb2: jump bb1                  (loop body, no class events)
-    // bb3: %2 = Apply @f(%0 [own]); Return %3
+    // A value crosses an eventless loop and is consumed only on the exit path.
     let func = func_with_blocks(
         4,
         vec![
@@ -1904,10 +1878,8 @@ fn loop_invariant_dominance_class_survives_the_loop_unreleased() {
 /// at both successors and the class verifies Clean.
 #[test]
 fn funded_consume_then_terminator_read_releases_at_successor_fronts() {
-    // bb0: %0 = Construct []; %1 = Construct [%0]   (consumes %0, %0 live after)
-    //      Invoke @f(%0 [borrow]) normal bb1 unwind bb2
-    // bb1: Return %3 (scalar)
-    // bb2: Resume
+    // A value consumed into a container is subsequently borrowed by an invoke
+    // whose normal and unwind edges diverge.
     let func = func_with_blocks(
         4,
         vec![
@@ -1950,10 +1922,7 @@ fn funded_consume_then_terminator_read_releases_at_successor_fronts() {
 /// and the select class's hand-off consume is funded — every class Clean.
 #[test]
 fn select_of_real_allocations_funds_the_selected_reference() {
-    // bb0: %0 = Construct []; %1 = Construct []
-    //      %2 = Select %3 ? %0 : %1
-    //      jump bb1(%2)
-    // bb1(%4): Return %5 (scalar)
+    // A select aliases one of two fresh allocations before an unread merge.
     let func = func_with_blocks(
         6,
         vec![
@@ -2007,11 +1976,8 @@ fn select_of_real_allocations_funds_the_selected_reference() {
 /// stays live through the cycle and dies at the single-pred exit block.
 #[test]
 fn loop_threaded_credit_releases_at_the_cycle_exit() {
-    // %0: owned param (no birth site) -> jump bb1(%0) is a CROSS-CLASS
-    // credit into the refused merge param %1.
-    // bb1(%1): Branch %4 ? bb2 : bb3
-    // bb2: jump bb1(%1)               (back-edge, same-class silent)
-    // bb3: Return %5 (scalar)         (single-pred cycle exit)
+    // An owned parameter supplies the cross-class credit into a refused loop
+    // merge; its same-class back edge is silent.
     let mut func = func_with_blocks(
         6,
         vec![
@@ -2055,12 +2021,8 @@ fn loop_threaded_credit_releases_at_the_cycle_exit() {
 /// loop-exit edge.
 #[test]
 fn loop_invariant_class_read_inside_the_cycle_survives_iterations() {
-    // bb0: %0 = Construct []; jump bb1
-    // bb1: Branch %1 ? bb2 : bb3        (loop header)
-    // bb2: Invoke @f(%0 [borrow]) normal bb4 unwind bb5
-    // bb4: jump bb1                     (back-edge)
-    // bb5: Resume
-    // bb3: Return %3                    (loop exit)
+    // A loop-body invoke borrows the pre-loop allocation, returning on its
+    // normal edge and resuming on unwind.
     let func = func_with_blocks(
         4,
         vec![
@@ -2142,10 +2104,6 @@ fn struct_list_field_flagship_per_field_classes_replace() {
     let label_view = class_rep(&mut partition, 6);
     assert_eq!(label_class, label_view);
 
-    // Every per-field class verifies Clean and the hazard set is empty —
-    // the replacement gate accepts on these terms (the positive pin that
-    // the NEW mechanism, not whole-var admission, carries the flagship: on
-    // replaced functions the standard burden-op emission is skipped).
     assert!(analysis.readiness.all_classes_clean);
     assert!(
         !analysis.field_view_hazard,
@@ -2155,22 +2113,13 @@ fn struct_list_field_flagship_per_field_classes_replace() {
     assert_eq!(verdict_for(&analysis, label_class), ClassVerdict::Clean);
 }
 
-/// A member EXTRACTED from a released container and moved OUT via a SECOND
-/// container's `Construct` arg (a `ConstructArg` transferring terminal use,
-/// distinct from a `Return` sink): the base plan ALREADY
-/// funds the second hand-off with a duplication `Inc` (one birth + one
-/// planned inc = two references, one per released container's drop), so the
-/// funded-move-in refinement recognizes the class as covered — NO hazard,
-/// NO cure re-book — and the ORIGINAL container's release stays a plain
-/// whole-var `Dec`. Every class verifies Clean.
+/// Moving an extracted member into a second released container uses the base
+/// plan's duplication credit, leaving the original whole-container release
+/// intact and every class clean.
 #[test]
 fn extract_then_move_out_via_second_container_funds_itself_at_extraction() {
-    // %0 = Construct payload
-    // %1 = Construct tuple(%0)      (first container — the one released)
-    // %2 = Project %1.0             (extract member)
-    // %3 = Construct holder(%2)     (move member OUT to a second container)
-    // %4 = Let %1 (alias keeping the first container eventful)
-    // ret %5 (scalar)
+    // A projected member moves from the released tuple into a second
+    // container while an alias keeps the first container eventful.
     let mut func = one_block_func(
         6,
         vec![
@@ -2198,10 +2147,6 @@ fn extract_then_move_out_via_second_container_funds_itself_at_extraction() {
     state_map.set_permanent_scalar(v(5));
     let (analysis, mut partition) = analyze(&func, &state_map);
 
-    // Deterministic outcome (never the fail-closed decline for this shape):
-    // pin the exact verdict rather than the permissive "hazard OR clean"
-    // disjunction the prior version of this test used, which silently
-    // accepted a regression that stopped the funding from landing.
     assert!(
         !analysis.field_view_hazard,
         "the funded ConstructArg-sink move-out must pass unmarked, not decline"
@@ -2559,12 +2504,8 @@ fn shared_edge_source_declines_full_move_arm() {
     );
 }
 
-/// One inner shared by TWO released containers with NO extraction (the
-/// two-wrappers-share-one-inner shape): both stores are move-ins — the
-/// first funded by the birth, the second by the base plan's duplication
-/// `Inc` — and each wrapper's own drop is the matched release. The
-/// funded-move-in refinement leaves the view unmarked: no hazard, no cure,
-/// every class Clean.
+/// Two released containers sharing one unextracted inner value balance their
+/// stores with the birth credit and one duplication credit.
 #[test]
 fn shared_inner_two_released_containers_funded_no_hazard() {
     let mut func = one_block_func(
@@ -2615,11 +2556,9 @@ fn shared_inner_two_released_containers_funded_no_hazard() {
 
 #[test]
 fn extract_then_move_out_decomposes_container_release() {
-    // The member is extracted then moved out through the Return — a consume
-    // mark under exactly ONE released container. The decomposition cure
-    // flips the container's Dec to DecPartial(skip = [0]) and re-books the
-    // view without its move-in store (PV-6 / IA-T6): the transferee owns
-    // the payload, the container's glue skips it.
+    // Returning the only extracted member transfers its ownership; the cure
+    // makes the container release skip that field and removes the view's
+    // move-in store.
     let mut func = one_block_func(
         5,
         vec![
@@ -2763,12 +2702,7 @@ fn transferred_container_with_moved_field_uses_extraction_funding() {
 /// releases after its last read.
 #[test]
 fn demand_endangered_view_cures_via_extraction_funding() {
-    // %0 = Let "first" (str literal, moved into the pair)
-    // %1 = Construct pair(%0)
-    // %2 = Project %1.0            (the borrowed view)
-    // %3 = Apply eq(%2 [borrow])   (the read)
-    // %4 = IsShared %1             (container last use; container then dies)
-    // ret %3
+    // A borrowed field view is read before the pair container's last use.
     let mut func = one_block_func(
         5,
         vec![
@@ -2809,13 +2743,8 @@ fn demand_endangered_view_cures_via_extraction_funding() {
 /// inc and the single owed reference releases after the aliased read.
 #[test]
 fn demand_endangered_view_alias_read_cures_without_double_funding() {
-    // %0 = Let "first" (str literal, moved into the pair)
-    // %1 = Construct pair(%0)
-    // %2 = Project %1.0            (the borrowed view)
-    // %3 = Let Var(%2)             (alias of the view)
-    // %4 = Apply eq(%3 [borrow])   (the read, through the alias)
-    // %5 = IsShared %1             (container last use)
-    // ret %4
+    // A borrowed field view is read through an alias before the pair
+    // container's last use.
     let mut func = one_block_func(
         6,
         vec![
@@ -2903,10 +2832,8 @@ fn diverging_function_verifies_by_reachable_terminals() {
 /// after its last read.
 #[test]
 fn apply_alias_credit_releases_after_terminator_read() {
-    // bb0: %0 = "boxed str"; %1 = Construct Box(%0); %3 = %1;
-    //      Invoke unwrap(%3 [borrow]) -> %4, normal bb1, unwind bb2
-    // bb1: %6 = %4; Invoke len(%6 [borrow]) -> %7, normal bb3, unwind bb4
-    // bb2: Resume    bb3: Return %7    bb4: Resume
+    // Two chained invokes borrow through aliases of a boxed string and its
+    // unwrapped result, with independent unwind edges.
     let mut func = func_with_blocks(
         8,
         vec![
@@ -3278,12 +3205,8 @@ fn apply_plan_orders_inc_before_dec_at_shared_slot() {
     );
 }
 
-/// A CONSTRUCTLESS container (a call result) whose field view is extracted
-/// then RETURNED: field-decomposition has no move-in store to re-book, so
-/// the extraction-funding rung cures — the seed inc after the `Project` is
-/// the view's own reference and the Return consume MOVES it (RL-2 transfer,
-/// no borrowed-rooted duplication inc on top). The container's release
-/// stays whole and no field-view hazard survives.
+/// Returning a field from a constructless call result funds the view at its
+/// extraction and transfers that credit under RL-2.
 #[test]
 fn extract_then_return_from_call_result_container_funds_at_extraction() {
     // bb0: Invoke @f() -> %0, normal bb1, unwind bb2
@@ -3360,11 +3283,8 @@ fn field_decomposition_cure_replaces_end_to_end_with_registered_burden() {
         ret(2),
     );
     func.params = vec![];
-    // The container's real type flows to every alias sharing its allocation
-    // (a `Let { Var }` rename never changes type) — v(1) the Construct dst
-    // AND v(3) the Let-Var alias the last read walks off both carry the
-    // struct's Idx; the synthetic per-index `ty(n)` fixture default does not
-    // reflect that invariant, so both slots are overridden explicitly.
+    // The fixture must give both the constructed value and its Let alias the
+    // same struct type, matching the real type-preserving rename invariant.
     func.var_types[1] = struct_idx;
     func.var_types[3] = struct_idx;
     let mut state_map = AimsStateMap::new(&func);
@@ -3706,13 +3626,8 @@ fn uniform_variant_sum_func() -> ArcFunction {
     func
 }
 
-/// The explicit-tag iterator-payload shape: a sum whose EVERY construct site
-/// builds the SAME single-payload variant, the payload extracted through the
-/// tag match and moved out to an owned consumer. The extraction-funding cure
-/// cannot fire (the payload type carries no burden), but the field
-/// decomposition CAN: the container's release decomposes to
-/// `DecPartial(skip = [variant ordinal])` — the tag-switched glue skips
-/// exactly the moved-out variant's payload.
+/// A uniform single-payload sum moves its payload through a tag match, so its
+/// container release skips exactly that variant ordinal.
 #[test]
 fn uniform_variant_sum_payload_decomposes_container_release() {
     use crate::lower::test_utils::registered_enum_with_single_payload_variant;
@@ -3763,21 +3678,8 @@ fn uniform_variant_sum_payload_decomposes_container_release() {
     );
 }
 
-/// The CONSTRUCTLESS sum container: the enum arrives as a callee `Invoke`
-/// result (no `Construct` in the container class to inspect), tag-switched,
-/// its payload extracted and moved out on the payload arm. The variant
-/// identity derives from the TYPE's burden table — exactly one
-/// payload-bearing variant (`derive_constructless_enum_variant`,
-/// `FD_skipset_sound` with the moved mark variant-unique by type
-/// structure) — and the container's release decomposes to
-/// `DecPartial(skip = [variant ordinal])` exactly as the construct-uniform
-/// shape does.
-/// Builder for the constructless TUPLE shape (the iterator-protocol
-/// `(Option<T>, Iterator)` family): v(1) is the callee `Invoke` result (no
-/// `Construct`), a scalar read at field 0 drives a Branch, the handle at
-/// field 1 is extracted ONLY on the taken arm and moved to an owned
-/// consumer; the bypass arm reaches the merge with the handle still inside
-/// the container.
+/// Builds a constructless tuple whose handle moves out only on the taken arm;
+/// the bypass arm retains the handle inside the call-result container.
 fn constructless_invoke_result_tuple_func() -> ArcFunction {
     let mut func = func_with_blocks(
         8,
@@ -3839,12 +3741,8 @@ fn constructless_invoke_result_tuple_func() -> ArcFunction {
     func
 }
 
-/// A constructless TUPLE call result whose burdened field [1] is extracted
-/// and moved out ONLY on the taken arm: the container's release decomposes
-/// PER SITE — the extraction-dominated release skips field [1]
-/// (`DecPartial`), the bypass arm keeps the whole field-wise release
-/// (`FD_per_site_skipset_sound` + `FD_site_uniform_projection`; the skip
-/// authority is POSITIONAL — tuple drop glue walks field ordinals).
+/// A constructless tuple decomposes per site: the taken-arm release skips the
+/// moved field, while the bypass release remains whole.
 #[test]
 fn constructless_invoke_result_tuple_decomposes_release_per_site() {
     use crate::lower::test_utils::registered_struct_with_burden;
@@ -3878,8 +3776,6 @@ fn constructless_invoke_result_tuple_decomposes_release_per_site() {
         "the per-site positional skip cures the moved-out tuple field"
     );
     assert!(analysis.readiness.all_classes_clean);
-    // The container's release ops: the extraction-dominated site skips
-    // field [1]; the bypass site keeps the whole release.
     let container = class_rep(&mut partition, 1);
     let container_plan = analysis
         .plan
@@ -3906,9 +3802,7 @@ fn constructless_invoke_result_tuple_decomposes_release_per_site() {
     );
 }
 
-/// Builder for the constructless shape: v(1) is the callee `Invoke` result
-/// (no `Construct`), tag-read at field 0, payload extracted at field 1 on
-/// the matched arm and moved to an owned consumer.
+/// Builds a constructless sum whose matched payload moves to an owned consumer.
 fn constructless_invoke_result_sum_func() -> ArcFunction {
     let mut func = func_with_blocks(
         9,
@@ -4114,8 +4008,6 @@ fn bypassable_extraction_sum_cures_per_site() {
         analysis.readiness.declined
     );
     assert!(analysis.readiness.all_classes_clean);
-    // Container ops split per site: at least one whole-var Dec (the bypass
-    // arm) AND at least one variant-skip DecPartial (extraction-dominated).
     let container = class_rep(&mut partition, 1);
     let ops = ops_for(&analysis, container);
     let whole = ops
@@ -4136,24 +4028,10 @@ fn bypassable_extraction_sum_cures_per_site() {
     );
 }
 
-/// A single payload extracted from one released container and re-stored into
-/// a SECOND released container: the payload's view class is endangered by
-/// BOTH containers (`multi_container`), so the field-decomposition cure is
-/// skipped entirely for it in favor of extraction funding — a `DecPartial`
-/// must never be planned off EITHER container's release for this view.
+/// A view shared by two released containers uses extraction funding because
+/// decomposing either container would not cover both release obligations.
 #[test]
 fn multi_container_view_declines_field_decomposition() {
-    // %0 = Construct payload
-    // %1 = Construct tuple_a(%0)      (container A — released)
-    // %2 = Project %1.0               (extract member from A)
-    // %3 = Construct tuple_b(%2)      (container B — released; re-stores the
-    //                                  extracted member as its own field 0,
-    //                                  congruence-unioning the SAME view
-    //                                  class into B's field slot too)
-    // %4 = Project %3.0               (move the member out again, endangering
-    //                                  the shared view under BOTH containers)
-    // %5 = Let %1 (alias keeping A eventful)   %6 = IsShared %5
-    // %7 = Let %3 (alias keeping B eventful)   %8 = IsShared %7
     let mut func = one_block_func(
         9,
         vec![
@@ -4240,12 +4118,8 @@ fn multi_container_view_declines_field_decomposition() {
 /// a borrowed param; the alias is the same allocation).
 #[test]
 fn release_never_names_borrowed_param_var() {
-    // %0: borrowed param, iter-consuming (Foreign origin — owed +1)
-    // bb0: %1 = Let Var(%0); Jump bb1
-    // bb1: Invoke @f() normal bb2 unwind bb3   (no class event in bb1 — the
-    //      unwind release must fall back to the class-wide var scan)
-    // bb2: %3 = IsShared %1; Return %3
-    // bb3: Resume
+    // A borrowed iter-consuming parameter crosses an eventless invoke block;
+    // unwind cleanup must find its alias through the class-wide fallback.
     let mut func = func_with_blocks(
         4,
         vec![
@@ -4311,10 +4185,8 @@ fn release_never_names_borrowed_param_var() {
 /// declined `MergeDisagree` at the loop header.
 #[test]
 fn loop_carried_rebuild_seeded_handoff_not_double_funded() {
-    // bb0: %0 = Construct(); Jump bb1(%0)
-    // bb1(%1): Branch %6 ? bb2 : bb3
-    // bb2: %2 = Project %1.0 ; %3 = Construct(%2) ; Jump bb1(%3)
-    // bb3: %4 = Project %1.0 ; %5 = IsShared %4 ; Return %7
+    // A loop projects and rebuilds the merge value on its back edge, then
+    // projects it once more on exit.
     let mut func = func_with_blocks(
         8,
         vec![

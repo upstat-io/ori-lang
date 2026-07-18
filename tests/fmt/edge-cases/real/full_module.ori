@@ -1,7 +1,3 @@
-// Golden test: Full module with imports, types, functions, tests
-// Spec: 08-declarations.md § All declaration types
-// Design: tooling/formatter/design/appendices/A-edge-cases.md
-
 use std.testing { assert, assert_eq }
 
 type Status = Pending | Active | Done;

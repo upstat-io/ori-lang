@@ -1,31 +1,19 @@
-//! List operations for AOT-compiled Ori programs.
+//! List storage, lifecycle, queries, and copy-on-write operations.
 //!
-//! Ori lists use the layout `{ i64 len, i64 cap, *mut u8 data }` where the
-//! data buffer is RC-managed via `ori_rc_alloc`. This module provides:
-//! - **Allocation**: `ori_list_new`, `ori_list_alloc_data`, `ori_list_box_new`
-//! - **Lifecycle**: `ori_list_free`, `ori_list_free_data`
-//! - **COW mutations**: `ori_list_push_cow`, `ori_list_pop_cow`, `ori_list_set_cow`,
-//!   `ori_list_updated_cow`, `ori_list_insert_cow`, `ori_list_remove_cow`,
-//!   `ori_list_concat_cow`, `ori_list_reverse_cow`, `ori_list_sort_cow`,
-//!   `ori_list_sort_stable_cow`
-//! - **Queries**: `ori_list_first`, `ori_list_last`, `ori_list_contains_*`
-//! - **Functional**: `ori_list_reverse`, `ori_list_concat`, `ori_list_flatten`
+//! An Ori list has the ABI layout `{ i64 len, i64 cap, *mut u8 data }`.
+//! Non-null data buffers carry the runtime RC header and own their initialized
+//! elements through the destructor recorded in that header.
 
 mod cow;
 mod cow_sort;
 mod cow_structural;
 mod cow_updated;
+mod prelude;
 mod query;
 mod reset;
 pub mod slice;
 
-pub use cow::*;
-pub use cow_sort::*;
-pub use cow_structural::*;
-pub use cow_updated::*;
-pub use query::*;
-pub use reset::*;
-pub use slice::*;
+pub use prelude::*;
 
 use crate::next_capacity;
 use crate::rc::{
@@ -38,9 +26,13 @@ use crate::slice_encoding::{is_slice_cap, slice_original_data};
 ///
 /// Also used for sets, which share the same memory layout.
 #[repr(C)]
+#[derive(Debug)]
 pub struct OriList {
+    /// Initialized element count.
     pub len: i64,
+    /// Element capacity, or an encoded seamless-slice descriptor when negative.
     pub cap: i64,
+    /// RC-managed element storage.
     pub data: *mut u8,
 }
 
@@ -58,7 +50,8 @@ pub extern "C" fn ori_list_empty() -> *mut u8 {
 /// If `list.cap >= required`, this is a no-op. Otherwise, reallocates the
 /// buffer using `next_capacity()` for amortized O(1) growth.
 ///
-/// # Preconditions
+/// # Safety
+///
 /// - `list` is a valid pointer to an `OriList`
 /// - The list's data buffer is uniquely owned (`ori_rc_is_unique(list.data)`)
 ///   OR the data pointer is null (empty sentinel)
@@ -74,7 +67,7 @@ pub extern "C" fn ori_list_ensure_capacity(
         return;
     }
 
-    // SAFETY: The non-null pointer is aligned and initialized as one live `OriList` supplied by the ABI caller, and this borrow does not transfer ownership.
+    // SAFETY: The caller supplies one aligned, initialized `OriList` for this borrowed mutation.
     let list = unsafe { &mut *list };
     let required = required as usize;
 
@@ -86,9 +79,7 @@ pub extern "C" fn ori_list_ensure_capacity(
     let new_byte_size = new_cap * elem_size;
 
     if list.data.is_null() {
-        // Sentinel (empty list) → first allocation.
-        // Data buffers are RC-managed (32-byte V5 header) so COW
-        // functions can call ori_rc_is_unique/ori_rc_dec on them.
+        // INVARIANT: Every non-null list buffer carries a live RC header.
         list.data = ori_rc_alloc(new_byte_size, elem_align);
     } else {
         let old_byte_size = list.cap as usize * elem_size;
@@ -99,8 +90,6 @@ pub extern "C" fn ori_list_ensure_capacity(
         list.cap = new_cap as i64;
     }
 }
-
-// List allocation/management
 
 /// Allocate a new RC-boxed list struct with the given fields.
 ///
@@ -119,7 +108,7 @@ pub extern "C" fn ori_list_box_new(len: i64, cap: i64, data: *mut u8) -> *mut u8
     if box_ptr.is_null() {
         return std::ptr::null_mut();
     }
-    // SAFETY: `ori_rc_alloc` returned storage sized and aligned for `OriList`, and this function uniquely initializes all fields before publishing it.
+    // SAFETY: The fresh allocation fits `OriList` and is uniquely initialized before publication.
     unsafe {
         let list = &mut *box_ptr.cast::<OriList>();
         list.len = len;
@@ -153,9 +142,7 @@ pub extern "C" fn ori_list_alloc_data(capacity: i64, elem_size: i64) -> *mut u8 
     }
 }
 
-/// Allocate a new list with given capacity (full `OriList` struct on heap).
-///
-/// Used by JIT/test code. Not called from `arc_emitter/` codegen.
+/// Allocate a new heap-resident [`OriList`] with the given capacity.
 #[no_mangle]
 pub extern "C" fn ori_list_new(capacity: i64, elem_size: i64) -> *mut OriList {
     let cap = capacity.max(0) as usize;
@@ -191,13 +178,11 @@ pub extern "C" fn ori_list_free(list: *mut OriList, elem_size: i64) {
         return;
     }
 
-    // SAFETY: The non-null pointer came from one unmatched `Box::into_raw` in `ori_list_new`, so this recovers unique wrapper ownership exactly once.
+    // SAFETY: `ori_list_new` produced one unrecovered raw `Box<OriList>` pointer.
     unsafe {
         let list = Box::from_raw(list);
         if !list.data.is_null() && list.cap > 0 {
-            // The header's stored elem_dec_fn is authoritative; passing None
-            // prevents a parallel destructor source. The stored count is the
-            // matching initialization boundary maintained after each push.
+            // INVARIANT: The header owns the destructor and initialized-element boundary.
             let initialized = load_elem_count(list.data).clamp(0, list.cap);
             ori_buffer_rc_dec(list.data, initialized, list.cap, elem_size, None);
         }
@@ -224,7 +209,7 @@ pub extern "C" fn ori_list_len(list: *const OriList) -> i64 {
     if list.is_null() {
         return 0;
     }
-    // SAFETY: The non-null pointer is aligned and initialized as a live `OriList`, and reading `len` does not outlive or mutate the caller-owned wrapper.
+    // SAFETY: The caller supplies a live aligned `OriList` for this borrowed read.
     unsafe { (*list).len }
 }
 
@@ -238,11 +223,10 @@ pub extern "C" fn ori_list_push(list: *mut u8, elem_ptr: *const u8, elem_size: i
     if list.is_null() || elem_ptr.is_null() {
         return;
     }
-    // SAFETY: The non-null handle points to an aligned, initialized, uniquely borrowed `OriList` wrapper that remains live for this mutation.
+    // SAFETY: The caller supplies one live, aligned `OriList` for this mutation.
     let list = unsafe { &mut *list.cast::<OriList>() };
     let es = elem_size.max(1) as usize;
 
-    // Grow if needed
     if list.len >= list.cap {
         let new_cap = if list.cap <= 0 {
             8
@@ -260,13 +244,12 @@ pub extern "C" fn ori_list_push(list: *mut u8, elem_ptr: *const u8, elem_size: i
         list.cap = new_cap as i64;
     }
 
-    // Copy element bytes into the data buffer
-    // SAFETY: Growth establishes `len < cap`; `elem_ptr` supplies `es` readable bytes, and the distinct RC data allocation has `es` writable bytes at element `len`.
+    // SAFETY: Growth leaves one writable slot; `elem_ptr` supplies one disjoint element.
     unsafe {
         std::ptr::copy_nonoverlapping(elem_ptr, list.data.add(list.len as usize * es), es);
     }
     list.len += 1;
-    // SAFETY: A successful push leaves `data` at an RC allocation with a live V5 header, and `list.len` is the initialized-element boundary just written.
+    // SAFETY: `data` has a live RC header and `list.len` is its initialized boundary.
     unsafe { store_elem_count(list.data, list.len) };
 }
 
@@ -285,27 +268,22 @@ pub extern "C" fn ori_list_take(list: *mut u8, out_ptr: *mut u8) {
         unsafe { write_list_output(out_ptr, 0, 0, std::ptr::null_mut()) };
         return;
     }
-    // SAFETY: The non-null handle came from one unmatched `Box::into_raw` in `ori_list_new`, so this recovers unique wrapper ownership exactly once.
+    // SAFETY: `ori_list_new` produced one unrecovered raw `Box<OriList>` pointer.
     let boxed = unsafe { Box::from_raw(list.cast::<OriList>()) };
     let len = boxed.len;
     let cap = boxed.cap;
     let data = boxed.data;
-    // Box::drop frees the OriList struct; data buffer is NOT freed
     drop(boxed);
     // SAFETY: The ABI caller provides a writable, aligned result slot and
     // ownership of `data` transfers to the returned list.
     unsafe { write_list_output(out_ptr, len, cap, data) };
 }
 
-// Functional list operations
-
 /// Create a new list with an element appended (functional push).
 ///
-/// Allocates a new data buffer, copies all elements from the original,
-/// then copies the new element at the end. Writes the resulting
-/// `{len+1, len+1, new_data}` to `out_ptr` (sret pattern).
-///
-/// The original list data is NOT freed — the caller retains ownership.
+/// Copies the original elements and the appended element into a new buffer,
+/// then writes `{len+1, len+1, new_data}` to `out_ptr`. The caller retains
+/// ownership of the original list data.
 #[no_mangle]
 pub extern "C" fn ori_list_push_new(
     data: *const u8,
@@ -324,16 +302,14 @@ pub extern "C" fn ori_list_push_new(
 
     let new_data = ori_rc_alloc(new_total, 8);
 
-    // Copy old elements
     if !data.is_null() && old_len > 0 {
-        // SAFETY: `data` supplies `old_len * es` initialized bytes, while the fresh RC allocation is disjoint and writable for `new_len * es` bytes.
+        // SAFETY: `data` supplies the initialized prefix; `new_data` is disjoint and large enough.
         unsafe {
             std::ptr::copy_nonoverlapping(data, new_data, old_len * es);
         }
     }
 
-    // Copy new element at the end
-    // SAFETY: `elem_ptr` supplies `es` readable bytes, and the disjoint RC allocation has exactly one writable element slot beginning at `old_len * es`.
+    // SAFETY: `elem_ptr` supplies one element; the disjoint allocation has one remaining slot.
     unsafe {
         std::ptr::copy_nonoverlapping(elem_ptr, new_data.add(old_len * es), es);
     }
@@ -345,7 +321,6 @@ pub extern "C" fn ori_list_push_new(
 
 /// Write `{ len, cap, data }` triple to the output pointer.
 ///
-/// This is the common output pattern for all COW list functions.
 /// The layout matches `[T]`'s ABI: `i64 len`, `i64 cap`, `*mut u8 data`.
 ///
 /// # Safety
@@ -353,7 +328,7 @@ pub extern "C" fn ori_list_push_new(
 /// `out_ptr` must address a writable, properly aligned 24-byte result slot.
 /// Ownership of `data` must already match the list value being published.
 #[inline]
-// SAFETY: The caller guarantees the 24-byte output allocation and transferred `data` ownership, and the three writes exactly match the list ABI layout.
+// SAFETY: The caller supplies the 24-byte ABI slot and transfers `data` ownership.
 pub(crate) unsafe fn write_list_output(out_ptr: *mut u8, len: i64, cap: i64, data: *mut u8) {
     out_ptr.cast::<i64>().write(len);
     out_ptr.cast::<i64>().add(1).write(cap);
@@ -396,13 +371,13 @@ pub(crate) fn inc_copied_elements(
 ) {
     if let Some(f) = inc_fn {
         for i in 0..count {
-            // SAFETY: `i < count` keeps the address inside the caller-owned `count * elem_size` allocation, and the callback accepts one element slot.
+            // SAFETY: `i < count` selects one initialized element accepted by the callback.
             f(unsafe { data.add(i * elem_size) });
         }
     }
 }
 
-/// Shared helper: copy a contiguous array into a new list struct via sret.
+/// Copy a contiguous array into a new list result through `out_ptr`.
 ///
 /// Stores `elem_dec_fn` and `elem_count` in the new buffer's RC header
 /// for element cleanup when the buffer is freed.
@@ -427,11 +402,11 @@ pub(crate) fn write_array_to_list(
 
     let total = n * es;
     let new_data = ori_rc_alloc(total, 8);
-    // SAFETY: `data` supplies `n * es` initialized bytes, while the fresh RC allocation is disjoint and writable for exactly that byte count.
+    // SAFETY: `data` supplies `total` bytes; `new_data` is disjoint and exactly that size.
     unsafe {
         std::ptr::copy_nonoverlapping(data, new_data, total);
     }
-    // SAFETY: `new_data` is a live `ori_rc_alloc` result, so its V5 header fields are addressable and uniquely owned during initialization.
+    // SAFETY: `new_data` has a live, uniquely owned RC header.
     unsafe {
         crate::rc::store_elem_dec_fn(new_data, elem_dec_fn);
         crate::rc::store_elem_count(new_data, n as i64);

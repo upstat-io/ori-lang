@@ -1,13 +1,7 @@
 //! Type substitution for monomorphization.
 //!
-//! Provides [`substitute_in_pool`] which recursively replaces type variables
-//! with concrete types. Used during monomorphization to build the
-//! `body_type_map` (generic `Idx` → concrete `Idx`) that the ARC lowerer
-//! uses to emit type-specific retain/release/drop.
-//!
-//! Follows the same structural recursion pattern as `UnifyEngine::substitute()`
-//! but operates as a standalone function on `&mut Pool`, suitable for use
-//! during mono instance recording in the type checker.
+//! [`substitute_in_pool`] materializes concrete monomorphization body maps
+//! directly in a `Pool`, preserving the type shapes ARC lowering consumes.
 
 mod body_type_map;
 mod extract;
@@ -39,13 +33,7 @@ use crate::{Idx, Pool, Tag, TypeFlags, VarState};
     reason = "always called with FxHashMap internally"
 )]
 pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    // Fast path: no variables OR bound vars OR rigid vars to substitute. The
-    // gate includes HAS_BOUND_VAR — scheme bodies post-migration
-    // contain `Tag::BoundVar` leaves with HAS_BOUND_VAR=true and HAS_VAR=false.
-    // HAS_RIGID_VAR is included so a `var_subst` carrying impl-level rigid
-    // var_ids (built by `build_impl_rigid_var_subst`) substitutes `Tag::RigidVar`
-    // leaves; var_ids are globally unique across `Tag::Var`/`Tag::RigidVar`, so a
-    // Var-only map never targets a rigid leaf (it falls through unchanged).
+    // INVARIANT: every substitutable variable kind participates in the fast-path gate.
     if !pool
         .flags(ty)
         .intersects(TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR | TypeFlags::HAS_RIGID_VAR)

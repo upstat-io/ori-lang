@@ -297,9 +297,7 @@ fn test_iter_join_char() {
     );
 }
 
-/// Long float join exercises heap-backed `OriStr` path (>23 bytes SSO).
-/// The heap-backed `OriStr` temporary allocated by the `to_str` join trampoline
-/// is `Copy` with no `Drop`, so the trampoline must call `ori_str_rc_dec`.
+/// Pins explicit RC decrement for heap-backed `OriStr` join temporaries.
 #[test]
 fn test_iter_join_long_float() {
     assert_aot_success(

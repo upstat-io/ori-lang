@@ -14,6 +14,7 @@ use super::method_diagnostics::is_named_generic_var;
 use crate::{Idx, IterMethodRoute, Tag, TypeCheckError};
 
 /// Result of resolving a method receiver and checking builtin dispatch.
+#[derive(Debug)]
 pub(super) enum ReceiverDispatch {
     /// Return this type. Caller must infer all args first.
     /// `receiver_ty` is the resolved receiver, needed for higher-order constraint propagation.
@@ -57,22 +58,12 @@ pub(super) fn resolve_receiver_and_builtin(
         resolved
     };
 
-    // For unresolved type variables, defer resolution UNLESS the var has
-    // registered trait bounds (bound-chain dispatch on top-level
-    // function type-params, which use `pool.fresh_named_var` and surface
-    // as `Tag::Var` rather than `Tag::RigidVar`). Bounded vars must
-    // continue through `lookup_impl_method` so the bound chain runs;
-    // otherwise the early-return masks the dispatch.
+    // INVARIANT: bounded `Tag::Var` receivers continue into bound-chain dispatch.
     let tag = engine.pool().tag(resolved);
     if tag == Tag::Var {
         let has_bounds = engine.rigid_var_bounds(resolved).is_some();
         if !has_bounds {
-            // A NAMED unbound var that is a generic type parameter (`@f<T>(x: T)`,
-            // surfaced via `fresh_named_var`, name not a registered trait) has no
-            // methods statically, so `x.m()` MUST surface a diagnostic via the
-            // NotFound path, NOT defer. An ANONYMOUS unbound var (genuine
-            // inference var) and a capability/trait-namespace named var (`Http`,
-            // name IS a registered trait) defer — see `is_named_generic_var`.
+            // INVARIANT: unbounded named generics report `NotFound`; inference vars defer.
             if !is_named_generic_var(engine, resolved) {
                 return ReceiverDispatch::Return {
                     ret_ty: engine.pool_mut().fresh_var(),
@@ -130,10 +121,7 @@ pub(super) fn resolve_receiver_and_builtin(
         }
     }
 
-    // Reject all methods on `Range<float>` because ranges are integer-only.
-    // This guard also covers synthetic `Range<float>` values.
-    // Iteration methods get a specific diagnostic; other methods get a generic
-    // "Range<float> not supported" error with a diagnostic (not silent).
+    // INVARIANT: every `Range<float>` method path emits a diagnostic.
     if tag == Tag::Range && engine.pool().range_elem(resolved) == Idx::FLOAT {
         if let Some(err) = check_range_float_iteration(engine, resolved, tag, method_str, span) {
             return ReceiverDispatch::Return {

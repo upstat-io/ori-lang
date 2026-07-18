@@ -15,12 +15,89 @@ impl TypeCheckError {
     /// Uses `Idx::display_name()` for type names, which renders primitives
     /// (int, bool, str, etc.) and falls back to `"<type>"` for complex types
     /// that would need a Pool to render fully.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive TypeErrorKind message dispatch"
-    )]
     pub fn message(&self) -> String {
+        if let Some(message) = self.simple_resolution_message() {
+            return message;
+        }
+        if let Some(message) = self.simple_inference_message() {
+            return message;
+        }
+        if let Some(message) = self.simple_trait_message() {
+            return message;
+        }
+        if let Some(message) = self.simple_derive_message() {
+            return message;
+        }
+        if let Some(message) = self.simple_conversion_message() {
+            return message;
+        }
+        if let Some(message) = self.simple_ownership_message() {
+            return message;
+        }
+
         match &self.kind {
+            TypeErrorKind::Mismatch { .. }
+            | TypeErrorKind::UnknownIdent { .. }
+            | TypeErrorKind::UnresolvedTrait { .. }
+            | TypeErrorKind::UndefinedField { .. }
+            | TypeErrorKind::UnknownMethod { .. }
+            | TypeErrorKind::ArityMismatch { .. }
+            | TypeErrorKind::MissingCapability { .. }
+            | TypeErrorKind::InfiniteType { .. }
+            | TypeErrorKind::AmbiguousType { .. }
+            | TypeErrorKind::PatternMismatch { .. }
+            | TypeErrorKind::NonExhaustiveMatch { .. }
+            | TypeErrorKind::RigidMismatch { .. }
+            | TypeErrorKind::ImportError { .. }
+            | TypeErrorKind::MissingAssocType { .. }
+            | TypeErrorKind::UnsatisfiedBound { .. }
+            | TypeErrorKind::NotAStruct { .. }
+            | TypeErrorKind::MissingFields { .. }
+            | TypeErrorKind::DuplicateField { .. }
+            | TypeErrorKind::UninhabitedStructField { .. }
+            | TypeErrorKind::UnsupportedOperator { .. }
+            | TypeErrorKind::DuplicateImpl { .. }
+            | TypeErrorKind::OverlappingImpls { .. }
+            | TypeErrorKind::ConflictingDefaults { .. }
+            | TypeErrorKind::AmbiguousMethod { .. }
+            | TypeErrorKind::NotObjectSafe { .. }
+            | TypeErrorKind::NotIndexable { .. }
+            | TypeErrorKind::IndexKeyMismatch { .. }
+            | TypeErrorKind::AmbiguousIndex { .. }
+            | TypeErrorKind::CannotDeriveForSumType { .. }
+            | TypeErrorKind::CannotDeriveWithoutSupertrait { .. }
+            | TypeErrorKind::HashInvariantViolation { .. }
+            | TypeErrorKind::NonHashableMapKey { .. }
+            | TypeErrorKind::FieldMissingTraitInDerive { .. }
+            | TypeErrorKind::TraitNotDerivable { .. }
+            | TypeErrorKind::InvalidFormatSpec { .. }
+            | TypeErrorKind::FormatTypeMismatch { .. }
+            | TypeErrorKind::IntoNotImplemented { .. }
+            | TypeErrorKind::AmbiguousInto { .. }
+            | TypeErrorKind::MissingPrintable { .. }
+            | TypeErrorKind::AssignToImmutable { .. }
+            | TypeErrorKind::IndexAssignNotSupported { .. }
+            | TypeErrorKind::AssignThroughParameter { .. }
+            | TypeErrorKind::UnsupportedFeature { .. }
+            | TypeErrorKind::InvalidReprAttribute { .. }
+            | TypeErrorKind::ConditionalPartialMove { .. }
+            | TypeErrorKind::UseAfterDropEarly { .. }
+            | TypeErrorKind::DropPartialMove { .. }
+            | TypeErrorKind::ValueDropConflict { .. }
+            | TypeErrorKind::PreContractNotBool { .. }
+            | TypeErrorKind::PostContractVoidReturn
+            | TypeErrorKind::PreContractUnknownIdent { .. }
+            | TypeErrorKind::RefutablePattern { .. }
+            | TypeErrorKind::BreakValueInVoidLoop { .. }
+            | TypeErrorKind::ContinueValueInNonCollectingLoop { .. }
+            | TypeErrorKind::OrPatternBindingMismatch { .. } => {
+                unreachable!("type error kind was not handled by its message family")
+            }
+        }
+    }
+
+    fn simple_resolution_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::Mismatch {
                 expected,
                 found,
@@ -33,7 +110,7 @@ impl TypeCheckError {
                     if let Some(detail) =
                         problem_message_with(problem, &|idx| idx.display_name().to_string())
                     {
-                        return format!("type mismatch: {detail}");
+                        return Some(format!("type mismatch: {detail}"));
                     }
                 }
                 format!(
@@ -77,6 +154,13 @@ impl TypeCheckError {
                 }
             }
             TypeErrorKind::MissingCapability { .. } => "missing required capability".to_string(),
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn simple_inference_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::InfiniteType { .. } => "infinite type detected".to_string(),
             TypeErrorKind::AmbiguousType { site, .. } => match site {
                 AmbiguousTypeSite::Expression => "cannot infer type in expression".to_string(),
@@ -122,6 +206,13 @@ impl TypeCheckError {
             TypeErrorKind::UninhabitedStructField { .. } => {
                 "cannot use `Never` as struct field type".to_string()
             }
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn simple_trait_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::UnsupportedOperator { ty, op, trait_name } => {
                 format!(
                     "cannot apply operator `{op}` to type `{}`; implement `{trait_name}` trait",
@@ -143,6 +234,13 @@ impl TypeCheckError {
             TypeErrorKind::NotObjectSafe { .. } => {
                 "trait cannot be made into an object".to_string()
             }
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn simple_derive_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::NotIndexable { ty } => {
                 format!(
                     "type `{}` does not support indexing; implement `Index` trait",
@@ -194,6 +292,13 @@ impl TypeCheckError {
                 "field type does not implement trait required by derive".to_string()
             }
             TypeErrorKind::TraitNotDerivable { .. } => "trait cannot be derived".to_string(),
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn simple_conversion_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::InvalidFormatSpec { spec, reason } => {
                 format!("invalid format specification `{spec}`: {reason}")
             }
@@ -248,6 +353,13 @@ impl TypeCheckError {
             TypeErrorKind::InvalidReprAttribute { reason, .. } => {
                 format!("invalid `#repr` attribute: {reason}")
             }
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn simple_ownership_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::ConditionalPartialMove { .. } => {
                 "conditional partial move not statically computable; \
                  make the field projection unconditional, or mirror it symmetrically on every branch"
@@ -337,7 +449,9 @@ impl TypeCheckError {
                 )
             }
             TypeErrorKind::OrPatternBindingMismatch { reason, .. } => reason.message().to_string(),
-        }
+            _ => return None,
+        };
+        Some(message)
     }
 
     /// Get the error code for this error kind.

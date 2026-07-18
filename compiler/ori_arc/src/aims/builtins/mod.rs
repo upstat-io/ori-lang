@@ -34,14 +34,8 @@ pub(crate) fn seed_builtin_contracts(
 ) {
     // Why: COW ownership takes precedence when an unqualified method name is also borrowing.
 
-    // IndexSet `updated(key, value)`: receiver consumed-and-returned, key
-    // borrowed, value MOVED into the collection. Seeded BEFORE the generic
-    // COW loops — `updated` is also in `consuming_receiver`, whose 1-param
-    // base contract cannot express the value-param ownership transfer.
-    // One uniform contract across `[T]` / `[T, max N]` / `{K: V}` (fixed
-    // lists erase to the List tag). Without the Owned value param, AIMS
-    // emits an erroneous RcDec on the moved value (double-free on the
-    // unique in-place path; reference-balance leak on copy paths).
+    // INVARIANT: Indexed updates move their value argument; the generic
+    // consuming-receiver contract cannot express that third-argument transfer.
     for &name in &builtins.consuming_third_arg {
         sigs.entry(name).or_insert_with(cow_indexed_update_contract);
     }
@@ -53,43 +47,26 @@ pub(crate) fn seed_builtin_contracts(
         sigs.entry(name).or_insert_with(cow_receiver_only_contract);
     }
 
-    // COW collection methods: seeded as Borrowed (base contract).
-    // `apply_consuming_overrides` then overrides to Owned for List/Map/Set
-    // receivers. String methods (concat, iter, etc.) stay Borrowed because
-    // the runtime borrows string data (Inc's internally, doesn't consume).
+    // INVARIANT: Collection overrides own receivers; string COW methods borrow.
     for &name in &builtins.consuming_receiver {
         sigs.entry(name).or_insert_with(|| borrowing_contract(1));
     }
 
-    // Fixed/dynamic list conversions are physical value-identity forwarders:
-    // the receiver credit moves directly into the result. They do not mint a
-    // second credit like a sharing view. If the source remains live, normal
-    // owned-argument duplication funds that separate owner before the call.
-    // Seed these before the generic borrowing loop so result and receiver
-    // occupy one allocation class and only the returned owner is discharged.
+    // INVARIANT: Fixed/dynamic conversion transfers the receiver's allocation
+    // identity into the result rather than minting a sharing-view credit.
     for name in ["to_dynamic", "to_fixed"] {
         sigs.entry(interner.intern(name))
             .or_insert_with(value_identity_forwarder_contract);
     }
 
-    // Sharing methods: return MaybeShared (shares receiver's backing) and
-    // carry the typed sharing-view CREDIT (`returns_sharing_view`).
-    // The contract map excludes the bare surface names `take` and `drop`: the
-    // name-keyed contract map cannot discriminate the seamless-slice
-    // methods from same-named callees with different ownership (a user
-    // `Drop::drop`, iterator adapters), so their CREDIT rides the
-    // unambiguous runtime names (`ori_list_slice_take` /
-    // `ori_list_slice_drop`) in the runtime contract table.
+    // INVARIANT: Ambiguous surface names cannot carry sharing-view credit;
+    // seamless slices use their unambiguous runtime identities instead.
     let sharing = crate::borrow::sharing_builtin_names(interner);
     for name in sharing {
         sigs.entry(name).or_insert_with(sharing_return_contract);
     }
 
-    // Protocol builtins: per-arg ownership from ProtocolBuiltin.
-    // Seeded BEFORE borrowing methods because protocol builtins have specific
-    // per-arg ownership from the source of truth (ProtocolBuiltin::arg_ownership).
-    // Without this priority, __index (2 borrowed params) gets a generic 1-param
-    // borrowing_contract(1) from the borrowing set, losing the second param.
+    // INVARIANT: Protocol-specific arity and ownership precede generic borrowing.
     for (&name, arg_ownership) in &builtins.protocol {
         sigs.entry(name)
             .or_insert_with(|| protocol_contract(arg_ownership));
@@ -101,12 +78,7 @@ pub(crate) fn seed_builtin_contracts(
         sigs.entry(name).or_insert_with(|| borrowing_contract(1));
     }
 
-    // Internal runtime functions called by ARC IR lowering (not user-facing).
-    // These are `ori_*` C functions that would otherwise default to all-borrowed
-    // in `compute_arg_ownership`. Where the runtime copies element bytes into a
-    // collection buffer (creating another logical owner), the element arg must be
-    // Owned so AIMS records the exact transfer/sharing obligation. An RC-backed
-    // physical plan may satisfy that obligation with a retain.
+    // INVARIANT: Runtime calls that copy elements own the transferred argument.
     seed_internal_runtime_contracts(sigs, interner);
 }
 
@@ -183,11 +155,8 @@ fn sharing_return_contract() -> MemoryContract {
             returns_sharing_view: true,
             ..ReturnContract::CONSERVATIVE
         },
-        // The result credit is backed by the receiver's storage identity.
-        // Call transfer must therefore invalidate a pre-call Unique fact on
-        // the borrowed receiver as well as classify the result MaybeShared.
-        // Without this effect, `list.slice(..); list.push(..)` can select the
-        // StaticUnique COW path while the slice still owns the same buffer.
+        // Sharing views invalidate the receiver's pre-call uniqueness because
+        // both values retain the same backing allocation.
         effects: EffectSummary {
             may_share: true,
             ..EffectSummary::default()
@@ -252,11 +221,8 @@ const PARAM_BORROWED: ParamContract = ParamContract {
     return_alias: None,
     return_payload_contains_param: false,
     iter_consumes: false,
-    // Conservative: builtin seed contracts never carry a read-only claim. The
-    // user-call carve-out gate (`compute_user_call_arg_lineages`) returns early
-    // for `is_builtin` callees, so this field is never consulted on a builtin;
-    // per-user-fn `borrowed_read_only` is computed from the body scan in
-    // `extract_contract`, which reads Apply-arg POSITIONS directly, not this seed.
+    // Builtin seed contracts cannot claim read-only; user-function claims come
+    // from body analysis rather than this seed.
     borrowed_read_only: false,
     borrowed_cow_consumed: false,
     borrowed_cow_mutated: false,

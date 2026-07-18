@@ -38,11 +38,7 @@ fn test_imported_generic_is_empty_aggregate_receiver() {
     );
 }
 
-// Regression: method-level type generic on a concrete-receiver impl returning
-// a layout-bearing [T]. A rigid_var-at-codegen ICE regressed only the LLVM/AOT
-// path (the interpreter always passed). Exercises int + str (heap-element)
-// instantiations of one method-level binder; assert_aot_success also leak-checks
-// (exit 2 = leak).
+// Method-level generics returning layout-bearing lists.
 #[test]
 fn test_method_generic_layout() {
     assert_aot_success(
@@ -182,7 +178,6 @@ fn test_generic_chain_three_levels_string() {
 // Generic calling generic: mixed specializations
 #[test]
 fn test_generic_chain_multiple_specializations() {
-    // Same chain instantiated with different types in one program.
     assert_aot_success(
         include_str!("fixtures/generics/generic_chain_multiple_specializations.ori"),
         "generic_chain_four_specializations",
@@ -504,10 +499,7 @@ fn test_generic_forwarder_hop4_returns_list_intact() {
     );
 }
 
-// Cross-type axis
-// 1-hop generic forwarder applied to every relevant heap-typed shape.
-// Heap shapes exercise ownership transfer; the scalar case exercises the
-// representation-independent path.
+// Cross-type forwarder axis.
 
 /// Generic forwarder over `[str]` — heap list of heap elements; verifies
 /// element-level decs still fire correctly (`elem_dec_fn` for inner str).
@@ -627,10 +619,7 @@ fn test_generic_forwarder_box_list_returns_intact() {
     );
 }
 
-// Forwarder shape axis
-// The param-return-alias rule must apply uniformly across forwarder
-// shapes. Generics are merely the most common pattern; non-generic
-// forwarders and inherent methods must also be covered.
+// Forwarder-shape axis.
 
 /// Non-generic forwarder applied to `[int]`. The fix's gate is
 /// STRUCTURAL (param flows to Return), not generics-specific. Verifies
@@ -654,12 +643,7 @@ fn test_inherent_method_forwarder_self_returns_self() {
     );
 }
 
-// Path sensitivity
-// The fix's suppression gate MUST be path-sensitive. A naive global-
-// suppression implementation (suppress all decs unconditionally for
-// params with transfers_through_return=true) would LEAK the not-returned
-// param on multi-return conditional flow. These cells pin the
-// path-sensitivity requirement.
+// Path-sensitive transfer-through-return coverage.
 
 /// `select<T>(cond, x, y) -> T = if cond then x else y` over `[int]`.
 /// Both x and y are candidates for return; only ONE is returned per
@@ -697,12 +681,8 @@ fn test_path_sensitive_triple_list_balances_rc_on_all_three_paths() {
     );
 }
 
-// Dead-owned-param-branch release (compute_dead_owned_param_branch_releases): a callee
-// Owned non-scalar PARAM that is returned on one branch but DEAD on others leaks on the
-// dead branches — the Phase-5 walk emits no per-edge RL-4 release. The positive pins clear
-// the leak (the two-param `pick`/`select` family); the negative pin clamps the
-// boundary (borrow-read-keeps-live) so the per-edge release never double-frees. Spec:
-// Annex E §AIMS RL-4 (edge dec) + RL-2 (release exactly once).
+// Dead owned-parameter branch release.
+// Spec: Annex E §AIMS RL-4 and RL-2.
 
 /// Positive matrix pin (type dimension `[str]`): the two-param `pick(c, x, y)` shape over
 /// a HEAP-ELEMENT list. On each branch the non-returned `[str]` param is dead; the
@@ -753,12 +733,7 @@ fn test_path_sensitive_select_negative_pin_completes_without_uaf() {
     );
 }
 
-// Forwarder-result RL-2 release (compute_forwarder_result_under_release): a
-// transfer-through-return forwarder RESULT whose monomorphized result-type burden is
-// empty leaks its transferred-in allocation when borrow-consumed then dead, because the
-// result lineage gets neither a FRESH inc nor a scope-exit dec. The positive pin clears
-// the leak; the two negative pins clamp the over-emission boundary (gate c moved-onward,
-// gate e FRESH-Construct owner) so the release never double-frees.
+// Forwarder-result RL-2 release boundaries.
 
 /// Positive pin (semantic): `Set<int>` from `@__collect_set` (a CALL RESULT, no
 /// in-class `Construct` owner) through a forwarder, borrow-consumed then dead. The
@@ -931,10 +906,6 @@ fn test_generic_chain_tuple_element() {
 
 #[test]
 fn test_generic_chain_user_struct() {
-    // 3-hop with user-defined struct. The existing
-    // `test_generic_chain_with_struct` is 2-hop (main → apply_identity →
-    // identity); this one is 3-hop so the deferred-mono root-extension
-    // path is exercised end-to-end with a struct type argument.
     assert_aot_success(
         include_str!("fixtures/generics/generic_chain_user_struct.ori"),
         "generic_chain_user_struct",
@@ -1129,10 +1100,7 @@ fn test_box_method_with_drifted_args_emits_typeck_error() {
     );
 }
 
-// Return-as-transfer extensions
-// Borrowed param + use(s) + Return. Verifies the new pre-compute set
-// for borrow-flow scope-exit RcDec covers (B-1) shape across types
-// and use patterns beyond the str-flavored snapshot (use_twice).
+// Return-as-transfer extensions.
 
 /// Regression: borrowed `[int]` param + 2 borrow uses + return. Extends the
 /// str-flavored `use_twice` snapshot to `[int]` element type — verifies the
@@ -1190,10 +1158,7 @@ fn test_borrow_list_int_match_arm_use_then_return_no_leak() {
     );
 }
 
-// Borrow-only access
-// Value used as borrow inside function-call boundaries; verifies the
-// pre-compute set distinguishes borrow Applies (no dec at site) from
-// Return-as-transfer (dec required at function exit).
+// Borrow-only access.
 
 /// Regression: borrowed `[int]` param + 1 borrow Apply + Return.
 /// Single borrow access through a function-call boundary.
@@ -1225,10 +1190,7 @@ fn test_borrow_list_int_mixed_apply_then_return_no_leak() {
     );
 }
 
-// Cross-pattern cells
-// Distinct control-flow shapes that exercise Return-as-transfer across
-// genuinely uncovered patterns: Project consumer, depth-3 alias chain,
-// loop-body Let-alias, multi-block CFG, for...yield iteration.
+// Cross-pattern return-as-transfer cells.
 
 /// Regression: borrowed `[int]` param + Project consumer (index access)
 /// + Return. Verifies Project access (`xs[0]`) does NOT consume the borrow.
@@ -1280,12 +1242,7 @@ fn test_borrow_list_int_for_yield_then_return_no_leak() {
     );
 }
 
-// Live-across borrowed-collection family — a transfer-through-return Owned param
-// that is ALSO iter-consumed (for...yield) or multi-hop read-aliased inside the
-// body. One allocation, two terminal consumes (iter-free / scope-read + Return
-// transfer): the iter-consume is an RL-1 duplication needing one BurdenInc, and
-// a multi-hop read-alias is transparent (no spurious dec). Positive cross-type
-// pins + over-fire negatives (consumed-but-NOT-returned must keep status quo).
+// Live-across borrowed-collection coverage.
 
 /// Regression: for...yield iter-consume over a heap-element `[str]` param +
 /// Return the param. The iterator frees the param buffer; the duplication inc
@@ -1391,13 +1348,8 @@ fn test_borrow_list_int_nested_pin6_chain_then_return_no_leak() {
     );
 }
 
-// As-compiled impl-method contract pins
-// Caller-side `transfers_through_return` binding for impl-method callees.
+// As-compiled impl-method contracts.
 
-/// Negative over-fire pin: a CONDITIONAL impl-method forwarder (both params
-/// may flow to the return) must not double-free under the caller-side
-/// as-compiled contract binding — the returned Wrapper is released once,
-/// the non-returned one by its own path release.
 #[test]
 fn test_impl_method_conditional_forwarder_no_double_free() {
     assert_aot_success(
@@ -1406,18 +1358,6 @@ fn test_impl_method_conditional_forwarder_no_double_free() {
     );
 }
 
-// Forwarder-identity alias transparency
-// A `Let { Var }` alias of a transfers-through-return Owned param is a
-// same-allocation view of the moved-through value, not an RL-1 duplication.
-// Classifying it emits a paired alias inc/dec the per-var DP-2/DP-3
-// elimination splits (inc elided, dec kept) — an over-release double-free.
-// Toggle: ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP=1 restores the
-// classification (the double-free returns — mutation-verified).
-
-/// Multi-use-then-return impl forwarder: `self.items.len()` borrow-read plus
-/// `if .. then self else self` — the branch aliases of the moved-through
-/// `self` must carry no RC pair of their own; the allocation is released
-/// exactly once by the caller of the bound result.
 #[test]
 fn test_impl_method_multi_use_then_return_forwarder_releases_once() {
     assert_aot_success(
@@ -1426,10 +1366,6 @@ fn test_impl_method_multi_use_then_return_forwarder_releases_once() {
     );
 }
 
-/// Free-function twin of the multi-use-then-return forwarder: the defect is
-/// contract-independent (the real interprocedural contract already proved
-/// `transfers_through_return`, yet the alias classification ignored it), so
-/// the transparency rule must fire uniformly on free functions.
 #[test]
 fn test_free_fn_multi_use_then_return_forwarder_releases_once() {
     assert_aot_success(
@@ -1438,21 +1374,6 @@ fn test_free_fn_multi_use_then_return_forwarder_releases_once() {
     );
 }
 
-// Genuine-duplication pair coupling
-// A ttr-param alias consumed at an owned Construct position while the source
-// is read after the store and returned on BOTH arms is a GENUINE RL-1
-// duplication — the store creates a real second reference. The pair is
-// atomic: the alias-site inc backs the container's release (kept even though
-// the alias's own dec is transfer-suppressed), and the per-var DP-2/DP-3
-// elimination must never split a param-rooted alias pair (inc elided per the
-// alias's Once state, dec kept — net -1 over-release).
-// Toggle: ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1 restores the decoupled
-// treatment (the double-free returns — mutation-verified).
-
-/// Stash-and-return: `let a = w; Holder { kept: a }` stores the duplicate
-/// while `w.items` is read after the store and `w` returns on both arms.
-/// The allocation must be released exactly twice across both owners — once
-/// by the Holder's drop, once by the caller of the returned value.
 #[test]
 fn test_genuine_dup_stash_and_return_releases_each_owner_once() {
     assert_aot_success(
@@ -1461,22 +1382,6 @@ fn test_genuine_dup_stash_and_return_releases_each_owner_once() {
     );
 }
 
-// A generic body monomorphized over the builtin niche-scalar
-// `Ordering` sum constructs and projects/matches an `Ordering` variant.
-// `Ordering` lowers to a scalar `i8` but `Tag::Ordering` is a primitive sum
-// with no tagged-ptr/tagless/niche-encoded branch, so the
-// `CtorKind::EnumVariant` emitter fell through to the explicit-tag struct path
-// (`insert_value on non-struct value (index 0)`, construct side) and the
-// `Project { field: 0 }` tag read fell through to `extract_value` on the `i8`
-// (`extract_value on non-struct value (index 0)`, project/match side). The
-// interpreter passed; LLVM failed the whole module. The cure is a scalar-int
-// LLVM-type guard at both emission sites.
-
-/// A generic body over the builtin niche-scalar `Ordering` sum
-/// constructs an `Ordering` (`cmp<T>` body), projects its tag through a `match`
-/// (`classify`), and calls the `is_less`/`is_equal`/`is_greater` predicates on
-/// the result. Scalar construction and projection read the `i8` discriminant
-/// directly (Less=0/Equal=1/Greater=2).
 #[test]
 fn test_generic_body_ordering_scalar_construct_and_match_returns_correct_ordering() {
     assert_aot_success(
@@ -1485,15 +1390,6 @@ fn test_generic_body_ordering_scalar_construct_and_match_returns_correct_orderin
     );
 }
 
-/// Guard-ordering pin: a tagged-pointer enum lowers to a bare
-/// LLVM `i64`, so `is_scalar_int_type` is TRUE for it. The scalar-int guard in
-/// `emit_construct` (and the symmetric one in `emit_project`) MUST fire AFTER
-/// the tagged-ptr check, never before — otherwise the constructor emits a bare
-/// `const_int(i64, variant)` and drops the `(payload | tag)` pointer bits,
-/// losing the iterator payload. Constructs `Holds(it: ...)` (Construct side)
-/// and matches the payload back out + consumes it (Project side); the program
-/// returns 0 ONLY when the payload pointer survived both emission sites. Fails
-/// on the pre-reorder (scalar-guard-first) code; passes after the re-order.
 #[test]
 fn test_tagged_ptr_construct_project_payload_survives() {
     assert_aot_success(
@@ -1502,11 +1398,6 @@ fn test_tagged_ptr_construct_project_payload_survives() {
     );
 }
 
-/// Negative pin: the scalar-int guard must fire ONLY on
-/// scalar-int dst (Ordering). Generic bodies constructing aggregate sum
-/// variants — a user-defined `Triple`, `Option`, and `Result` — must keep the
-/// tagged-struct construction path; the guard must not fire on an aggregate
-/// destination.
 #[test]
 fn test_imported_generic_aggregate_construct_no_regression() {
     assert_aot_success(
@@ -1515,18 +1406,6 @@ fn test_imported_generic_aggregate_construct_no_regression() {
     );
 }
 
-// Local terminal-move store
-// A fresh local read once (borrow projection) then STORED into a Holder as
-// its terminal use. The store IS the move — the Holder's release is the
-// single release of the whole tree; the read-alias pair must never be split
-// by the per-var elimination (inc elided per the alias's Once state, dec
-// kept — net -1, an over-release double-free on top of the transfer).
-// Toggle: ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING=1 restores the split
-// (the double-free returns — mutation-verified).
-
-/// Read-then-store: `let $n = w.items.len(); Holder { kept: w }` — the
-/// borrow read's alias pair stays whole, the store transfers the original
-/// reference, and the holder's drop releases the tree exactly once.
 #[test]
 fn test_local_terminal_move_store_releases_once() {
     assert_aot_success(

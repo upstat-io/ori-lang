@@ -85,11 +85,10 @@ pub enum EvalOutput {
 
 impl EvalOutput {
     /// Convert a runtime Value to a Salsa-compatible `EvalOutput`.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive Value → EvalOutput conversion dispatch"
-    )]
     pub fn from_value(value: &Value, interner: &StringInterner) -> Self {
+        if let Some(symbolic) = Self::from_symbolic_value(value, interner) {
+            return symbolic;
+        }
         match value {
             Value::Int(n) => EvalOutput::Int(n.raw()),
             Value::Float(f) => EvalOutput::Float(f.to_bits()),
@@ -123,28 +122,6 @@ impl EvalOutput {
                 step: r.step,
                 inclusive: r.inclusive,
             },
-            Value::Iterator(it) => EvalOutput::Function {
-                description: format!("<iterator {it:?}>"),
-                arity: None,
-            },
-            Value::Function(f) => {
-                let arity = f.params.len();
-                EvalOutput::Function {
-                    description: format!("<function with {arity} params>"),
-                    arity: Some(arity),
-                }
-            }
-            Value::MemoizedFunction(mf) => {
-                let arity = mf.func.params.len();
-                EvalOutput::Function {
-                    description: format!("<memoized function with {arity} params>"),
-                    arity: Some(arity),
-                }
-            }
-            Value::FunctionVal(_, name) => EvalOutput::Function {
-                description: format!("<{name}>"),
-                arity: None,
-            },
             Value::Struct(s) => EvalOutput::Struct {
                 description: format!("<struct {}>", interner.lookup(s.name())),
                 field_count: Some(s.fields.len()),
@@ -161,20 +138,6 @@ impl EvalOutput {
                     .map(|v| Self::from_value(v, interner))
                     .collect(),
             },
-            Value::VariantConstructor {
-                type_name,
-                variant_name,
-                field_count,
-            } => {
-                let type_str = interner.lookup(*type_name);
-                let variant_str = interner.lookup(*variant_name);
-                EvalOutput::Function {
-                    description: format!(
-                        "<{type_str}::{variant_str} constructor ({field_count} fields)>"
-                    ),
-                    arity: Some(*field_count),
-                }
-            }
             Value::Newtype { type_name, inner } => {
                 // Display newtype by showing the wrapped value
                 let type_str = interner.lookup(*type_name);
@@ -182,13 +145,6 @@ impl EvalOutput {
                 EvalOutput::Struct {
                     description: format!("{type_str}({inner_output:?})"),
                     field_count: Some(1),
-                }
-            }
-            Value::NewtypeConstructor { type_name } => {
-                let type_str = interner.lookup(*type_name);
-                EvalOutput::Function {
-                    description: format!("<{type_str} constructor>"),
-                    arity: Some(1),
                 }
             }
             Value::Map(map) => {
@@ -204,19 +160,66 @@ impl EvalOutput {
                     .map(|v| Self::from_value(v, interner))
                     .collect(),
             ),
-            Value::ModuleNamespace(ns) => EvalOutput::Function {
-                description: format!("<module namespace with {} items>", ns.len()),
+            Value::Error(ev) => EvalOutput::Error(ev.message().to_string()),
+            Value::Iterator(_)
+            | Value::Function(_)
+            | Value::MemoizedFunction(_)
+            | Value::FunctionVal(_, _)
+            | Value::VariantConstructor { .. }
+            | Value::NewtypeConstructor { .. }
+            | Value::ModuleNamespace(_)
+            | Value::TypeRef { .. } => unreachable!("handled as symbolic value"),
+        }
+    }
+
+    fn from_symbolic_value(value: &Value, interner: &StringInterner) -> Option<Self> {
+        let output = match value {
+            Value::Iterator(iterator) => EvalOutput::Function {
+                description: format!("<iterator {iterator:?}>"),
                 arity: None,
             },
-            Value::Error(ev) => EvalOutput::Error(ev.message().to_string()),
-            Value::TypeRef { type_name } => {
-                let type_str = interner.lookup(*type_name);
-                EvalOutput::Function {
-                    description: format!("<type {type_str}>"),
-                    arity: None,
-                }
-            }
-        }
+            Value::Function(function) => EvalOutput::Function {
+                description: format!("<function with {} params>", function.params.len()),
+                arity: Some(function.params.len()),
+            },
+            Value::MemoizedFunction(function) => EvalOutput::Function {
+                description: format!(
+                    "<memoized function with {} params>",
+                    function.func.params.len()
+                ),
+                arity: Some(function.func.params.len()),
+            },
+            Value::FunctionVal(_, name) => EvalOutput::Function {
+                description: format!("<{name}>"),
+                arity: None,
+            },
+            Value::VariantConstructor {
+                type_name,
+                variant_name,
+                field_count,
+            } => EvalOutput::Function {
+                description: format!(
+                    "<{}::{} constructor ({field_count} fields)>",
+                    interner.lookup(*type_name),
+                    interner.lookup(*variant_name)
+                ),
+                arity: Some(*field_count),
+            },
+            Value::NewtypeConstructor { type_name } => EvalOutput::Function {
+                description: format!("<{} constructor>", interner.lookup(*type_name)),
+                arity: Some(1),
+            },
+            Value::ModuleNamespace(namespace) => EvalOutput::Function {
+                description: format!("<module namespace with {} items>", namespace.len()),
+                arity: None,
+            },
+            Value::TypeRef { type_name } => EvalOutput::Function {
+                description: format!("<type {}>", interner.lookup(*type_name)),
+                arity: None,
+            },
+            _ => return None,
+        };
+        Some(output)
     }
 
     /// Get a display string for this output.
@@ -323,10 +326,8 @@ pub struct EvalErrorSnapshot {
     /// The specific error code for this error kind (e.g., `E6001` for division by zero).
     ///
     /// Populated from `EvalErrorKind::error_code()` at snapshot creation time,
-    /// ensuring the snapshot carries the exact same error code that
-    /// `EvalError::to_diagnostic()` would produce. This avoids the lossy
-    /// `kind_name` → error code reverse-mapping that `snapshot_to_diagnostic()`
-    /// previously had to do (falling back to `E6099`).
+    /// ensuring the snapshot carries the same code as
+    /// `EvalError::to_diagnostic()` without reverse-mapping `kind_name`.
     pub error_code: ErrorCode,
     /// Source location where the error occurred.
     pub span: Option<Span>,

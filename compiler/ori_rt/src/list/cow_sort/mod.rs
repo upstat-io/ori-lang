@@ -1,9 +1,10 @@
 //! COW list concatenation, reverse, and sort operations.
 //! Advanced COW ops: two-list (concat) or auxiliary data structures (sort, swap).
 
+mod prelude;
 mod sort;
 
-pub use sort::*;
+pub use prelude::*;
 
 use crate::next_capacity;
 use crate::rc::{

@@ -1,8 +1,4 @@
-//! Special construct lowering for ARC IR.
-//!
-//! Handles Ori's unique expression patterns:
-//! - `FunctionExp`: `print(...)`, `panic(...)`, `todo`, `recurse`, etc.
-//! - `FormatWith`: template string format specs (`{value:>10.2f}`)
+//! ARC lowering for function expressions and formatted templates.
 
 use ori_ir::canon::{CanId, CanNamedExprRange};
 use ori_ir::{FunctionExpKind, Name, Span};
@@ -35,7 +31,7 @@ impl ArcLowerer<'_> {
             FunctionExpKind::Recurse => self.lower_exp_recurse(props, ty, span),
             FunctionExpKind::Cache => self.lower_exp_cache(props, span),
             FunctionExpKind::Catch => self.lower_exp_catch(props, ty, span),
-            // Post-2026 — rejected by type checker (E2040), never reaches lowerer
+            // INVARIANT: E2040 rejects concurrency forms before ARC lowering.
             FunctionExpKind::Parallel
             | FunctionExpKind::Spawn
             | FunctionExpKind::Timeout
@@ -107,10 +103,8 @@ impl ArcLowerer<'_> {
                 self.interner.intern("ori_panic_cstr")
             };
 
-            // Panic functions raise exceptions via _Unwind_RaiseException.
-            // Use Invoke (not Apply) so the ARC pipeline can generate cleanup
-            // landing pads for RC-managed variables on the unwind path.
-            // The normal continuation is unreachable (panic never returns).
+            // Panic uses `Invoke` so ARC can clean managed values on unwind;
+            // its normal continuation is unreachable.
             self.builder
                 .emit_invoke(Idx::UNIT, fn_name, vec![val], Some(span), None);
         } else {

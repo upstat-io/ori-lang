@@ -1,30 +1,15 @@
-//! Token cooking layer for the lexer.
+//! Conversion from raw scanner spans to parser tokens.
 //!
-//! Transforms `(RawTag, len)` pairs from the raw scanner into the parser's
-//! `TokenKind` values with string interning, keyword resolution, escape
-//! processing, and numeric parsing.
-//!
-//! # Architecture
-//!
-//! The cooker sits between the raw scanner (`ori_lexer_core`) and the parser:
-//!
-//! ```text
-//! source → RawScanner → (RawTag, len) → TokenCooker → TokenKind
-//! ```
-//!
-//! Each `RawTag` category has a dedicated cooking path:
-//! - **Operators/delimiters**: Direct 1:1 mapping (no data)
-//! - **Identifiers**: Keyword lookup → intern
-//! - **Numerics**: Parse value, detect overflow
-//! - **Strings/chars**: Unescape + intern
-//! - **Templates**: Unescape + intern
-//! - **Duration/size**: Parse value + detect suffix
-//! - **Errors**: Push `LexError`, return `TokenKind::Error`
+//! Operators map directly; identifiers resolve keywords before interning;
+//! numeric, duration, and size tokens parse values with overflow checks; text
+//! tokens decode escapes before interning. Invalid raw tokens record a lexical
+//! error and produce `TokenKind::Error` for recovery.
 
 mod duration_size;
 mod escape_cooking;
 mod identifier;
 mod numeric;
+mod source_slice;
 
 use ori_ir::{StringInterner, TokenKind};
 
@@ -44,6 +29,7 @@ use crate::unicode_confusables;
 use crate::what_is_next::{self, NextContext};
 
 use identifier::IdentCache;
+use source_slice::slice_source;
 
 /// Result of cooking a single raw token.
 ///
@@ -131,7 +117,7 @@ impl CookResult {
 /// Stateless with respect to individual tokens — each `cook()` call is
 /// independent. Accumulates errors for the entire file.
 pub(crate) struct TokenCooker<'src> {
-    source: &'src [u8],
+    source: &'src str,
     interner: &'src StringInterner,
     errors: Vec<LexError>,
     /// Direct-mapped cache of `cook_ident()` results for repeated identifiers.
@@ -144,9 +130,22 @@ pub(crate) struct TokenCooker<'src> {
     last_non_trivia_raw: Option<RawTag>,
 }
 
+// The shared interner and identifier cache are intentionally opaque; neither
+// implements `Debug`, while the source and accumulated diagnostics identify
+// the cooker's observable state.
+impl std::fmt::Debug for TokenCooker<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenCooker")
+            .field("source_len", &self.source.len())
+            .field("errors", &self.errors)
+            .field("last_non_trivia_raw", &self.last_non_trivia_raw)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'src> TokenCooker<'src> {
     /// Create a new cooker for the given source.
-    pub(crate) fn new(source: &'src [u8], interner: &'src StringInterner) -> Self {
+    pub(crate) fn new(source: &'src str, interner: &'src StringInterner) -> Self {
         Self {
             source,
             interner,
@@ -186,9 +185,7 @@ impl<'src> TokenCooker<'src> {
     /// `Semicolon` is the exception and always reaches `cook`.
     #[inline]
     pub(crate) fn cook(&mut self, tag: RawTag, offset: u32, len: u32) -> CookResult {
-        // Why: unit tests call cook() directly with any tag, so this match
-        // handles every RawTag variant — not only the non-trivial ones the
-        // driver routes to `cook`.
+        // Why: Unit tests pass every `RawTag`, including tags the driver normally intercepts.
         match tag {
             // Semicolon: not in try_trivial() but still a direct mapping
             RawTag::Semicolon => CookResult::new(TokenKind::Semicolon),
@@ -291,12 +288,12 @@ impl<'src> TokenCooker<'src> {
     /// confusables and cross-language patterns.
     #[cold]
     fn cook_invalid_byte(&mut self, offset: u32, len: u32) -> CookResult {
-        let byte = self.source[offset as usize];
+        let byte = self.source.as_bytes()[offset as usize];
         let err_span = span(offset, len);
 
         // Try to decode as UTF-8 for Unicode confusable detection
         if byte >= 0x80 {
-            if let Ok(s) = std::str::from_utf8(&self.source[offset as usize..]) {
+            if let Ok(s) = std::str::from_utf8(&self.source.as_bytes()[offset as usize..]) {
                 if let Some(ch) = s.chars().next() {
                     if let Some((suggested, name)) = unicode_confusables::lookup_confusable(ch) {
                         // Span should cover the full multi-byte character
@@ -316,7 +313,7 @@ impl<'src> TokenCooker<'src> {
         }
 
         // Use what_is_next to provide context-aware suggestions
-        let ctx = what_is_next::what_is_next(self.source, offset);
+        let ctx = what_is_next::what_is_next(self.source.as_bytes(), offset);
         let mut err = LexError::invalid_byte(err_span, byte);
         match ctx {
             NextContext::UnsupportedOperator(operator) => {
@@ -357,16 +354,14 @@ impl<'src> TokenCooker<'src> {
         // Soft keywords are NOT cached — they are context-sensitive
         // (same text can be keyword or identifier depending on lookahead).
         if keywords::could_be_soft_keyword(text) {
-            let rest = &self.source[(offset + len) as usize..];
+            let rest = &self.source.as_bytes()[(offset + len) as usize..];
             if let Some(kw) = keywords::soft_keyword_lookup(text, rest) {
                 return CookResult::contextual(kw);
             }
         }
 
-        // Reserved-future check (still lex as identifier so parser can continue).
-        // Skip the error in method position (after `.`) — the dot provides
-        // unambiguous context, e.g. `set.union(other)` is clearly a method call.
-        // Uses O(1) `last_non_trivia_raw` instead of backward source scanning.
+        // Reserved-future words remain identifiers for recovery; method
+        // position is unambiguous and exempt. Cached raw context avoids a scan.
         let had_error = if keywords::could_be_reserved_future(text) {
             if let Some(keyword) = keywords::reserved_future_lookup(text) {
                 let in_method_position = self.last_non_trivia_raw == Some(RawTag::Dot);
@@ -405,32 +400,6 @@ impl<'src> TokenCooker<'src> {
     }
 
     // String, char, and template cooking methods are in `escape_cooking.rs`.
-}
-
-/// Extract a str slice from source bytes at the given offset and length.
-///
-/// # Safety
-///
-/// Source originates from `SourceBuffer` (`&str` → `&[u8]`), so all bytes are
-/// valid UTF-8. The raw scanner only splits at ASCII byte boundaries (operators,
-/// whitespace, delimiters), which are always valid UTF-8 codepoint boundaries.
-/// String/template content is a substring of the original valid UTF-8 at
-/// codepoint boundaries. `debug_assert!` catches scanner bugs in debug builds.
-#[inline]
-#[expect(
-    unsafe_code,
-    reason = "hot path: source is &str, scanner splits on ASCII boundaries"
-)]
-pub(super) fn slice_source(source: &[u8], offset: u32, len: u32) -> &str {
-    let start = offset as usize;
-    let end = start + len as usize;
-    debug_assert!(
-        std::str::from_utf8(&source[start..end]).is_ok(),
-        "non-UTF-8 token at {start}..{end}"
-    );
-    // SAFETY: source was a &str; scanner only produces token boundaries
-    // at valid UTF-8 codepoint boundaries.
-    unsafe { std::str::from_utf8_unchecked(&source[start..end]) }
 }
 
 fn looks_like_single_quote_string(text: &str) -> bool {

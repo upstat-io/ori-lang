@@ -1,9 +1,6 @@
-//! Iterator consumer method emission (collect, count, any, all, find, `for_each`, fold).
+//! LLVM emission for iterator consumers.
 //!
-//! These methods consume the iterator to produce a final value, unlike adapters
-//! which return new iterators. All use the same pattern: pass the opaque
-//! `iter_ptr` + closure trampoline (for predicate/fold consumers) to a runtime
-//! function.
+//! Consumers pass the opaque iterator and any closure trampoline to the runtime.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::FIELD_DATA;
@@ -22,16 +19,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_collect");
 
-        // Canonical element size — collect outputs use canonical stride.
-        // narrowing is disabled for collection element storage
-        // at the repr level — all List<int> use canonical i64 stride, so
-        // collect, indexing, equality, hash, and display all agree.
+        // INVARIANT: Collected lists use the canonical element stride.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
 
-        // sret pattern: allocate output list struct {i64 len, i64 cap, ptr data}
         let i64_llvm = self.builder.scx().type_i64().into();
         let ptr_llvm = self.builder.scx().type_ptr().into();
         let list_struct = self
@@ -50,12 +43,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "",
         );
 
-        // Load the result list from the sret alloca
         let result = self.builder.load(list_struct_ty, out_ptr, "collect.list");
 
-        // The runtime stores elem_dec_fn and elem_count before transferring the
-        // buffer to this result. Repeating the stores is harmless and pins
-        // the collection-header contract at the generated-code boundary.
+        // INVARIANT: Preserve destructor metadata at the generated-code boundary.
         let (result_data, result_len) =
             self.extract_collection_data_and_len(result, "collect.data", "collect.len")?;
         let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
@@ -79,21 +69,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_collect_set");
 
-        // Sets use canonical element sizes — set hash tables always store
-        // full-width elements regardless of list narrowing. The iterator
-        // yields narrowed bytes, but ori_iter_collect_set's elem_buf is
-        // zeroed, so on little-endian the zero-padded bytes form the
-        // correct canonical value for small non-negative integers.
+        // INVARIANT: A zeroed input buffer widens narrow non-negative integers canonically.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        // Get eq and hash thunks for the element type
         let eq_thunk = self.get_or_create_eq_thunk(elem_ty)?;
         let hash_thunk = self.get_or_create_hash_thunk(elem_ty)?;
         let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
 
-        // sret pattern: allocate output set struct {i64 len, i64 cap, ptr data}
         let i64_llvm = self.builder.scx().type_i64().into();
         let ptr_llvm = self.builder.scx().type_ptr().into();
         let set_struct = self
@@ -126,9 +110,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .load(set_struct_ty, out_ptr, "collect_set.result");
 
-        // Store elem_dec_fn in the set buffer's RC header for defense-in-depth.
-        // Sets use metadata scanning for cleanup, not elem_count, so only
-        // elem_dec_fn is needed. The LLVM-generated thunk must be stored by codegen.
+        // INVARIANT: Set cleanup scans occupancy metadata and needs only the destructor.
         let result_data = self
             .builder
             .extract_value(result, FIELD_DATA, "collect_set.data")?;
@@ -146,7 +128,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_count");
 
-        // Canonical element size — narrowing confined to list storage boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -173,7 +154,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        // Canonical element size — narrowing confined to list storage boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -184,7 +164,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             label,
         )?;
 
-        // Convert i8 -> i1
         let zero = self.builder.const_i64(0);
         let i8_ty = self.builder.i8_type();
         let zero_i8 = self.builder.trunc(zero, i8_ty, "zero");
@@ -229,14 +208,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        // Canonical element size — narrowing confined to list storage boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func_id = self.builder.runtime_fn("ori_iter_find");
 
-        // sret pattern for Option<T> result
-        // Option layout: {i64 tag, T payload} — runtime (ori_rt) writes i64 tags
         let tag_llvm = self.builder.scx().type_i64().into();
         let payload_llvm = self.type_resolver.resolve(elem_ty);
         let opt_struct = self
@@ -274,7 +250,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::ForEach, None);
 
-        // Canonical element size — narrowing confined to list storage boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
@@ -285,7 +260,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "",
         );
 
-        // for_each returns unit
         Some(self.builder.const_i64(0))
     }
 
@@ -303,26 +277,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let init_val = arg_vals[1];
         let closure = arg_vals[2];
 
-        // Determine accumulator type from init value
         let acc_ty = arc_func.var_type(args[1]);
         let acc_llvm_ty = self.resolve_type(acc_ty);
 
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Fold, Some(acc_ty));
 
-        // Canonical element size — narrowing confined to list storage boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let acc_size = self.element_store_size(acc_ty);
         let acc_size_val = self.builder.const_i64(acc_size as i64);
 
-        // Store init value to alloca for passing as ptr
         let init_alloca =
             self.builder
                 .create_entry_alloca(self.current_function, "fold.init", acc_llvm_ty);
         self.builder.store(init_val, init_alloca);
 
-        // Output alloca for sret
         let out_alloca =
             self.builder
                 .create_entry_alloca(self.current_function, "fold.out", acc_llvm_ty);

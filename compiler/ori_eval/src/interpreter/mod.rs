@@ -1,50 +1,13 @@
-//! Tree-walking interpreter for Ori.
+//! Portable tree-walking evaluation of canonical Ori IR.
 //!
-//! This is the portable interpreter that can run in both native and WASM contexts.
-//! For the full Salsa-integrated evaluator, see `oric::Evaluator`.
+//! # Evaluation contract
 //!
-//! # Specification
-//!
-//! - Eval rules: `docs/ori_lang/v2026/spec/operator-rules.md`
-//! - Prose: `docs/ori_lang/v2026/spec/09-expressions.md`
-//!
-//! Implementation must match the evaluation rules in operator-rules.md.
-//!
-//! # Architecture
-//!
-//! All evaluation goes through `eval_can(CanId)` in `can_eval.rs`. The canonical
-//! IR (`CanExpr`) is the sole evaluation representation. Helper modules in
-//! `crate::exec` provide shared utilities:
-//!
-//! - `exec::expr` - Identifiers, indexing, field access, ranges
-//! - `exec::call` - Function calls, argument binding
-//! - `exec::control` - Pattern matching, loop actions, assignment
-//! - `exec::decision_tree` - Decision tree evaluation for multi-clause functions
-//!
-//! # Arena Threading Pattern
-//!
-//! Functions and methods in Ori carry their own expression arena (`SharedArena`)
-//! for thread safety. When evaluating a function or method call, we must use the
-//! callee's arena rather than the caller's, because:
-//!
-//! 1. **Thread Safety**: In parallel evaluation, different threads may evaluate
-//!    different functions simultaneously. Each function's arena contains only its
-//!    own expression nodes, avoiding shared mutable state.
-//!
-//! 2. **Expression IDs**: Each `ExprId` is valid only within its originating arena.
-//!    A function's body expression ID references nodes in that function's arena.
-//!
-//! 3. **Lambda Capture**: When a lambda is created, it captures a reference to the
-//!    current arena (via `imported_arena`). When the lambda is later called, we use
-//!    that captured arena to evaluate its body.
-//!
-//! The pattern appears in three places:
-//! - `function_call.rs`: Regular function calls
-//! - `method_dispatch.rs`: User-defined method calls
-//! - Lambda evaluation inherits from the arena captured at creation time
-//!
-//! Use `create_function_interpreter()` to correctly set up evaluation context
-//! with the callee's arena.
+//! [`Interpreter::eval_can`] is the sole expression evaluator and follows the
+//! operator and expression rules in the language specification. Function and
+//! method calls create a child interpreter over the callee's `SharedArena`;
+//! expression IDs are arena-local. Lambdas likewise evaluate against the arena
+//! captured at creation. These constraints preserve correctness under parallel
+//! native or WASM evaluation.
 
 mod builder;
 mod can_eval;
@@ -187,6 +150,20 @@ pub struct Interpreter<'a> {
     /// dispatch via `eval_can()` instead of `eval()`. This enables incremental
     /// migration from `ExprArena` to `CanonResult` without a big-bang rewrite.
     pub(crate) canon: Option<SharedCanonResult>,
+}
+
+// Registries, dispatchers, and output handlers intentionally remain opaque:
+// their shared interior state does not implement `Debug`. Report only stable
+// interpreter coordinates instead of inventing debug output for those owners.
+impl std::fmt::Debug for Interpreter<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Interpreter")
+            .field("self_name", &self.self_name)
+            .field("has_canon", &self.canon.is_some())
+            .field("has_source_path", &self.source_file_path.is_some())
+            .field("has_source_text", &self.source_text.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 /// RAII Drop implementation for panic-safe scope cleanup.

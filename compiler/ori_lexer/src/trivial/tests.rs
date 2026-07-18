@@ -11,8 +11,8 @@ use crate::cooker::TokenCooker;
 #[test]
 fn trivial_matches_cook() {
     let interner = StringInterner::new();
-    // Trivial tokens don't read source bytes, so any dummy source works.
-    let source = b"+";
+    // Trivial tokens don't read source text, so any dummy source works.
+    let source = "+";
     let mut cooker = TokenCooker::new(source, &interner);
 
     let trivial_tags = [

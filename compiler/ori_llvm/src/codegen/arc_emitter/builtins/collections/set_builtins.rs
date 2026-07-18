@@ -8,6 +8,7 @@
 //! owned (RC == 1), mutation happens in-place; when shared, a copy is made
 //! first. Each mutating method returns a `{i64 len, i64 cap, ptr data}` struct.
 
+use ori_arc::ir::ArgOwnership;
 use ori_ir::{RANGE_FIELD_END, RANGE_FIELD_START};
 use ori_types::Idx;
 
@@ -296,12 +297,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         receiver: ValueId,
         elem_ty: Idx,
-        receiver_owned: bool,
+        receiver_ownership: ArgOwnership,
     ) -> Option<ValueId> {
         // Convert set to contiguous list (copies elements, incs element RCs).
         let list_val = self.emit_set_to_list(receiver, elem_ty)?;
 
-        if receiver_owned {
+        if receiver_ownership == ArgOwnership::Owned {
             // Owned receiver: the compiled adapter inc'd its RC when projecting
             // the shared `[own]` fact (or auto-iter transfer), so dec the set
             // buffer here — the converted list now owns the element
@@ -318,7 +319,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Create iterator from the contiguous list. list_val is a fresh
         // materialized buffer the iterator owns → owns_data = true.
-        self.emit_list_iter(list_val, elem_ty, elem_ty, true)
+        self.emit_list_iter(list_val, elem_ty, elem_ty, ArgOwnership::Owned)
     }
 
     // Range methods

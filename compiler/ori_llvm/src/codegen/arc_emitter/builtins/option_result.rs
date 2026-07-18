@@ -43,8 +43,8 @@ declare_builtins! { emitter, ctx;
     ("Result", "unwrap_or") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "expect") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "expect_err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Result", "debug") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty, true),
-    ("Result", "to_str") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty, false),
+    ("Result", "debug") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty, RenderStyle::Debug),
+    ("Result", "to_str") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty, RenderStyle::Printable),
     ("Result", "ok") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "clone") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
@@ -60,7 +60,7 @@ use ori_types::Idx;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-use super::super::ArcIrEmitter;
+use super::{super::ArcIrEmitter, RenderStyle};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit an Option method (`is_some`, `is_none`, `unwrap`, `expect`, `debug`).
@@ -166,20 +166,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             // Render mode is decided once at the dispatch boundary — the
             // shared body never re-compares the method name.
-            "debug" => self.emit_option_render(receiver, receiver_ty, true),
-            "to_str" => self.emit_option_render(receiver, receiver_ty, false),
+            "debug" => self.emit_option_render(receiver, receiver_ty, RenderStyle::Debug),
+            "to_str" => self.emit_option_render(receiver, receiver_ty, RenderStyle::Printable),
             "clone" => Some(receiver),
             _ => None,
         }
     }
 
     /// Shared `debug` / `to_str` rendering for explicit-tag Options.
-    /// `render_debug` selects Debug formatting over Printable.
+    /// `style` selects Debug or Printable formatting.
     fn emit_option_render(
         &mut self,
         receiver: ValueId,
         receiver_ty: Idx,
-        render_debug: bool,
+        style: RenderStyle,
     ) -> Option<ValueId> {
         let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
         let some = self
@@ -190,7 +190,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let TypeInfo::Option { inner } = self.type_info.get(receiver_ty) else {
             return None;
         };
-        self.emit_option_debug_branch(is_some, payload, inner, render_debug)
+        self.emit_option_debug_branch(is_some, payload, inner, style)
     }
 
     /// Emit a Result method (`is_ok`, `is_err`, `unwrap`, `unwrap_err`).

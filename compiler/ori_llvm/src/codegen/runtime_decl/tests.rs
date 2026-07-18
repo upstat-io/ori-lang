@@ -259,9 +259,7 @@ fn rc_functions_have_arc_safe_attributes() {
         "ori_rc_dec should be declared in IR"
     );
 
-    // Verify nounwind appears on RC functions
-    // The IR prints function attributes as attribute groups (#N)
-    // Check that nounwind is present in the module
+    // INVARIANT: RC declarations carry `nounwind` through an LLVM attribute group.
     assert!(
         ir.contains("nounwind"),
         "RC functions should have nounwind attribute in IR:\n{ir}"
@@ -438,10 +436,7 @@ fn all_non_unwinding_functions_have_nounwind() {
         // extern "C-unwind": drop fn called directly so a user-@drop foreign
         // exception unwinds through to the caller's cleanup pad.
         "ori_rc_dec_unwind",
-        // Iterator advancement crosses user closure trampolines. Every eager
-        // adapter/consumer is therefore an extern-C-unwind boundary even when
-        // it has no callback parameter of its own: its source state may be a
-        // mapped or filtered adapter.
+        // INVARIANT: Eager iteration may cross callbacks stored in its source adapter.
         "ori_iter_next",
         "ori_iter_next_back",
         "ori_iter_rev",

@@ -1,33 +1,8 @@
-//! Function body type checking passes.
+//! Function, test, impl, and default-impl body checking.
 //!
-//! This module implements Passes 2-5 of module type checking:
-//! - Pass 2: Function bodies (`functions::check_function_bodies`)
-//! - Pass 3: Test bodies (`functions::check_test_bodies`)
-//! - Pass 4: Impl method bodies (`impls::check_impl_bodies`)
-//! - Pass 5: Def impl (default implementation) method bodies (`def_impls::check_def_impl_bodies`)
-//!
-//! # Architecture
-//!
-//! Each function body is checked in a child environment that:
-//! 1. Inherits from the frozen base environment (contains all function signatures)
-//! 2. Has parameter bindings added
-//! 3. Has function scope context set (`current_function`, capabilities)
-//!
-//! ```text
-//! Base Environment (frozen after Pass 1)
-//!   - child for function foo
-//!     - param: x -> int
-//!     - param: y -> str
-//!   - child for function bar
-//!     - param: n -> int
-//! ```
-//!
-//! # Pass ownership
-//!
-//! [`functions`] owns Passes 2–3, [`impls`] owns Pass 4, and [`def_impls`] owns
-//! Pass 5. [`method_sig`] provides the method-binder and signature-construction
-//! helpers shared by Passes 4–5. The dispatch hub re-exports each pass through
-//! the `check::bodies` API.
+//! Each body runs in a child of the frozen signature environment with parameter
+//! bindings and function context installed. Shared finalization exports inferred
+//! types, diagnostics, monomorphization requests, and burden metadata.
 
 mod accumulate;
 mod contracts;
@@ -58,6 +33,7 @@ use crate::{
 
 /// Outputs drained from the `InferEngine` at end-of-body, plus the defaulted
 /// `expr_types` map. Consumed by [`finalize_body_and_export`].
+#[derive(Debug)]
 pub(super) struct BodyOutputs {
     pub expr_types: FxHashMap<ExprIndex, Idx>,
     pub errors: Vec<TypeCheckError>,
@@ -135,33 +111,19 @@ pub(super) fn finalize_body_and_export(
         &capability_exempt_var_ids,
     );
 
-    // Validate conditional-partial-move rejection — emits E2043 for
-    // asymmetric field projections of non-Drop owned aggregates across
-    // branches of `if`/`match`. Producer-side guard so class-ledger Step-4b
-    // emission never receives a CFG shape requiring path-sensitive partial-
-    // release reconciliation.
+    // INVARIANT: E2043 keeps path-sensitive partial releases out of ARC emission.
     run_partial_move_validator(checker, &expr_types, body_root);
 
-    // Validate Drop-partial-move rejection — emits E2048 for `let $f =
-    // v.field` bindings where `v`'s type implements `Drop`. Per
-    // `drop-trait-proposal.md §Execution Timing`, partial moves on Drop
-    // types are forbidden regardless of CFG path (axis disjoint from
-    // E2043). Producer-side guard so the compiler-walked field drop
-    // after the user `@drop` body never observes absent fields.
+    // INVARIANT: E2048 prevents `Drop` implementations from observing moved fields.
     run_drop_partial_move_validator(checker, &expr_types, body_root);
 
-    // Validate use-after-`drop_early` rejection — emits E2054 for a use of a
-    // binding after `drop_early(value: x)` consumed it (Spec Clause 13 §13.7).
-    // Producer-side guard so a consumed binding never reaches the burden path
-    // as a live read of reclaimed memory (use-after-free).
+    // Spec: Clause 13.7 requires E2054 after `drop_early` consumes a binding.
     run_consumed_binding_validator(checker, body_root);
 
-    // Store expression types.
     for (expr_index, ty) in expr_types {
         checker.store_expr_type(expr_index, ty);
     }
 
-    // Store errors and warnings.
     for error in errors {
         checker.push_error(error);
     }
@@ -178,13 +140,7 @@ pub(super) fn finalize_body_and_export(
     checker.module_alias_calls.extend(module_alias_calls);
     checker.iter_route_desugars.extend(iter_route_desugars);
 
-    // Flush composed burdens into the TypeRegistry. Each entry was
-    // accumulated by the body's `InferEngine::record_composed_burden`
-    // calls; flushing registers the specs for codegen through
-    // `TypeRegistry::burden(idx)`. Late-stage
-    // monomorphization sites in subsequent bodies see prior entries
-    // through the same registry surface and dedup against them at the
-    // signature-reverse-index gate.
+    // INVARIANT: registering burdens here exposes them to codegen and later-body dedup.
     for (idx, spec) in composed_burdens {
         checker.type_registry_mut().register_user_burden(idx, spec);
     }
@@ -213,19 +169,10 @@ pub(super) fn run_validator(
         let arena = checker.arena();
         let pool = checker.pool();
         let mut errs: Vec<TypeCheckError> = Vec::new();
-        // Bundle source-attribution closures (>3 params → config struct).
-        // All three closures need the same `arena` borrow;
-        // `ValidatorContext` bundles them into a single argument of
-        // `validate_body_types`.
+        // Why: `ValidatorContext` shares one arena borrow across attribution callbacks.
         let span_of = |expr_index| arena.get_expr(validator_expr_id(expr_index)).span;
         let expr_kind_of = |expr_index| Some(arena.get_expr(validator_expr_id(expr_index)).kind);
-        // Resolve the param-token span for a Lambda ExprIndex + 0-based
-        // param index. Returns `None` when the
-        // ExprIndex does not point at a `Lambda` (validator falls back
-        // to the lambda-wide span) or when `param_index` is out of
-        // range. Spans flow from the parser-allocated `Param.span` at
-        // parse time; the arena (`ori_ir::ExprArena::get_params`) owns
-        // the range.
+        // INVARIANT: `None` selects the validator's lambda-wide span fallback.
         let param_span_of = |expr_index, param_index: usize| {
             let expr = arena.get_expr(validator_expr_id(expr_index));
             if let ExprKind::Lambda { params, .. } = expr.kind {

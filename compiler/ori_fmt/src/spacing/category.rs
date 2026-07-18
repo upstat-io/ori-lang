@@ -366,13 +366,9 @@ impl TokenCategory {
     }
 }
 
-impl From<&TokenKind> for TokenCategory {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive TokenKind → spacing category dispatch"
-    )]
-    fn from(kind: &TokenKind) -> Self {
-        match kind {
+macro_rules! token_category {
+    ($kind:expr) => {
+        match $kind {
             TokenKind::Int(_) => TokenCategory::Int,
             TokenKind::Float(_) => TokenCategory::Float,
             TokenKind::String(_)
@@ -510,6 +506,12 @@ impl From<&TokenKind> for TokenCategory {
             // Return is recognized but invalid - treat as error for spacing
             TokenKind::Return | TokenKind::Error => TokenCategory::Error,
         }
+    };
+}
+
+impl From<&TokenKind> for TokenCategory {
+    fn from(kind: &TokenKind) -> Self {
+        token_category!(kind)
     }
 }
 

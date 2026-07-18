@@ -196,10 +196,7 @@ fn seed_updated_contract_borrows_key_and_moves_value() {
     let mut sigs = FxHashMap::default();
     seed_builtin_contracts(&mut sigs, &builtins, &interner);
 
-    // IndexSet `updated(key, value)` — 3-param contract:
-    // receiver Borrowed base (apply_consuming_overrides marks it Owned at
-    // collection call sites), key Borrowed, value Owned (moved into the
-    // collection — no caller-side RcDec after insert).
+    // `updated` borrows its receiver/key and transfers its value.
     let updated_name = interner.intern("updated");
     assert!(builtins.consuming_third_arg.contains(&updated_name));
     let contract = &sigs[&updated_name];

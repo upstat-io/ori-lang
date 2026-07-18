@@ -1,23 +1,8 @@
-//! AST → ARC IR lowering pass.
+//! Canonical-expression lowering to explicit-control-flow ARC IR.
 //!
-//! Converts the typed expression tree (implicit control flow) into basic-block
-//! ARC IR (explicit control flow). This IR is the foundation for all ARC
-//! analysis passes: borrow inference (06.2), RC insertion (07), RC elimination
-//! (08), and constructor reuse (09).
-//!
-//! # Entry Point
-//!
-//! [`lower_function_can`] takes a canonical IR body and produces an [`ArcFunction`]
-//! plus any lambda bodies as additional [`ArcFunction`]s.
-//!
-//! # Architecture
-//!
-//! - [`ArcIrBuilder`] — owns the in-progress function, provides block/var
-//!   allocation and instruction emission.
-//! - [`ArcLowerer`] (in `expr.rs`) — walks the expression tree and calls
-//!   builder methods.
-//! - [`ArcScope`] (in `scope.rs`) — tracks name→`ArcVarId` bindings with
-//!   mutable variable tracking for SSA merge.
+//! [`lower_function_can`] produces the requested function and any nested lambda
+//! functions. [`ArcIrBuilder`] owns block and variable allocation while
+//! [`ArcLowerer`] walks expressions and [`ArcScope`] maintains SSA bindings.
 
 mod builder;
 pub mod burden;
@@ -108,7 +93,7 @@ pub enum ArcProblem {
 // Public entry point
 
 /// Canonical function coordinates consumed by ARC IR lowering.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ArcLoweringInput<'a> {
     pub name: Name,
     pub params: &'a [(Name, Idx)],

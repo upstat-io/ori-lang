@@ -1,11 +1,7 @@
 //! Closure-argument unification helpers for higher-order iterator adapters.
 //!
-//! `unify_higher_order_constraints` dispatches per-method to the right
-//! closure-unification routine for `map`, `flat_map`, `filter`, `any`,
-//! `all`, `find`, `for_each`, `fold`, `rfold`. Two helpers
-//! (`unify_closure_param_with_iterator_elem`, `unify_flat_map_constraints`)
-//! handle the structural unification of the closure's params/return
-//! against the iterator's element / result types.
+//! Per-method dispatch constrains closure parameters and returns against the
+//! iterator element and result types.
 
 use ori_ir::{Name, Span};
 

@@ -1,19 +1,9 @@
-//! Computed return types for builtin methods with `ReturnTag::Fresh`.
+//! Computed return types for builtin methods registered as `ReturnTag::Fresh`.
 //!
-//! Most methods with `ReturnTag::Fresh` in the registry genuinely return a fresh
-//! type variable (higher-order methods where the return depends on a closure
-//! argument). A handful need specific type construction for better inference:
-//!
-//! - `list.zip` — returns `[(_elem_, U)]`, not bare `fresh`
-//! - `range.map` — returns `[U]`, not the lazy iterator adapter shape
-//! - `iter.map` — DEI-aware: returns `DEI<U>` or `Iterator<U>`
-//! - `iter.zip` — returns `Iterator<(_elem_, U)>`
-//! - `iter.flatten`/`flat_map` — returns `Iterator<U>`
-//! - `result.trace_entries` / `error.trace_entries` — returns `[TraceEntry]`
-//!
-//! Called only when `find_method()` returns a `MethodDef` with
-//! `returns == ReturnTag::Fresh`. All other return tags are handled
-//! by [`super::super::registry_bridge::return_tag_to_idx`].
+//! Higher-order methods normally return a fresh variable. Shape-sensitive
+//! collection, iterator, and trace methods construct their precise container
+//! result here; other return tags use
+//! [`super::super::registry_bridge::return_tag_to_idx`].
 
 use crate::infer::InferEngine;
 use crate::{Idx, Tag};
@@ -114,30 +104,19 @@ fn computed_list_return(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: 
             let pair = engine.pool_mut().tuple(&[elem, other_elem]);
             engine.pool_mut().list(pair)
         }
-        // map returns List<U> where U is a fresh var pinned to the closure return by
-        // unify_higher_order_constraints (closure_unify map arm).
         "map" => {
             let elem = engine.fresh_var();
             engine.pool_mut().list(elem)
         }
-        // filter returns List<T> — same element type as the receiver (predicate preserves it).
         "filter" => {
             let elem = engine.pool().list_elem(receiver_ty);
             engine.pool_mut().list(elem)
         }
-        // find returns Option<T> — T is the receiver element type.
         "find" => {
             let elem = engine.pool().list_elem(receiver_ty);
             engine.pool_mut().option(elem)
         }
-        // flatten peels one level when the receiver's element is itself a
-        // list ([[T]] -> [T]), identity otherwise ([T] -> [T]). The
-        // first-peeled element can be an unresolved unification variable
-        // in a generic context (e.g. bound to a concrete type only via a
-        // wrapping call's own unification, never dereferenced by the
-        // shallow top-level resolve in method-receiver resolution) — it
-        // must be resolved before the Tag::List check, or the check
-        // incorrectly falls through to the identity branch.
+        // INVARIANT: Resolve linked generic elements before testing for a nested list.
         "flatten" => {
             let elem_raw = engine.pool().list_elem(receiver_ty);
             let elem = engine.pool().resolve_fully(elem_raw);

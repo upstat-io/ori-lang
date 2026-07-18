@@ -1,5 +1,6 @@
 //! Copy-on-write map mutation emission.
 
+use ori_arc::ir::ArgOwnership;
 use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
@@ -38,10 +39,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_merge_cow");
 
-        let (a_data, a_cap, a_len, key_size_val, val_size_val) =
-            self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty))?;
-        let (b_data, b_cap, b_len, _bks, _bvs) =
-            self.extract_map_components(other, key_ty, val_ty, Some(map_ty))?;
+        let a = self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty))?;
+        let b = self.extract_map_components(other, key_ty, val_ty, Some(map_ty))?;
 
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
         let key_hash = self.get_or_create_hash_thunk(key_ty)?;
@@ -58,22 +57,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(
             func_id,
             &[
-                a_data,
-                a_len,
-                a_cap,
-                b_data,
-                b_len,
-                b_cap,
-                key_size_val,
-                val_size_val,
-                key_eq,
-                key_hash,
-                key_inc,
-                val_inc,
-                key_dec,
-                val_dec,
-                cow_mode,
-                out,
+                a.data, a.len, a.cap, b.data, b.len, b.cap, a.key_size, a.val_size, key_eq,
+                key_hash, key_inc, val_inc, key_dec, val_dec, cow_mode, out,
             ],
             "merge",
         );
@@ -149,7 +134,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn(runtime_fn);
 
-        let (data, cap, len, key_size_val, val_size_val) = self.extract_map_components(
+        let components = self.extract_map_components(
             args.receiver,
             args.key_ty,
             args.val_ty,
@@ -173,13 +158,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(
             func_id,
             &[
-                data,
-                len,
-                cap,
+                components.data,
+                components.len,
+                components.cap,
                 key_ptr,
                 val_ptr,
-                key_size_val,
-                val_size_val,
+                components.key_size,
+                components.val_size,
                 key_eq,
                 key_hash,
                 key_inc,
@@ -212,8 +197,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_remove_cow");
 
-        let (data, cap, len, key_size_val, val_size_val) =
-            self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty))?;
+        let components = self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty))?;
 
         let key_ptr = self.elem_to_ptr(key, key_ty, "remove.key");
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
@@ -231,12 +215,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(
             func_id,
             &[
-                data,
-                len,
-                cap,
+                components.data,
+                components.len,
+                components.cap,
                 key_ptr,
-                key_size_val,
-                val_size_val,
+                components.key_size,
+                components.val_size,
                 key_eq,
                 key_hash,
                 key_inc,
@@ -270,19 +254,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         key_ty: Idx,
         val_ty: Idx,
         map_ty: Idx,
-        owns_data: bool,
+        ownership: ArgOwnership,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_map");
 
-        let (data, cap, len, key_size_val, val_size_val) =
-            self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty))?;
+        let components = self.extract_map_components(receiver, key_ty, val_ty, Some(map_ty))?;
 
         // owns_data threads the ARC arg-ownership of the .iter() receiver into the
         // runtime ctor, mirroring the list path: a borrowed-rooted receiver (the
         // flatten inner `m.iter()` on a trampoline-closure param, co-owned by the
         // outer `[{K:V}]`) → owns_data = false so the outer container's elem_dec_fn
         // frees the map buffer exactly once.
-        let owns_data = self.builder.const_bool(owns_data);
+        let owns_data = self.builder.const_bool(ownership == ArgOwnership::Owned);
         // Real dec functions: `collect_iter_element_defs()` propagates
         // borrowed status through transitive Project chains (tuple
         // destructuring), so their logical plan has no independent release.
@@ -295,11 +278,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(
             func_id,
             &[
-                data,
-                cap,
-                len,
-                key_size_val,
-                val_size_val,
+                components.data,
+                components.cap,
+                components.len,
+                components.key_size,
+                components.val_size,
                 owns_data,
                 key_dec_fn,
                 val_dec_fn,

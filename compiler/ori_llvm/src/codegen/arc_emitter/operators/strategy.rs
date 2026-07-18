@@ -4,7 +4,7 @@ use ori_ir::BinaryOp;
 use ori_registry::RuntimeOperator;
 
 use super::super::builtins;
-use super::super::ArcIrEmitter;
+use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
 use crate::codegen::value_id::ValueId;
 
 const fn native_runtime_symbol(runtime: RuntimeOperator) -> Option<&'static str> {
@@ -176,7 +176,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit a binary op via runtime function call.
     ///
-    /// Currently handles string operations only (the sole [`OpStrategy::RuntimeCall`]
+    /// Handles string operations (the sole [`OpStrategy::RuntimeCall`]
     /// type in the registry). Comparison ops use `ori_str_compare` which returns
     /// `Ordering` (i8) and is post-processed into a bool predicate.
     pub(in crate::codegen::arc_emitter) fn emit_runtime_binary_op(
@@ -192,7 +192,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .expect("string runtime identity has a native ABI symbol"),
                 lhs,
                 rhs,
-                true,
+                StringRuntimeReturnAbi::StringSret,
             ),
             (RuntimeOperator::StringEqual, BinaryOp::Eq)
             | (RuntimeOperator::StringNotEqual, BinaryOp::NotEq) => self.emit_str_runtime_call(
@@ -200,7 +200,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .expect("string runtime identity has a native ABI symbol"),
                 lhs,
                 rhs,
-                false,
+                StringRuntimeReturnAbi::BoolDirect,
             ),
             (RuntimeOperator::StringCompare, BinaryOp::Lt) => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Less)

@@ -20,11 +20,11 @@ fn test_interner() -> StringInterner {
 }
 
 #[test]
-fn test_lex_basic() {
+fn lex_classifies_simple_let_binding() {
     let interner = test_interner();
     let tokens = lex("let x = 42", &interner);
 
-    assert_eq!(tokens.len(), 5); // let, x, =, 42, EOF
+    assert_eq!(tokens.len(), 5);
     assert!(matches!(tokens[0].kind, TokenKind::Let));
     assert!(matches!(tokens[1].kind, TokenKind::Ident(_)));
     assert!(matches!(tokens[2].kind, TokenKind::Eq));
@@ -193,7 +193,7 @@ fn test_lex_newlines() {
     let interner = test_interner();
     let tokens = lex("a\nb", &interner);
 
-    assert_eq!(tokens.len(), 4); // a, newline, b, EOF
+    assert_eq!(tokens.len(), 4);
     assert!(matches!(tokens[1].kind, TokenKind::Newline));
 }
 
@@ -386,7 +386,7 @@ fn test_lex_line_comments() {
     let interner = test_interner();
     let tokens = lex("a // comment\nb", &interner);
 
-    assert_eq!(tokens.len(), 4); // a, newline, b, EOF
+    assert_eq!(tokens.len(), 4);
     assert!(matches!(tokens[0].kind, TokenKind::Ident(_)));
     assert!(matches!(tokens[1].kind, TokenKind::Newline));
     assert!(matches!(tokens[2].kind, TokenKind::Ident(_)));
@@ -408,12 +408,12 @@ fn test_lex_standalone_backslash() {
 }
 
 #[test]
-fn test_lex_with_comments_basic() {
+fn lex_with_comments_separates_leading_line_comment() {
     let interner = test_interner();
     let output = lex_with_comments("// comment\nlet x = 42", &interner);
 
     assert_eq!(output.comments.len(), 1);
-    assert_eq!(output.tokens.len(), 6); // newline, let, x, =, 42, EOF
+    assert_eq!(output.tokens.len(), 6);
     assert_eq!(output.comments[0].kind, CommentKind::Regular);
 }
 
@@ -561,20 +561,15 @@ fn test_lex_with_comments_no_comments() {
     let output = lex_with_comments("let x = 42", &interner);
 
     assert!(output.comments.is_empty());
-    assert_eq!(output.tokens.len(), 5); // let, x, =, 42, EOF
+    assert_eq!(output.tokens.len(), 5);
 }
-
-// Decimal duration/size literal tests
-// Spec: decimal-duration-size-literals-proposal.md
-// "Decimal syntax is compile-time sugar computed via integer arithmetic"
 
 #[test]
 fn test_lex_decimal_duration_seconds() {
     let interner = test_interner();
     let tokens = lex("1.5s", &interner);
 
-    assert_eq!(tokens.len(), 2); // Duration, EOF
-                                 // 1.5s = 1,500,000,000 nanoseconds
+    assert_eq!(tokens.len(), 2);
     assert!(matches!(
         tokens[0].kind,
         TokenKind::Duration(1_500_000_000, DurationUnit::Nanoseconds)
@@ -589,7 +584,6 @@ fn test_lex_decimal_duration_milliseconds() {
     let tokens = lex("2.5ms", &interner);
 
     assert_eq!(tokens.len(), 2);
-    // 2.5ms = 2,500,000 nanoseconds
     assert!(matches!(
         tokens[0].kind,
         TokenKind::Duration(2_500_000, DurationUnit::Nanoseconds)
@@ -600,8 +594,6 @@ fn test_lex_decimal_duration_milliseconds() {
 fn test_lex_decimal_duration_all_units() {
     let interner = test_interner();
 
-    // Test decimal durations for units where 1.5 * multiplier is whole
-    // 1.5ns = 1.5 nanoseconds → NOT whole → Error
     let tokens = lex("1.5ns", &interner);
     assert!(
         matches!(tokens[0].kind, TokenKind::Error),
@@ -609,35 +601,30 @@ fn test_lex_decimal_duration_all_units() {
         tokens[0].kind
     );
 
-    // 1.5us = 1,500 nanoseconds → whole
     let tokens = lex("1.5us", &interner);
     assert!(matches!(
         tokens[0].kind,
         TokenKind::Duration(1_500, DurationUnit::Nanoseconds)
     ));
 
-    // 1.5ms = 1,500,000 nanoseconds → whole
     let tokens = lex("1.5ms", &interner);
     assert!(matches!(
         tokens[0].kind,
         TokenKind::Duration(1_500_000, DurationUnit::Nanoseconds)
     ));
 
-    // 1.5s = 1,500,000,000 nanoseconds → whole
     let tokens = lex("1.5s", &interner);
     assert!(matches!(
         tokens[0].kind,
         TokenKind::Duration(1_500_000_000, DurationUnit::Nanoseconds)
     ));
 
-    // 1.5m = 90,000,000,000 nanoseconds → whole
     let tokens = lex("1.5m", &interner);
     assert!(matches!(
         tokens[0].kind,
         TokenKind::Duration(90_000_000_000, DurationUnit::Nanoseconds)
     ));
 
-    // 1.5h = 5,400,000,000,000 nanoseconds → whole
     let tokens = lex("1.5h", &interner);
     assert!(matches!(
         tokens[0].kind,
@@ -650,8 +637,7 @@ fn test_lex_decimal_size_kilobytes() {
     let interner = test_interner();
     let tokens = lex("2.5kb", &interner);
 
-    assert_eq!(tokens.len(), 2); // Size, EOF
-                                 // 2.5kb = 2,500 bytes (SI: 1kb = 1000 bytes)
+    assert_eq!(tokens.len(), 2);
     assert!(matches!(
         tokens[0].kind,
         TokenKind::Size(2_500, SizeUnit::Bytes)
@@ -662,7 +648,6 @@ fn test_lex_decimal_size_kilobytes() {
 fn test_lex_decimal_size_all_units() {
     let interner = test_interner();
 
-    // 1.5b = 1.5 bytes → NOT whole → Error
     let tokens = lex("1.5b", &interner);
     assert!(
         matches!(tokens[0].kind, TokenKind::Error),
@@ -670,28 +655,24 @@ fn test_lex_decimal_size_all_units() {
         tokens[0].kind
     );
 
-    // 1.5kb = 1,500 bytes → whole
     let tokens = lex("1.5kb", &interner);
     assert!(matches!(
         tokens[0].kind,
         TokenKind::Size(1_500, SizeUnit::Bytes)
     ));
 
-    // 1.5mb = 1,500,000 bytes → whole
     let tokens = lex("1.5mb", &interner);
     assert!(matches!(
         tokens[0].kind,
         TokenKind::Size(1_500_000, SizeUnit::Bytes)
     ));
 
-    // 1.5gb = 1,500,000,000 bytes → whole
     let tokens = lex("1.5gb", &interner);
     assert!(matches!(
         tokens[0].kind,
         TokenKind::Size(1_500_000_000, SizeUnit::Bytes)
     ));
 
-    // 1.5tb = 1,500,000,000,000 bytes → whole
     let tokens = lex("1.5tb", &interner);
     assert!(matches!(
         tokens[0].kind,
@@ -703,7 +684,6 @@ fn test_lex_decimal_size_all_units() {
 fn test_lex_decimal_duration_many_digits() {
     let interner = test_interner();
 
-    // 1.123456789s = 1,123,456,789 nanoseconds (9 decimal places, exact)
     let tokens = lex("1.123456789s", &interner);
     assert!(matches!(
         tokens[0].kind,
@@ -712,7 +692,7 @@ fn test_lex_decimal_duration_many_digits() {
 }
 
 #[test]
-fn test_lex_valid_integer_duration_still_works() {
+fn integer_duration_literals_keep_unit_and_value() {
     let interner = test_interner();
 
     // Ensure valid integer durations still work
@@ -730,7 +710,7 @@ fn test_lex_valid_integer_duration_still_works() {
 }
 
 #[test]
-fn test_lex_valid_integer_size_still_works() {
+fn integer_size_literals_keep_unit_and_value() {
     let interner = test_interner();
 
     // Ensure valid integer sizes still work
@@ -838,7 +818,6 @@ fn test_unicode_confusable_smart_quote() {
         "Expected UnicodeConfusable error for smart quote"
     );
 
-    // Check that the confusable points to `"` as the replacement
     if let LexErrorKind::UnicodeConfusable {
         found, suggested, ..
     } = &confusable_errors[0].kind
@@ -1377,10 +1356,7 @@ fn test_type_keywords_not_context_sensitive() {
 
 // Built-in names as regular identifiers.
 
-// The spec says built-in names (len, is_empty, assert, etc.) are
-// "reserved in call position, usable as variables otherwise".
-// But this is a semantic concern — the lexer emits them as Ident tokens.
-// The type-checker/evaluator enforces call-position reservation.
+// Spec: builtins remain identifiers lexically; semantic call resolution reserves them.
 
 #[test]
 fn test_builtin_names_are_identifiers() {

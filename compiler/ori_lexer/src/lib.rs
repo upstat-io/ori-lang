@@ -41,6 +41,7 @@
 //! - `output`: Output types (`LexOutput`, `LexResult`)
 //! - `driver`: Lexer driver loop
 
+mod api;
 mod comments;
 mod cook_escape;
 mod cooker;
@@ -53,51 +54,12 @@ mod trivial;
 mod unicode_confusables;
 mod what_is_next;
 
+pub use api::{lex, lex_full, lex_with_comments};
 pub use output::{LexOutput, LexResult};
-
-use driver::lex_driver;
-use ori_ir::{StringInterner, TokenList};
 
 // Re-export types needed by tests (accessed via `use super::*` in tests.rs).
 #[cfg(test)]
 use ori_ir::{Span, TokenKind};
-
-/// Lex source code into tokens and accumulated errors.
-///
-/// Collects metadata internally (comments, newlines) but returns only
-/// the token stream and errors. For metadata (comments, formatting info),
-/// use [`lex_with_comments()`].
-#[must_use]
-pub fn lex_full(source: &str, interner: &StringInterner) -> LexResult {
-    let output = lex_driver::<false>(source, interner);
-    LexResult {
-        tokens: output.tokens,
-        errors: output.errors,
-    }
-}
-
-/// Lex source code into a [`TokenList`].
-///
-/// Wraps [`lex_full()`] and discards errors, returning only the token
-/// stream. For the full pipeline (tokens + errors), use [`lex_full()`].
-#[must_use]
-pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
-    lex_full(source, interner).tokens
-}
-
-/// Lex source code into tokens, comments, and formatting metadata.
-///
-/// This is the metadata-preserving lexer entry point used by the formatter and IDE.
-/// Returns the token stream, comments, and position information for:
-/// - Comments (classified by type)
-/// - Blank lines (for formatting preservation)
-/// - Newlines (for line counting)
-///
-/// Each token carries [`ori_ir::TokenFlags`] metadata capturing whitespace/trivia context.
-#[must_use]
-pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
-    lex_driver::<true>(source, interner)
-}
 
 #[cfg(test)]
 #[expect(

@@ -5,6 +5,11 @@
 //! carries a mangled name and a fully-concrete [`FunctionSig`] — existing
 //! `declare_function()` / `define_function_body()` work unchanged.
 
+mod collect;
+mod derived_mono;
+mod mangle;
+mod targets;
+
 use rustc_hash::FxHashMap;
 
 use ori_ir::canon::{CanId, CanonResult, MonoInstanceId};
@@ -18,10 +23,6 @@ use crate::executable::{
     validate_external_callables, ExternalCallable, ExternalCallableMetadata, RealizationError,
 };
 
-mod collect;
-mod derived_mono;
-mod mangle;
-mod targets;
 pub use collect::collect_mono_functions;
 pub use derived_mono::{materialize_derived_mono_for_receiver, DerivedMonoMaterializationError};
 pub use mangle::mangle_mono_name;
@@ -264,12 +265,8 @@ pub fn concrete_sig_for_instance(
     pool: &Pool,
     mangled_name: Name,
 ) -> FunctionSig {
-    // Method instances carry the non-`self` params in `concrete_param_types`
-    // (the type-checker's `ImplMethodSig.params` excludes the receiver), but
-    // the generic impl sig keeps `self` as `param_types[0]`. The mono'd method
-    // still needs `self` as param 0 for ARC lowering, so prepend the concrete
-    // receiver when the generic sig has exactly one more param than the
-    // instance's non-`self` concrete params.
+    // Typecheck instances omit `self`, but ARC method signatures retain it;
+    // prepend the concrete receiver when that is the sole arity difference.
     let receiver_self = instance
         .receiver_type
         .filter(|_| instance.concrete_param_types.len() + 1 == generic_sig.param_types.len());

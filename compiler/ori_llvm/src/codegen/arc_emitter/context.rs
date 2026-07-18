@@ -107,11 +107,7 @@ pub(crate) fn is_callee_intercepted(
     if HANDLED_PRELUDE_NAMES.contains(&callee_name) {
         return true;
     }
-    // Protocol builtins are intercepted before ordinary method dispatch.
-    // Their precise unwind classification is applied separately by
-    // `intercepted_is_nounwind`: iterator stepping/collection may execute a
-    // stored user closure, while iterator creation/cleanup and casts remain
-    // nounwind.
+    // INVARIANT: Intercepted protocols derive unwind behavior from stored-callback risk.
     if ori_ir::builtin_constants::protocol::ProtocolBuiltin::from_name(callee_name).is_some() {
         return true;
     }
@@ -121,11 +117,7 @@ pub(crate) fn is_callee_intercepted(
     if callee_name.starts_with("ori_") || callee_name.starts_with("__") {
         return false;
     }
-    // Monomorphized generic dispatch: callee name resolves to a generic
-    // function via lookup_mono_dispatch() during emission — NOT intercepted.
-    // Without this check, a generic call like `identity(s)` where `s: str`
-    // would fall through to the builtin method heuristic (str receiver →
-    // true), incorrectly treating a may-unwind user function as intercepted.
+    // INVARIANT: Generic dispatch precedes builtin receiver heuristics.
     if ctx.mono_dispatch.contains_key(&callee) {
         return false;
     }
@@ -256,7 +248,7 @@ impl InvokeMode {
 /// [`FunctionCompiler`](crate::codegen::function_compiler::FunctionCompiler) to
 /// [`ArcIrEmitter`]. Extracting these reduces the
 /// emitter constructor from 12 parameters to 7 semantically distinct ones.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct CodegenContext {
     /// Declared functions: `Name` → (`FunctionId`, ABI).
     pub functions: FxHashMap<Name, (FunctionId, FunctionAbi)>,

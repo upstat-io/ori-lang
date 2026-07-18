@@ -2,14 +2,12 @@
 //!
 //! # Registration
 //!
-//! Each `#[derive(...)]` method becomes a real LLVM function in `method_functions`,
-//! so `lower_method_call` dispatch finds it with no special path.
+//! Each derived method is a normal LLVM function registered in `method_functions`.
 //!
 //! # Dispatch
 //!
-//! Strategy-driven: `DerivedTrait::strategy()` returns a `DeriveStrategy`; a new trait
-//! needs only a strategy entry in `ori_ir`. `StructBody` drives struct derives; enum
-//! derives use `SumBody::MatchVariants`.
+//! [`DerivedTrait::strategy`] selects struct and enum body generation.
+//! All submodules share the `ori_llvm::codegen::derive_codegen` tracing target.
 
 mod bodies;
 mod clone_rc;
@@ -151,11 +149,7 @@ fn collect_derive_work_items<'a>(
 ) -> Vec<DeriveWorkItem> {
     let type_map: FxHashMap<Name, &TypeEntry> = user_types.iter().map(|te| (te.name, te)).collect();
 
-    // The nested-closure walk surfaces an INNER instantiation (`Wrap` in
-    // `Wrap<Wrap<int>>`) only when its head names a GENERIC derive-bearing type,
-    // gated by this set. A non-generic derive-bearing field has no `Applied`
-    // instantiation and dispatches via the type-name fallback path, never the
-    // per-instantiation mono map, so it is excluded here.
+    // INVARIANT: only generic derive heads participate in nested instantiation closure.
     let derive_bearing: FxHashSet<Name> = module
         .types
         .iter()

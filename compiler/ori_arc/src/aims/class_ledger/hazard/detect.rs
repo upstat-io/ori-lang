@@ -129,16 +129,8 @@ pub(crate) fn field_view_hazard_classes(
             .or_default()
             .push(facts);
     }
-    // Every released container's construct surface, up front: a view's
-    // Consume at ANY released container's Construct is a move-in store that
-    // container's own planned release pays for (the two-wrappers-share-one-
-    // inner shape: each store funded per RL-1, each wrapper's drop the
-    // matched release) — never a move-out of THIS container.
-    // Full-move arm Construct sites join the funded union: the arm's
-    // transfer is self-accounting — the extraction credit funds the store
-    // and the receiving container's lineage carries the reference to its
-    // own release (`apply_full_move_rebook` + the injected extraction
-    // credits; the per-class verify re-checks the books independently).
+    // INVARIANT: Construct consumes are funded move-ins; full-move stores join
+    // the same released-container surface before hazard classification.
     let released_construct_union: FxHashSet<(usize, EventSite)> = scans
         .iter()
         .flat_map(|(_, _, scan)| scan.sites.iter().copied())
@@ -175,15 +167,8 @@ pub(crate) fn field_view_hazard_classes(
             let consume_marked = view_facts.iter().any(|facts| {
                 facts_consume_marked(facts, &construct_site_set, &released_construct_union)
             });
-            // Demand endangers ONLY a view whose floors ride the
-            // container's reference; a self-funded Clean view's demand is
-            // covered by its own acquired reference (a credit / birth the
-            // per-class verify already floored), so the container's
-            // release cannot strand it. A birth CONSUMED at the container's
-            // own construct site is NOT self-funding — the reference moved
-            // INTO the container, so post-move demand rides the container's
-            // reference after all. Consume marks endanger regardless
-            // (double-ownership is about the move-out, not funding).
+            // INVARIANT: Self-funded views survive container release, but a
+            // construct-consumed birth still rides the container's reference.
             let endangered = consume_marked
                 || view_demand_endangered(view_facts, sum_container, &construct_site_set);
             if !endangered {

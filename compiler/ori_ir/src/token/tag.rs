@@ -202,8 +202,16 @@ impl TokenTag {
     pub const MAX_DISCRIMINANT: u8 = Self::PipePipeEq as u8;
 
     /// Get a human-readable name for this tag.
-    #[expect(clippy::too_many_lines, reason = "exhaustive TokenTag → name dispatch")]
     pub const fn name(self) -> &'static str {
+        match self as u8 {
+            0..=60 => self.primary_name(),
+            61..=75 => self.extended_keyword_name(),
+            76..=127 => self.symbol_name(),
+            _ => self.compound_assignment_name(),
+        }
+    }
+
+    const fn primary_name(self) -> &'static str {
         match self {
             Self::Ident => "identifier",
             Self::Int => "integer",
@@ -216,7 +224,6 @@ impl TokenTag {
             Self::TemplateMiddle => "template middle",
             Self::TemplateTail => "template tail",
             Self::TemplateComplete => "template literal",
-            Self::FormatSpec => "format spec",
             Self::KwBreak => "break",
             Self::KwContinue => "continue",
             Self::KwReturn => "return",
@@ -263,6 +270,12 @@ impl TokenTag {
             Self::KwErr => "Err",
             Self::KwSome => "Some",
             Self::KwNone => "None",
+            _ => unreachable!(),
+        }
+    }
+
+    const fn extended_keyword_name(self) -> &'static str {
+        match self {
             Self::KwCache => "cache",
             Self::KwCatch => "catch",
             Self::KwParallel => "parallel",
@@ -276,8 +289,15 @@ impl TokenTag {
             Self::KwPanic => "panic",
             Self::KwTodo => "todo",
             Self::KwUnreachable => "unreachable",
-            Self::HashBracket => "#[",
+            Self::FormatSpec => "format spec",
             Self::HashBang => "#!",
+            _ => unreachable!(),
+        }
+    }
+
+    const fn symbol_name(self) -> &'static str {
+        match self {
+            Self::HashBracket => "#[",
             Self::At => "@",
             Self::Dollar => "$",
             Self::Hash => "#",
@@ -325,7 +345,12 @@ impl TokenTag {
             Self::Newline => "newline",
             Self::Error => "error",
             Self::Eof => "end of file",
-            // Compound assignment
+            _ => unreachable!(),
+        }
+    }
+
+    const fn compound_assignment_name(self) -> &'static str {
+        match self {
             Self::PlusEq => "+=",
             Self::MinusEq => "-=",
             Self::StarEq => "*=",
@@ -338,6 +363,7 @@ impl TokenTag {
             Self::ShlEq => "<<=",
             Self::AmpAmpEq => "&&=",
             Self::PipePipeEq => "||=",
+            _ => unreachable!(),
         }
     }
 }

@@ -67,11 +67,32 @@ pub(crate) fn jit_symbol_mappings() -> Vec<(&'static str, usize)> {
 /// This is the single point where function names are mapped to Rust function
 /// pointers. Adding a new `jit_allowed: true` entry to `RT_FUNCTIONS` requires
 /// adding a corresponding arm here.
-#[expect(
-    clippy::too_many_lines,
-    reason = "JIT symbol dispatch table — one arm per runtime function"
-)]
 fn lookup_jit_address(name: &str) -> usize {
+    if name.starts_with("ori_list_") {
+        lookup_list_address(name)
+    } else if name.starts_with("ori_str_")
+        || name.starts_with("ori_char_")
+        || name.starts_with("ori_byte_")
+    {
+        lookup_string_address(name)
+    } else if name.starts_with("ori_map_") {
+        lookup_map_address(name)
+    } else if name.starts_with("ori_set_") {
+        lookup_set_address(name)
+    } else if name.starts_with("ori_iter_") || name.starts_with("ori_range_") {
+        lookup_iterator_address(name)
+    } else if name.starts_with("ori_rc_")
+        || name.starts_with("ori_buffer_")
+        || name.starts_with("ori_mem")
+        || name.starts_with("ori_drop_cleanup_")
+    {
+        lookup_rc_address(name)
+    } else {
+        lookup_misc_address(name)
+    }
+}
+
+fn lookup_misc_address(name: &str) -> usize {
     match name {
         // Print
         "ori_print" => runtime::ori_print as *const () as usize,
@@ -87,7 +108,39 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_assert_eq_bool" => runtime::ori_assert_eq_bool as *const () as usize,
         "ori_assert_eq_float" => runtime::ori_assert_eq_float as *const () as usize,
         "ori_assert_eq_str" => runtime::ori_assert_eq_str as *const () as usize,
-        // List core
+        // Comparison
+        "ori_compare_int" => runtime::ori_compare_int as *const () as usize,
+        "ori_min_int" => runtime::ori_min_int as *const () as usize,
+        "ori_max_int" => runtime::ori_max_int as *const () as usize,
+        // Format (§3.16 Formattable trait)
+        "ori_format_int" => runtime::format::ori_format_int as *const () as usize,
+        "ori_format_float" => runtime::format::ori_format_float as *const () as usize,
+        "ori_format_str" => runtime::format::ori_format_str as *const () as usize,
+        "ori_format_bool" => runtime::format::ori_format_bool as *const () as usize,
+        "ori_format_char" => runtime::format::ori_format_char as *const () as usize,
+        // Args / panic handler
+        "ori_args_from_argv" => runtime::ori_args_from_argv as *const () as usize,
+        "ori_register_panic_handler" => runtime::ori_register_panic_handler as *const () as usize,
+        // Catch recovery (Itanium EH)
+        "ori_catch_cleanup" => runtime::ori_catch_cleanup as *const () as usize,
+        "ori_catch_recover" => runtime::ori_catch_recover as *const () as usize,
+        // Error Traceable runtime functions
+        "_ori_inject_trace_entry" => runtime::_ori_inject_trace_entry as *const () as usize,
+        "_ori_format_error_trace" => runtime::_ori_format_error_trace as *const () as usize,
+        "_ori_error_with_trace" => runtime::_ori_error_with_trace as *const () as usize,
+        // Exception handling personality (ori_rt/src/eh_personality.c)
+        "ori_eh_personality" => runtime::ori_eh_personality_addr(),
+        // Catch-all: panics immediately to surface drift between
+        // RT_FUNCTIONS and this lookup table.
+        other => panic!(
+            "unknown JIT function {other:?} — add it to lookup_jit_address() \
+             in evaluator/runtime_mappings.rs"
+        ),
+    }
+}
+
+fn lookup_list_address(name: &str) -> usize {
+    match name {
         "ori_list_alloc_data" => runtime::ori_list_alloc_data as *const () as usize,
         "ori_list_free_data" => runtime::ori_list_free_data as *const () as usize,
         "ori_list_new" => runtime::ori_list_new as *const () as usize,
@@ -95,11 +148,9 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_list_get" => runtime::ori_list_get as *const () as usize,
         "ori_list_len" => runtime::ori_list_len as *const () as usize,
         "ori_list_rc_inc" => runtime::ori_list_rc_inc as *const () as usize,
-        // List mutation
         "ori_list_push" => runtime::ori_list_push as *const () as usize,
         "ori_list_take" => runtime::ori_list_take as *const () as usize,
         "ori_list_box_new" => runtime::ori_list_box_new as *const () as usize,
-        // List COW
         "ori_list_push_cow" => runtime::ori_list_push_cow as *const () as usize,
         "ori_list_pop_cow" => runtime::ori_list_pop_cow as *const () as usize,
         "ori_list_set_cow" => runtime::ori_list_set_cow as *const () as usize,
@@ -110,7 +161,6 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_list_sort_cow" => runtime::ori_list_sort_cow as *const () as usize,
         "ori_list_sort_stable_cow" => runtime::ori_list_sort_stable_cow as *const () as usize,
         "ori_list_concat_cow" => runtime::ori_list_concat_cow as *const () as usize,
-        // List query
         "ori_list_first" => runtime::ori_list_first as *const () as usize,
         "ori_list_last" => runtime::ori_list_last as *const () as usize,
         "ori_list_contains_int" => runtime::ori_list_contains_int as *const () as usize,
@@ -118,16 +168,19 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_list_concat" => runtime::ori_list_concat as *const () as usize,
         "ori_list_reverse" => runtime::ori_list_reverse as *const () as usize,
         "ori_list_flatten" => runtime::ori_list_flatten as *const () as usize,
-        // Slice operations
         "ori_list_slice" => runtime::ori_list_slice as *const () as usize,
         "ori_list_slice_take" => runtime::ori_list_slice_take as *const () as usize,
         "ori_list_slice_drop" => runtime::ori_list_slice_drop as *const () as usize,
         "ori_list_materialize_slice" => runtime::ori_list_materialize_slice as *const () as usize,
-        // Comparison
-        "ori_compare_int" => runtime::ori_compare_int as *const () as usize,
-        "ori_min_int" => runtime::ori_min_int as *const () as usize,
-        "ori_max_int" => runtime::ori_max_int as *const () as usize,
-        // String core
+        "ori_list_ensure_capacity" => runtime::ori_list_ensure_capacity as *const () as usize,
+        "ori_list_empty" => runtime::ori_list_empty as *const () as usize,
+        "ori_list_reset_buffer" => runtime::ori_list_reset_buffer as *const () as usize,
+        _ => unknown_jit_address(name),
+    }
+}
+
+fn lookup_string_address(name: &str) -> usize {
+    match name {
         "ori_str_concat" => runtime::ori_str_concat as *const () as usize,
         "ori_str_eq" => runtime::ori_str_eq as *const () as usize,
         "ori_str_ne" => runtime::ori_str_ne as *const () as usize,
@@ -145,12 +198,10 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_str_from_float" => runtime::ori_str_from_float as *const () as usize,
         "ori_str_from_char" => runtime::ori_str_from_char as *const () as usize,
         "ori_char_is_alpha" => runtime::ori_char_is_alpha as *const () as usize,
-        // String debug formatting
         "ori_str_debug_format" => runtime::ori_str_debug_format as *const () as usize,
         "ori_str_escape_control" => runtime::ori_str_escape_control as *const () as usize,
         "ori_char_debug_format" => runtime::ori_char_debug_format as *const () as usize,
         "ori_byte_debug_format" => runtime::ori_byte_debug_format as *const () as usize,
-        // String methods
         "ori_str_chars" => runtime::ori_str_chars as *const () as usize,
         "ori_str_split" => runtime::ori_str_split as *const () as usize,
         "ori_str_contains" => runtime::ori_str_contains as *const () as usize,
@@ -163,27 +214,26 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_str_repeat" => runtime::ori_str_repeat as *const () as usize,
         "ori_str_substring" => runtime::ori_str_substring as *const () as usize,
         "ori_str_index" => runtime::ori_str_index as *const () as usize,
-        // Format (§3.16 Formattable trait)
-        "ori_format_int" => runtime::format::ori_format_int as *const () as usize,
-        "ori_format_float" => runtime::format::ori_format_float as *const () as usize,
-        "ori_format_str" => runtime::format::ori_format_str as *const () as usize,
-        "ori_format_bool" => runtime::format::ori_format_bool as *const () as usize,
-        "ori_format_char" => runtime::format::ori_format_char as *const () as usize,
-        // RC core
+        "ori_str_rc_inc" => runtime::ori_str_rc_inc as *const () as usize,
+        "ori_str_rc_dec" => runtime::ori_str_rc_dec as *const () as usize,
+        "ori_str_drop_buffer" => runtime::ori_str_drop_buffer as *const () as usize,
+        "ori_str_empty" => runtime::ori_str_empty as *const () as usize,
+        _ => unknown_jit_address(name),
+    }
+}
+
+fn lookup_rc_address(name: &str) -> usize {
+    match name {
         "ori_rc_alloc" => runtime::ori_rc_alloc as *const () as usize,
         "ori_rc_inc" => runtime::ori_rc_inc as *const () as usize,
         "ori_rc_dec" => runtime::ori_rc_dec as *const () as usize,
         "ori_rc_dec_unwind" => runtime::ori_rc_dec_unwind as *const () as usize,
         "ori_drop_cleanup_enter" => runtime::ori_drop_cleanup_enter as *const () as usize,
         "ori_drop_cleanup_exit" => runtime::ori_drop_cleanup_exit as *const () as usize,
-        "ori_str_rc_inc" => runtime::ori_str_rc_inc as *const () as usize,
-        "ori_str_rc_dec" => runtime::ori_str_rc_dec as *const () as usize,
-        "ori_str_drop_buffer" => runtime::ori_str_drop_buffer as *const () as usize,
         "ori_rc_free" => runtime::ori_rc_free as *const () as usize,
         "ori_rc_dec_to_zero" => runtime::ori_rc_dec_to_zero as *const () as usize,
         "ori_buffer_rc_dec" => runtime::ori_buffer_rc_dec as *const () as usize,
         "ori_buffer_drop_unique" => runtime::ori_buffer_drop_unique as *const () as usize,
-        // RC utilities
         "ori_rc_live_count" => runtime::ori_rc_live_count as *const () as usize,
         "ori_rc_reset_live_count" => runtime::ori_rc_reset_live_count as *const () as usize,
         "ori_rc_is_unique" => runtime::ori_rc_is_unique as *const () as usize,
@@ -191,11 +241,14 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_rc_realloc" => runtime::ori_rc_realloc as *const () as usize,
         "ori_memcpy_elements" => runtime::ori_memcpy_elements as *const () as usize,
         "ori_memmove_elements" => runtime::ori_memmove_elements as *const () as usize,
-        "ori_list_ensure_capacity" => runtime::ori_list_ensure_capacity as *const () as usize,
-        // Args / panic handler
-        "ori_args_from_argv" => runtime::ori_args_from_argv as *const () as usize,
-        "ori_register_panic_handler" => runtime::ori_register_panic_handler as *const () as usize,
-        // Map operations
+        "ori_buffer_store_elem_dec" => runtime::ori_buffer_store_elem_dec as *const () as usize,
+        "ori_buffer_store_elem_count" => runtime::ori_buffer_store_elem_count as *const () as usize,
+        _ => unknown_jit_address(name),
+    }
+}
+
+fn lookup_map_address(name: &str) -> usize {
+    match name {
         "ori_map_literal_alloc" => runtime::map::ori_map_literal_alloc as *const () as usize,
         "ori_map_literal_put" => runtime::map::ori_map_literal_put as *const () as usize,
         "ori_map_contains_key" => runtime::map::ori_map_contains_key as *const () as usize,
@@ -216,7 +269,13 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_map_vals_offset" => runtime::ori_map_vals_offset as *const () as usize,
         "ori_map_total_size" => runtime::ori_map_total_size as *const () as usize,
         "ori_map_bucket_occupied" => runtime::ori_map_bucket_occupied as *const () as usize,
-        // Set operations
+        "ori_map_empty" => runtime::map::ori_map_empty as *const () as usize,
+        _ => unknown_jit_address(name),
+    }
+}
+
+fn lookup_set_address(name: &str) -> usize {
+    match name {
         "ori_set_contains" => runtime::set::ori_set_contains as *const () as usize,
         "ori_set_insert_cow" => runtime::set::cow::ori_set_insert_cow as *const () as usize,
         "ori_set_remove_cow" => runtime::set::cow::ori_set_remove_cow as *const () as usize,
@@ -232,7 +291,13 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_set_buffer_drop_unique" => runtime::ori_set_buffer_drop_unique as *const () as usize,
         "ori_set_eq" => runtime::set::ori_set_eq as *const () as usize,
         "ori_set_hash" => runtime::set::ori_set_hash as *const () as usize,
-        // Iterator sources
+        "ori_set_empty" => runtime::set::ori_set_empty as *const () as usize,
+        _ => unknown_jit_address(name),
+    }
+}
+
+fn lookup_iterator_address(name: &str) -> usize {
+    match name {
         "ori_iter_from_list" => runtime::iterator::ori_iter_from_list as *const () as usize,
         "ori_iter_from_range" => runtime::iterator::ori_iter_from_range as *const () as usize,
         "ori_range_len" => runtime::iterator::ori_range_len as *const () as usize,
@@ -241,11 +306,9 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_iter_from_map" => runtime::iterator::ori_iter_from_map as *const () as usize,
         "ori_iter_from_option" => runtime::iterator::ori_iter_from_option as *const () as usize,
         "ori_iter_repeat" => runtime::iterator::ori_iter_repeat as *const () as usize,
-        // Iterator core
         "ori_iter_next" => runtime::iterator::ori_iter_next as *const () as usize,
         "ori_iter_next_back" => runtime::iterator::ori_iter_next_back as *const () as usize,
         "ori_iter_drop" => runtime::iterator::ori_iter_drop as *const () as usize,
-        // Iterator adapters
         "ori_iter_map" => runtime::iterator::ori_iter_map as *const () as usize,
         "ori_iter_filter" => runtime::iterator::ori_iter_filter as *const () as usize,
         "ori_iter_take" => runtime::iterator::ori_iter_take as *const () as usize,
@@ -256,7 +319,6 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_iter_flatten" => runtime::iterator::ori_iter_flatten as *const () as usize,
         "ori_iter_cycle" => runtime::iterator::ori_iter_cycle as *const () as usize,
         "ori_iter_rev" => runtime::iterator::ori_iter_rev as *const () as usize,
-        // Iterator consumers
         "ori_iter_collect" => runtime::iterator::ori_iter_collect as *const () as usize,
         "ori_iter_collect_set" => runtime::iterator::ori_iter_collect_set as *const () as usize,
         "ori_iter_count" => runtime::iterator::ori_iter_count as *const () as usize,
@@ -269,30 +331,13 @@ fn lookup_jit_address(name: &str) -> usize {
         "ori_iter_rfind" => runtime::iterator::ori_iter_rfind as *const () as usize,
         "ori_iter_rfold" => runtime::iterator::ori_iter_rfold as *const () as usize,
         "ori_iter_join" => runtime::iterator::ori_iter_join as *const () as usize,
-        // Empty collection sentinels
-        "ori_list_empty" => runtime::ori_list_empty as *const () as usize,
-        "ori_str_empty" => runtime::ori_str_empty as *const () as usize,
-        "ori_map_empty" => runtime::map::ori_map_empty as *const () as usize,
-        "ori_set_empty" => runtime::set::ori_set_empty as *const () as usize,
-        // Element header helpers
-        "ori_buffer_store_elem_dec" => runtime::ori_buffer_store_elem_dec as *const () as usize,
-        "ori_buffer_store_elem_count" => runtime::ori_buffer_store_elem_count as *const () as usize,
-        // Buffer reuse
-        "ori_list_reset_buffer" => runtime::ori_list_reset_buffer as *const () as usize,
-        // Catch recovery (Itanium EH)
-        "ori_catch_cleanup" => runtime::ori_catch_cleanup as *const () as usize,
-        "ori_catch_recover" => runtime::ori_catch_recover as *const () as usize,
-        // Error Traceable runtime functions
-        "_ori_inject_trace_entry" => runtime::_ori_inject_trace_entry as *const () as usize,
-        "_ori_format_error_trace" => runtime::_ori_format_error_trace as *const () as usize,
-        "_ori_error_with_trace" => runtime::_ori_error_with_trace as *const () as usize,
-        // Exception handling personality (ori_rt/src/eh_personality.c)
-        "ori_eh_personality" => runtime::ori_eh_personality_addr(),
-        // Catch-all: panics immediately to surface drift between
-        // RT_FUNCTIONS and this lookup table.
-        other => panic!(
-            "unknown JIT function {other:?} — add it to lookup_jit_address() \
-             in evaluator/runtime_mappings.rs"
-        ),
+        _ => unknown_jit_address(name),
     }
+}
+
+fn unknown_jit_address(name: &str) -> ! {
+    panic!(
+        "unknown JIT function {name:?} — add it to lookup_jit_address() \
+         in evaluator/runtime_mappings.rs"
+    )
 }

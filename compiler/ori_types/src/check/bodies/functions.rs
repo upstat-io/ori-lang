@@ -279,7 +279,6 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
         return;
     };
 
-    // Create child environment
     let Some(child_env) = checker.child_of_base() else {
         return;
     };
@@ -290,32 +289,22 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
         param_env.bind(*name, *ty);
     }
 
-    // Build the exempt var-id set before the engine takes a mut borrow.
-    // See check_function for the rationale — engine method receives
-    // `&FxHashSet<u32>` to avoid an `infer → check::validators` upward import.
+    // Why: precompute exemptions to avoid an inference-to-validator dependency.
     let exempt = build_exempt_var_ids(checker.pool(), &sig.scheme_var_ids);
 
-    // Get arena reference (lifetime 'a, not tied to checker borrow)
     let arena = checker.arena();
 
-    // Create inference engine and check body
     let fn_type = checker
         .pool_mut()
         .function(&sig.param_types, sig.return_type);
     let mut engine = checker.create_engine_with_env(param_env);
     engine.set_self_type(fn_type);
 
-    // A test body is a (non-generic) caller for monomorphization: its generic
-    // calls (`assert_eq`, etc.) on polymorphic-lambda results record deferred
-    // mono calls, which require a caller context. Without this, the deferred
-    // recorder drops every such instance (AOT missing-mono), parity-breaking
-    // the test under LLVM while the interpreter resolves at run time.
+    // INVARIANT: test bodies supply the caller identity required by deferred mono calls.
     engine.set_current_function(Some(test.name));
 
-    // Push test context
     engine.push_context(ContextKind::TestBody);
 
-    // Check body against declared return type (bidirectional)
     let body_span = arena.get_expr(test.body).span;
     let expected = Expected {
         ty: sig.return_type,
@@ -348,7 +337,6 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     // the main-body path and `intern_link_resolved_body_types`.
     engine.compose_body_type_burdens(&expr_types);
 
-    // Extract results
     let errors = engine.take_errors();
     let warnings = engine.take_warnings();
     let pat_resolutions = engine.take_pattern_resolutions();

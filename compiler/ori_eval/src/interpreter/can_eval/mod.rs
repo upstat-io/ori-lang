@@ -3,25 +3,30 @@
 
 mod control_flow;
 mod function_exp;
+mod literal;
 mod operators;
+mod property_lookup;
 mod trace;
 
 use ori_ir::canon::{
     CanBindingPatternId, CanExpr, CanId, CanNamedExprRange, CanParamRange, CanRange, CanonResult,
     ConstantId, DecisionTreeId, MonoConstBinding, MonoInstanceId,
 };
-use ori_ir::{DurationUnit, FunctionExpKind, Name, SizeUnit, Span};
-use ori_patterns::{ControlAction, EvalError, EvalResult, Value};
+use ori_ir::{FunctionExpKind, Name, Span};
+use ori_patterns::{ControlAction, EvalResult, Value};
 use ori_stack::ensure_sufficient_stack;
 use smallvec::SmallVec;
 
 use super::Interpreter;
 use crate::errors::{
-    await_not_supported, hash_outside_index, integer_overflow, parse_error, self_outside_method,
-    undefined_const, undefined_function,
+    await_not_supported, hash_outside_index, parse_error, self_outside_method, undefined_const,
+    undefined_function,
 };
 use crate::exec::expr;
 use crate::Mutability;
+
+use self::literal::{const_to_value, eval_can_duration, eval_can_size};
+use self::property_lookup::{find_prop_can_id, find_prop_value};
 
 #[derive(Clone, Copy)]
 struct CanForMode {
@@ -439,82 +444,4 @@ impl Interpreter<'_> {
             self.can_span(can_id),
         ))
     }
-}
-
-fn eval_can_duration(value: u64, unit: DurationUnit) -> EvalResult {
-    Ok(Value::Duration(
-        unit.to_nanos(value)
-            .ok_or_else(|| integer_overflow("duration literal"))?,
-    ))
-}
-
-fn eval_can_size(value: u64, unit: SizeUnit) -> EvalResult {
-    Ok(Value::Size(
-        unit.to_bytes(value)
-            .ok_or_else(|| integer_overflow("size literal"))?,
-    ))
-}
-
-/// Converts a constant-pool value to its runtime representation.
-#[expect(
-    clippy::expect_used,
-    reason = "Constants come from cooker-validated literals (overflow-checked) or \
-              const-fold results (Nanoseconds/Bytes unit, i64-bounded arithmetic). \
-              Both paths guarantee to_nanos/to_bytes succeed."
-)]
-fn const_to_value(cv: &ori_ir::canon::ConstValue, interner: &ori_ir::StringInterner) -> Value {
-    match *cv {
-        ori_ir::canon::ConstValue::Int(n) => Value::int(n),
-        ori_ir::canon::ConstValue::Float(bits) => Value::Float(f64::from_bits(bits)),
-        ori_ir::canon::ConstValue::Bool(b) => Value::Bool(b),
-        ori_ir::canon::ConstValue::Str(name) => Value::string_static(interner.lookup_static(name)),
-        ori_ir::canon::ConstValue::Char(c) => Value::Char(c),
-        ori_ir::canon::ConstValue::Unit => Value::Void,
-        ori_ir::canon::ConstValue::Duration { value, unit } => Value::Duration(
-            unit.to_nanos(value)
-                .expect("duration overflow: constant should have been validated"),
-        ),
-        ori_ir::canon::ConstValue::Size { value, unit } => Value::Size(
-            unit.to_bytes(value)
-                .expect("size overflow: constant should have been validated"),
-        ),
-    }
-}
-
-/// Returns a pre-evaluated property selected by interned `Name`.
-fn find_prop_value(
-    values: &[(Name, Value)],
-    name: Name,
-    interner: &ori_ir::StringInterner,
-) -> Result<Value, ControlAction> {
-    values
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, v)| v.clone())
-        .ok_or_else(|| {
-            EvalError::new(format!(
-                "missing required property: {}",
-                interner.lookup(name)
-            ))
-            .into()
-        })
-}
-
-/// Returns an unevaluated property's `CanId` for lazy evaluation.
-fn find_prop_can_id(
-    named: &[ori_ir::canon::CanNamedExpr],
-    name: Name,
-    interner: &ori_ir::StringInterner,
-) -> Result<CanId, ControlAction> {
-    named
-        .iter()
-        .find(|ne| ne.name == name)
-        .map(|ne| ne.value)
-        .ok_or_else(|| {
-            EvalError::new(format!(
-                "missing required property: {}",
-                interner.lookup(name)
-            ))
-            .into()
-        })
 }

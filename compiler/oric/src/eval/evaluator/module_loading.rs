@@ -43,11 +43,9 @@ impl Evaluator<'_> {
         file_path: &Path,
         canon: Option<&SharedCanonResult>,
     ) -> Result<(), Vec<imports::ImportError>> {
-        // Resolve all imports via the unified pipeline (prelude + explicit use statements).
         let resolved = imports::resolve_imports(self.db, parse_result, file_path);
         let interner = self.db.interner();
 
-        // Register prelude functions (if not already loaded)
         if !self.prelude_loaded {
             self.prelude_loaded = true;
             if let Some(ref prelude) = resolved.prelude {
@@ -77,20 +75,12 @@ impl Evaluator<'_> {
             }
         }
 
-        // Report all import resolution errors (accumulate, don't bail on the first).
-        // Returns structured errors so callers can report each individually with spans.
-        // Clone is acceptable: cold path (error-only), small strings, and `resolved`
-        // is Arc<ResolvedImports> — avoiding the clone would require changing the
-        // return type to carry the Arc, rippling through all callers for minimal gain.
+        // Why: clone the cold-path errors to preserve the caller's structured result.
         if !resolved.errors.is_empty() {
             return Err(resolved.errors.clone());
         }
 
-        // Register explicitly imported functions and methods.
-        // Each resolved module carries its import_index so we can find
-        // the corresponding UseDef for visibility/alias handling.
-        // Accumulate errors across all use statements so the user sees every
-        // problem at once, not just the first failing import.
+        // INVARIANT: all use-statement errors accumulate before returning.
         let mut import_errors = Vec::new();
         let mut user_methods = UserMethodRegistry::new();
         for imp_module in &resolved.modules {
@@ -124,10 +114,7 @@ impl Evaluator<'_> {
                 import_errors.extend(errs);
             }
 
-            // Method bodies retain their defining module's arena, canonical IR,
-            // and lexical captures just like imported functions do. Registering
-            // registering them makes imported impl/extend/def-impl methods visible to
-            // runtime dispatch in the consuming module.
+            // INVARIANT: imported methods retain their defining arena, IR, and captures.
             let config = MethodCollectionConfig {
                 module: &imp_module.parse_output.module,
                 arena: &imported_arena,
@@ -147,8 +134,7 @@ impl Evaluator<'_> {
         // when called from different contexts (e.g., from within a prelude function).
         let shared_arena = parse_result.arena.clone();
 
-        // Register constructors before functions so function captures observe
-        // this module's bindings rather than same-named prelude values.
+        // INVARIANT: local constructors shadow same-named prelude captures.
         register_module_bindings(&parse_result.module, &shared_arena, self.env_mut(), canon);
 
         // Add this module's impl and extend blocks to the methods collected from
@@ -205,8 +191,7 @@ impl Evaluator<'_> {
         module_path: &std::path::Path,
         source_file: Option<SourceFile>,
     ) -> Option<SharedCanonResult> {
-        // Check cache first — avoids re-type-checking + re-canonicalizing
-        // the same module across Evaluator instances.
+        // Why: cached canonical IR is shared across evaluator instances.
         if let Some(cached) = db.canon_cache().get(module_path) {
             return Some(cached);
         }

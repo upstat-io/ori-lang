@@ -66,12 +66,8 @@ impl InferEngine<'_> {
     /// together, offsets the local index into module-wide position, then module
     /// finalization remaps once more across deduplication and sorting.
     ///
-    /// Used by the eager call-site path
-    /// (`infer::expr::calls::monomorphization::maybe_record_mono_instance`).
-    /// The deferred-resolution path keeps using `record_mono_instance`
-    /// until
-    /// §C.2 sub-step 1b-deferred extends `DeferredMonoCall` to carry
-    /// `ExprId`.
+    /// Eager call sites publish dispatch immediately; deferred calls remain
+    /// body-only demands until they acquire a call-site `ExprId`.
     pub(super) fn record_mono_with_dispatch(
         &mut self,
         call_expr_id: ExprId,

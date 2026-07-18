@@ -15,7 +15,7 @@ impl IterState {
     ///
     /// `out_ptr` must be writable for the variant's output layout and must not
     /// overlap any source allocation. `elem_size` must match that layout.
-    // SAFETY: The caller supplies the disjoint output region, while each `IterState` constructor preserves its source allocation and layout invariants.
+    // SAFETY: The caller supplies the output region; constructors preserve every source layout.
     pub(crate) unsafe fn next(&mut self, out_ptr: *mut u8, elem_size: i64) -> bool {
         match self {
             Self::List {
@@ -104,16 +104,14 @@ impl IterState {
         }
     }
 
-    /// Repeat: yield a bitwise copy of the master value (no inc — the consumer
-    /// owns the per-yield inc). Always produces an element (infinite).
-    // SAFETY: `value` contains at least `elem_size` initialized bytes, and `out_ptr` names a disjoint writable region of that size.
+    // SAFETY: `value` supplies `elem_size` bytes and `out_ptr` is disjoint and writable.
     unsafe fn next_repeat(value: &[u8], elem_size: i64, out_ptr: *mut u8) -> bool {
         let es = elem_size.max(0) as usize;
         ptr::copy_nonoverlapping(value.as_ptr(), out_ptr, es);
         true
     }
 
-    // SAFETY: `data` owns `len * es` initialized bytes, `pos` stays within that element range, and `out_ptr` is disjoint and writable for `es` bytes.
+    // SAFETY: `data` owns `len * es` bytes; `pos` and the disjoint output are in bounds.
     unsafe fn next_list(data: *mut u8, len: i64, pos: &mut i64, es: i64, out_ptr: *mut u8) -> bool {
         if *pos >= len {
             return false;
@@ -124,7 +122,7 @@ impl IterState {
         true
     }
 
-    // SAFETY: `out_ptr` is a disjoint writable `i64` slot, and `current` is a live aligned `i64` whose bytes are copied before mutation.
+    // SAFETY: `current` is a live `i64`; `out_ptr` is a disjoint writable `i64` slot.
     unsafe fn next_range(
         current: &mut i64,
         end: i64,
@@ -132,10 +130,7 @@ impl IterState {
         inclusive: bool,
         out_ptr: *mut u8,
     ) -> bool {
-        // Unbounded descending: ARC lowering emits i64::MAX as sentinel for
-        // unbounded ranges (e.g., `0..`). For ascending, `*current < i64::MAX`
-        // works correctly. For descending, `*current > i64::MAX` is always
-        // false — treat the sentinel as "always in bounds" when step < 0.
+        // Why: `i64::MAX` encodes an unbounded end that descending comparison cannot satisfy.
         let in_bounds = if end == i64::MAX && step < 0 {
             true
         } else if inclusive {
@@ -161,7 +156,7 @@ impl IterState {
         true
     }
 
-    // SAFETY: `in_size` fits `ElemBuf`, `out_ptr` matches the mapped output layout, and the source plus trampoline environments remain live for this call.
+    // SAFETY: `in_size` fits `ElemBuf`; the source, trampoline, and output layouts remain live.
     unsafe fn next_mapped(
         source: &mut IterState,
         transform_fn: TransformFn,
@@ -178,7 +173,7 @@ impl IterState {
         true
     }
 
-    // SAFETY: `out_ptr` is writable for `es` bytes, and the live source and predicate environment remain valid until the yielded value is accepted or released.
+    // SAFETY: The source and predicate remain live; `out_ptr` is writable for `es` bytes.
     unsafe fn next_filtered(
         source: &mut IterState,
         predicate_fn: PredicateFn,
@@ -198,7 +193,7 @@ impl IterState {
         }
     }
 
-    // SAFETY: `out_ptr` is writable for `elem_size` bytes, and `source` owns every allocation its delegated `next` operation may read.
+    // SAFETY: `source` owns every delegated read; `out_ptr` is writable for `elem_size` bytes.
     unsafe fn next_take(
         source: &mut IterState,
         remaining: &mut i64,
@@ -216,7 +211,7 @@ impl IterState {
         true
     }
 
-    // SAFETY: `elem_size` fits `ElemBuf`, `out_ptr` is writable for the yielded element, and `source` remains live while skipped yields are released.
+    // SAFETY: `elem_size` fits `ElemBuf`; the source and output remain live during skipped yields.
     unsafe fn next_skip(
         source: &mut IterState,
         remaining: &mut i64,
@@ -235,14 +230,14 @@ impl IterState {
         source.next(out_ptr, elem_size)
     }
 
-    // SAFETY: `out_ptr` is writable for `elem_size` bytes; after the size check its tail holds the source element and its aligned prefix holds the copied `i64` index.
+    // SAFETY: The checked output holds one aligned `i64` followed by the source element.
     unsafe fn next_enumerated(
         source: &mut IterState,
         index: &mut i64,
         elem_size: i64,
         out_ptr: *mut u8,
     ) -> bool {
-        // Layout: first 8 bytes = index, then elem_size - 8 bytes = element
+        // INVARIANT: The output stores one `i64` index followed by the source element.
         let inner_size = elem_size - size_of::<i64>() as i64;
         if inner_size < 0 {
             return false;
@@ -260,11 +255,7 @@ impl IterState {
         true
     }
 
-    /// Zip: advance both iterators, copy left then right to output.
-    ///
-    /// Output layout: `[left_elem_bytes | right_elem_bytes]`.
-    /// Total output size is `elem_size` (= `left_elem_size` + `right_elem_size`).
-    // SAFETY: `out_ptr` is writable for the validated combined size, its left and right byte ranges are disjoint, and both source states remain live.
+    // SAFETY: Both sources are live; `out_ptr` contains disjoint left and right regions.
     unsafe fn next_zipped(
         left: &mut IterState,
         right: &mut IterState,
@@ -273,14 +264,11 @@ impl IterState {
         out_ptr: *mut u8,
     ) -> bool {
         let right_elem_size = elem_size - left_elem_size;
-        // Validate right element size (left validated at adapter creation).
         assert_elem_size(right_elem_size, "next_zipped(right)");
-        // Advance left into front of output buffer
         if !left.next(out_ptr, left_elem_size) {
             return false;
         }
         let mut left_yield = YieldGuard::new(left, out_ptr);
-        // Advance right into back of output buffer
         let right_ptr = out_ptr.add(left_elem_size as usize);
         if !right.next(right_ptr, right_elem_size) {
             return false;
@@ -289,8 +277,7 @@ impl IterState {
         true
     }
 
-    /// Chain: yield all of first iterator, then all of second.
-    // SAFETY: `out_ptr` is writable for `elem_size` bytes, and both owned source states preserve the delegated iterator layouts.
+    // SAFETY: Both sources preserve the delegated layout; `out_ptr` is writable.
     unsafe fn next_chained(
         first: &mut IterState,
         second: &mut IterState,
@@ -307,10 +294,7 @@ impl IterState {
         second.next(out_ptr, elem_size)
     }
 
-    /// Str: decode the next UTF-8 codepoint and write it as i32.
-    ///
-    /// Output is a single `i32` (4 bytes) — the Unicode scalar value.
-    // SAFETY: `data` points to `len` live string bytes, and `out_ptr` is a disjoint writable region of exactly one `i32` value.
+    // SAFETY: `data` contains `len` live bytes; `out_ptr` is a disjoint writable `i32` slot.
     unsafe fn next_str(data: *mut u8, len: i64, byte_offset: &mut i64, out_ptr: *mut u8) -> bool {
         if data.is_null() || *byte_offset >= len {
             return false;
@@ -330,12 +314,7 @@ impl IterState {
         true
     }
 
-    /// Flatten: advance through nested iterators.
-    ///
-    /// Each element from the outer `source` is itself an iterator pointer.
-    /// We keep a current `inner` iterator and advance it. When inner is
-    /// exhausted, get the next inner from source.
-    // SAFETY: The outer source yields initialized `Box::into_raw` iterator handles, `inner` owns each recovered box exactly once, and `out_ptr` matches `inner_elem_size`.
+    // SAFETY: The source yields raw boxes recovered once; the output matches the inner layout.
     unsafe fn next_flattened(
         source: &mut IterState,
         inner: &mut Option<Box<IterState>>,
@@ -343,31 +322,26 @@ impl IterState {
         out_ptr: *mut u8,
     ) -> bool {
         loop {
-            // Try advancing current inner iterator
             if let Some(ref mut inner_state) = inner {
                 if inner_state.next(out_ptr, inner_elem_size) {
                     return true;
                 }
-                // Inner exhausted — drop it
                 *inner = None;
             }
 
-            // Get next inner iterator from source
-            // The source yields iterator pointers (ptr-sized = 8 bytes)
             let mut iter_ptr_buf = [0u8; 8];
             if !source.next(iter_ptr_buf.as_mut_ptr(), 8) {
                 return false;
             }
             let iter_ptr = ptr::read(iter_ptr_buf.as_ptr().cast::<*mut u8>());
             if iter_ptr.is_null() {
-                continue; // Skip null inner iterators
+                continue;
             }
             *inner = Some(Box::from_raw(iter_ptr.cast::<IterState>()));
         }
     }
 
-    /// Cycle: buffer elements on first pass, then replay from buffer.
-    // SAFETY: The buffer stores whole `elem_size` masters, the optional increment callback accepts their in-bounds addresses, and `out_ptr` is disjoint and writable.
+    // SAFETY: The buffer stores whole owners; the increment callback and output stay in bounds.
     unsafe fn next_cycled(
         source: &mut CycleSource,
         buffer: &mut Vec<u8>,
@@ -381,10 +355,7 @@ impl IterState {
         if let CycleSource::Reading(src) = source {
             let mut elem_buf = ElemBuf::new();
             if src.next(elem_buf.as_mut_ptr(), elem_size) {
-                // Buffer the element for future cycles. The buffer OWNS its
-                // copy: inc the stored master so it stays live after the
-                // source is freed on exhaustion and regardless of consumer
-                // behavior. Dec'd once per master in Drop.
+                // INVARIANT: Each buffered owner is retained once and released once by `Drop`.
                 buffer.extend_from_slice(&elem_buf[..es]);
                 if let Some(inc) = elem_inc_fn {
                     let stored = buffer.as_mut_ptr().add(buffer.len() - es);
@@ -393,18 +364,15 @@ impl IterState {
                 ptr::copy_nonoverlapping(elem_buf.as_ptr(), out_ptr, es);
                 return true;
             }
-            // Source exhausted: its allocation drops during the phase change.
             *source = CycleSource::Replaying;
             *buf_pos = 0;
         }
 
-        // Replay from buffer
         if buffer.is_empty() {
-            return false; // Empty source = empty cycle
+            return false;
         }
         let idx = *buf_pos * es;
         if idx >= buffer.len() {
-            // Wrap around
             *buf_pos = 0;
         }
         let idx = *buf_pos * es;
@@ -417,7 +385,7 @@ impl IterState {
     /// pre-collected elements in reverse source order. `front` is the back
     /// boundary `next_back` advances; forward iteration stops when the window
     /// is empty (`pos <= front`), not at a fixed `0`.
-    // SAFETY: `[front, pos)` indexes whole elements inside `elements`, and `out_ptr` is disjoint and writable for one `elem_size` element.
+    // SAFETY: `[front, pos)` indexes whole elements; `out_ptr` is disjoint and writable.
     unsafe fn next_reversed(
         elements: &[u8],
         pos: &mut i64,
@@ -435,12 +403,7 @@ impl IterState {
         true
     }
 
-    /// Map: yield the next `(key, value)` pair.
-    ///
-    /// Data layout (hash table): `[metadata | keys | values]`.
-    /// Scans metadata starting at bucket `pos` for the next OCCUPIED entry.
-    /// Output layout: `[key_bytes | value_bytes]` (concatenated).
-    // SAFETY: `data` owns the hash-table allocation described by `cap` and the key/value sizes, while `out_ptr` is disjoint and writable for their combined layout.
+    // SAFETY: `data` owns the described table; `out_ptr` is disjoint and fits one pair.
     unsafe fn next_map(
         data: *mut u8,
         cap: i64,

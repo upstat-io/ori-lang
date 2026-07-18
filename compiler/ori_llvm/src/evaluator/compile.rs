@@ -9,6 +9,7 @@ use std::mem::ManuallyDrop;
 use rustc_hash::FxHashMap;
 use tracing::{debug, instrument};
 
+use ori_arc::AnnotatedSig;
 use ori_ir::ast::{Module, TestDef};
 use ori_ir::canon::CanonResult;
 use ori_ir::{Name, StringInterner};
@@ -124,10 +125,6 @@ impl super::OwnedLLVMEvaluator {
         clippy::too_many_arguments,
         reason = "JIT compilation — all params are required data flow inputs"
     )]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "sequential JIT pipeline — splitting would fragment the compilation flow"
-    )]
     fn compile_all_functions<'ctx>(
         scx_ref: &'ctx SimpleCx<'ctx>,
         module: &Module,
@@ -152,21 +149,7 @@ impl super::OwnedLLVMEvaluator {
         let mut builder = IrBuilder::new_jit(scx_ref);
         type_registration::register_user_types(&resolver, user_types);
 
-        let annotated_sigs: FxHashMap<_, _> = executable
-            .functions()
-            .iter()
-            .map(|function| {
-                let function_id = executable
-                    .function_id(function.name)
-                    .unwrap_or_else(|| unreachable!("validated function must have an identity"));
-                (
-                    function.name,
-                    executable
-                        .function_contract(function_id)
-                        .to_annotated_sig(&function.params, function.return_type),
-                )
-            })
-            .collect();
+        let annotated_sigs = Self::collect_annotated_sigs(executable);
 
         // Two-pass function compilation
         debug!("declaring functions (phase 1)");
@@ -281,6 +264,26 @@ impl super::OwnedLLVMEvaluator {
         let errors = builder.codegen_error_count() + store.type_error_count();
         let descriptions = builder.codegen_error_descriptions();
         (wrappers, errors, descriptions)
+    }
+
+    fn collect_annotated_sigs(
+        executable: &ori_repr::executable::ExecutableProgram,
+    ) -> FxHashMap<Name, AnnotatedSig> {
+        executable
+            .functions()
+            .iter()
+            .map(|function| {
+                let function_id = executable
+                    .function_id(function.name)
+                    .unwrap_or_else(|| unreachable!("validated function must have an identity"));
+                (
+                    function.name,
+                    executable
+                        .function_contract(function_id)
+                        .to_annotated_sig(&function.params, function.return_type),
+                )
+            })
+            .collect()
     }
 
     /// Validate compiled IR and create the JIT execution engine.

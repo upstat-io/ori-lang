@@ -159,26 +159,20 @@ impl ArcLowerer<'_> {
         }
 
         if tag == ori_types::Tag::Range {
-            // Direct counter-based loop for ranges.
             self.lower_for_range(pattern, iter_val, iter_ty, guard, body, label)
         } else if tag == ori_types::Tag::Option {
-            // Direct 0-or-1 iteration — cheaper than allocating an iterator.
             let elem_ty = self.pool.option_inner(iter_ty);
             self.lower_for_option(pattern, iter_val, elem_ty, guard, body, label)
         } else if tag.is_iterator() {
-            // Already an iterator — use __iter_next loop.
             let elem_ty = self.pool.iterator_elem(iter_ty);
             self.lower_for_iterator(pattern, iter_val, elem_ty, guard, body, label)
         } else {
-            // List, Map, Set, Str, etc. — convert to iterator via .iter(),
-            // then use the iterator-based loop.
             let elem_ty = self.extract_iterable_elem_type(tag, iter_ty);
 
             let iter_name = self
                 .interner
                 .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
-            // Use INT for the iterator handle — it's an opaque pointer with no
-            // RC semantics (cleanup is via ori_iter_drop, not RC dec).
+            // INVARIANT: Iterator handles are opaque pointers released by `ori_iter_drop`.
             let iter_result =
                 self.builder
                     .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);

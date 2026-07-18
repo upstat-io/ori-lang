@@ -23,6 +23,7 @@ use self::specialize::{collect_test_values, default_matrix, infer_test_kind, spe
 /// ARC emission: switch edges in order, then default; Guard success, then its
 /// `on_fail` subtree. Keeping the carrier parallel avoids teaching behavioral
 /// consumers such as exhaustiveness and evaluation about ownership mechanics.
+#[derive(Debug)]
 pub struct CompiledDecisionTree {
     pub tree: DecisionTree,
     pub leaf_discard_paths: Vec<LeafDiscardPaths>,
@@ -35,13 +36,12 @@ pub struct CompiledDecisionTree {
 ///
 /// # Panics
 ///
-/// Debug-panics if `paths.len() != matrix[i].patterns.len()` for any row.
+/// Panics if `paths.len() != matrix[i].patterns.len()` for any row.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "recursive — sub-calls pass owned specialized matrices"
 )]
 pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> CompiledDecisionTree {
-    #[cfg(debug_assertions)]
     assert_matrix_path_alignment(&matrix, &paths);
 
     if matrix.is_empty() {
@@ -123,7 +123,6 @@ pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> CompiledDeci
     }
 }
 
-#[cfg(debug_assertions)]
 fn assert_matrix_path_alignment(matrix: &PatternMatrix, paths: &[ScrutineePath]) {
     for (i, row) in matrix.iter().enumerate() {
         if row.patterns.len() == paths.len() {
@@ -151,11 +150,11 @@ fn assert_matrix_path_alignment(matrix: &PatternMatrix, paths: &[ScrutineePath])
             }
         }
         tracing::error!("Paths: {paths:?}");
-        panic!(
-            "column count mismatch at row {i}: paths={}, patterns={}, arm_index={}",
+        assert_eq!(
             paths.len(),
             row.patterns.len(),
-            row.arm_index,
+            "column count mismatch at row {i}, arm_index={}",
+            row.arm_index
         );
     }
 }
@@ -256,6 +255,7 @@ fn constructor_key(pat: &FlatPattern) -> Option<ConstructorKey> {
 }
 
 /// Matrix and paths produced by specialization.
+#[derive(Debug)]
 pub(super) struct Specialized {
     pub(super) matrix: PatternMatrix,
     pub(super) paths: Vec<ScrutineePath>,

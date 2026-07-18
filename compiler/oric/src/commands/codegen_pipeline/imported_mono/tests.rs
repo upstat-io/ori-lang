@@ -21,14 +21,15 @@ fn make_generic_sig(interner: &StringInterner) -> FunctionSig {
     let name = interner.intern("identity");
     let t_name = interner.intern("T");
     let x_name = interner.intern("x");
+    let generic_placeholder = Idx::from_raw(100);
 
     FunctionSig {
         name,
         type_params: vec![t_name],
         const_params: vec![],
         param_names: vec![x_name],
-        param_types: vec![Idx::from_raw(100)], // generic T placeholder
-        return_type: Idx::from_raw(100),
+        param_types: vec![generic_placeholder],
+        return_type: generic_placeholder,
         capabilities: vec![],
         is_public: true,
         is_test: false,
@@ -197,7 +198,7 @@ fn build_imported_mono_functions_constructs_imported_entry() {
     let interner = StringInterner::new();
     let mut pool = Pool::new();
     let generic_sig = make_generic_sig(&interner);
-    let imported_local_name = generic_sig.name; // local == source for this test
+    let imported_local_name = generic_sig.name;
     let source_name = generic_sig.name;
 
     let instance = MonoInstance::new_top_level(

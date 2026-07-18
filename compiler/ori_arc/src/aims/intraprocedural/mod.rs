@@ -1,31 +1,13 @@
 //! Intraprocedural backward dataflow analysis for AIMS.
 //!
-//! Computes [`AimsState`](super::lattice::AimsState) for every variable at
-//! every block boundary within a single function. The analysis direction is
-//! BACKWARD: we discover how each value WILL be used (future demand) to
-//! derive logical ownership-transfer, duplication, discharge, reuse, and COW
-//! facts. Physical realization is a later target-owned decision.
+//! [`analyze_function`] computes future ownership demand at every block
+//! boundary to derive transfer, duplication, discharge, reuse, and COW facts.
+//! It iterates the sparse [`AimsStateMap`] to convergence before deriving
+//! borrow sources, shapes, TRMC facts, and FIP gates. Physical realization is
+//! deliberately deferred.
 //!
-//! # Entry point
-//!
-//! [`analyze_function`] runs the backward dataflow to fixed-point convergence,
-//! returning an [`AimsStateMap`] that downstream ownership-event realization,
-//! reuse realization, and COW annotation consume.
-//!
-//! # Module structure
-//!
-//! - [`state_map`] — [`AimsStateMap`] data structure + sparse events
-//! - [`block`] — per-block backward analysis (instructions, terminators,
-//!   control flow merge via `alt_join`, pattern match via `Project` transfer)
-//! - [`post_convergence`] — post-convergence passes (borrow sources, sparse
-//!   events, shapes, TRMC, FIP balance, FIP gates)
-//!
-//! # References
-//!
-//! - GHC demand analysis backward pass (`compiler/GHC/Core/Opt/DmdAnal.hs`)
-//! - Lean 4 RC insertion (`src/Lean/Compiler/IR/RC.lean`) as historical
-//!   algorithmic influence, not a required physical representation
-//! - `ori_arc` liveness (`compiler/ori_arc/src/liveness/mod.rs`)
+//! Diagnostic events from this subsystem use the shared
+//! `ori_arc::aims::intraprocedural` target.
 
 #[cfg(test)]
 #[expect(
@@ -51,7 +33,7 @@ pub(crate) use fip_balance::compute_requires_unique_params;
 pub use state_map::{AimsEvent, AimsStateMap, InvokeEdgeState};
 
 use ori_ir::Name;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 use crate::ArcClassification;
@@ -86,53 +68,58 @@ fn build_invoke_dst_to_owner(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcBlock
         .collect()
 }
 
-/// Run backward dataflow analysis on a single function.
+/// Compute backward ownership demand to a fixed point for one ARC function.
 ///
-/// Iterates blocks in postorder (successors before predecessors in the
-/// backward direction) until fixed-point convergence. Returns the
-/// converged [`AimsStateMap`] with per-block entry/exit states.
-///
-/// # Parameters
-///
-/// - `func` — the ARC IR function to analyze
-/// - `classifier` — type classification (scalar filtering)
-/// - `sigs` — interprocedural contracts (empty when no interprocedural info available)
-/// - `context_regions` — TRMC metadata (from normalize pass; empty when no TRMC candidates detected)
-///
-/// # Convergence
-///
-/// The lattice has finite chain height 15. Convergence is guaranteed in
-/// at most `15 × |variables| × |blocks|` iterations. If exceeded, a
-/// `tracing::warn!` is emitted and remaining variables are widened to TOP.
-///
-/// This is mathematically stronger than GHC's demand analysis, which uses an
-/// empirical `n > 10` iteration cutoff in `dmdFix` with `reuseEnv` demand
-/// stabilization for recursive bindings. AIMS derives its bound from the
-/// product lattice's finite chain height (15 = sum of per-dimension heights),
-/// giving a provable upper bound rather than an empirical safety net. GHC
-/// needs `reuseEnv` and weak-demand splitting to improve convergence in lazy
-/// contexts; AIMS's strict evaluation model avoids these because all demands
-/// are strict by definition.
-/// (See: Literature Review GHC Demand Analysis)
+/// Blocks run in successor-first postorder. The finite product lattice bounds
+/// convergence by `15 × |variables| × |blocks|`; exceeding that bound widens
+/// remaining states to TOP and emits a diagnostic.
 #[expect(
     clippy::implicit_hasher,
     reason = "FxHashMap is the project-wide hasher; no generic needed"
-)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "orchestrates the fixed-point iteration loop over block postorder \
-        with interleaved invoke-edge and def-demand bookkeeping; splitting would \
-        fragment one atomic convergence loop across helper boundaries"
 )]
 pub fn analyze_function(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     sigs: &FxHashMap<Name, MemoryContract>,
-    // TRMC context regions from Stage 3 normalize pass.
-    // Empty slice when no TRMC candidates detected.
     context_regions: &[ContextRegion],
     immortals: Vec<bool>,
 ) -> AimsStateMap {
+    let AnalysisSetup {
+        mut state_map,
+        postorder,
+        invoke_defs,
+        invoke_dst_to_owner,
+        demand_sources,
+        select_alias_dsts,
+    } = initialize_analysis(func, classifier, sigs, immortals);
+    let fixed_point = FixedPointContext {
+        func,
+        sigs,
+        postorder: &postorder,
+        invoke_defs: &invoke_defs,
+        invoke_dst_to_owner: &invoke_dst_to_owner,
+        demand_sources: &demand_sources,
+        select_alias_dsts: &select_alias_dsts,
+    };
+    let iteration = fixed_point.run(&mut state_map);
+    finish_analysis(func, sigs, context_regions, state_map, iteration)
+}
+
+struct AnalysisSetup {
+    state_map: AimsStateMap,
+    postorder: Vec<usize>,
+    invoke_defs: FxHashMap<ArcBlockId, Vec<ArcVarId>>,
+    invoke_dst_to_owner: FxHashMap<ArcVarId, ArcBlockId>,
+    demand_sources: FxHashMap<ArcVarId, project_aliases::ProjectSources>,
+    select_alias_dsts: FxHashSet<ArcVarId>,
+}
+
+fn initialize_analysis(
+    func: &ArcFunction,
+    classifier: &dyn ArcClassification,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    immortals: Vec<bool>,
+) -> AnalysisSetup {
     let mut state_map = AimsStateMap::new(func);
 
     // Set immortal variables — excluded from analysis and emission.
@@ -159,25 +146,17 @@ pub fn analyze_function(
     // remove these from the normal successor's entry state.
     let invoke_defs = crate::graph::collect_invoke_defs(func);
 
-    // Inverse map: Invoke-defined var → owner block whose terminator is
-    // the Invoke that defines it. SSA invariant: each var is defined at
-    // most once, so this map is a simple var → block lookup. Used to
-    // route the BlockAnalysisResult's pre-strip demand (captured at the
-    // SUCCESSOR's strip site) back to the PREDECESSOR Invoke block, where
-    // `var_state_at_block_exit(invoke_block, dst)` consults it.
+    // SSA uniqueness lets pre-strip invoke-result demand route from its normal
+    // successor back to the defining invoke's exit-state side table.
     let invoke_dst_to_owner = build_invoke_dst_to_owner(func);
 
-    // Pre-walk Apply-result allocation-identity side-table.
-    // Ordering load-bearing per PL-5 — populate BEFORE
-    // `compute_project_alias_sources` so its Step 1b seed sees the converged
-    // map. See `apply_aliases.rs` and `project_aliases.rs` for full design.
+    // PL-5 requires apply-result identities before project-alias sources so
+    // the latter's seed sees the complete map.
     let apply_result_aliases = apply_aliases::populate_apply_result_aliases(func, sigs);
     state_map.set_apply_result_aliases(apply_result_aliases);
 
-    // pre-walk SSA-alias equivalence-class table. Ordering
-    // load-bearing per PL-5 — populate AFTER apply_result_aliases (this pass
-    // unions the apply-alias edges into the classes) and BEFORE the worklist
-    // (read-only thereafter).
+    // Build SSA alias classes after apply-result identities are available and
+    // before the worklist begins its read-only use.
     let ssa_alias_output =
         ssa_alias_classes::compute_ssa_alias_classes(func, state_map.apply_result_aliases());
     state_map.set_ssa_alias_output(
@@ -186,11 +165,8 @@ pub fn analyze_function(
         ssa_alias_output.class_apply_alias_source_candidates,
     );
 
-    // Precompute the unified same-allocation alias table: Project destination +
-    // transitive Let alias (R2 generalized to whole-var non-projected identity)
-    // + Jump-arg + CFG-merge + Select (R5) → source map. Static structure —
-    // computed once, reused across worklist iterations. The R5 Select-origin dst
-    // set gates the backward-demand consumer per §1.9.
+    // Precompute the static same-allocation closure across projections, Let
+    // aliases, jumps, merges, and selects; select origins gate §1.9 demand.
     let project_alias_table = project_aliases::compute_project_alias_table_for_state(
         func,
         state_map.apply_result_aliases(),
@@ -200,132 +176,148 @@ pub fn analyze_function(
     let demand_sources = project_alias_table.demand_sources;
     let select_alias_dsts = project_alias_table.select_alias_dsts;
 
-    // Persist the UNIFIED alias closure (R1 + R2-gen + R3 + R4 + R5 + R6) on
-    // AimsStateMap for the post-convergence consumer (the project-alias chain
-    // walk in `realize/cleanup_redundant.rs`). The backward-demand
-    // worklist consumes `demand_sources` (the ORIGINAL §1.9 closure — no R2-gen,
-    // no R5) instead; widening DEMAND with whole-var identity would over-extend
-    // lifetimes (the merge-edge scoped-cleanup leak). The local maps remain for
-    // `propagate_project_source_demand` during the worklist loop; the clone is
-    // the persistent copy consumed AFTER convergence (PL-5: read-only after
-    // install). AIMS Invariant #5(c) — extends the unified model via typed
-    // pre-pass input on AimsStateMap.
+    // Persist the full alias closure for realization, while backward demand
+    // uses the narrower §1.9 sources; whole-var/select demand would overextend
+    // merge-edge lifetimes. PL-5 makes this pre-pass state read-only thereafter.
     state_map.set_project_alias_sources(project_alias_sources);
 
-    let iteration_limit = AimsState::iteration_limit(func.var_types.len(), func.blocks.len());
-    let mut iteration = 0;
-
-    loop {
-        state_map.reset_changed();
-        // Clear pre-strip Invoke-def demand at iteration start so the
-        // capture reflects the CURRENT iteration's converged successor
-        // entry states (which propagate across iterations to fixpoint).
-        // Stale entries from prior iterations would mix demand from
-        // different convergence states and break monotonicity.
-        state_map.clear_invoke_def_demand();
-        iteration += 1;
-
-        // Process blocks in postorder (successors first for backward analysis).
-        for &block_idx in &postorder {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "ARC IR block counts fit in u32"
-            )]
-            let block_id = ArcBlockId::new(block_idx as u32);
-
-            // Compute the block's exit state from successor entry states.
-            let exit_state = block::compute_block_exit_state(func, block_id, &state_map);
-            state_map.update_block_exit(block_id, exit_state.demands);
-            state_map.update_scalar_live_at_exit(block_id, exit_state.live_scalars);
-
-            // Record per-edge demand for Invoke and InvokeIndirect
-            // terminators: normal and unwind successors carry different
-            // variable sets, and the per-edge cleanup machinery consults
-            // this to determine the logical unwind-path release. The current
-            // carrier materializes that release as RcDec.
-            // Earlier this only matched Invoke, leaving
-            // InvokeIndirect terminators without recorded edge state —
-            // a borrowed closure receiver dying on the unwind edge had
-            // no entry-state to consult. Ref: site 4.
-            let block = &func.blocks[block_idx];
-            match &block.terminator {
-                ArcTerminator::Invoke { normal, unwind, .. }
-                | ArcTerminator::InvokeIndirect { normal, unwind, .. } => {
-                    let normal_entry = state_map
-                        .block_entry_states(*normal)
-                        .cloned()
-                        .unwrap_or_default();
-                    let unwind_entry = state_map
-                        .block_entry_states(*unwind)
-                        .cloned()
-                        .unwrap_or_default();
-                    state_map.set_invoke_edge_state(
-                        block_id,
-                        InvokeEdgeState {
-                            normal: normal_entry,
-                            unwind: unwind_entry,
-                        },
-                    );
-                }
-                _ => {}
-            }
-
-            // Compute the block's entry state by walking instructions backward.
-            // Also accumulates block-level effects.
-            let result = block::compute_block_entry_state(
-                func,
-                block_id,
-                &state_map,
-                sigs,
-                &invoke_defs,
-                &demand_sources,
-                &select_alias_dsts,
-            );
-            state_map.accumulate_effect(result.effects);
-            state_map.update_block_entry(block_id, result.entry_state);
-            state_map.update_scalar_live_at_entry(block_id, result.scalar_live_at_entry);
-
-            // Propagate pre-strip Invoke-def demand to the predecessor Invoke
-            // block's exit-state side table. The demand was captured BEFORE
-            // the strip removed `dst` from this block's entry state; routing
-            // it to the OWNER (predecessor Invoke block) makes
-            // `var_state_at_block_exit(invoke_block, dst)` return the
-            // post-def demand instead of BOTTOM.
-            for (var, state) in result.invoke_def_demand {
-                if let Some(&owner_block) = invoke_dst_to_owner.get(&var) {
-                    state_map.set_invoke_def_demand(owner_block, var, state);
-                }
-            }
-
-            // Propagate pre-strip intra-block instruction-def demand keyed by
-            // THIS block (the defining block). Captured before the strip in
-            // `compute_block_entry_state`, it carries the converged
-            // `seqAdd`-accumulated cardinality so `var_state_at_definition`
-            // gives DP-3 / DP-2 their proven input for a var consumed entirely
-            // within its defining block.
-            for (var, state) in result.def_demand {
-                state_map.set_def_demand(block_id, var, state);
-            }
-        }
-
-        if state_map.is_converged() {
-            break;
-        }
-
-        // Non-convergence safety net.
-        if iteration >= iteration_limit {
-            tracing::warn!(
-                func = ?func.name,
-                iterations = iteration,
-                limit = iteration_limit,
-                "AIMS analysis did not converge within bound — widening to TOP. \
-                 This indicates a bug in transfer functions."
-            );
-            widen_to_top(&mut state_map, func);
-            break;
-        }
+    AnalysisSetup {
+        state_map,
+        postorder,
+        invoke_defs,
+        invoke_dst_to_owner,
+        demand_sources,
+        select_alias_dsts,
     }
+}
 
+struct FixedPointContext<'a> {
+    func: &'a ArcFunction,
+    sigs: &'a FxHashMap<Name, MemoryContract>,
+    postorder: &'a [usize],
+    invoke_defs: &'a FxHashMap<ArcBlockId, Vec<ArcVarId>>,
+    invoke_dst_to_owner: &'a FxHashMap<ArcVarId, ArcBlockId>,
+    demand_sources: &'a FxHashMap<ArcVarId, project_aliases::ProjectSources>,
+    select_alias_dsts: &'a FxHashSet<ArcVarId>,
+}
+
+impl FixedPointContext<'_> {
+    fn run(&self, state_map: &mut AimsStateMap) -> usize {
+        let func = self.func;
+        let sigs = self.sigs;
+        let postorder = self.postorder;
+        let invoke_defs = self.invoke_defs;
+        let invoke_dst_to_owner = self.invoke_dst_to_owner;
+        let demand_sources = self.demand_sources;
+        let select_alias_dsts = self.select_alias_dsts;
+
+        let iteration_limit = AimsState::iteration_limit(func.var_types.len(), func.blocks.len());
+        let mut iteration = 0;
+
+        loop {
+            state_map.reset_changed();
+            // Clear invoke-result demand each iteration so stale successor
+            // states cannot mix convergence stages and break monotonicity.
+            state_map.clear_invoke_def_demand();
+            iteration += 1;
+
+            // Process blocks in postorder (successors first for backward analysis).
+            for &block_idx in postorder {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "ARC IR block counts fit in u32"
+                )]
+                let block_id = ArcBlockId::new(block_idx as u32);
+
+                // Compute the block's exit state from successor entry states.
+                let exit_state = block::compute_block_exit_state(func, block_id, state_map);
+                state_map.update_block_exit(block_id, exit_state.demands);
+                state_map.update_scalar_live_at_exit(block_id, exit_state.live_scalars);
+
+                // Direct and indirect invokes need distinct normal/unwind
+                // demand so cleanup can materialize the correct edge release.
+                let block = &func.blocks[block_idx];
+                match &block.terminator {
+                    ArcTerminator::Invoke { normal, unwind, .. }
+                    | ArcTerminator::InvokeIndirect { normal, unwind, .. } => {
+                        let normal_entry = state_map
+                            .block_entry_states(*normal)
+                            .cloned()
+                            .unwrap_or_default();
+                        let unwind_entry = state_map
+                            .block_entry_states(*unwind)
+                            .cloned()
+                            .unwrap_or_default();
+                        state_map.set_invoke_edge_state(
+                            block_id,
+                            InvokeEdgeState {
+                                normal: normal_entry,
+                                unwind: unwind_entry,
+                            },
+                        );
+                    }
+                    _ => {}
+                }
+
+                // Compute the block's entry state by walking instructions backward.
+                // Also accumulates block-level effects.
+                let result = block::compute_block_entry_state(
+                    func,
+                    block_id,
+                    state_map,
+                    sigs,
+                    invoke_defs,
+                    demand_sources,
+                    select_alias_dsts,
+                );
+                state_map.accumulate_effect(result.effects);
+                state_map.update_block_entry(block_id, result.entry_state);
+                state_map.update_scalar_live_at_entry(block_id, result.scalar_live_at_entry);
+
+                // Route demand captured before successor stripping to the
+                // defining invoke so its exit query sees post-definition demand.
+                for (var, state) in result.invoke_def_demand {
+                    if let Some(&owner_block) = invoke_dst_to_owner.get(&var) {
+                        state_map.set_invoke_def_demand(owner_block, var, state);
+                    }
+                }
+
+                // Preserve pre-strip intra-block definition demand so DP-2/DP-3
+                // see converged cardinality for locally consumed variables.
+                for (var, state) in result.def_demand {
+                    state_map.set_def_demand(block_id, var, state);
+                }
+            }
+
+            if state_map.is_converged() {
+                break;
+            }
+
+            // Non-convergence safety net.
+            if iteration >= iteration_limit {
+                tracing::warn!(
+                    func = ?func.name,
+                    iterations = iteration,
+                    limit = iteration_limit,
+                    "AIMS analysis did not converge within bound — widening to TOP. \
+                     This indicates a bug in transfer functions."
+                );
+                widen_to_top(state_map, func);
+                break;
+            }
+        }
+
+        iteration
+    }
+}
+
+fn finish_analysis(
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    context_regions: &[ContextRegion],
+    mut state_map: AimsStateMap,
+    iteration: usize,
+) -> AimsStateMap {
     // Post-convergence: verify canonical fixed point and detect
     // cross-dimension chaining (Convergence Feedback).
     verify_canonical_fixed_point(&mut state_map, func);
@@ -339,24 +331,15 @@ pub fn analyze_function(
         "AIMS intraprocedural analysis converged"
     );
 
-    // Post-convergence passes (see post_convergence.rs).
-    // Position-load-bearing ordering — `populate_call_result_states` MUST
-    // run BEFORE `populate_sparse_events` so the side tables are populated
-    // when sparse_events queries `effective_locality_at_block_exit` for
-    // `PlacementEligibilityCandidate` emission.
-    //
-    // Materialize singleton `class_members` entries for transitive-drop
-    // payload edges so the `class_members(class_id)` consumers in the realize
-    // walk (`cleanup_redundant.rs`) succeed for singleton parents/children.
+    // Materialize singleton transitive-drop classes first. Call-result state
+    // must precede sparse events so placement candidates see effective exit
+    // locality.
     post_convergence::materialize_transitive_drop_singleton_classes(func, sigs, &mut state_map);
     post_convergence::populate_borrow_sources(&mut state_map, func);
     post_convergence::populate_call_result_states(&mut state_map, func, sigs);
     post_convergence::populate_sparse_events(&mut state_map, func);
     post_convergence::populate_var_shapes(&mut state_map, func);
-    // TF-2 carrier: propagate call-result forward state (uniqueness/locality/
-    // shape) across `Let { Var }` aliases. MUST run after both
-    // `populate_call_result_states` and `populate_var_shapes` so every source
-    // side table is fully populated before alias inheritance.
+    // TF-2 alias inheritance requires call-result and shape tables first.
     post_convergence::propagate_alias_forward_state(&mut state_map, func);
 
     // effect_summary.may_share is available post-convergence.

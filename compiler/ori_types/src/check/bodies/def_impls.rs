@@ -3,13 +3,39 @@
 //! Owns `check_def_impl_bodies` (Pass 5) and its block/method helpers. See
 //! `bodies/mod.rs` for the architecture docstring that covers all four body passes.
 
-use ori_ir::{ImplMethod, Module};
+use ori_ir::{ImplMethod, Module, Name, Param, Span};
 use rustc_hash::FxHashSet;
 
 use super::method_sig::{allocate_method_binders, build_method_sig};
 use crate::check::registration::resolve_type_with_method_generics;
 use crate::check::ModuleChecker;
-use crate::{check_expr, ContextKind, Expected, ExpectedOrigin};
+use crate::{
+    check_expr, ConstParamInfo, ContextKind, Expected, ExpectedOrigin, Idx, InferEngine, TypeEnv,
+};
+
+struct DefImplSetup {
+    params: Vec<Param>,
+    param_env: TypeEnv,
+    param_types: Vec<Idx>,
+    return_type: Idx,
+    const_params: Vec<ConstParamInfo>,
+    inline_bounds: Vec<(Idx, Vec<Name>)>,
+    self_rigid: Idx,
+    fn_type: Idx,
+    body_span: Span,
+}
+
+struct DefImplEngineInput<'a> {
+    method: &'a ImplMethod,
+    def_impl_trait: Name,
+    param_env: TypeEnv,
+    param_types: &'a mut Vec<Idx>,
+    return_type: &'a mut Idx,
+    const_params: &'a [ConstParamInfo],
+    inline_bounds: &'a [(Idx, Vec<Name>)],
+    self_rigid: Idx,
+    body_span: Span,
+}
 
 /// Check all def impl method bodies.
 #[tracing::instrument(level = "debug", skip_all, fields(count = module.def_impls.len()))]
@@ -30,12 +56,6 @@ fn check_def_impl_block(checker: &mut ModuleChecker<'_>, def_impl: &ori_ir::DefI
 }
 
 /// Type check a single def impl method body.
-#[expect(
-    clippy::too_many_lines,
-    reason = "rank-scope-wrapped body-inference closure with method-binder setup \
-              matches the canonical body-checking shape shared with check_function; \
-              splitting across helpers would obscure §SG-5 enter/exit pairing"
-)]
 fn check_def_impl_method(
     checker: &mut ModuleChecker<'_>,
     method: &ImplMethod,
@@ -46,239 +66,223 @@ fn check_def_impl_method(
         return;
     };
 
-    // Phase B Step 5: bind method-level type generics as fresh RigidVars.
-    // Phase B-Residual-2 (a): also collect method-level const generics for
-    // body-scope binding below.
-    // Phase B-Residual-2 (c): also collect inline `<T: Bound>` assumptions
-    // for body-internal trait dispatch.
-    // Def-impl methods have no impl-level type params and no `Self`, so the
-    // resolver scope is method-level only and `self_type` is `Idx::ERROR`
-    // (matching the pre-existing `resolve_parsed_type_simple` semantics for
-    // `SelfType`).
-    let (method_substitutions, method_generic_params, method_const_params, method_inline_bounds) =
-        allocate_method_binders(checker, method);
-
-    // Allocate the def-impl's `Self` `RigidVar` BEFORE resolving
-    // params/return so `(self)` param annotations and `Self` return
-    // annotations resolve to this RigidVar instead of the
-    // `engine.fresh_var()` fallback at `infer/expr/type_resolution.rs`
-    // (which fires when no `impl_self_type` is set). Without this early
-    // allocation, the `Tag::Var` for the elided self type leaks into
-    // `param_types[0]` and surfaces as `E2005` at PC-2 validation.
-    let self_rigid = checker.pool_mut().rigid_var(ori_ir::Name::EMPTY);
-
-    // Resolve parameter types (Self bound to self_rigid; method-level overlay applies)
-    let arena = checker.arena();
-    let params: Vec<_> = arena.get_params(method.params).to_vec();
-    let mut param_env = child_env;
-
-    let self_kw = checker.well_known().self_kw;
-    let mut param_types = Vec::with_capacity(params.len());
-    for p in &params {
-        let ty = match &p.ty {
-            Some(parsed_ty) => resolve_type_with_method_generics(
-                checker,
-                parsed_ty,
-                &method_substitutions,
-                &method_generic_params,
-                self_rigid,
-            ),
-            // `(self)` reaches here with `ty: None` (the parser doesn't
-            // synthesize a SelfType annotation for it). Bind `self`'s type
-            // to the def-impl's Self RigidVar instead of a fresh var so
-            // the receiver type at body-internal `self.method()` calls
-            // can dispatch via the bound-chain on a stable RigidVar
-            // identity rather than an unbound `Tag::Var` that leaks as
-            // `E2005` at PC-2 validation.
-            None if p.name == self_kw => self_rigid,
-            None => checker.pool_mut().fresh_var(),
-        };
-        param_env.bind(p.name, ty);
-        param_types.push(ty);
-    }
-
-    // Resolve return type. `mut` so defaulting can refresh it.
-    let mut return_type = resolve_type_with_method_generics(
-        checker,
-        &method.return_ty,
-        &method_substitutions,
-        &method_generic_params,
+    let DefImplSetup {
+        params,
+        param_env,
+        mut param_types,
+        mut return_type,
+        const_params: method_const_params,
+        inline_bounds: method_inline_bounds,
         self_rigid,
-    );
+        fn_type,
+        body_span,
+    } = prepare_def_impl(checker, method, child_env);
 
-    // §B.2 step 2: bind method-level RigidVars in TypeEnv child for body-level
-    // type-annotation lookups (e.g., `let x: T = expr;`).
-    for (&mname, &rigid_idx) in &method_substitutions {
-        param_env.bind(mname, rigid_idx);
-    }
-
-    // Phase B-Residual-2 (a): bind method-level const generics as their
-    // declared type for body identifier resolution. Mirrors the
-    // `check_impl_method` and `functions.rs` patterns.
-    for cp in &method_const_params {
-        param_env.bind(cp.name, cp.const_type);
-    }
-
-    // Build function type
-    let fn_type = checker.pool_mut().function(&param_types, return_type);
-
-    // Get body span
-    let body_span = checker.arena().get_expr(method.body).span;
-
-    // self_rigid was allocated earlier (before param resolution) so the
-    // `(self)` param's Self annotation resolved to it; with_impl_scope
-    // below makes it visible to body-internal Self references too.
-
-    // Check body with function scope wrapped in impl scope so the engine's
-    // `impl_self_type()` returns `self_rigid` for the duration. Defaulting
-    // for unbound vars reachable from empty-literal expr roots fires before
-    // returning from the closure.
-    let param_types_ref = &mut param_types;
-    let return_type_ref = &mut return_type;
-    let const_params_for_engine = method_const_params.clone();
-    let inline_bounds_for_engine = method_inline_bounds;
-    let (
-        expr_types,
-        errors,
-        warnings,
-        pat_resolutions,
-        mono_instances,
-        mono_dispatch_pre_dedup,
-        deferred_mono_calls,
-        composed_burdens,
-        assign_desugars,
-        module_alias_calls,
-        iter_route_desugars,
-    ) = checker.with_impl_scope(self_rigid, |c| {
-        c.with_function_scope(fn_type, FxHashSet::default(), |c| {
-            let arena = c.arena();
-            let mut engine = c.create_engine_with_env(param_env);
-
-            // Phase B-Residual-2 (a): bind method-level const generics on the
-            // engine for `$N` const-position lookups inside the body. Mirrors
-            // the `check_impl_method` engine-binding pattern.
-            for cp in &const_params_for_engine {
-                engine.bind_method_const(cp.name, cp.const_type);
-            }
-
-            // Phase B-Residual-2 (c): register inline `<T: Bound>` trait-bound
-            // assumptions on the engine for body-internal trait dispatch.
-            // Mirrors the `check_impl_method` engine-binding pattern.
-            for (rigid_idx, trait_names) in &inline_bounds_for_engine {
-                for &tname in trait_names {
-                    engine.bind_method_rigid_bound(*rigid_idx, tname);
-                }
-            }
-
-            // the def-impl's `Self` RigidVar is bound by the
-            // implemented trait — register it so a body-internal `self.m()`
-            // call resolves the trait's methods via the bound-chain
-            // (`impl_lookup.rs` `find_trait_method_via_bound_chain`). Without
-            // this, `self.m()` on the Self RigidVar finds no bound, returns
-            // NotFound, and reports a spurious "no method on
-            // generic type" — the dispatch never truly resolved (it relied on
-            // a silent-accept poison since removed).
-            engine.bind_method_rigid_bound(self_rigid, def_impl_trait);
-
-            engine.push_context(ContextKind::FunctionReturn {
-                func_name: Some(method.name),
-            });
-
-            // Check body against declared return type (bidirectional)
-            let expected = Expected {
-                ty: *return_type_ref,
-                origin: ExpectedOrigin::Context {
-                    span: body_span,
-                    kind: ContextKind::FunctionReturn {
-                        func_name: Some(method.name),
-                    },
+    let outputs = checker.with_impl_scope(self_rigid, |checker| {
+        checker.with_function_scope(fn_type, FxHashSet::default(), |checker| {
+            infer_def_impl_body(
+                checker,
+                DefImplEngineInput {
+                    method,
+                    def_impl_trait,
+                    param_env,
+                    param_types: &mut param_types,
+                    return_type: &mut return_type,
+                    const_params: &method_const_params,
+                    inline_bounds: &method_inline_bounds,
+                    self_rigid,
+                    body_span,
                 },
-            };
-            let _body_ty = check_expr(&mut engine, arena, method.body, &expected, body_span);
-
-            engine.pop_context();
-
-            // Mark body inference complete before the defaulting pre-pass runs;
-            // defaulting helpers debug-assert this flag (see `check_function`).
-            engine.mark_body_inference_complete();
-
-            let mut expr_types = engine.take_expr_types();
-            engine.default_unbound_vars_in_scope(
-                arena,
-                &mut expr_types,
-                param_types_ref,
-                return_type_ref,
-                &FxHashSet::default(),
-            );
-
-            // Normalize `Tag::Var(Generalized)` leaves to
-            // `Tag::BoundVar`. def-impl methods have
-            // no top-level scheme_var_ids; only inner let-polymorphism
-            // generalization contributes via pending_generalized_vars.
-            engine.normalize_body_generalized_to_bound_var(
-                &mut expr_types,
-                param_types_ref,
-                return_type_ref,
-                &[],
-            );
-
-            // Deep-resolve var-links so late-resolved generic-builtin
-            // instantiations are var-free in the exported IR + composed by the
-            // burden sweep (see `intern_link_resolved_body_types`).
-            engine.compose_body_type_burdens(&expr_types);
-
-            (
-                expr_types,
-                engine.take_errors(),
-                engine.take_warnings(),
-                engine.take_pattern_resolutions(),
-                engine.take_mono_instances(),
-                engine.take_mono_dispatch_pre_dedup(),
-                engine.take_deferred_mono_calls(),
-                engine.take_composed_burdens(),
-                engine.take_assign_desugars(),
-                engine.take_module_alias_calls(),
-                engine.take_iter_routes(),
             )
         })
     });
 
-    // Build the post-defaulted signature. `param_types` and `return_type` have
-    // been refreshed in place by `default_unbound_vars_in_scope` inside the
-    // inference closure, so the sig reflects end-of-body truth — the exact
-    // inputs `run_validator` needs to enforce `PC-2` across sig positions.
-    // def-impl methods never register a sig externally (no `register_impl_sig`
-    // call); the sig is validator-local. `type_params = &[]` because
-    // `check_def_impl_method` does not receive type params at the method level.
-    let sig = build_method_sig(
-        method.name,
+    finalize_def_impl(
+        checker,
+        method,
         &params,
         param_types,
         return_type,
-        &[],
         method_const_params,
+        outputs,
+    );
+}
+
+fn infer_def_impl_body(
+    checker: &mut ModuleChecker<'_>,
+    input: DefImplEngineInput<'_>,
+) -> super::BodyOutputs {
+    let arena = checker.arena();
+    let mut engine = checker.create_engine_with_env(input.param_env);
+    bind_def_impl_engine(
+        &mut engine,
+        input.const_params,
+        input.inline_bounds,
+        input.self_rigid,
+        input.def_impl_trait,
+    );
+    engine.push_context(ContextKind::FunctionReturn {
+        func_name: Some(input.method.name),
+    });
+    let expected = Expected {
+        ty: *input.return_type,
+        origin: ExpectedOrigin::Context {
+            span: input.body_span,
+            kind: ContextKind::FunctionReturn {
+                func_name: Some(input.method.name),
+            },
+        },
+    };
+    let _body_ty = check_expr(
+        &mut engine,
+        arena,
+        input.method.body,
+        &expected,
+        input.body_span,
+    );
+    engine.pop_context();
+    engine.mark_body_inference_complete();
+
+    let mut expr_types = engine.take_expr_types();
+    engine.default_unbound_vars_in_scope(
+        arena,
+        &mut expr_types,
+        input.param_types,
+        input.return_type,
+        &FxHashSet::default(),
+    );
+    engine.normalize_body_generalized_to_bound_var(
+        &mut expr_types,
+        input.param_types,
+        input.return_type,
+        &[],
+    );
+    engine.compose_body_type_burdens(&expr_types);
+
+    super::BodyOutputs {
+        expr_types,
+        errors: engine.take_errors(),
+        warnings: engine.take_warnings(),
+        pat_resolutions: engine.take_pattern_resolutions(),
+        mono_instances: engine.take_mono_instances(),
+        mono_dispatch_pre_dedup: engine.take_mono_dispatch_pre_dedup(),
+        deferred_mono_calls: engine.take_deferred_mono_calls(),
+        composed_burdens: engine.take_composed_burdens(),
+        capability_exempt_var_ids: Vec::new(),
+        assign_desugars: engine.take_assign_desugars(),
+        module_alias_calls: engine.take_module_alias_calls(),
+        iter_route_desugars: engine.take_iter_routes(),
+    }
+}
+
+fn finalize_def_impl(
+    checker: &mut ModuleChecker<'_>,
+    method: &ImplMethod,
+    params: &[Param],
+    param_types: Vec<Idx>,
+    return_type: Idx,
+    const_params: Vec<ConstParamInfo>,
+    outputs: super::BodyOutputs,
+) {
+    let signature = build_method_sig(
+        method.name,
+        params,
+        param_types,
+        return_type,
+        &[],
+        const_params,
         checker.pool(),
     );
+    super::finalize_body_and_export(checker, &signature, method.span, method.body, outputs);
+}
 
-    // Shared PC-2 validation + store/push/accumulate spine.
-    super::finalize_body_and_export(
+fn bind_def_impl_engine(
+    engine: &mut InferEngine<'_>,
+    const_params: &[ConstParamInfo],
+    inline_bounds: &[(Idx, Vec<Name>)],
+    self_rigid: Idx,
+    def_impl_trait: Name,
+) {
+    for param in const_params {
+        engine.bind_method_const(param.name, param.const_type);
+    }
+    for (rigid_idx, trait_names) in inline_bounds {
+        for &trait_name in trait_names {
+            engine.bind_method_rigid_bound(*rigid_idx, trait_name);
+        }
+    }
+    engine.bind_method_rigid_bound(self_rigid, def_impl_trait);
+}
+
+fn resolve_def_impl_parameters(
+    checker: &mut ModuleChecker<'_>,
+    method: &ImplMethod,
+    substitutions: &rustc_hash::FxHashMap<Name, Idx>,
+    generic_params: &[Name],
+    self_rigid: Idx,
+    mut env: TypeEnv,
+) -> (Vec<Param>, TypeEnv, Vec<Idx>) {
+    let params = checker.arena().get_params(method.params).to_vec();
+    let self_kw = checker.well_known().self_kw;
+    let mut types = Vec::with_capacity(params.len());
+    for param in &params {
+        let ty = match &param.ty {
+            Some(parsed) => resolve_type_with_method_generics(
+                checker,
+                parsed,
+                substitutions,
+                generic_params,
+                self_rigid,
+            ),
+            None if param.name == self_kw => self_rigid,
+            None => checker.pool_mut().fresh_var(),
+        };
+        env.bind(param.name, ty);
+        types.push(ty);
+    }
+    (params, env, types)
+}
+
+fn prepare_def_impl(
+    checker: &mut ModuleChecker<'_>,
+    method: &ImplMethod,
+    child_env: TypeEnv,
+) -> DefImplSetup {
+    let (substitutions, generic_params, const_params, inline_bounds) =
+        allocate_method_binders(checker, method);
+    let self_rigid = checker.pool_mut().rigid_var(Name::EMPTY);
+    let (params, mut param_env, param_types) = resolve_def_impl_parameters(
         checker,
-        &sig,
-        method.span,
-        method.body,
-        super::BodyOutputs {
-            expr_types,
-            errors,
-            warnings,
-            pat_resolutions,
-            mono_instances,
-            mono_dispatch_pre_dedup,
-            deferred_mono_calls,
-            composed_burdens,
-            capability_exempt_var_ids: Vec::new(),
-            assign_desugars,
-            module_alias_calls,
-            iter_route_desugars,
-        },
+        method,
+        &substitutions,
+        &generic_params,
+        self_rigid,
+        child_env,
     );
+    let return_type = resolve_type_with_method_generics(
+        checker,
+        &method.return_ty,
+        &substitutions,
+        &generic_params,
+        self_rigid,
+    );
+    for (&name, &rigid_idx) in &substitutions {
+        param_env.bind(name, rigid_idx);
+    }
+    for param in &const_params {
+        param_env.bind(param.name, param.const_type);
+    }
+    let fn_type = checker.pool_mut().function(&param_types, return_type);
+    let body_span = checker.arena().get_expr(method.body).span;
+    DefImplSetup {
+        params,
+        param_env,
+        param_types,
+        return_type,
+        const_params,
+        inline_bounds,
+        self_rigid,
+        fn_type,
+        body_span,
+    }
 }

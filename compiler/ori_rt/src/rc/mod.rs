@@ -12,9 +12,9 @@ mod debug;
 mod elem_header;
 mod list_rc;
 mod map_rc;
+mod prelude;
 mod set_rc;
 
-pub use allocate::*;
 #[cfg(all(test, debug_assertions))]
 pub(crate) use debug::{
     alloc_registry_insert, alloc_registry_query, alloc_registry_remove, alloc_registry_update,
@@ -28,39 +28,20 @@ pub(crate) use debug::{
 };
 #[cfg(debug_assertions)]
 pub use debug::{reset_alloc_registry, reset_freed_set};
-pub use elem_header::*;
-pub use list_rc::*;
-pub use map_rc::*;
-pub use set_rc::*;
+pub use prelude::*;
 
 use debug::{rc_trace_dec, rc_trace_inc};
 
-// Fatal RC errors (underflow, double-free, misalignment, drop panic)
-// terminate via `std::process::abort()` so a supervising process observes a
-// uniform killed-by-SIGABRT status (`WIFSIGNALED`) it can classify; test
-// harnesses also accept the legacy 128+6 exit class from older binaries.
+// Fatal RC errors abort so supervisors can classify a uniform SIGABRT status;
+// harnesses also accept the legacy 128+6 exit class.
 
 #[cfg(not(feature = "single-threaded"))]
 use std::sync::atomic;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-// Reference Counting
-//
-// V5 header layout (32 bytes):
-//
-//   base+0          base+8            base+16          base+24           base+32
-//   [data_size: i64 | elem_dec_fn: ptr | elem_count: i64 | strong_count: i64 | data ...]
-//                                                                               ^
-//                                                                               data_ptr
-//
-// From data_ptr: strong_count = data-8, elem_count = data-16,
-//                elem_dec_fn = data-24, data_size = data-32
-//
-// strong_count stays at data_ptr - 8 — all RC operations are unchanged from V2/V3/V4.
-// elem_dec_fn stores the element destructor for collection buffers (V4).
-// elem_count stores the number of initialized elements for full-range cleanup (V5).
-//   When a slice is the last owner, elem_count tells slice_buffer_rc_dec how
-//   many elements to clean up (not just the slice's visible range).
+// V5's 32-byte header stores data size, element destructor, initialized-element
+// count, then strong count immediately before data. The initialized count lets
+// a last-owner slice clean the full buffer rather than only its visible range.
 
 /// Live RC allocation counter for debugging and testing.
 ///
@@ -127,10 +108,8 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
             let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
             let prev = (*rc_ptr).fetch_add(1, Ordering::Relaxed);
 
-            // Immortal sentinel: skip if refcount is MAX_REFCOUNT. Immortal
-            // objects (e.g., pre-allocated empty string) have their RC set to
-            // MAX_REFCOUNT at creation and never participate in RC operations.
-            // Undo the increment we just did.
+            // Immortal objects use MAX_REFCOUNT and never participate in RC;
+            // restore the sentinel after the attempted increment.
             if prev == MAX_REFCOUNT {
                 (*rc_ptr).fetch_sub(1, Ordering::Relaxed);
                 return;

@@ -257,8 +257,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         val: ValueId,
         ty: Idx,
-        is_inc: bool,
-        count: u32,
+        operation: super::emitter_utils::RcOperation,
     ) {
         let fields = self.tagless_fields(ty);
         let resolved_ty = self.pool.resolve_fully(ty);
@@ -270,12 +269,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        let dir = if is_inc { "rc_inc" } else { "rc_dec" };
+        let dir = operation.prefix();
         let enum_llvm_ty = self.resolve_type(ty);
         let alloca = self.builder.alloca(enum_llvm_ty, &format!("{dir}.tagless"));
         self.builder.store(val, alloca);
 
-        if is_inc {
+        if let Some(count) = operation.retain_count() {
             // Inc keeps forward declaration order (unobservable for inc).
             for field in &rc_fields {
                 let gep = self.builder.struct_gep(
@@ -315,7 +314,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .iter()
             .map(|f| (f.struct_index, f.field_type))
             .collect();
-        let walk = super::emitter_utils::field_rc_walk_order(&decl_walk, true);
+        let walk = super::emitter_utils::field_rc_walk_order(
+            &decl_walk,
+            super::emitter_utils::FieldRcWalkOrder::Teardown,
+        );
         let ops = TaglessPayloadOps {
             alloca,
             enum_llvm_ty,

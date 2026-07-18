@@ -409,7 +409,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             (0..=max_fi).map(|fi| u64::from(fi) * 8).collect()
         };
 
-        let walk = super::emitter_utils::field_rc_walk_order(rc_fields, true);
+        let walk = super::emitter_utils::field_rc_walk_order(
+            rc_fields,
+            super::emitter_utils::FieldRcWalkOrder::Teardown,
+        );
         let ops = HeapEnumPayloadOps {
             data_ptr,
             enum_llvm_ty,
@@ -464,7 +467,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let data_variant_idx = usize::from(niche_variant_idx == 0);
         if let Some(data_fields) = variants.get(data_variant_idx) {
             let (resolved_ty, _) = resolve_type_through_aliases(ty, self.pool);
-            let walk = super::emitter_utils::field_rc_walk_order(data_fields, true);
+            let walk = super::emitter_utils::field_rc_walk_order(
+                data_fields,
+                super::emitter_utils::FieldRcWalkOrder::Teardown,
+            );
             let ops = NicheEnumPayloadOps {
                 value: data_ptr,
                 enum_llvm_ty,

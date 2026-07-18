@@ -1,19 +1,8 @@
-//! Import registration for the evaluator.
+//! Evaluator registration for resolved imports.
 //!
-//! Handles registering resolved imports into the evaluator's `Environment`.
-//! [`crate::imports`] resolves paths; this module handles
-//! the eval-specific concern of building `FunctionValue`s and binding them.
-//!
-//! ## Visibility
-//!
-//! - Public items (`pub @func`) can be imported normally
-//! - Private items require `::` prefix: `use './mod' { ::private_func }`
-//! - Test modules in `_test/` can access private items from parent module
-//!
-//! ## Module Aliases
-//!
-//! `use path as alias` imports the entire module as a namespace.
-//! Access via qualified syntax: `alias.function()`.
+//! [`crate::imports`] resolves paths; this module creates and binds
+//! `FunctionValue`s. Public items import normally, private items require `::`
+//! except from parent test modules, and module aliases bind qualified names.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -47,6 +36,7 @@ fn extract_function_metadata(
 ///
 /// Uses `BTreeMap` for deterministic iteration order, which is important
 /// for reproducible builds and Salsa query compatibility.
+#[derive(Debug)]
 pub struct ImportedModule<'a> {
     /// The parse result containing the module's AST.
     pub result: &'a ParseOutput,
@@ -164,20 +154,15 @@ pub(crate) fn register_imports(
     current_file: &Path,
     canon: Option<&SharedCanonResult>,
 ) -> Result<(), Vec<ImportError>> {
-    // Handle module alias: `use path as alias`
     if let Some(alias) = import.module_alias {
         return register_module_alias(import, imported, env, alias, interner, import_path, canon)
             .map_err(|e| vec![e]);
     }
 
-    // Check if this is a test module importing from its parent module
     let allow_private_access =
         is_test_module(current_file) && is_parent_module_import(current_file, import_path);
 
-    // Build FxHashMap for O(1) function lookup instead of O(n) linear scan.
-    // Keyed by Name (u32) rather than &str — avoids interner lookups during
-    // map construction and per-item lookup. String lookup is only
-    // needed on the cold error path for diagnostic messages.
+    // Why: `Name` keys avoid interner lookups outside the cold diagnostic path.
     let func_by_name: FxHashMap<Name, &crate::ir::Function> = imported
         .result
         .module
@@ -186,16 +171,14 @@ pub(crate) fn register_imports(
         .map(|f| (f.name, f))
         .collect();
 
-    // Build enriched captures once (current environment + all module functions)
-    // and share via Arc, rather than cloning the environment per imported item.
+    // Why: share one captured environment across imported functions.
     let shared_captures = imported.shared_captures(env);
 
     let mut errors = Vec::new();
 
     for item in &import.items {
-        // Find the function in the imported module (O(1) Name-based lookup)
         if let Some(&func) = func_by_name.get(&item.name) {
-            // Check visibility: private items require :: prefix unless test module
+            // INVARIANT: private imports require `::` outside parent test modules.
             if !func.visibility.is_public() && !item.is_private && !allow_private_access {
                 let name_str = interner.lookup(item.name);
                 errors.push(ImportError::with_span(
@@ -277,12 +260,10 @@ fn register_module_alias(
         ));
     }
 
-    // Collect all public functions into the namespace
-    // Uses BTreeMap for deterministic iteration order
+    // Why: namespace iteration must remain deterministic.
     let mut namespace: BTreeMap<Name, Value> = BTreeMap::new();
 
-    // Clone captures once and wrap in Arc for sharing across all functions
-    // Convert BTreeMap to FxHashMap (FunctionValue expects FxHashMap for captures)
+    // Why: `FunctionValue` shares `FxHashMap` captures across namespace functions.
     let shared_captures: Arc<FxHashMap<Name, Value>> = Arc::new(
         imported
             .functions
@@ -308,11 +289,7 @@ fn register_module_alias(
                 }
             }
 
-            // Bind the function directly under the qualified name `"alias.func"`
-            // so a canon-rewritten alias-qualified call
-            // (`Call(FunctionRef("alias.func"))`) resolves on the eval backend,
-            // matching the AOT/LLVM path. The namespace binding remains for
-            // any residual `Value::ModuleNamespace` dispatch.
+            // INVARIANT: canonical alias calls and namespace dispatch share this binding.
             let qualified = interner.intern(&ori_ir::qualified_alias_name(
                 interner.lookup(alias),
                 interner.lookup(func.name),

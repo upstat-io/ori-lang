@@ -13,6 +13,27 @@ use super::super::change_detection::{compute_skippable_and_update, TestRunCache}
 use super::super::result::{FileSummary, TestOutcome, TestResult};
 use super::{Backend, OutputFormat, TestRunner, TestRunnerConfig};
 
+struct CompileFailContext<'a> {
+    type_result: &'a ori_types::TypeCheckResult,
+    pattern_problems: &'a [ori_ir::canon::PatternProblem],
+    source: &'a str,
+    interner: &'a crate::ir::StringInterner,
+    pool: &'a ori_types::Pool,
+    config: &'a TestRunnerConfig,
+}
+
+struct RegularRunContext<'a> {
+    db: &'a CompilerDb,
+    path: &'a Path,
+    parse: &'a ori_parse::ParseOutput,
+    typed: &'a ori_types::TypeCheckResult,
+    pool: &'a ori_types::Pool,
+    canon: &'a ori_ir::canon::SharedCanonResult,
+    skippable: &'a rustc_hash::FxHashSet<crate::ir::Name>,
+    config: &'a TestRunnerConfig,
+    interner: &'a crate::ir::StringInterner,
+}
+
 impl TestRunner {
     /// Run all tests in a single file with a shared interner.
     ///
@@ -20,10 +41,6 @@ impl TestRunner {
     /// while sharing the interner across all files. This allows parallel execution
     /// (each file gets its own Salsa query cache) while maintaining `Name` comparability
     /// (all `Name` values come from the same interner).
-    #[expect(
-        clippy::too_many_lines,
-        reason = "multi-phase test file execution pipeline"
-    )]
     pub(super) fn run_file_with_interner(
         path: &Path,
         interner: &crate::ir::SharedInterner,
@@ -120,40 +137,18 @@ impl TestRunner {
             Self::prioritize_tests(&mut regular_tests, &type_result.typed, interner);
         }
 
-        // Run compile_fail tests first (they don't need load_module)
-        for test in &compile_fail_tests {
-            if !Self::test_passes_filter(test, config, interner) {
-                continue;
-            }
-            // Honor `#skip(backend: "<name>")` for compile_fail tests too: a
-            // test naming the current backend emits a Skipped result instead
-            // of running, same as the backend-skip check applied to regular tests.
-            if let Some(reason) = Self::backend_skip_reason(test, config.backend) {
-                let result = TestResult::skipped_for(test, reason, interner);
-                Self::protocol_result(&result, config, interner);
-                summary.add_result(result);
-                continue;
-            }
-            Self::protocol_start(test.name, config, interner);
-
-            let inner_result = Self::run_compile_fail_test(
-                test,
-                &type_result,
-                &shared_canon.problems,
+        Self::run_compile_fail_tests(
+            &mut summary,
+            &compile_fail_tests,
+            &CompileFailContext {
+                type_result: &type_result,
+                pattern_problems: &shared_canon.problems,
                 source,
                 interner,
-                &pool,
-            );
-
-            let result = if let Some(expected_failure) = test.fail_expected {
-                Self::apply_fail_wrapper(inner_result, expected_failure, interner)
-            } else {
-                inner_result
-            };
-
-            Self::protocol_result(&result, config, interner);
-            summary.add_result(result);
-        }
+                pool: &pool,
+                config,
+            },
+        );
 
         // Skip regular test execution if there are no regular tests
         if regular_tests.is_empty() {
@@ -166,116 +161,167 @@ impl TestRunner {
         let non_compile_fail_errors =
             non_compile_fail_type_errors(&type_result, &compile_fail_tests);
 
-        if !non_compile_fail_errors.is_empty() {
-            // Type errors outside compile_fail tests block regular tests on
-            // both backends (interpreter and LLVM alike never execute past
-            // unresolved type errors); only the TestOutcome variant differs.
-            let is_llvm = matches!(config.backend, Backend::LLVM);
-
-            // Honor the name filter: blocked results are emitted only for
-            // tests that would have run (in worker mode, only tests the plan
-            // announced) — an unfiltered emission reads as a protocol anomaly.
-            for test in regular_tests
-                .iter()
-                .filter(|test| Self::test_passes_filter(test, config, interner))
-            {
-                let result = if is_llvm {
-                    TestResult {
-                        name: test.name,
-                        targets: test.targets.clone(),
-                        outcome: TestOutcome::LlvmCompileFail(
-                            "blocked by type errors in file".to_string(),
-                        ),
-                        duration: Duration::ZERO,
-                    }
-                } else {
-                    TestResult::failed(
-                        test.name,
-                        test.targets.clone(),
-                        "blocked by type errors in file".to_string(),
-                        Duration::ZERO,
-                    )
-                };
-                Self::protocol_result(&result, config, interner);
-                summary.add_result(result);
-            }
-            for error in non_compile_fail_errors {
-                summary.add_error(error.format_with(&pool, interner));
-            }
-            if is_llvm {
-                summary.llvm_compile_error = true;
-            }
+        if Self::record_blocked_regular_tests(
+            &mut summary,
+            &regular_tests,
+            &non_compile_fail_errors,
+            config,
+            interner,
+            &pool,
+        ) {
             return summary;
         }
 
-        // Honor `#skip(backend: "<name>")` for the current backend: emit
-        // Skipped for each matching test (keeps worker-mode accounting
-        // consistent) and run the remainder; other-backend tests still run.
-        let backend_run_tests: Vec<&TestDef> = regular_tests
+        Self::run_regular_backend(
+            &mut summary,
+            &regular_tests,
+            &RegularRunContext {
+                db: &db,
+                path,
+                parse: &parse_result,
+                typed: &type_result,
+                pool: &pool,
+                canon: &shared_canon,
+                skippable: &skippable,
+                config,
+                interner,
+            },
+        );
+
+        summary
+    }
+
+    fn run_compile_fail_tests(
+        summary: &mut FileSummary,
+        tests: &[&TestDef],
+        context: &CompileFailContext<'_>,
+    ) {
+        for test in tests {
+            if !Self::test_passes_filter(test, context.config, context.interner) {
+                continue;
+            }
+            if let Some(reason) = Self::backend_skip_reason(test, context.config.backend) {
+                let result = TestResult::skipped_for(test, reason, context.interner);
+                Self::protocol_result(&result, context.config, context.interner);
+                summary.add_result(result);
+                continue;
+            }
+            Self::protocol_start(test.name, context.config, context.interner);
+            let inner = Self::run_compile_fail_test(
+                test,
+                context.type_result,
+                context.pattern_problems,
+                context.source,
+                context.interner,
+                context.pool,
+            );
+            let result = match test.fail_expected {
+                Some(expected) => Self::apply_fail_wrapper(inner, expected, context.interner),
+                None => inner,
+            };
+            Self::protocol_result(&result, context.config, context.interner);
+            summary.add_result(result);
+        }
+    }
+
+    fn record_blocked_regular_tests(
+        summary: &mut FileSummary,
+        tests: &[&TestDef],
+        errors: &[&ori_types::TypeCheckError],
+        config: &TestRunnerConfig,
+        interner: &crate::ir::StringInterner,
+        pool: &ori_types::Pool,
+    ) -> bool {
+        if errors.is_empty() {
+            return false;
+        }
+        let is_llvm = matches!(config.backend, Backend::LLVM);
+        for test in tests
+            .iter()
+            .filter(|test| Self::test_passes_filter(test, config, interner))
+        {
+            let result = if is_llvm {
+                TestResult {
+                    name: test.name,
+                    targets: test.targets.clone(),
+                    outcome: TestOutcome::LlvmCompileFail(
+                        "blocked by type errors in file".to_string(),
+                    ),
+                    duration: Duration::ZERO,
+                }
+            } else {
+                TestResult::failed(
+                    test.name,
+                    test.targets.clone(),
+                    "blocked by type errors in file".to_string(),
+                    Duration::ZERO,
+                )
+            };
+            Self::protocol_result(&result, config, interner);
+            summary.add_result(result);
+        }
+        for error in errors {
+            summary.add_error(error.format_with(pool, interner));
+        }
+        summary.llvm_compile_error = is_llvm;
+        true
+    }
+
+    fn run_regular_backend(
+        summary: &mut FileSummary,
+        tests: &[&TestDef],
+        context: &RegularRunContext<'_>,
+    ) {
+        let selected: Vec<&TestDef> = tests
             .iter()
             .copied()
             .filter(|test| {
-                if !Self::test_passes_filter(test, config, interner) {
+                if !Self::test_passes_filter(test, context.config, context.interner) {
                     return true;
                 }
-                match Self::backend_skip_reason(test, config.backend) {
-                    Some(reason) => {
-                        let result = TestResult::skipped_for(test, reason, interner);
-                        Self::protocol_result(&result, config, interner);
-                        summary.add_result(result);
-                        false
-                    }
-                    None => true,
-                }
+                let Some(reason) = Self::backend_skip_reason(test, context.config.backend) else {
+                    return true;
+                };
+                let result = TestResult::skipped_for(test, reason, context.interner);
+                Self::protocol_result(&result, context.config, context.interner);
+                summary.add_result(result);
+                false
             })
             .collect();
-
-        // Run regular tests based on backend
-        match config.backend {
-            Backend::Interpreter => {
-                Self::run_interpreter_tests(
-                    &mut summary,
-                    &db,
-                    path,
-                    &parse_result,
-                    &backend_run_tests,
-                    &shared_canon,
-                    &skippable,
-                    config,
-                    interner,
-                );
-            }
+        match context.config.backend {
+            Backend::Interpreter => Self::run_interpreter_tests(
+                summary,
+                context.db,
+                context.path,
+                context.parse,
+                &selected,
+                context.canon,
+                context.skippable,
+                context.config,
+                context.interner,
+            ),
             #[cfg(feature = "llvm")]
-            Backend::LLVM => {
-                // Use LLVM JIT backend — only pass regular_tests since
-                // compile_fail tests are backend-independent and already handled.
-                Self::run_file_llvm(
-                    &mut summary,
-                    super::llvm_backend::LlvmTestFile {
-                        db: &db,
-                        path,
-                        parse: &parse_result,
-                        typed: &type_result,
-                        pool: &pool,
-                        canon: &shared_canon,
-                        interner,
-                    },
-                    super::llvm_backend::LlvmTestSelection {
-                        tests: &backend_run_tests,
-                        skippable: &skippable,
-                        config,
-                    },
-                );
-            }
+            Backend::LLVM => Self::run_file_llvm(
+                summary,
+                super::llvm_backend::LlvmTestFile {
+                    db: context.db,
+                    path: context.path,
+                    parse: context.parse,
+                    typed: context.typed,
+                    pool: context.pool,
+                    canon: context.canon,
+                    interner: context.interner,
+                },
+                super::llvm_backend::LlvmTestSelection {
+                    tests: &selected,
+                    skippable: context.skippable,
+                    config: context.config,
+                },
+            ),
             #[cfg(not(feature = "llvm"))]
-            Backend::LLVM => {
-                summary.add_error(
-                    "LLVM backend not available (compile with --features llvm)".to_string(),
-                );
-            }
+            Backend::LLVM => summary
+                .add_error("LLVM backend not available (compile with --features llvm)".to_string()),
         }
-
-        summary
     }
 
     /// Run regular tests on the interpreter backend.

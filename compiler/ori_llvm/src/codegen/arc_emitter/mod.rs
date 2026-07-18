@@ -1,37 +1,8 @@
-//! ARC IR → LLVM IR emitter.
+//! ARC IR to LLVM IR emission.
 //!
-//! Translates [`ori_arc::ArcFunction`] basic blocks and instructions directly to LLVM IR,
-//! including RC operations (`ori_rc_inc`, `ori_rc_dec`) and structured cleanup
-//! via `invoke`/`landingpad`.
-//!
-//! This is the **sole codegen path** for all Ori functions (JIT and AOT).
-//! Every function goes through: `CanExpr → ARC IR → ArcIrEmitter → LLVM IR`.
-//!
-//! # Architecture
-//!
-//! ```text
-//! CanExpr → ori_arc::lower → ArcFunction
-//!          → ori_arc pipeline (borrow, RC, reuse, eliminate)
-//!          → ArcIrEmitter → LLVM IR (with RC lifecycle)
-//! ```
-//!
-//! # Submodules
-//!
-//! - `builtins` — builtin method emission (string, list, map, iterator ops)
-//! - `closure_wrappers` — closure wrapper function generation (`_ori_partial_N` trampolines)
-//! - `closures` — closure (partial application) emission and environment management
-//! - `construction` — value construction: structs, enums, lists, maps, sets
-//! - `context` — shared types: `CodegenContext`, `EmittedValue`, `InvokeMode`, `is_boxed_enum_field`
-//! - `dead_unwind` — dead unwind block detection (nounwind invoke targets)
-//! - `drop_gen` — per-type LLVM drop function generation (cached by mangled name)
-//! - `emit_function` — function-level emission orchestration
-//! - `field_scan` — field usage scanning for surgical struct loading
-//! - `instr_dispatch` — per-instruction dispatch (`emit_instr`, `emit_project`)
-//! - `narrowing_codegen` — integer and float narrowing at struct/collection/local boundaries
-//! - `operators` — binary and unary operator emission (primitive + trait dispatch)
-//! - `rc_helpers` — RC data pointer extraction and inline enum cleanup
-//! - `rc_ops` — `ori_rc_inc`/`ori_rc_dec` emission with closure-aware `env_ptr` handling
-//! - `terminators` — `ArcTerminator` → LLVM control flow emission
+//! [`ori_arc::ArcFunction`] blocks become LLVM control flow, RC operations,
+//! builtins, calls, and structured unwind cleanup. This is the shared JIT and
+//! AOT function-emission path.
 
 mod apply;
 mod apply_casts;
@@ -88,6 +59,13 @@ use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{BlockId, FunctionId, TokenId, ValueId};
 
+/// Return ABI used by a binary string runtime helper.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StringRuntimeReturnAbi {
+    StringSret,
+    BoolDirect,
+}
+
 /// Pre-interned `Name`s for the list runtime symbols the emitter
 /// special-cases at call-emission sites (per interning discipline: identity
 /// comparison goes through `Name`, pre-interned once — never per-call
@@ -118,9 +96,7 @@ impl ListRtNames {
 /// Pre-interned `Name`s for the `ori_format_*` intercepts (per interning
 /// discipline: identity comparison goes through `Name`, pre-interned once).
 /// [`FormatRtNames::lookup`] is the single dispatch point — it carries the
-/// runtime symbol AND whether the formatted value itself is a string struct
-/// needing ptr coercion, so adding a format runtime function extends this
-/// registry rather than a free-floating literal match.
+/// typed runtime target, so its symbol and value ABI cannot drift apart.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct FormatRtNames {
     int: Name,
@@ -128,6 +104,31 @@ pub(super) struct FormatRtNames {
     str: Name,
     bool: Name,
     char: Name,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum FormatRuntimeTarget {
+    Int,
+    Float,
+    Str,
+    Bool,
+    Char,
+}
+
+impl FormatRuntimeTarget {
+    pub(super) const fn symbol(self) -> &'static str {
+        match self {
+            Self::Int => "ori_format_int",
+            Self::Float => "ori_format_float",
+            Self::Str => "ori_format_str",
+            Self::Bool => "ori_format_bool",
+            Self::Char => "ori_format_char",
+        }
+    }
+
+    pub(super) const fn value_needs_pointer(self) -> bool {
+        matches!(self, Self::Str)
+    }
 }
 
 impl FormatRtNames {
@@ -141,18 +142,18 @@ impl FormatRtNames {
         }
     }
 
-    /// Resolve a callee `Name` to `(runtime_symbol, value_is_str)`.
-    pub(super) fn lookup(&self, callee: Name) -> Option<(&'static str, bool)> {
+    /// Resolve a callee `Name` to its runtime target and value ABI.
+    pub(super) fn lookup(&self, callee: Name) -> Option<FormatRuntimeTarget> {
         if callee == self.int {
-            Some(("ori_format_int", false))
+            Some(FormatRuntimeTarget::Int)
         } else if callee == self.float {
-            Some(("ori_format_float", false))
+            Some(FormatRuntimeTarget::Float)
         } else if callee == self.str {
-            Some(("ori_format_str", true))
+            Some(FormatRuntimeTarget::Str)
         } else if callee == self.bool {
-            Some(("ori_format_bool", false))
+            Some(FormatRuntimeTarget::Bool)
         } else if callee == self.char {
-            Some(("ori_format_char", false))
+            Some(FormatRuntimeTarget::Char)
         } else {
             None
         }
@@ -340,6 +341,25 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Set via [`set_verify_arc`] after construction; defaults to `false`.
     /// SSOT: plumbed from `FunctionCompiler::verify_arc` — do NOT re-read env var.
     verify_arc: bool,
+}
+
+// LLVM builders, layout services, and the classification trait object own
+// separate diagnostic surfaces. Report this emitter's stable cache and cursor
+// state without duplicating those internals.
+impl std::fmt::Debug for ArcIrEmitter<'_, '_, '_, '_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArcIrEmitter")
+            .field("current_function", &self.current_function)
+            .field("drop_fn_cache_size", &self.drop_fn_cache.len())
+            .field("elem_dec_fn_cache_size", &self.elem_dec_fn_cache.len())
+            .field("elem_inc_fn_cache_size", &self.elem_inc_fn_cache.len())
+            .field("current_block_idx", &self.current_block_idx)
+            .field("current_instr_idx", &self.current_instr_idx)
+            .field("var_count", &self.var_map.len())
+            .field("block_count", &self.block_map.len())
+            .field("verify_arc", &self.verify_arc)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {

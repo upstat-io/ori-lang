@@ -1,34 +1,14 @@
-//! Interprocedural analysis for AIMS.
+//! SCC-based interprocedural analysis for AIMS memory contracts.
 //!
-//! Computes a [`MemoryContract`](super::contract::MemoryContract) for every
-//! function in the program via SCC-based fixed-point iteration. The contract
-//! encodes per-parameter access class, consumption, cardinality, and return
-//! value uniqueness.
+//! # Algorithm
 //!
-//! # Architecture
+//! 1. Build the call graph and its Tarjan SCCs.
+//! 2. Process SCCs from callees to callers.
+//! 3. Analyze acyclic SCCs once and recursive SCCs to a fixed point.
+//! 4. Tighten uniqueness from the converged contracts.
 //!
-//! 1. Build call graph + Tarjan SCCs (reusing `graph::call_graph` + `graph::scc`)
-//! 2. Process SCCs in topological order (callees before callers)
-//! 3. Non-recursive SCCs: single intraprocedural analysis pass
-//! 4. Recursive SCCs: iterate until all contracts converge
-//!
-//! At each step, [`super::intraprocedural::analyze_function`] runs the
-//! backward dataflow analysis, then [`extract::extract_contract`] reads the
-//! converged state map to produce a `MemoryContract`.
-//!
-//! # Module structure
-//!
-//! - [`scc_driver`] — call-graph SCC driver + fixed-point loop (`analyze_program`)
-//! - [`demand_propagation`] — post-fixpoint uniqueness tightening
-//! - [`use_count`] — variable use-counting for alias-sensitive uniqueness
-//! - [`extract`] — contract extraction from converged state maps
-//!
-//! # References
-//!
-//! - Owned-set collection + SCC fixpoint borrow inference
-//!   (counting-immutable-beans technique); see also the crate's
-//!   `borrow/per_scc.rs` SCC borrow inference
-//! - FP² (Lorenzen et al., ICFP 2023): FIP certification
+//! Each iteration analyzes local demand and extracts parameter, effect, and
+//! return facts. Diagnostics share the `ori_arc::aims::interprocedural` target.
 
 mod demand_propagation;
 mod extract;

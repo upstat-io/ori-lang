@@ -1,31 +1,12 @@
-//! ARC analysis for the Ori compiler.
+//! Logical ownership analysis and ARC IR for the Ori compiler.
 //!
-//! This crate provides:
+//! # Contracts
 //!
-//! - **Type classification** ([`ArcClass`]) — every type is classified by its
-//!   managed logical ownership/drop obligation. This does not prescribe heap
-//!   allocation, reference counting, or any other physical representation.
-//!
-//! - **ARC IR** ([`ArcFunction`], [`ArcBlock`], [`ArcInstr`], [`ArcTerminator`]) —
-//!   a basic-block intermediate representation that ARC analysis passes
-//!   operate on.
-//!
-//! - **Ownership annotations** ([`Ownership`], [`DerivedOwnership`],
-//!   [`AnnotatedParam`], [`AnnotatedSig`]) —
-//!   borrow inference output that drives ABI decisions.
-//!
-//! # Design
-//!
-//! Three-way classification separates scalar, possible-reference, and
-//! definite-reference values in LCNF ARC IR. Spec: Annex E §AIMS.
-//! Classification is **monomorphized** — it operates on concrete types after
-//! type parameter substitution.
-//!
-//! # Pipeline
-//!
-//! [`realize_closed_program()`] freezes whole-program contracts, realizes
-//! logical ownership and reuse facts, and publishes immutable backend inputs.
-//! Physical projections consume those facts without rerunning AIMS analysis.
+//! Monomorphized classification separates scalar, possible-reference, and
+//! definite-reference values by managed ownership and drop obligation. ARC IR
+//! makes control flow explicit for borrow, ownership, reuse, and verification
+//! passes. [`realize_closed_program()`] freezes whole-program facts before
+//! publishing immutable inputs to physical projections. Spec: Annex E §AIMS.
 
 pub mod aims;
 mod block_merge;

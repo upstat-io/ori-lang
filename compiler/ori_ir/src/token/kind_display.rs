@@ -81,24 +81,11 @@ impl TokenKind {
             _ => Option::None,
         }
     }
+}
 
-    /// Get a display name for the token.
-    ///
-    /// # Performance
-    ///
-    /// This uses a match statement rather than a lookup table because:
-    /// 1. Some variants carry data (e.g., `Int(i64)`) and must be grouped
-    /// 2. The Rust compiler optimizes exhaustive matches into efficient jump tables
-    /// 3. All display names are static strings, so no allocation occurs
-    ///
-    /// The generated assembly is comparable to a direct array lookup.
-    #[inline]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive TokenKind → display name dispatch"
-    )]
-    pub fn display_name(&self) -> &'static str {
-        match self {
+macro_rules! token_display_name {
+    ($kind:expr) => {
+        match $kind {
             TokenKind::Int(_) => "integer",
             TokenKind::Float(_) | TokenKind::FloatType => "float",
             TokenKind::String(_) => "string",
@@ -233,25 +220,23 @@ impl TokenKind {
             TokenKind::AmpAmpEq => "&&=",
             TokenKind::PipePipeEq => "||=",
         }
-    }
+    };
+}
 
-    /// Get a friendly name for a discriminant index, suitable for "expected X" messages.
+impl TokenKind {
+    /// Get a display name for the token.
     ///
-    /// Returns `None` for tokens that shouldn't appear in expected lists
-    /// (e.g., `Error`, `Newline`, `Eof`).
-    ///
-    /// Used by `TokenSet::format_expected()` for generating error messages like
-    /// "expected `,`, `)`, or `}`".
+    /// The exhaustive table compiles to a jump table and returns only static
+    /// strings, including for data-carrying token variants.
     #[inline]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive discriminant index → friendly name lookup"
-    )]
-    pub fn friendly_name_from_index(index: u8) -> Option<&'static str> {
-        // Map indices to friendly names, excluding internal/error tokens.
-        // Uses TokenTag values as indices. Some arms are merged when different
-        // tokens share the same display name (e.g., Float literal and FloatType).
-        match index {
+    pub fn display_name(&self) -> &'static str {
+        token_display_name!(self)
+    }
+}
+
+macro_rules! friendly_name_from_index {
+    ($index:expr) => {
+        match $index {
             // Literals (0-10)
             0 => Some("identifier"),        // Ident
             1 => Some("integer"),           // Int
@@ -407,6 +392,16 @@ impl TokenKind {
 
             _ => None,
         }
+    };
+}
+
+impl TokenKind {
+    /// Get a friendly name for an index used in parser expectations.
+    ///
+    /// Internal newline/error/EOF indices return `None`.
+    #[inline]
+    pub fn friendly_name_from_index(index: u8) -> Option<&'static str> {
+        friendly_name_from_index!(index)
     }
 }
 

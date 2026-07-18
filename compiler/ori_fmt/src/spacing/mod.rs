@@ -28,6 +28,7 @@ mod action;
 mod category;
 mod lookup;
 mod matcher;
+mod prelude;
 mod rules;
 
 pub use action::SpaceAction;

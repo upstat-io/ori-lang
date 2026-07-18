@@ -23,7 +23,7 @@ use support::{
 
 pub(crate) use support::suggest_iterator_fix;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(in crate::infer::expr) struct MethodCallSite<'a> {
     call_expr_id: ExprId,
     receiver: ExprId,
@@ -136,10 +136,7 @@ pub(in crate::infer::expr) fn infer_method_call(
     // must surface a diagnostic, not silently poison via `Idx::ERROR`.
     let was_not_found = matches!(outcome, LookupOutcome::NotFound);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, arg_ids.len(), span) {
-        // BD-2: propagate outer expected into sig.ret BEFORE arg-checking
-        // so the generic return slot is constrained by the LHS annotation.
-        // Closes the `let e: Error = msg.into()` gap: without this, the
-        // generic `T` in `into<T>(self) -> T` stays an unresolved fresh var.
+        // INVARIANT: constrain generic returns from the outer expectation before arguments.
         if let Some(exp) = expected {
             let _ = engine.check_type(sig.ret, exp, span);
         }
@@ -182,12 +179,8 @@ pub(in crate::infer::expr) fn infer_method_call(
         infer_expr(engine, arena, arg_id);
     }
 
-    // Emit E2036 for unresolved `.into()` calls
     emit_into_not_implemented(engine, resolved, method, span);
-    // Surface a method-not-found diagnostic for a genuine NotFound on a
-    // diagnosable receiver (concrete / RigidVar) — closes the silent-poison
-    // class (concrete-receiver NotFound + rigid-receiver negative case). Skipped for
-    // Ambiguous (already emitted) + unresolved Var (deferred) + into.
+    // INVARIANT: only genuine `NotFound` outcomes emit an unknown-method diagnostic.
     if was_not_found {
         emit_unknown_method(engine, resolved, method, span);
     }
@@ -303,9 +296,7 @@ pub(in crate::infer::expr) fn infer_method_call_named(
         return sig.ret;
     }
 
-    // Callable struct field: a closure-typed field invoked through the receiver.
-    // `callable_field_fn_ty` handles this receiver form. The closure type carries no parameter names, so
-    // check each named arg's value positionally against the closure params.
+    // Why: closure fields lack parameter names, so named values check positionally.
     if let Some(fn_ty) = callable_field_fn_ty(engine, resolved, method) {
         let value_ids: Vec<ExprId> = call_args.iter().map(|arg| arg.value).collect();
         return check_callable_field_positional(engine, arena, fn_ty, &value_ids, span, expected);
@@ -316,12 +307,8 @@ pub(in crate::infer::expr) fn infer_method_call_named(
         infer_expr(engine, arena, arg.value);
     }
 
-    // Emit E2036 for unresolved `.into()` calls
     emit_into_not_implemented(engine, resolved, method, span);
-    // Surface a method-not-found diagnostic for a genuine NotFound on a
-    // diagnosable receiver (concrete / RigidVar) — closes the silent-poison
-    // class (concrete-receiver NotFound + rigid-receiver negative case). Skipped for
-    // Ambiguous (already emitted) + unresolved Var (deferred) + into.
+    // INVARIANT: only genuine `NotFound` outcomes emit an unknown-method diagnostic.
     if was_not_found {
         emit_unknown_method(engine, resolved, method, span);
     }

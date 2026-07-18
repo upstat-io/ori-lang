@@ -9,7 +9,7 @@ use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::context::EmittedValue;
-use super::dead_unwind::debug_assert_dead_unwind_unreachable;
+use super::dead_unwind::assert_dead_unwind_unreachable;
 use super::emit_function_support::{scan_for_yield_elem_size_types, BlockLabel};
 use super::field_scan::{compute_pointer_only_params, scan_used_fields};
 use super::ArcIrEmitter;
@@ -81,7 +81,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 dead.remove(&index);
             }
         }
-        debug_assert_dead_unwind_unreachable(func, &dead);
+        assert_dead_unwind_unreachable(func, &dead);
         (dead, live)
     }
 
@@ -128,8 +128,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let used_fields = scan_used_fields(func);
         let pointer_only = self.find_pointer_only_params(func);
-        #[cfg(debug_assertions)]
-        Self::assert_pointer_only_params_have_no_rc(func, &pointer_only);
+        assert_pointer_only_params_have_no_rc(func, &pointer_only);
         self.bind_function_params(func, abi, &pointer_only, &used_fields);
         self.pointer_only_params = pointer_only;
         self.compute_borrowed_rooted_vars(func);
@@ -156,24 +155,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             false
         })
-    }
-
-    #[cfg(debug_assertions)]
-    fn assert_pointer_only_params_have_no_rc(
-        func: &ArcFunction,
-        pointer_only: &FxHashSet<ArcVarId>,
-    ) {
-        for block in &func.blocks {
-            for instr in &block.body {
-                if let ArcInstr::RcInc { var, .. } | ArcInstr::RcDec { var, .. } = instr {
-                    debug_assert!(
-                        !pointer_only.contains(var),
-                        "pointer-only param v{} has RC operation — cannot skip load",
-                        var.raw(),
-                    );
-                }
-            }
-        }
     }
 
     fn install_function_personality(
@@ -372,6 +353,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         for &(block_index, param_index, value, source_block) in &self.phi_incoming {
             let (_, phi) = phi_nodes[block_index][param_index];
             self.builder.add_phi_incoming(phi, &[(value, source_block)]);
+        }
+    }
+}
+
+pub(super) fn assert_pointer_only_params_have_no_rc(
+    func: &ArcFunction,
+    pointer_only: &FxHashSet<ArcVarId>,
+) {
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::RcInc { var, .. } | ArcInstr::RcDec { var, .. } = instr {
+                assert!(
+                    !pointer_only.contains(var),
+                    "pointer-only param v{} has RC operation — cannot skip load",
+                    var.raw(),
+                );
+            }
         }
     }
 }

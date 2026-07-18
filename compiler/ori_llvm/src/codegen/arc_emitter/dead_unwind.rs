@@ -101,8 +101,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 /// Assert that dead unwind blocks are not reachable via non-Invoke edges.
 ///
 /// If a Jump/Branch/Switch targets a dead block, the detection is broken.
-pub(super) fn debug_assert_dead_unwind_unreachable(func: &ArcFunction, dead: &FxHashSet<usize>) {
-    debug_assert!(
+pub(super) fn assert_dead_unwind_unreachable(func: &ArcFunction, dead: &FxHashSet<usize>) {
+    assert!(
         {
             let mut ok = true;
             for block in &func.blocks {

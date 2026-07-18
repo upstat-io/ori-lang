@@ -123,10 +123,6 @@ pub(super) fn infer_function_signature_from(
 /// Shared implementation for inferring a function signature from any arena.
 ///
 /// Returns the signature and the var IDs of generic type parameters.
-#[expect(
-    clippy::too_many_lines,
-    reason = "full function signature inference covering generics, params, return type, and where clauses"
-)]
 fn infer_function_signature_with_arena(
     checker: &mut ModuleChecker<'_>,
     func: &Function,
@@ -171,27 +167,8 @@ fn infer_function_signature_with_arena(
         .map(|name| checker.pool().data(type_param_vars[name]))
         .collect();
 
-    // Resolve parameter types using the generic param mapping
-    // Clone params to avoid borrow conflicts - params slice borrows arena,
-    // but we need mutable pool access during type resolution
-    let params: Vec<_> = arena.get_params(func.params).to_vec();
-    let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
-
-    let mut param_types = Vec::with_capacity(params.len());
-    for p in &params {
-        let ty = match &p.ty {
-            Some(parsed_ty) => resolve_and_check_type_with_vars(
-                checker,
-                parsed_ty,
-                &type_param_vars,
-                p.span,
-                arena,
-            ),
-            // Parameter without type annotation gets a fresh variable
-            None => checker.pool_mut().fresh_var(),
-        };
-        param_types.push(ty);
-    }
+    let (param_names, param_types, param_defaults, required_params) =
+        resolve_function_params(checker, func, arena, &type_param_vars);
 
     // Resolve return type
     let return_type = match &func.return_ty {
@@ -248,10 +225,6 @@ fn infer_function_signature_with_arena(
         })
         .collect();
 
-    // Collect default expressions and count required params.
-    let param_defaults: Vec<Option<ori_ir::ExprId>> = params.iter().map(|p| p.default).collect();
-    let required_params = param_defaults.iter().filter(|d| d.is_none()).count();
-
     // Check for special function attributes
     let is_main = {
         let main_name = checker.interner().intern("main");
@@ -289,6 +262,32 @@ fn infer_function_signature_with_arena(
     };
 
     (sig, var_ids)
+}
+
+fn resolve_function_params(
+    checker: &mut ModuleChecker<'_>,
+    func: &Function,
+    arena: &ExprArena,
+    type_param_vars: &FxHashMap<Name, Idx>,
+) -> (Vec<Name>, Vec<Idx>, Vec<Option<ori_ir::ExprId>>, usize) {
+    let params = arena.get_params(func.params).to_vec();
+    let names = params.iter().map(|param| param.name).collect();
+    let types = params
+        .iter()
+        .map(|param| match &param.ty {
+            Some(parsed) => resolve_and_check_type_with_vars(
+                checker,
+                parsed,
+                type_param_vars,
+                param.span,
+                arena,
+            ),
+            None => checker.pool_mut().fresh_var(),
+        })
+        .collect();
+    let defaults: Vec<_> = params.iter().map(|param| param.default).collect();
+    let required = defaults.iter().filter(|default| default.is_none()).count();
+    (names, types, defaults, required)
 }
 
 /// Detect a return-position associated-type projection over a generic

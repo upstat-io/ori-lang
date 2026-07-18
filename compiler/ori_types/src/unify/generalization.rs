@@ -34,7 +34,6 @@ impl UnifyEngine<'_> {
     /// assert_eq!(engine.pool().tag(scheme), Tag::Scheme);
     /// ```
     pub fn generalize(&mut self, ty: Idx) -> Idx {
-        // Resolve to get the current structure
         let ty = self.resolve(ty);
 
         // Fast path: no variables
@@ -42,15 +41,13 @@ impl UnifyEngine<'_> {
             return ty;
         }
 
-        // Collect free variables at current rank or higher
         let vars = self.collect_free_vars_at_rank(ty, self.current_rank);
 
         if vars.is_empty() {
-            return ty; // Monomorphic
+            return ty;
         }
 
-        // Mark collected variables as generalized.
-        // Extract id/name from the immutable borrow, then write the new state.
+        // Why: end the immutable state borrow before mutating the same variable.
         for &var_id in &vars {
             let gen = match self.pool.var_state(var_id) {
                 VarState::Unbound(UnboundVarState { id, name, .. }) => Some((*id, *name)),
@@ -62,16 +59,9 @@ impl UnifyEngine<'_> {
             }
         }
 
-        // Canonicalize the scheme body to `Tag::BoundVar` leaves.
-        // The inferred body contains
-        // `Tag::Var` leaves whose var_states were just mutated to
-        // `VarState::Generalized`; rewrite those variables to `Tag::BoundVar` with
-        // `data = var_id` so the scheme body matches the target representation
-        // so the PC-2 validator, codegen, and instantiation
-        // see a single canonical shape.
+        // INVARIANT: schemes expose generalized variables only as `Tag::BoundVar` leaves.
         let body = rewrite_generalized_to_bound_var(self.pool, ty, &vars);
 
-        // Create type scheme
         self.pool.scheme(&vars, body)
     }
 
@@ -120,10 +110,7 @@ impl UnifyEngine<'_> {
             // unreachable under the top-level gate. Skip silently if reached.
             Tag::BoundVar => {}
 
-            // Every compound tag — recurse via the canonical child walker.
-            // No `_ => {}` arm silently drops a compound variant;
-            // `Pool::visit_children` handles `Tag::Named` / `Tag::Alias` /
-            // `Tag::Projection` as leaves.
+            // INVARIANT: the canonical walker covers every compound tag.
             _ => {
                 self.pool.visit_children(ty, |child| {
                     self.collect_free_vars_inner(child, min_rank, vars);

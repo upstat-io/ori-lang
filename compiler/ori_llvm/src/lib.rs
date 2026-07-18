@@ -42,10 +42,6 @@
     clippy::similar_names,
     reason = "workspace equivalent — codegen uses similar names intentionally"
 )]
-#![allow(
-    clippy::cognitive_complexity,
-    reason = "workspace equivalent — codegen match arms are complex"
-)]
 #![allow(clippy::module_name_repetitions, reason = "workspace equivalent")]
 #![allow(clippy::must_use_candidate, reason = "workspace equivalent")]
 

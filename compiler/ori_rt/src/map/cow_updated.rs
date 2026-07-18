@@ -1,24 +1,17 @@
-//! COW map insert-or-replace for `IndexSet.updated` (`map.updated(key, value)`).
+//! Copy-on-write map insertion with consuming value ownership.
 //!
-//! Same hash-table COW substrate as [`super::cow::ori_map_insert_cow`], with
-//! one contract difference: the inserted `value` is **moved in** (ownership
-//! transfers from the caller), matching `ori_list_updated_cow`.
+//! The key remains borrowed. Ownership of the inserted value transfers from
+//! the caller into the returned map.
 
 use super::cow::ori_map_insert_cow;
 
 /// COW-aware map insert-or-replace with consuming value semantics.
 ///
-/// Behaves exactly like `ori_map_insert_cow` (insert-or-replace, never
-/// panics), then releases the caller's reference to `value` — the insert
-/// paths copy the value bytes into the buffer and increment its RC children,
-/// so the extra release completes the ownership transfer (move) from the
-/// caller's temporary into the map.
+/// Insert or replace a map entry without panicking.
 ///
-/// # Element RC
-///
-/// - `key` is borrowed: the buffer copy gets its own increment; the caller
-///   still owns (and releases) its reference.
-/// - `value` is moved: the caller must NOT release it after the call.
+/// The returned map retains its copied key and value. The key remains borrowed,
+/// while ownership of `value` transfers to the map and must not be released by
+/// the caller.
 #[no_mangle]
 pub extern "C" fn ori_map_updated_cow(
     data: *mut u8,
@@ -46,8 +39,7 @@ pub extern "C" fn ori_map_updated_cow(
         key_dec, val_dec, cow_mode, out_ptr,
     );
 
-    // Move semantics: the buffer holds its own incremented reference; release
-    // the caller's reference to complete the transfer.
+    // Why: The insertion retains its copy; decrementing `value` completes the move.
     if let Some(dec) = val_dec {
         dec(value.cast_mut());
     }

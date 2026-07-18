@@ -330,13 +330,11 @@ impl super::RawScanner<'_> {
     /// The next `next_token()` call routes `}` through
     /// `right_brace` → `template_middle_or_tail`.
     fn format_spec(&mut self, start: u32) -> RawToken {
-        // Scan forward until `}` at brace depth 0.
-        // Track nested `{}`  in the spec (unlikely but safe).
         let mut brace_depth: u32 = 0;
         loop {
             match self.cursor.current() {
                 b'}' if brace_depth == 0 => {
-                    // Don't consume the `}` — it triggers template_middle_or_tail
+                    // Why: Leaving `}` lets the next token classify the template tail.
                     return RawToken {
                         tag: RawTag::FormatSpec,
                         len: self.cursor.pos() - start,
@@ -351,7 +349,6 @@ impl super::RawScanner<'_> {
                     self.cursor.advance();
                 }
                 0 if self.cursor.is_eof() => {
-                    // Unterminated — return what we have
                     return RawToken {
                         tag: RawTag::FormatSpec,
                         len: self.cursor.pos() - start,
@@ -365,7 +362,7 @@ impl super::RawScanner<'_> {
     }
 
     pub(super) fn hash(&mut self, start: u32) -> RawToken {
-        self.cursor.advance(); // consume '#'
+        self.cursor.advance();
         match self.cursor.current() {
             b'[' => {
                 self.cursor.advance();

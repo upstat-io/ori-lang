@@ -52,6 +52,7 @@ pub const ALWAYS_STACKED: usize = usize::MAX;
 ///
 /// Performs bottom-up traversal to compute how wide each expression
 /// would be if rendered on a single line. Results are cached for efficiency.
+#[derive(Debug)]
 pub struct WidthCalculator<'a, I: StringLookup> {
     pub(super) arena: &'a ExprArena,
     pub(super) interner: &'a I,

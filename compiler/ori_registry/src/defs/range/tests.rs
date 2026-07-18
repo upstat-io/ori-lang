@@ -34,10 +34,8 @@ fn range_no_operators() {
     assert_eq!(RANGE.operators, OpDefs::UNSUPPORTED);
 }
 
-// Negative pin guarding the `no_unsupported_eq` Range exemption: Range carries
-// Range has neither an eq operator nor an `equals` method, so equality is
-// dispatched through the type checker against the element type. This test
-// keeps the exemption coupled to that semantic contract.
+// Range has no equality operator or method; typechecking dispatches equality
+// through its element type, which justifies the `no_unsupported_eq` exemption.
 #[test]
 fn range_has_no_equals_method() {
     assert!(

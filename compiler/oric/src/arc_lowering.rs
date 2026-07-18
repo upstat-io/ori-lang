@@ -1,9 +1,7 @@
-//! Shared ARC IR lowering utilities.
+//! Shared ARC IR lowering for canonical functions across AOT and JIT paths.
 //!
-//! Provides the common per-function lowering step used by both the AOT path
-//! (`compile_common.rs`) and the JIT test runner (`runner/mod.rs`). Both paths
-//! need to: build a params Vec, look up the canon body root, and call
-//! `ori_arc::lower_function_can`. This module eliminates that duplication.
+//! Resolves signature parameters and canonical body roots before invoking
+//! `ori_arc::lower_function_can`.
 
 use ori_arc::ArcFunction;
 use ori_ir::canon::{CanonResult, MonoConstBinding};
@@ -12,6 +10,7 @@ use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::FxHashMap;
 
 /// Shared canonicalization and type state for one ARC lowering sequence.
+#[derive(Debug)]
 pub(crate) struct ArcLoweringContext<'a> {
     pub(crate) canon: &'a CanonResult,
     pub(crate) interner: &'a StringInterner,
@@ -19,17 +18,8 @@ pub(crate) struct ArcLoweringContext<'a> {
     pub(crate) problems: &'a mut Vec<ori_arc::ArcProblem>,
 }
 
-/// Lower a single function to ARC IR.
-///
-/// Handles the common pattern shared across module functions, imported
-/// functions, impl methods, and monomorphized functions:
-/// 1. Build `(Name, Idx)` param list from the signature
-/// 2. Resolve the canonical body root
-/// 3. Call `lower_function_can` with the correct `is_fbip` flag
-///
-/// `body_name` is the name used for `canon.root_for()` lookup — usually the
-/// same as `name`, except for monomorphized functions where `name` is the
-/// mangled specialization and `body_name` is the original generic function.
+/// Lower a module, imported, impl, or monomorphized function to ARC IR.
+/// `body_name` selects the original canonical body when `name` is specialized.
 pub(crate) fn lower_to_arc(
     name: Name,
     sig: &FunctionSig,

@@ -47,6 +47,7 @@ pub(super) fn extract_return_info(
     // return existing, param-aliased, consumed-input, or callee-borrowed storage).
     let mut all_return_fresh_self_alloc = true;
     let mut saw_return = false;
+    let lineage_trace_disabled = fresh_lineage_return_trace_disabled();
 
     for block in &func.blocks {
         if let ArcTerminator::Return { value } = &block.terminator {
@@ -63,11 +64,6 @@ pub(super) fn extract_return_info(
                 all_preserve_freshness = false;
             }
 
-            // Env: ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE — declines the
-            // loop-threaded fresh-lineage return certification for bisection,
-            // debug-only
-            let lineage_trace_disabled =
-                std::env::var_os("ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE").is_some();
             if !var_is_fresh_self_alloc(*value, func, &def_map, &param_vars, list_take_name, sigs)
                 && (lineage_trace_disabled
                     || !fresh_lineage_vars(
@@ -95,6 +91,23 @@ pub(super) fn extract_return_info(
         // No Return terminators (e.g., infinite loop) — conservative.
         None => ReturnContract::CONSERVATIVE,
     }
+}
+
+fn report_fresh_lineage_return_trace_toggle(disabled: bool) -> bool {
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE",
+            effect = "decline loop-threaded fresh-lineage return certification",
+            "ablation toggle fired"
+        );
+    }
+    disabled
+}
+
+fn fresh_lineage_return_trace_disabled() -> bool {
+    report_fresh_lineage_return_trace_toggle(
+        std::env::var_os("ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE").is_some(),
+    )
 }
 
 /// Legacy receiver-rooted COW mutators without a registry runtime identity.
@@ -246,25 +259,15 @@ fn var_is_fresh_self_alloc(
         return false;
     }
     let Some(instr) = def_map.get(&var) else {
-        // Block-param / Invoke-defined / unknown → conservative (not certified
-        // fresh). The Invoke-result case is deliberately NOT certified here: a
-        // function returning `@clone_list(..)` directly is rare; the surface-(a)
-        // cure consumes the CALLEE's contract at the call site, not the
-        // forwarder's own return.
+        // Invoke-defined and unknown roots remain conservative because the
+        // call site consumes the callee's freshness contract directly.
         return false;
     };
     match instr {
         ArcInstr::Construct { ctor, .. } if ctor.is_collection_literal() => true,
-        // A SELF-CONTAINED named-struct / tuple `Construct` — every arg is
-        // itself a fresh self-alloc or a scalar producer (`PrimOp` /
-        // non-string literal) — is a fresh whole-var unit: its ref-bundle
-        // consumes only refs this function birthed. A construct threading a
-        // param / alias / extracted view (`Wrapper { inner: p }` — the
-        // aggregate-transfer-forwarder shape) stays uncertified: its
-        // whole-var accounting composes with the caller's transfer machinery.
-        // An `EnumVariant` and a `Closure` stay uncertified: their logical
-        // ownership units share payload or environment lineage. Physical
-        // enum encoding is irrelevant here. Spec: Annex E §AIMS TF-3 + §1.9.
+        // TF-3 certifies only self-contained structs/tuples whose references
+        // all originate in this function. Parameter, view, enum-payload, and
+        // closure-environment lineage remains caller-composed and uncertified.
         ArcInstr::Construct {
             ctor: crate::ir::CtorKind::Struct(_) | crate::ir::CtorKind::Tuple,
             args,
@@ -363,10 +366,8 @@ fn var_uniqueness(
                 },
             },
 
-            // Indirect call, projection, select, RC/mutation ops → conservative.
-            // BurdenInc/BurdenDec are side-effect-only annotations (no dst);
-            // they cannot appear in def_map but the exhaustive match must
-            // cover them — group with the other side-effect-only ops.
+            // Indirect calls, projections, selects, and side-effect-only
+            // ownership/mutation operations remain conservative.
             ArcInstr::ApplyIndirect { .. }
             | ArcInstr::Project { .. }
             | ArcInstr::Select { .. }
@@ -408,5 +409,21 @@ fn callee_return_uniqueness(
         )
     } else {
         (Uniqueness::MaybeShared, false)
+    }
+}
+
+#[cfg(test)]
+mod toggle_tests {
+    #[test]
+    fn fresh_lineage_return_trace_toggle_reports_effect() {
+        crate::test_helpers::assert_ablation_env_event(
+            concat!(
+                module_path!(),
+                "::fresh_lineage_return_trace_toggle_reports_effect"
+            ),
+            "ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE",
+            "decline loop-threaded fresh-lineage return certification",
+            super::fresh_lineage_return_trace_disabled,
+        );
     }
 }

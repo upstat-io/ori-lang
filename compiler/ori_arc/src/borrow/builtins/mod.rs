@@ -1,28 +1,10 @@
-//! Borrowing-builtin method knowledge for ARC borrow inference.
+//! Semantic borrowing facts for builtin method receivers.
 //!
-//! Defines which builtin methods borrow their receiver (read without consuming)
-//! AND produce independent results (no hidden dependency on the receiver's data).
-//!
-//! This is a **language-semantic fact**, not a codegen implementation detail.
-//! Borrow inference needs this knowledge to recognize calls to inline-compiled
-//! builtins (e.g., `len`, `is_empty`, `compare`) as borrowing rather than
-//! defaulting to all-Owned.
-//!
-//! # Exclusions
-//!
-//! - **Iterator methods**: These consume/transform the iterator or create
-//!   derived values — the ARC pipeline can't model these hidden dependencies.
-//! - **`.iter()`**: Creates an iterator that references the receiver's data.
-//!   Uses Owned semantics (default). The runtime's `IterState::List` stores
-//!   the data pointer, cap, and `elem_dec_fn`; `Drop for IterState` calls
-//!   `ori_buffer_rc_dec` to release the list data when the iterator is consumed.
-//!
-//! # Sync
-//!
-//! The LLVM backend's `BuiltinTable` registration reads from
-//! `ori_registry::BUILTIN_TYPES` and respects `Ownership::Borrow` annotations.
-//! A sync test in `ori_llvm` asserts the effective borrowing set matches this
-//! canonical list.
+//! Listed methods read their receiver and return an independent value. Iterator
+//! transforms are excluded because they consume or retain hidden receiver data;
+//! `.iter()` therefore keeps owned semantics so iterator destruction releases
+//! its retained buffer. Registry sync tests pin this catalog to builtin method
+//! ownership declarations.
 
 mod cow_catalog;
 #[cfg(test)]
@@ -169,6 +151,7 @@ pub fn accessor_retain_builtin_names(interner: &StringInterner) -> FxHashSet<Nam
 /// [`annotate_arg_ownership`](crate::rc_insert::annotate_arg_ownership)
 /// needs. Constructing this once avoids redundant `intern()` work across
 /// multiple function compilations.
+#[derive(Debug)]
 pub struct BuiltinOwnershipSets {
     /// Methods that borrow their receiver (e.g., `len`, `is_empty`).
     pub borrowing: FxHashSet<Name>,

@@ -1,21 +1,10 @@
-//! Closure-to-C-ABI trampoline generation for iterator adapters.
+//! Closure-to-C-ABI trampolines for iterator operations.
 //!
-//! Iterator adapters like `map(f)` and `filter(f)` receive Ori closures
-//! `{fn_ptr, env_ptr}` but the runtime expects C-ABI function pointers.
-//! A trampoline bridges them:
-//!
-//! ```text
-//! trampoline(env_ptr: ptr, in_ptr: ptr, out_ptr: ptr) -> void:
-//!   // env_ptr IS the Ori closure {fn_ptr, env_ptr}
-//!   ori_fn  = load ptr from env_ptr[0]
-//!   ori_env = load ptr from env_ptr[1]
-//!   elem    = load T from in_ptr
-//!   result  = call ori_fn(ori_env, elem)
-//!   store result to out_ptr
-//! ```
+//! Each trampoline unpacks an Ori `{fn_ptr, env_ptr}` closure, loads pointer-based
+//! inputs, invokes the Ori function, and writes or returns the C-ABI result.
 
-// No method registrations — trampolines are helper functions, not method handlers.
-declare_builtins! { _emitter, _ctx; }
+#[cfg(any(test, doc))]
+pub(super) const REGISTERED: &[super::BuiltinRegistration] = &[];
 
 use ori_ir::{CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
 use ori_types::Idx;
@@ -26,7 +15,7 @@ use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 use super::super::ArcIrEmitter;
 
 /// Trampoline variant for different iterator adapter calling conventions.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum TrampolineKind {
     /// `map`: `(env, in_ptr, out_ptr) -> void`
     /// Reads input element, calls closure, writes output element.
@@ -53,13 +42,8 @@ struct TrampolineBody {
 }
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Build a trampoline function and return `(trampoline_fn_ptr, closure_as_env_ptr)`.
-    ///
-    /// The closure struct `{fn_ptr, env_ptr}` is stored to an alloca and
-    /// passed as the `env` argument to the runtime. The trampoline unpacks it.
-    /// Builds a trampoline from types validated on the parent [`ArcFunction`].
-    ///
-    /// PC-2: `elem_ty` and `result_ty` are not independent instruction operands.
+    /// Build a trampoline and return its function pointer plus closure environment.
+    /// Element and result types come from the validated parent ARC function.
     pub(crate) fn build_trampoline(
         &mut self,
         closure_val: ValueId,
@@ -384,15 +368,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let narrowed_llvm_ty = self.llvm_type_for_int_width(narrowed_width);
         let raw = self.builder.load(narrowed_llvm_ty, in_ptr, "sext.raw");
 
-        // Sign-extend to canonical i64
         let i64_ty = self.builder.i64_type();
         let widened = self.builder.sext(raw, i64_ty, "sext.wide");
 
-        // Store canonical i64 to out_ptr
         self.builder.store(widened, out_ptr);
         self.builder.ret_void();
 
-        // Verify
         if self.verify_arc {
             let fn_val = self.builder.get_function_value(func_id);
             if !fn_val.verify(true) {

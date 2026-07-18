@@ -1,39 +1,7 @@
-//! Type inference engine.
+//! Hindley-Milner inference orchestration.
 //!
-//! This module provides the main orchestrator for Hindley-Milner type inference,
-//! connecting the Pool, `UnifyEngine`, and error system into a unified inference API.
-//!
-//! # Architecture
-//!
-//! `InferEngine` wraps `UnifyEngine` and adds:
-//! - Expression type storage (`expr_types`)
-//! - Type environment management (`TypeEnv`)
-//! - Context-aware error reporting
-//! - Bidirectional type checking (`infer` vs `check`)
-//!
-//! # Usage
-//!
-//! ```rust
-//! use ori_types::{Idx, InferEngine, Pool};
-//!
-//! let mut pool = Pool::new();
-//! let mut engine = InferEngine::new(&mut pool);
-//!
-//! let inferred = engine.fresh_var();
-//! engine
-//!     .unify()
-//!     .unify(inferred, Idx::INT)
-//!     .expect("an unconstrained inferred type should accept int");
-//! assert_eq!(engine.unify().resolve(inferred), Idx::INT);
-//! ```
-//!
-//! # Design Notes
-//!
-//! The engine uses:
-//! - `Idx` as the canonical type handle (not `Type` or `TypeId`)
-//! - `UnifyEngine` for O(α(n)) unification
-//! - `Pool` for O(1) type equality
-//! - Rich error context for helpful diagnostic messages
+//! [`InferEngine`] combines pooled types, unification, expression-type storage,
+//! nested environments, bidirectional checking, and contextual diagnostics.
 
 mod body_finalize;
 mod context;
@@ -309,6 +277,23 @@ pub struct InferEngine<'pool> {
     /// signatures' scheme var ids are passed directly to the normalization
     /// method by the body-pass caller.
     pending_generalized_vars: Vec<u32>,
+}
+
+// The pool, interner, and registry references are shared compiler owners with
+// independent debug surfaces. Keep them opaque and expose this engine's
+// phase-local progress and diagnostic state.
+impl std::fmt::Debug for InferEngine<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InferEngine")
+            .field("expr_type_count", &self.expr_types.len())
+            .field("context_depth", &self.context_stack.len())
+            .field("error_count", &self.errors.len())
+            .field("warning_count", &self.warnings.len())
+            .field("mono_instance_count", &self.mono_instances.len())
+            .field("body_inference_complete", &self.body_inference_complete)
+            .field("current_function", &self.current_function)
+            .finish_non_exhaustive()
+    }
 }
 
 #[cfg(test)]

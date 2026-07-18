@@ -339,7 +339,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             decl_walk.push((self.remap_struct_field(owner, i as u32), field_ty));
         }
-        let walk = super::emitter_utils::field_rc_walk_order(&decl_walk, true);
+        let walk = super::emitter_utils::field_rc_walk_order(
+            &decl_walk,
+            super::emitter_utils::FieldRcWalkOrder::Teardown,
+        );
         let ops = InlineAggregateOps { base: val, owner };
         self.dec_fields_may_unwind(&ops, &walk, 0);
     }

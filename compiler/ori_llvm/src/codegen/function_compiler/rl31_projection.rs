@@ -15,7 +15,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         nounwind: bool,
         extra_leading_params: u32,
     ) {
-        if *super::RL31_NOALIAS_DISABLED || !nounwind {
+        if super::rl31_noalias_disabled() || !nounwind {
             return;
         }
         let Some(function) = self.bound_executable_function_id(name, abi) else {

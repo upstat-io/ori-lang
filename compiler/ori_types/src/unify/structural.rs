@@ -107,10 +107,6 @@ impl UnifyEngine<'_> {
     // Structural Unification
 
     /// Unify two concrete (non-variable) types structurally.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive Tag-based structural unification"
-    )]
     fn unify_structural(
         &mut self,
         a: Idx,
@@ -151,62 +147,16 @@ impl UnifyEngine<'_> {
             | Tag::Ordering => Ok(()),
 
             // Simple containers
-            Tag::List => {
-                let child_a = Idx::from_raw(self.pool.data(a));
-                let child_b = Idx::from_raw(self.pool.data(b));
-                self.unify_with_context(child_a, child_b, UnifyContext::ListElement)
-            }
-
-            Tag::Option => {
-                let child_a = Idx::from_raw(self.pool.data(a));
-                let child_b = Idx::from_raw(self.pool.data(b));
-                self.unify_with_context(child_a, child_b, UnifyContext::OptionInner)
-            }
-
-            Tag::Set => {
-                let child_a = Idx::from_raw(self.pool.data(a));
-                let child_b = Idx::from_raw(self.pool.data(b));
-                self.unify_with_context(child_a, child_b, UnifyContext::SetElement)
-            }
-
-            Tag::Channel => {
-                let child_a = Idx::from_raw(self.pool.data(a));
-                let child_b = Idx::from_raw(self.pool.data(b));
-                self.unify_with_context(child_a, child_b, UnifyContext::ChannelElement)
-            }
-
-            Tag::Range => {
-                let child_a = Idx::from_raw(self.pool.data(a));
-                let child_b = Idx::from_raw(self.pool.data(b));
-                self.unify_with_context(child_a, child_b, UnifyContext::RangeElement)
-            }
-
-            Tag::Iterator | Tag::DoubleEndedIterator => {
-                let child_a = Idx::from_raw(self.pool.data(a));
-                let child_b = Idx::from_raw(self.pool.data(b));
-                self.unify_with_context(child_a, child_b, UnifyContext::IteratorElement)
-            }
+            Tag::List
+            | Tag::Option
+            | Tag::Set
+            | Tag::Channel
+            | Tag::Range
+            | Tag::Iterator
+            | Tag::DoubleEndedIterator => self.unify_single_child(a, b, tag_a),
 
             // Two-child containers
-            Tag::Map => {
-                let key_a = self.pool.map_key(a);
-                let key_b = self.pool.map_key(b);
-                let val_a = self.pool.map_value(a);
-                let val_b = self.pool.map_value(b);
-
-                self.unify_with_context(key_a, key_b, UnifyContext::MapKey)?;
-                self.unify_with_context(val_a, val_b, UnifyContext::MapValue)
-            }
-
-            Tag::Result => {
-                let ok_a = self.pool.result_ok(a);
-                let ok_b = self.pool.result_ok(b);
-                let err_a = self.pool.result_err(a);
-                let err_b = self.pool.result_err(b);
-
-                self.unify_with_context(ok_a, ok_b, UnifyContext::ResultOk)?;
-                self.unify_with_context(err_a, err_b, UnifyContext::ResultErr)
-            }
+            Tag::Map | Tag::Result => self.unify_pair(a, b, tag_a),
 
             Tag::Borrowed => {
                 let inner_a = self.pool.borrowed_inner(a);
@@ -225,46 +175,10 @@ impl UnifyEngine<'_> {
             }
 
             // Functions
-            Tag::Function => {
-                let params_a = self.pool.function_params(a);
-                let params_b = self.pool.function_params(b);
-                let ret_a = self.pool.function_return(a);
-                let ret_b = self.pool.function_return(b);
-
-                if params_a.len() != params_b.len() {
-                    return Err(UnifyError::ArityMismatch {
-                        expected: params_a.len(),
-                        found: params_b.len(),
-                        kind: ArityKind::Function,
-                    });
-                }
-
-                for (i, (pa, pb)) in params_a.iter().zip(params_b.iter()).enumerate() {
-                    self.unify_with_context(*pa, *pb, UnifyContext::param(i))?;
-                }
-
-                self.unify_with_context(ret_a, ret_b, UnifyContext::FunctionReturn)
-            }
+            Tag::Function => self.unify_function(a, b),
 
             // Tuples
-            Tag::Tuple => {
-                let elems_a = self.pool.tuple_elems(a);
-                let elems_b = self.pool.tuple_elems(b);
-
-                if elems_a.len() != elems_b.len() {
-                    return Err(UnifyError::ArityMismatch {
-                        expected: elems_a.len(),
-                        found: elems_b.len(),
-                        kind: ArityKind::Tuple,
-                    });
-                }
-
-                for (i, (ea, eb)) in elems_a.iter().zip(elems_b.iter()).enumerate() {
-                    self.unify_with_context(*ea, *eb, UnifyContext::tuple_elem(i))?;
-                }
-
-                Ok(())
-            }
+            Tag::Tuple => self.unify_tuple(a, b),
 
             // Named types: must have same name
             Tag::Named => {
@@ -283,35 +197,7 @@ impl UnifyEngine<'_> {
             }
 
             // Applied types: same name and unify args
-            Tag::Applied => {
-                let name_a = self.pool.applied_name(a);
-                let name_b = self.pool.applied_name(b);
-
-                if name_a != name_b {
-                    return Err(UnifyError::Mismatch {
-                        expected: a,
-                        found: b,
-                        context,
-                    });
-                }
-
-                let args_a = self.pool.applied_args(a);
-                let args_b = self.pool.applied_args(b);
-
-                if args_a.len() != args_b.len() {
-                    return Err(UnifyError::ArityMismatch {
-                        expected: args_a.len(),
-                        found: args_b.len(),
-                        kind: ArityKind::TypeArgs,
-                    });
-                }
-
-                for (i, (aa, ab)) in args_a.iter().zip(args_b.iter()).enumerate() {
-                    self.unify_with_context(*aa, *ab, UnifyContext::type_arg(i))?;
-                }
-
-                Ok(())
-            }
+            Tag::Applied => self.unify_applied(a, b, context),
 
             // Other types: just check tag equality
             _ => Err(UnifyError::Mismatch {
@@ -320,5 +206,105 @@ impl UnifyEngine<'_> {
                 context,
             }),
         }
+    }
+
+    fn unify_single_child(&mut self, a: Idx, b: Idx, tag: Tag) -> Result<(), UnifyError> {
+        let context = match tag {
+            Tag::List => UnifyContext::ListElement,
+            Tag::Option => UnifyContext::OptionInner,
+            Tag::Set => UnifyContext::SetElement,
+            Tag::Channel => UnifyContext::ChannelElement,
+            Tag::Range => UnifyContext::RangeElement,
+            Tag::Iterator | Tag::DoubleEndedIterator => UnifyContext::IteratorElement,
+            _ => unreachable!("single-child unification called for {tag:?}"),
+        };
+        self.unify_with_context(
+            Idx::from_raw(self.pool.data(a)),
+            Idx::from_raw(self.pool.data(b)),
+            context,
+        )
+    }
+
+    fn unify_pair(&mut self, a: Idx, b: Idx, tag: Tag) -> Result<(), UnifyError> {
+        let (left_a, left_b, left_context, right_a, right_b, right_context) = match tag {
+            Tag::Map => (
+                self.pool.map_key(a),
+                self.pool.map_key(b),
+                UnifyContext::MapKey,
+                self.pool.map_value(a),
+                self.pool.map_value(b),
+                UnifyContext::MapValue,
+            ),
+            Tag::Result => (
+                self.pool.result_ok(a),
+                self.pool.result_ok(b),
+                UnifyContext::ResultOk,
+                self.pool.result_err(a),
+                self.pool.result_err(b),
+                UnifyContext::ResultErr,
+            ),
+            _ => unreachable!("pair unification called for {tag:?}"),
+        };
+        self.unify_with_context(left_a, left_b, left_context)?;
+        self.unify_with_context(right_a, right_b, right_context)
+    }
+
+    fn unify_function(&mut self, a: Idx, b: Idx) -> Result<(), UnifyError> {
+        let params_a = self.pool.function_params(a);
+        let params_b = self.pool.function_params(b);
+        if params_a.len() != params_b.len() {
+            return Err(UnifyError::ArityMismatch {
+                expected: params_a.len(),
+                found: params_b.len(),
+                kind: ArityKind::Function,
+            });
+        }
+        for (index, (param_a, param_b)) in params_a.iter().zip(&params_b).enumerate() {
+            self.unify_with_context(*param_a, *param_b, UnifyContext::param(index))?;
+        }
+        self.unify_with_context(
+            self.pool.function_return(a),
+            self.pool.function_return(b),
+            UnifyContext::FunctionReturn,
+        )
+    }
+
+    fn unify_tuple(&mut self, a: Idx, b: Idx) -> Result<(), UnifyError> {
+        let elements_a = self.pool.tuple_elems(a);
+        let elements_b = self.pool.tuple_elems(b);
+        if elements_a.len() != elements_b.len() {
+            return Err(UnifyError::ArityMismatch {
+                expected: elements_a.len(),
+                found: elements_b.len(),
+                kind: ArityKind::Tuple,
+            });
+        }
+        for (index, (element_a, element_b)) in elements_a.iter().zip(&elements_b).enumerate() {
+            self.unify_with_context(*element_a, *element_b, UnifyContext::tuple_elem(index))?;
+        }
+        Ok(())
+    }
+
+    fn unify_applied(&mut self, a: Idx, b: Idx, context: UnifyContext) -> Result<(), UnifyError> {
+        if self.pool.applied_name(a) != self.pool.applied_name(b) {
+            return Err(UnifyError::Mismatch {
+                expected: a,
+                found: b,
+                context,
+            });
+        }
+        let args_a = self.pool.applied_args(a);
+        let args_b = self.pool.applied_args(b);
+        if args_a.len() != args_b.len() {
+            return Err(UnifyError::ArityMismatch {
+                expected: args_a.len(),
+                found: args_b.len(),
+                kind: ArityKind::TypeArgs,
+            });
+        }
+        for (index, (arg_a, arg_b)) in args_a.iter().zip(&args_b).enumerate() {
+            self.unify_with_context(*arg_a, *arg_b, UnifyContext::type_arg(index))?;
+        }
+        Ok(())
     }
 }

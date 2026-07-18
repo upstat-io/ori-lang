@@ -1,16 +1,14 @@
-//! Tests for runtime iterator state machine.
-
 use std::mem::{align_of, size_of};
 use std::ptr;
 
 use super::*;
-use crate::test_helpers::AbiOutput;
+use crate::test_support::AbiOutput;
 
 fn read_i64_at<const N: usize>(bytes: &AbiOutput<N>, offset: usize) -> i64 {
     let Some(end) = offset.checked_add(size_of::<i64>()) else {
         panic!("iterator output offset overflows at {offset}");
     };
-    let Some(field) = bytes.get(offset..end) else {
+    let Some(field) = bytes.as_slice().get(offset..end) else {
         panic!("iterator output lacks an i64 at offset {offset}");
     };
     let mut raw = [0; size_of::<i64>()];
@@ -23,7 +21,7 @@ fn read_pointer_at(bytes: &AbiOutput<24>, offset: usize) -> *mut u8 {
         panic!("iterator output offset overflows at {offset}");
     };
     assert!(
-        end <= bytes.len() && offset.is_multiple_of(align_of::<*mut u8>()),
+        end <= bytes.as_slice().len() && offset.is_multiple_of(align_of::<*mut u8>()),
         "iterator output lacks an aligned pointer at offset {offset}"
     );
     // SAFETY: `AbiOutput` provides pointer alignment, the bounds check covers
@@ -31,10 +29,8 @@ fn read_pointer_at(bytes: &AbiOutput<24>, offset: usize) -> *mut u8 {
     unsafe { bytes.as_ptr().add(offset).cast::<*mut u8>().read() }
 }
 
-// List iterator
-
 #[test]
-fn list_iter_basic() {
+fn list_iterator_yields_elements_in_order_then_ends() {
     let data: [i64; 3] = [10, 20, 30];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
 
@@ -60,15 +56,12 @@ fn list_iter_empty() {
     ori_iter_drop(iter);
 }
 
-// Repeat iterator — infinite, scalar elements (no RC, so elem_dec_fn = None).
-
 #[test]
 fn repeat_yields_same_value_indefinitely() {
     let value: i64 = 7;
     let iter = ori_iter_repeat((&raw const value).cast(), 8, None);
 
     let mut out: i64 = 0;
-    // Every next() yields the master value and never exhausts.
     for _ in 0..5 {
         assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
         assert_eq!(out, 7);
@@ -90,7 +83,6 @@ fn repeat_bounded_by_take() {
     assert_eq!(out, 99);
     assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
     assert_eq!(out, 99);
-    // take(3) exhausts after 3 elements even though the source is infinite.
     assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 0);
 
     ori_iter_drop(iter);
@@ -111,8 +103,6 @@ fn cycle_replays_buffer_after_source_exhaustion() {
 
     ori_iter_drop(iter);
 }
-
-// Range iterator
 
 #[test]
 fn range_iter_exclusive() {
@@ -236,7 +226,7 @@ extern "C-unwind" fn reject_all(_env: *mut u8, _elem_ptr: *const u8) -> bool {
 fn nested_map_releases_each_consumed_intermediate() {
     use std::sync::atomic::Ordering::SeqCst;
 
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
 
     let source = ori_iter_from_range(0, 3, 1, false);
@@ -260,7 +250,7 @@ fn nested_map_releases_each_consumed_intermediate() {
 fn filter_releases_each_rejected_mapped_output() {
     use std::sync::atomic::Ordering::SeqCst;
 
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
 
     let source = ori_iter_from_range(0, 3, 1, false);
@@ -284,7 +274,7 @@ fn filter_releases_each_rejected_mapped_output() {
 fn skip_releases_discarded_mapped_outputs_and_forwards_the_survivor() {
     use std::sync::atomic::Ordering::SeqCst;
 
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
 
     let source = ori_iter_from_range(0, 3, 1, false);
@@ -361,13 +351,10 @@ fn enumerate_list() {
     ori_iter_drop(iter);
 }
 
-// Count consumer
-
 #[test]
 fn count_range() {
     let iter = ori_iter_from_range(0, 10, 1, false);
     assert_eq!(ori_iter_count(iter, 8), 10);
-    // iter is consumed — no drop needed
 }
 
 #[test]
@@ -378,14 +365,12 @@ fn count_filtered() {
     assert_eq!(ori_iter_count(iter, 8), 3);
 }
 
-// Collect consumer
-
 #[test]
 fn collect_range() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let iter = ori_iter_from_range(0, 5, 1, false);
 
-    // OriList layout: { i64 len, i64 cap, ptr data }
+    // INVARIANT: An `OriList` result stores length, capacity, and data pointer in order.
     let mut out = AbiOutput::<24>::default();
     ori_iter_collect(iter, 8, None, None, out.as_mut_ptr());
 
@@ -399,22 +384,18 @@ fn collect_range() {
         assert_eq!(val, i as i64);
     }
 
-    // Free the collected data (RC-managed via ori_list_alloc_data)
     if !data_ptr.is_null() {
         let cap = read_i64_at(&out, 8);
         crate::ori_list_free_data(data_ptr, cap, 8);
     }
 }
 
-// Chained adapters
-
 #[test]
-fn map_filter_take() {
-    // [1,2,3,4,5,6,7,8,9,10].iter().map(x -> x*2).filter(x -> x > 10).take(3)
+fn map_filter_take_yields_first_three_doubled_values() {
     let data: [i64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 10, 0, 8, true);
     let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), 8, None);
-    let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8); // all doubled are even
+    let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8);
     let iter = ori_iter_take(iter, 3);
 
     let mut out: i64 = 0;
@@ -428,8 +409,6 @@ fn map_filter_take() {
 
     ori_iter_drop(iter);
 }
-
-// Any consumer
 
 extern "C-unwind" fn gt_3(env: *mut u8, elem_ptr: *const u8) -> bool {
     let _ = env;
@@ -457,8 +436,6 @@ fn any_empty() {
     assert_eq!(ori_iter_any(iter, gt_3, ptr::null_mut(), 8), 0);
 }
 
-// All consumer
-
 #[test]
 fn all_true() {
     let data: [i64; 3] = [4, 5, 6];
@@ -476,25 +453,21 @@ fn all_false() {
 #[test]
 fn all_empty() {
     let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8, true);
-    assert_eq!(ori_iter_all(iter, gt_3, ptr::null_mut(), 8), 1); // vacuously true
+    assert_eq!(ori_iter_all(iter, gt_3, ptr::null_mut(), 8), 1);
 }
-
-// Find consumer
 
 #[test]
 fn find_found() {
     let data: [i64; 5] = [1, 2, 3, 4, 5];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 5, 0, 8, true);
 
-    // Option<i64> = { i64 tag, i64 payload } = 16 bytes
-    // ARC enum convention: Some=0, None=1
     let mut out = AbiOutput::<16>::default();
     ori_iter_find(iter, gt_3, ptr::null_mut(), 8, out.as_mut_ptr());
 
     let tag = read_i64_at(&out, 0);
     let payload = read_i64_at(&out, 8);
-    assert_eq!(tag, 0); // Some (ARC: first variant = 0)
-    assert_eq!(payload, 4); // first > 3
+    assert_eq!(tag, 0);
+    assert_eq!(payload, 4);
 }
 
 #[test]
@@ -502,15 +475,12 @@ fn find_not_found() {
     let data: [i64; 3] = [1, 2, 3];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
 
-    // ARC enum convention: Some=0, None=1
     let mut out = AbiOutput::<16>::default();
     ori_iter_find(iter, gt_3, ptr::null_mut(), 8, out.as_mut_ptr());
 
     let tag = read_i64_at(&out, 0);
-    assert_eq!(tag, 1); // None (ARC: second variant = 1)
+    assert_eq!(tag, 1);
 }
-
-// For Each consumer
 
 extern "C-unwind" fn increment_counter(env: *mut u8, _elem_ptr: *const u8) {
     // SAFETY: The test passes `env` as a unique pointer to a live `i64` counter.
@@ -696,16 +666,14 @@ fn chain_count() {
     assert_eq!(ori_iter_count(iter, 8), 6);
 }
 
-// Slice-backed list cleanup
-//
-// INVARIANT: A list iterator owns its backing-buffer reference for both
-// ordinary and negative-cap slice encodings.
+// A list iterator owns its backing-buffer reference for both ordinary and
+// negative-cap slice encodings.
 
 #[test]
 fn list_iter_drop_releases_slice_rc() {
     use crate::rc::{ori_rc_alloc, ori_rc_count, ori_rc_free, ori_rc_inc};
     use crate::slice_encoding::make_slice_cap;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     // Allocate an RC-managed buffer for 5 × i64 = 40 bytes (RC starts at 1)
     let data = ori_rc_alloc(40, 8);
@@ -742,7 +710,7 @@ fn list_iter_drop_releases_slice_rc() {
 fn list_iter_drop_frees_slice_when_last_ref() {
     use crate::rc::{ori_rc_alloc, ori_rc_live_count};
     use crate::slice_encoding::make_slice_cap;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     let before = ori_rc_live_count();
 
@@ -777,7 +745,7 @@ fn null_iter_safety() {
     assert_eq!(ori_iter_count(ptr::null_mut(), 8), 0);
     assert_eq!(ori_iter_any(ptr::null_mut(), gt_3, ptr::null_mut(), 8), 0);
     assert_eq!(ori_iter_all(ptr::null_mut(), gt_3, ptr::null_mut(), 8), 1);
-    ori_iter_drop(ptr::null_mut()); // should not crash
+    ori_iter_drop(ptr::null_mut());
 }
 
 extern "C-unwind" fn panic_after_one_transform(env: *mut u8, in_ptr: *const u8, out_ptr: *mut u8) {
@@ -795,7 +763,7 @@ extern "C-unwind" fn panic_after_one_transform(env: *mut u8, in_ptr: *const u8, 
 /// caller's catch boundary.
 #[test]
 fn collect_releases_iterator_and_partial_buffer_when_transform_panics() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let before = crate::ori_rc_live_count();
     let data = [10_i64, 20];
     let source = ori_iter_from_list(data.as_ptr().cast_mut().cast(), 2, 0, 8, true);
@@ -837,7 +805,7 @@ extern "C" fn hash_i64_ptr(value: *const u8) -> i64 {
 
 #[test]
 fn collect_set_releases_iterator_and_partial_buffer_when_transform_panics() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let before = crate::ori_rc_live_count();
     let data = [10_i64, 20];
     let source = ori_iter_from_list(data.as_ptr().cast_mut().cast(), 2, 0, 8, true);
@@ -878,16 +846,10 @@ fn collect_set_releases_iterator_and_partial_buffer_when_transform_panics() {
     );
 }
 
-// Output element size validation
-//
-// Element-size assertions are tested directly so malformed FFI inputs do not
-// obscure the callback-unwind matrix. Normal and boundary sizes are then
-// verified through the full pipeline.
-
 #[test]
 #[should_panic(expected = "exceeds MAX_ELEM_SIZE")]
 fn assert_elem_size_rejects_oversized() {
-    state::assert_elem_size((state::MAX_ELEM_SIZE + 1) as i64, "test");
+    state::assert_elem_size((state::ElemBuf::MAX_SIZE + 1) as i64, "test");
 }
 
 #[test]
@@ -898,25 +860,24 @@ fn assert_elem_size_rejects_negative() {
 
 #[test]
 fn assert_elem_size_accepts_zero() {
-    state::assert_elem_size(0, "test"); // should not panic
+    state::assert_elem_size(0, "test");
 }
 
 #[test]
 fn assert_elem_size_accepts_max() {
-    state::assert_elem_size(state::MAX_ELEM_SIZE as i64, "test");
+    state::assert_elem_size(state::ElemBuf::MAX_SIZE as i64, "test");
 }
 
 #[test]
 fn assert_elem_size_accepts_typical() {
-    state::assert_elem_size(8, "test"); // int
-    state::assert_elem_size(24, "test"); // str
-    state::assert_elem_size(200, "test"); // large struct
+    state::assert_elem_size(8, "test");
+    state::assert_elem_size(24, "test");
+    state::assert_elem_size(200, "test");
 }
 
-// Semantic pin: normal-sized elements still work through consumers
 #[test]
 fn normal_sized_elem_passes_collect() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let data: [i64; 3] = [10, 20, 30];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
     let mut out = AbiOutput::<24>::default();
@@ -924,7 +885,6 @@ fn normal_sized_elem_passes_collect() {
     let len = read_i64_at(&out, 0);
     assert_eq!(len, 3);
 
-    // Free the collected data to avoid leaking RC allocations
     let data_ptr = read_pointer_at(&out, 16);
     if !data_ptr.is_null() {
         let cap = read_i64_at(&out, 8);
@@ -934,9 +894,9 @@ fn normal_sized_elem_passes_collect() {
 
 #[test]
 fn max_sized_elem_passes_collect() {
-    let _g = crate::test_helpers::lock_rc();
-    let max_size = state::MAX_ELEM_SIZE as i64;
-    let data = vec![0u8; state::MAX_ELEM_SIZE];
+    let _g = crate::test_support::lock_rc();
+    let max_size = state::ElemBuf::MAX_SIZE as i64;
+    let data = vec![0u8; state::ElemBuf::MAX_SIZE];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 1, 0, max_size, true);
     let mut out = AbiOutput::<24>::default();
     ori_iter_collect(iter, max_size, None, None, out.as_mut_ptr());

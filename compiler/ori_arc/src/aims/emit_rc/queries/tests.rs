@@ -64,11 +64,8 @@ fn rc_incremented_propagates_forward_through_alias_chain() {
 
 #[test]
 fn rc_incremented_propagates_backward_from_alias_to_root_and_siblings() {
-    // The kept duplication-alias inc shape: %1 = %0 (inc'd), %2 = %0 (peer alias).
-    // The inc on %1 bumps the SHARED object's refcount — %0 and %2 are
-    // physically incremented too; classifying them un-incremented would
-    // promote a later COW site to StaticUnique and mutate the shared buffer
-    // in place (the store-then-`.set` holder-view corruption).
+    // Incrementing one alias increases the shared allocation's count, so peer
+    // aliases cannot later qualify for static-unique COW mutation.
     let func = one_block_func(3, vec![alias_of(1, 0), rc_inc_of(1), alias_of(2, 0)]);
     let set = collect_rc_incremented_vars(&func, None, &FxHashMap::default());
     let expected: FxHashSet<ArcVarId> = (0..3).map(ArcVarId::new).collect();
@@ -89,10 +86,8 @@ fn rc_incremented_empty_without_incs() {
 
 #[test]
 fn rc_incremented_propagates_from_construct_arg_to_projected_field() {
-    // %0 receives a duplication credit before moving into %1.field0. A
-    // later projection %2 names that same payload allocation, while %1 is a
-    // distinct aggregate allocation. COW on %2 must therefore observe the
-    // added owner and use a dynamic sharing check.
+    // A projected payload inherits its pre-insertion duplication credit and
+    // must use a dynamic COW sharing check.
     let func = one_block_func(
         3,
         vec![
@@ -131,11 +126,9 @@ fn rc_incremented_propagates_from_construct_arg_to_projected_field() {
 
 #[test]
 fn cross_block_sharing_view_invoke_marks_original_sibling_alias() {
-    // %1 aliases the original %0 and is borrowed by a view producer. The
-    // producer's hidden runtime retain creates %2 as another owner on the
-    // normal edge. In the successor block, COW receiver %3 aliases the
-    // original root, so it must inherit the competing-owner fact even though
-    // no ARC RcInc spells the retain across that block boundary.
+    // A view producer's hidden retain creates a competing owner across the
+    // normal edge; successor aliases must inherit that fact without an ARC
+    // `RcInc` instruction.
     let callee = Name::from_raw(7);
     let func = ArcFunction {
         var_types: vec![Idx::STR; 4],

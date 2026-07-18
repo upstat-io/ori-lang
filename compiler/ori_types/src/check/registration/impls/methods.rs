@@ -9,27 +9,11 @@ use super::super::type_resolution::{
 use crate::check::bodies::allocate_rigid_var_map;
 use crate::{Idx, ImplMethodDef, ModuleChecker};
 
-/// Build an `ImplMethodDef` from an impl method.
+/// Build a registered impl-method signature.
 ///
-/// When the method declares method-level type generics
-/// (e.g. `@map<U> (self, f: T -> U) -> Box<U>` in `impl<T> Box<T>`),
-/// the registered `signature` is wrapped in a `Tag::Scheme(scheme_var_ids,
-/// fn_type)`. The scheme's body carries fresh `Tag::Var` Idx values (one per
-/// method-level type-generic) whose `var_id`s match `scheme_var_ids`. At
-/// call-site, `resolve_impl_signature` invokes `engine.instantiate(...)` —
-/// the standard generalization-instantiation pattern — so each
-/// call gets fresh unification vars that DO unify with concrete types.
-/// Without this wrapping, method-level binders in the registered sig
-/// would either be bare `Tag::Var`s (which lower-rank generalization would
-/// incorrectly capture) or unresolved `Tag::Named` (which fails to unify
-/// against function-typed arguments).
-///
-/// Body-checking (`check/bodies/impls.rs::check_impl_method`) allocates a
-/// SEPARATE set of `Tag::RigidVar`s per method-level binder via
-/// `pool.rigid_var(name)` — those `RigidVars` enforce body-internal
-/// parametricity (the negative pin `shadow_negative_binder_identity.ori`).
-/// Registration's fresh-Var-in-Scheme and body-check's `RigidVars` are distinct
-/// pool entries serving distinct purposes; no sharing is required.
+/// Method binders become fresh variables inside a scheme for call-site
+/// instantiation. Body checking uses separate rigid variables to preserve
+/// parametricity.
 pub(super) fn build_impl_method(
     checker: &mut ModuleChecker<'_>,
     method: &ori_ir::ImplMethod,
@@ -58,10 +42,7 @@ pub(super) fn build_impl_method_from(
     arena: &ori_ir::ExprArena,
     allocate_body_rigids: bool,
 ) -> ImplMethodDef {
-    // Deep-copy method-level generics + where-clauses into arena-independent
-    // owned form for downstream bound enforcement. Also collect the
-    // `Name → Idx` overlay for fresh-Var substitution of method-level type
-    // names in param/return resolution.
+    // INVARIANT: Bound metadata must outlive the parse arena and share one binder overlay.
     let generic_params = arena.get_generic_params(method.generics).to_vec();
     let (scheme_var_ids, scheme_overlay, generic_param_metadata, where_clause_metadata) =
         build_method_generic_metadata_from(

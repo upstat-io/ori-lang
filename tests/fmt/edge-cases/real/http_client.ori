@@ -1,6 +1,3 @@
-// Golden test: HTTP client with capabilities
-// Spec: 09-capabilities.md § Capability System
-// Design: tooling/formatter/design/appendices/A-edge-cases.md
 use std.testing { assert, assert_eq }
 
 type Method = Get | Post | Put;

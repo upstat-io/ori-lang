@@ -1,7 +1,4 @@
 //! Monomorphization instance recording for generic method calls.
-//!
-//! Diagnostics share the `ori_types::mono` target with free-function
-//! monomorphization so one filter observes the complete realization request.
 
 use ori_ir::{ExprId, Name};
 use rustc_hash::FxHashMap;
@@ -108,25 +105,16 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
     sig: &ImplMethodSig,
     expected: Option<&Expected>,
 ) {
-    // Entry gate keys on EITHER binder axis: `method_mono` (impl-level, set when
-    // the impl is generic over the receiver — `impl<T> Box<T>`) OR
-    // `scheme_var_ids` (method-level, the method's own `<U>` binders, present
-    // even on a concrete-receiver impl — `impl Boxer { @pick<T> }`). Keying on
-    // `method_mono` alone conflates "impl is generic over the receiver" with
-    // "method needs monomorphization"; a method-level-only generic then records
-    // no MonoInstance and its `Tag::RigidVar` survives to codegen (PC-2 break).
+    // INVARIANT: either impl-level or method-level binders require monomorphization.
     let mono = sig.method_mono.as_ref();
     if mono.is_none() && sig.generic_param_metadata.is_empty() {
         return;
     }
 
-    // Receiver carrier: the FULL concrete receiver Idx (e.g. `Box<int>`, NOT
-    // `substitute_in_pool` follows linked children while retaining the `Applied`
-    // shell required to match an impl method's rigid self parameter.
+    // INVARIANT: receiver substitution retains the `Applied` shell for impl matching.
     let receiver = substitute_in_pool(engine.pool_mut(), receiver_ty, &FxHashMap::default());
     let ret_resolved = engine.resolve(sig.ret);
     tracing::debug!(
-        target: "ori_types::mono",
         method = ?method_name,
         receiver_concrete = is_fully_concrete(engine, receiver),
         receiver_tag = ?engine.pool().tag(receiver),
@@ -140,12 +128,7 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
         return;
     }
 
-    // Impl-level + method-level concrete arguments. `impl_type_args` is the
-    // receiver-side substitution in declaration order (`[(T, int)]`); method-
-    // level args come from the call-site instantiation of `<U>`-style binders.
-    // A method-level-only generic on a concrete-receiver impl carries no impl
-    // binders (`mono` is `None`) — `impl_args` is empty, and `MonoInstance::
-    // new_method` accepts empty `impl_args` with populated `method_args`.
+    // INVARIANT: method-only generics record empty impl args and populated method args.
     let mut impl_args = Vec::with_capacity(mono.map_or(0, |m| m.impl_type_args.len()));
     if let Some(mono) = mono {
         for &(_, concrete) in &mono.impl_type_args {
@@ -165,13 +148,7 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
         return;
     };
 
-    // Concrete param / return types via `substitute_in_pool` (empty map), which
-    // follows each child Var's `VarState::Link` while PRESERVING the `Applied`
-    // shape — `Applied(Pair, [Var->str, Var->int])` deep-resolves to the
-    // concrete `Applied(Pair, [str, int])`. `resolve_fully` is wrong for this step: its
-    // matching-args fallback collapses `Pair<str, int>` to the generic `Pair`
-    // struct, so codegen would emit the wrong layout (`{i64, i64}`) and fail IR
-    // verification on a permuted-generic return like `swap (self) -> Pair<B, A>`.
+    // INVARIANT: substitution follows links without collapsing the `Applied` shell.
     let empty: FxHashMap<u32, Idx> = FxHashMap::default();
     let concrete_param_types: Vec<Idx> = sig
         .params
@@ -208,7 +185,6 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
     );
 
     tracing::debug!(
-        target: "ori_types::mono",
         fn_name = ?method_name,
         receiver = ?receiver,
         impl_args = ?instance.impl_args,
@@ -221,10 +197,7 @@ pub(in crate::infer::expr::calls) fn maybe_record_method_mono_instance(
     if let Some(call_expr_id) = call_expr_id {
         engine.record_mono_with_dispatch(call_expr_id, instance);
     } else {
-        // Operator expressions have no canonical call node to rewrite, but
-        // their selected generic method still needs a concrete body in the
-        // executable inventory. The ARC operator-target pass binds that body
-        // through its receiver-qualified method fact.
+        // INVARIANT: operator targets need inventory bodies despite lacking call nodes.
         engine.record_mono_instance(instance);
     }
 }
@@ -245,23 +218,13 @@ fn build_method_body_type_map(
     method_named: Vec<(Name, Idx)>,
     var_subst: &mut FxHashMap<u32, Idx>,
 ) -> MethodBodyTypeMap {
-    // `body_type_map` maps each generic body type to its concrete form: the
-    // method-level scheme vars via the canonical SSOT helper, plus the impl-
-    // level `Tag::Named(binder)` entries the var-keyed helper cannot reach.
     crate::pool::substitute::extend_var_subst_with_roots(
         engine.pool(),
         &sig.scheme_var_ids,
         var_subst,
     );
     let generic_type_params = collect_generic_type_params(engine);
-    // Name-keyed binder entries the var-keyed helper cannot reach — both the
-    // impl-level `Tag::Named(binder)` binders (when `mono` is `Some`) AND the
-    // method-level `<T>` binders (the body's `VarState::Rigid { name }` rigid
-    // vars). `build_and_register_body_type_map` runs `build_impl_rigid_var_subst`
-    // over `extra_named` (a pool scan mapping each binder NAME to its body rigid
-    // var_id) so a `[T]`-returning method body re-interns to `[int]`. Without the
-    // method binders, the signature monomorphizes but the body's rigid leaf
-    // survives to codegen (the `Tag::rigid_var` symptom).
+    // INVARIANT: Impl and method binder names both map to body rigid variables.
     let mut extra_named: Vec<(Name, Idx)> = mono.map_or_else(Vec::new, |mono| {
         mono.impl_type_args
             .iter()
@@ -273,16 +236,7 @@ fn build_method_body_type_map(
     let body_type_map =
         build_and_register_body_type_map(pool, var_subst, &extra_named, &generic_type_params);
 
-    // The receiver's own concrete Applied type (e.g. `Box<str>`) is the `self`
-    // type — never a value in `body_type_map`, which carries only binder
-    // substitutions (`Named("T") -> str`). Register its concrete struct
-    // resolution directly so the LLVM `TypeInfoStore` resolves the receiver
-    // type AND its structurally-interned construction-site `Idx` with the
-    // substituted field layout instead of the generic `Box<T>` fallback. The
-    // helper recurses into nested generic fields (e.g. `Wrapper<Box<int>>`).
-    // The mono-dispatch shell key derives from the receiver's `Tag::Applied`
-    // structure directly (`Pool::generic_shell`), so this resolution does not
-    // collapse the `(method, Box<_>)` dispatch key.
+    // INVARIANT: Register the concrete receiver separately; the body map holds binders only.
     resolve_applied_type(pool, receiver, &generic_type_params);
 
     (body_type_map, extra_named)

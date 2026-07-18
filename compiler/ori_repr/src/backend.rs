@@ -3,8 +3,7 @@
 //! [`CodegenBackend`] is the trait every codegen backend implements;
 //! [`RealizedProgram`] is the backend-agnostic bundle of realized-IR inputs
 //! every backend consumes. `ori_repr` depends on neither `ori_llvm` nor
-//! `oric`, so this boundary cannot name a concrete backend type — see
-//! `.claude/rules/canon.md §1` (pipeline phase 8, sub-layer 7a).
+//! `oric`, so this boundary cannot name a concrete backend type.
 
 use ori_ir::canon::CanonResult;
 use ori_types::{ExportedTypeMetadata, Pool, TypeCheckResult};
@@ -37,29 +36,34 @@ impl From<String> for BackendError {
 /// The backend-agnostic subset of a realized program a [`CodegenBackend`]
 /// compiles.
 ///
-/// Bundles today's existing inputs to
-/// `oric::commands::codegen_pipeline::run_codegen_pipeline` that are already
-/// reachable from `ori_repr` (types from `ori_ir`, `ori_types`, and
-/// `ori_repr` itself) — no field reshaping yet, per this section's own
-/// scope decision. Backend-specific inputs the codegen pipeline also
-/// consumes (the LLVM `Context`, the Salsa `CompilerDb`, cross-module
-/// import linkage) are NOT bundled here — they stay on the concrete
-/// backend's own construction, since `ori_repr` cannot name their types.
+/// Contains only inputs whose types belong to the backend-independent compiler
+/// layers. Backend contexts, databases, and linkage state remain owned by each
+/// concrete backend.
 ///
 /// Two lifetimes: `'ctx` is the artifact's own lifetime (the pool must
 /// outlive an LLVM `Module<'ctx>` built from it); `'p` is the call-scoped
 /// lifetime of every other borrow, independent of `'ctx`.
 #[derive(Clone, Copy)]
 pub struct RealizedProgram<'ctx, 'p> {
+    /// Monomorphized type pool that outlives the compiled artifact.
     pub pool: &'ctx Pool,
+    /// Type-checking facts for the realized module.
     pub type_result: &'p TypeCheckResult,
+    /// Canonical expression arena and function bodies.
     pub canon: &'p CanonResult,
+    /// Source path used for diagnostics and debug metadata.
     pub source_path: &'p str,
+    /// Logical module name used for symbols and metadata.
     pub module_name: &'p str,
+    /// Prefix applied to generated symbols.
     pub symbol_prefix: &'p str,
+    /// Optional target triple override.
     pub target_triple: Option<&'p str>,
+    /// Integer narrowing policy frozen before backend selection.
     pub narrowing_policy: NarrowingPolicy,
+    /// Type metadata imported from dependency modules.
     pub imported_type_metadata: &'p [ExportedTypeMetadata],
+    /// Collection surfaces imported from dependency modules.
     pub imported_collection_surfaces: &'p [u64],
 }
 
@@ -67,11 +71,9 @@ pub struct RealizedProgram<'ctx, 'p> {
 /// artifact.
 ///
 /// `'ctx` is the artifact's own lifetime (see [`RealizedProgram`]);
-/// `Artifact` is the backend's own output type (an LLVM `Module<'ctx>`, a
-/// native object file, a bytecode chunk — `ori_repr` never names it).
-/// Enum dispatch over a fixed backend set (per `.claude/rules/compiler.md
-/// §Dispatch`), not `dyn Trait` — Ori has no out-of-tree backend loading
-/// requirement `rustc`'s `dyn CodegenBackend` solves for.
+/// `Artifact` is the backend's own output type (an LLVM `Module<'ctx>`, native
+/// object file, or bytecode chunk). Backend selection uses a closed enum because
+/// Ori does not load out-of-tree code generators.
 pub trait CodegenBackend<'ctx> {
     /// This backend's compiled output type.
     type Artifact;

@@ -5,6 +5,8 @@
 //! ownership events and reuse, verifies them, rewrites control flow, and derives
 //! post-merge COW/drop annotations. Physical projections consume the frozen
 //! logical events through their own representation plans.
+//!
+//! Checkpoint diagnostics share the `ori_arc::aims::pipeline` target.
 
 mod batch;
 mod burden_emission;

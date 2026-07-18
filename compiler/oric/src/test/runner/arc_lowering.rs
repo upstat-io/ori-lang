@@ -17,6 +17,18 @@ pub(crate) struct JitArcLowering {
     pub(crate) impl_emission_names: Vec<Option<Name>>,
 }
 
+// The prepared executable batch owns its own diagnostics. Report the exact JIT
+// specialization and ownership-metadata inventory retained alongside it.
+impl std::fmt::Debug for JitArcLowering {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JitArcLowering")
+            .field("mono_function_count", &self.mono_functions.len())
+            .field("user_drop_binding_count", &self.user_drop_bindings.len())
+            .field("impl_emission_names", &self.impl_emission_names)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Typed failure while lowering and preparing one JIT executable unit.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum JitArcLoweringError {
@@ -51,6 +63,21 @@ pub(crate) struct JitArcLoweringInput<'a, 'test, 'import> {
     pub(crate) imported_functions: &'a [ori_llvm::evaluator::ImportedFunctionForCodegen<'import>],
     pub(crate) imported_mono_fns: &'a [crate::commands::ImportedMonoFn],
     pub(crate) re_interned_canons: &'a [ori_ir::canon::CanonResult],
+}
+
+// Imported bodies and shared compiler owners keep their own diagnostic
+// surfaces. Report the input inventory dimensions consumed by JIT lowering.
+impl std::fmt::Debug for JitArcLoweringInput<'_, '_, '_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JitArcLoweringInput")
+            .field("test_count", &self.tests.len())
+            .field("function_signature_count", &self.function_sigs.len())
+            .field("import_signature_count", &self.import_sigs.len())
+            .field("imported_function_count", &self.imported_functions.len())
+            .field("imported_mono_count", &self.imported_mono_fns.len())
+            .field("re_interned_canon_count", &self.re_interned_canons.len())
+            .finish_non_exhaustive()
+    }
 }
 
 type LoweredBody = (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>);

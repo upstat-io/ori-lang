@@ -690,8 +690,30 @@ const ALL_TRAIT_NAMES: &[&str] = &[
 ];
 
 /// Expected trait sets per type — the equivalence truth table.
-#[expect(clippy::too_many_lines, reason = "exhaustive type × trait truth table")]
 fn expected_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
+        TypeTag::Int | TypeTag::Float | TypeTag::Byte => expected_numeric_traits(tag),
+        TypeTag::Bool
+        | TypeTag::Str
+        | TypeTag::Char
+        | TypeTag::Ordering
+        | TypeTag::Result
+        | TypeTag::Unit => expected_scalar_traits(tag),
+        TypeTag::Duration | TypeTag::Size => expected_measure_traits(tag),
+        TypeTag::List
+        | TypeTag::Map
+        | TypeTag::Set
+        | TypeTag::Option
+        | TypeTag::Tuple
+        | TypeTag::Range => expected_compound_traits(tag),
+        TypeTag::Iterator | TypeTag::DoubleEndedIterator => expected_iterator_traits(tag),
+        TypeTag::Error | TypeTag::Channel | TypeTag::Never | TypeTag::Function => {
+            expected_special_traits(tag)
+        }
+    }
+}
+
+fn expected_numeric_traits(tag: TypeTag) -> &'static [&'static str] {
     match tag {
         TypeTag::Int => &[
             "Eq",
@@ -730,6 +752,31 @@ fn expected_traits(tag: TypeTag) -> &'static [&'static str] {
             "Rem",
             "Neg",
         ],
+        TypeTag::Byte => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Printable",
+            "Debug",
+            "Add",
+            "Sub",
+            "Mul",
+            "Div",
+            "Rem",
+            "BitAnd",
+            "BitOr",
+            "BitXor",
+            "BitNot",
+            "Shl",
+            "Shr",
+        ],
+        _ => unreachable!("numeric trait table called with {tag:?}"),
+    }
+}
+
+fn expected_scalar_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
         TypeTag::Bool => &[
             "Eq",
             "Comparable",
@@ -761,26 +808,13 @@ fn expected_traits(tag: TypeTag) -> &'static [&'static str] {
             "Printable",
             "Debug",
         ],
-        TypeTag::Byte => &[
-            "Eq",
-            "Comparable",
-            "Clone",
-            "Hashable",
-            "Printable",
-            "Debug",
-            "Add",
-            "Sub",
-            "Mul",
-            "Div",
-            "Rem",
-            "BitAnd",
-            "BitOr",
-            "BitXor",
-            "BitNot",
-            "Shl",
-            "Shr",
-        ],
         TypeTag::Unit => &["Eq", "Comparable", "Hashable", "Clone", "Default", "Debug"],
+        _ => unreachable!("scalar trait table called with {tag:?}"),
+    }
+}
+
+fn expected_measure_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
         TypeTag::Duration => &[
             "Eq",
             "Comparable",
@@ -812,7 +846,12 @@ fn expected_traits(tag: TypeTag) -> &'static [&'static str] {
             "Div",
             "Rem",
         ],
-        // Compound types — derived from registry TypeDef
+        _ => unreachable!("measure trait table called with {tag:?}"),
+    }
+}
+
+fn expected_compound_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
         TypeTag::List => &[
             "Eq",
             "Comparable",
@@ -855,14 +894,24 @@ fn expected_traits(tag: TypeTag) -> &'static [&'static str] {
             "Len",
         ],
         TypeTag::Range => &["Printable", "Len", "IsEmpty", "Iterable"],
+        _ => unreachable!("compound trait table called with {tag:?}"),
+    }
+}
+
+fn expected_iterator_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
         TypeTag::Iterator => &["Iterator"],
         TypeTag::DoubleEndedIterator => &["Iterator", "DoubleEndedIterator"],
-        // Error has methods (clone, debug, to_str, etc.) — registry encodes them
+        _ => unreachable!("iterator trait table called with {tag:?}"),
+    }
+}
+
+fn expected_special_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
         TypeTag::Error => &["Clone", "Printable", "Debug"],
-        // Channel has Len/IsEmpty from trait_name on len/is_empty methods
         TypeTag::Channel => &["Len", "IsEmpty"],
-        // Types with no trait satisfaction
         TypeTag::Never | TypeTag::Function => &[],
+        _ => unreachable!("special trait table called with {tag:?}"),
     }
 }
 

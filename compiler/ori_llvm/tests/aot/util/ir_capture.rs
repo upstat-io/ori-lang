@@ -234,9 +234,7 @@ pub fn count_dead_phis(function_ir: &str) -> usize {
 }
 
 /// Check whether `%name` appears as a standalone SSA variable in `line`.
-///
-/// Handles the `%v3` vs `%v34` ambiguity by requiring a word boundary
-/// (non-alphanumeric, non-underscore) after the variable name.
+/// Requires a word boundary so `%v3` does not match `%v34`.
 fn is_ssa_var_used_in(var_name: &str, line: &str) -> bool {
     let mut search_from = 0;
     while let Some(pos) = line[search_from..].find(var_name) {

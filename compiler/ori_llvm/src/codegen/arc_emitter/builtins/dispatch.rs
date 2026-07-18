@@ -3,7 +3,7 @@
 //! Holds the `ArcIrEmitter` dispatch surface that routes a method call
 //! through the declarative submodule chain declared in `builtins/mod.rs`.
 
-use ori_arc::ir::{ArcFunction, ArcVarId};
+use ori_arc::ir::{ArcFunction, ArcVarId, ArgOwnership};
 use ori_ir::Name;
 use ori_types::Idx;
 
@@ -373,13 +373,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         match type_info {
             // The slice-aware inc above gave the iterator its own ref → owns_data = true.
             TypeInfo::List { element } => {
-                self.emit_list_iter(receiver, receiver_ty, *element, true)
+                self.emit_list_iter(receiver, receiver_ty, *element, ArgOwnership::Owned)
             }
             // The slice-aware inc above gave the iterator its own ref → receiver_owned = true
             // (same as the List arm's hardcoded `true`); emit_set_iter decs the set buffer.
-            TypeInfo::Set { element } => self.emit_set_iter(receiver, *element, true),
+            TypeInfo::Set { element } => {
+                self.emit_set_iter(receiver, *element, ArgOwnership::Owned)
+            }
             TypeInfo::Map { key, value } => {
-                self.emit_map_iter(receiver, *key, *value, receiver_ty, true)
+                self.emit_map_iter(receiver, *key, *value, receiver_ty, ArgOwnership::Owned)
             }
             TypeInfo::Str => self.emit_str_iter(receiver),
             TypeInfo::Range => self.emit_range_iter(receiver),

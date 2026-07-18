@@ -8,6 +8,7 @@ use ori_ir::{FieldOp, RESULT_TAG_OK};
 use ori_types::Idx;
 
 use crate::codegen::function_compiler::FunctionCompiler;
+use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::type_info::repr_box_oracle::payload_type_is_rc_boxed;
 use crate::codegen::value_id::{LLVMTypeId, ValueId};
 
@@ -334,9 +335,12 @@ pub(super) fn emit_result_compare<'a>(
     };
 
     // Tags differ: Ok(0) < Err(1) is the natural unsigned tag ordering.
-    let tag_cmp =
-        fc.builder_mut()
-            .emit_icmp_ordering(lhs_tag, rhs_tag, &format!("{name}.tag"), false);
+    let tag_cmp = fc.builder_mut().emit_icmp_ordering(
+        lhs_tag,
+        rhs_tag,
+        &format!("{name}.tag"),
+        IntegerSignedness::Unsigned,
+    );
     fc.builder_mut()
         .select(tags_eq, same_tag_cmp, tag_cmp, &format!("{name}.cmp"))
 }

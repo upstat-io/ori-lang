@@ -172,9 +172,9 @@ fn test_compile_module_with_tests_empty() {
         &[],
         &[],
         &[],
-        &[], // No monomorphized functions for empty module test
+        &[],
         &executable,
-        &[], // No impl emission identities in the empty module.
+        &[],
     );
 
     assert!(
@@ -198,19 +198,11 @@ fn collect_unconstrained_fn_names_registers_ordinal_variants() {
     // (e.g., `impl Index<int>` and `impl Index<str>` on the same type).
     let self_type = ori_types::Idx::from_raw(42);
     let index_name = interner.intern("index");
-    let trait_impl_fn_names = vec![
-        (self_type, index_name), // First impl: ordinal 0
-        (self_type, index_name), // Second impl: ordinal 1
-    ];
+    let trait_impl_fn_names = vec![(self_type, index_name), (self_type, index_name)];
 
     let result =
         ori_repr::collect_unconstrained_fn_names(&[], &trait_impl_fn_names, Some(&interner));
 
-    // Expected registrations:
-    // 1. (Some(42), "index") — first trait impl method
-    // 2. (None, "__impl_42_index") — base qualified name (ordinal 0)
-    // 3. (Some(42), "index") — second trait impl method
-    // 4. (None, "__impl_42_index_1") — ordinal-qualified name (ordinal 1)
     let base_qualified = interner.intern("__impl_42_index");
     let ordinal_qualified = interner.intern("__impl_42_index_1");
 

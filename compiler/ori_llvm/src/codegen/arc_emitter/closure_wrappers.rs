@@ -13,6 +13,15 @@ use super::ArcIrEmitter;
 use crate::codegen::abi::{FunctionAbi, ParamAbi, ParamPassing, ReturnPassing};
 use crate::codegen::value_id::{FunctionId, ValueId};
 
+struct ClosureWrapperInput<'a> {
+    callee_abi: &'a FunctionAbi,
+    capture_types: &'a [Idx],
+    frozen_adapter: Option<&'a ClosureAdapterPlan>,
+    capture_ownership: &'a [Ownership],
+    remaining_params: &'a [ParamAbi],
+    target_has_phantom_env: bool,
+}
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Generate a wrapper function for a closure.
     ///
@@ -27,10 +36,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///   ret ret_type %result
     /// }
     /// ```
-    #[expect(
-        clippy::too_many_lines,
-        reason = "closure wrapper emits sequential LLVM IR setup"
-    )]
     pub(super) fn generate_closure_wrapper(
         &mut self,
         callee_func_id: FunctionId,
@@ -42,6 +47,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         target_has_phantom_env: bool,
         target_is_nounwind: bool,
     ) -> ValueId {
+        let input = ClosureWrapperInput {
+            callee_abi,
+            capture_types,
+            frozen_adapter,
+            capture_ownership,
+            remaining_params,
+            target_has_phantom_env,
+        };
         let partial_id = self.partial_apply_counter;
         self.partial_apply_counter += 1;
         let wrapper_name = format!("_ori_partial_{partial_id}");
@@ -135,132 +148,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_current_function = self.current_function;
         self.current_function = wrapper_func_id;
 
-        // Build env struct type for GEP (same layout as build_closure_env)
-        let ptr_llvm = self.builder.scx().type_ptr().into();
-        let mut env_fields: Vec<inkwell::types::BasicTypeEnum<'_>> = vec![ptr_llvm];
-        for &cap_ty in capture_types {
-            env_fields.push(self.type_resolver.resolve(cap_ty));
-        }
-        let env_struct = self.builder.scx().type_struct(&env_fields, false);
-        let env_struct_ty_id = self.builder.register_type(env_struct.into());
-
-        // Unpack captures from env struct (fields 1..N)
-        let mut callee_args = Vec::with_capacity(
-            usize::from(has_sret) + usize::from(target_has_phantom_env) + callee_abi.params.len(),
-        );
-
-        // Handle sret: pass the wrapper's sret parameter through to the callee.
-        if has_sret {
-            let sret_out = self.builder.get_param(wrapper_func_id, 0);
-            callee_args.push(sret_out);
-        }
-
-        // Non-capturing lambdas use the closure-compatible physical ABI and
-        // therefore have one phantom environment pointer that is deliberately
-        // absent from the backend-neutral FunctionAbi. A wrapper is still
-        // required when its frozen adapter retains a residual argument; pass
-        // the wrapper's environment value (null for this closure shape) before
-        // the user arguments so the physical call matches the declaration.
-        if target_has_phantom_env {
-            debug_assert!(
-                capture_types.is_empty(),
-                "a non-capturing lambda cannot have closure capture fields"
-            );
-            callee_args.push(env_ptr_val);
-        }
-
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "capture count bounded by lambda arity, well within u32 range"
-        )]
-        for (i, &cap_ty) in capture_types.iter().enumerate() {
-            let field_ty = self.resolve_type(cap_ty);
-            let field_ptr = self.builder.struct_gep(
-                env_struct_ty_id,
-                env_ptr_val,
-                (i + 1) as u32,
-                &format!("cap.{i}.ptr"),
-            );
-            // Check callee ABI: if this capture param is Indirect/Reference,
-            // pass the pointer directly; otherwise load and pass by value.
-            // Note: callee_abi.params does NOT include sret (sret is in return_abi),
-            // so params[i] directly maps to the i-th capture parameter.
-            let param_passing = callee_abi.params.get(i).map(|p| &p.passing);
-            // When the callee takes this capture as OWNED and the capture
-            // is RC-tracked, emit RcInc. The env drop function will dec
-            // the env's copy, and the lambda (or its downstream closures)
-            // will eventually dec the passed copy. Without this inc, nested
-            // closures cause double-free: both the outer env drop and the
-            // inner env drop dec the same refcount.
-            let frozen_action = frozen_adapter.map(|adapter| adapter.slots()[i].action);
-            let needs_legacy_inc = frozen_action.is_none()
-                && capture_ownership
-                    .get(i)
-                    .copied()
-                    .unwrap_or(Ownership::Owned)
-                    == Ownership::Owned
-                && self.classifier.has_managed_ownership_obligation(cap_ty);
-
-            if matches!(
-                param_passing,
-                Some(ParamPassing::Indirect { .. } | ParamPassing::Reference)
-            ) {
-                // Reference passing: load value for RcInc, then pass pointer.
-                if frozen_action
-                    .is_some_and(|action| matches!(action, ClosureAdapterAction::Retain(_)))
-                    || needs_legacy_inc
-                {
-                    let loaded = self
-                        .builder
-                        .load(field_ty, field_ptr, &format!("cap.{i}.inc"));
-                    if let Some(ClosureAdapterAction::Retain(plan)) = frozen_action {
-                        self.emit_frozen_closure_retain_plan(loaded, plan);
-                    } else {
-                        self.inc_value_rc(loaded, cap_ty, 1);
-                    }
-                }
-                callee_args.push(field_ptr);
-            } else {
-                let cap_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
-                if let Some(ClosureAdapterAction::Retain(plan)) = frozen_action {
-                    self.emit_frozen_closure_retain_plan(cap_val, plan);
-                } else if needs_legacy_inc {
-                    self.inc_value_rc(cap_val, cap_ty, 1);
-                }
-                callee_args.push(cap_val);
-            }
-        }
-
-        // Forward remaining user params.
-        // When has_sret: params start at 2 (0=sret, 1=env)
-        // Otherwise: params start at 1 (0=env)
-        let mut wrapper_param_idx: u32 = env_param_idx + 1;
-        for (residual_index, param) in remaining_params.iter().enumerate() {
-            if param.passing != ParamPassing::Void {
-                let user_val = self.builder.get_param(wrapper_func_id, wrapper_param_idx);
-                if let Some(adapter) = frozen_adapter {
-                    let slot = &adapter.slots()[capture_types.len() + residual_index];
-                    if let ClosureAdapterAction::Retain(plan) = slot.action {
-                        let retained = if matches!(
-                            param.passing,
-                            ParamPassing::Indirect { .. } | ParamPassing::Reference
-                        ) {
-                            let value_ty = self.resolve_type(slot.ty);
-                            self.builder.load(
-                                value_ty,
-                                user_val,
-                                &format!("arg.{residual_index}.inc"),
-                            )
-                        } else {
-                            user_val
-                        };
-                        self.emit_frozen_closure_retain_plan(retained, plan);
-                    }
-                }
-                callee_args.push(user_val);
-                wrapper_param_idx += 1;
-            }
-        }
+        let mut callee_args =
+            self.unpack_closure_captures(wrapper_func_id, env_ptr_val, has_sret, &input);
+        self.forward_closure_params(wrapper_func_id, env_param_idx, &input, &mut callee_args);
 
         // Call the actual lambda function
         let result = self.builder.call(callee_func_id, &callee_args, "result");
@@ -298,6 +188,152 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         self.builder.get_function_ptr(wrapper_func_id)
+    }
+
+    fn unpack_closure_captures(
+        &mut self,
+        wrapper_func_id: FunctionId,
+        env_ptr: ValueId,
+        has_sret: bool,
+        input: &ClosureWrapperInput<'_>,
+    ) -> Vec<ValueId> {
+        let mut env_fields: Vec<inkwell::types::BasicTypeEnum<'_>> =
+            vec![self.builder.scx().type_ptr().into()];
+        for &capture_type in input.capture_types {
+            env_fields.push(self.type_resolver.resolve(capture_type));
+        }
+        let env_struct = self.builder.scx().type_struct(&env_fields, false);
+        let env_struct_type = self.builder.register_type(env_struct.into());
+
+        let mut callee_args = Vec::with_capacity(
+            usize::from(has_sret)
+                + usize::from(input.target_has_phantom_env)
+                + input.callee_abi.params.len(),
+        );
+        if has_sret {
+            callee_args.push(self.builder.get_param(wrapper_func_id, 0));
+        }
+        if input.target_has_phantom_env {
+            debug_assert!(
+                input.capture_types.is_empty(),
+                "a non-capturing lambda cannot have closure capture fields"
+            );
+            callee_args.push(env_ptr);
+        }
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "capture count bounded by lambda arity, well within u32 range"
+        )]
+        for (index, &capture_type) in input.capture_types.iter().enumerate() {
+            let field_type = self.resolve_type(capture_type);
+            let field_ptr = self.builder.struct_gep(
+                env_struct_type,
+                env_ptr,
+                (index + 1) as u32,
+                &format!("cap.{index}.ptr"),
+            );
+            let passing = input
+                .callee_abi
+                .params
+                .get(index)
+                .map(|param| &param.passing);
+            let frozen_action = input
+                .frozen_adapter
+                .map(|adapter| adapter.slots()[index].action);
+            let needs_legacy_inc = frozen_action.is_none()
+                && input
+                    .capture_ownership
+                    .get(index)
+                    .copied()
+                    .unwrap_or(Ownership::Owned)
+                    == Ownership::Owned
+                && self
+                    .classifier
+                    .has_managed_ownership_obligation(capture_type);
+
+            let pass_by_reference = matches!(
+                passing,
+                Some(ParamPassing::Indirect { .. } | ParamPassing::Reference)
+            );
+            let capture = if pass_by_reference {
+                if frozen_action
+                    .is_some_and(|action| matches!(action, ClosureAdapterAction::Retain(_)))
+                    || needs_legacy_inc
+                {
+                    let loaded =
+                        self.builder
+                            .load(field_type, field_ptr, &format!("cap.{index}.inc"));
+                    self.retain_closure_capture(
+                        loaded,
+                        capture_type,
+                        frozen_action,
+                        needs_legacy_inc,
+                    );
+                }
+                field_ptr
+            } else {
+                let loaded = self
+                    .builder
+                    .load(field_type, field_ptr, &format!("cap.{index}"));
+                self.retain_closure_capture(loaded, capture_type, frozen_action, needs_legacy_inc);
+                loaded
+            };
+            callee_args.push(capture);
+        }
+        callee_args
+    }
+
+    fn retain_closure_capture(
+        &mut self,
+        value: ValueId,
+        capture_type: Idx,
+        frozen_action: Option<ClosureAdapterAction>,
+        needs_legacy_inc: bool,
+    ) {
+        if let Some(ClosureAdapterAction::Retain(plan)) = frozen_action {
+            self.emit_frozen_closure_retain_plan(value, plan);
+        } else if needs_legacy_inc {
+            self.inc_value_rc(value, capture_type, 1);
+        }
+    }
+
+    fn forward_closure_params(
+        &mut self,
+        wrapper_func_id: FunctionId,
+        env_param_index: u32,
+        input: &ClosureWrapperInput<'_>,
+        callee_args: &mut Vec<ValueId>,
+    ) {
+        let mut wrapper_param_index = env_param_index + 1;
+        for (residual_index, param) in input.remaining_params.iter().enumerate() {
+            if param.passing == ParamPassing::Void {
+                continue;
+            }
+
+            let user_value = self.builder.get_param(wrapper_func_id, wrapper_param_index);
+            if let Some(adapter) = input.frozen_adapter {
+                let slot = &adapter.slots()[input.capture_types.len() + residual_index];
+                if let ClosureAdapterAction::Retain(plan) = slot.action {
+                    let retained = if matches!(
+                        param.passing,
+                        ParamPassing::Indirect { .. } | ParamPassing::Reference
+                    ) {
+                        let value_type = self.resolve_type(slot.ty);
+                        self.builder.load(
+                            value_type,
+                            user_value,
+                            &format!("arg.{residual_index}.inc"),
+                        )
+                    } else {
+                        user_value
+                    };
+                    self.emit_frozen_closure_retain_plan(retained, plan);
+                }
+            }
+            callee_args.push(user_value);
+            wrapper_param_index += 1;
+        }
     }
 
     /// Project one frozen logical retain action through LLVM's physical layout.

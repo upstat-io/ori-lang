@@ -189,11 +189,7 @@ fn trace_contract_summary(
         "AIMS interprocedural analysis complete — FIP coverage"
     );
 
-    // Per-contract forwarder visibility: one event per function naming its
-    // `transfers_through_return` params, gated by `tracing::enabled!` (zero
-    // overhead off). Answers "is callee @inner's forwarder contract in the set
-    // a caller @main consults?" — the impl-method interprocedural-contract
-    // diagnostic. `ORI_LOG=ori_arc::aims::interprocedural=debug`.
+    // Why: Build per-parameter summaries only while contract tracing is enabled.
     if tracing::enabled!(target: "ori_arc::aims::interprocedural", tracing::Level::DEBUG) {
         for (name, contract) in all_sigs {
             let ttr: Vec<usize> = contract
@@ -286,14 +282,8 @@ fn analyze_scc_fixpoint(
         );
     }
 
-    // Build a combined sig map: external (finalized) + local (iterating).
-    // Local sigs shadow external ones for SCC members.
-    //
-    // NOTE: This clones `external_sigs` once per SCC. A layered lookup
-    // (check local first, then external) would avoid the clone but
-    // requires changing `analyze_function`'s `&FxHashMap` parameter to
-    // a trait. Performance note: clone cost is O(depth) where depth is
-    // the number of finalized contracts, negligible for typical programs.
+    // Local contracts shadow finalized external contracts while the SCC
+    // iterates. Cloning keeps `analyze_function` on its concrete map API.
     let mut combined_sigs = external_sigs.clone();
 
     let mut changed = true;

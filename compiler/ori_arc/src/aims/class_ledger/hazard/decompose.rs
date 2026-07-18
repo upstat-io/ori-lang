@@ -185,15 +185,10 @@ pub(super) fn cure_view_with_field_decomposition(
 
     if !hazard.is_consume_marked()
         || hazard.is_nested_path()
-        // Re-booking the field's move-in as non-consuming is valid only when
-        // the container dies through its locally converted release sites.
-        // If another path transfers the whole container out, that transferee
-        // still owns the field; extraction therefore needs its own funded
-        // credit instead of globally removing the container's ownership.
+        // A transferred container still owns its field, so extraction needs a
+        // separate credit rather than re-booking the original move-in.
         || hazard.is_container_transferred_out()
-        // Constructless is admitted ONLY with a type-derived variant skip
-        // (`derive_constructless_enum_variant`); a constructless struct
-        // container has no skip authority and declines.
+        // Only type-derived variant authority admits constructless containers.
         || (hazard.construct_sites.is_empty() && authority.is_none())
         || hazard.skip_fields.is_empty()
     {
@@ -211,12 +206,8 @@ pub(super) fn cure_view_with_field_decomposition(
         return false;
     }
     let container = hazard.container;
-    // POSITIONAL authority is acyclic-only: the per-site verdicts rest on
-    // dominator reasoning that a CFG cycle breaks (an in-loop extraction
-    // "dominates" a later in-loop release, yet on the next iteration the
-    // payload is a NEW reference the skip would strand — the loop-carried
-    // struct-rebuild double-free). A VARIANT authority is unaffected (the
-    // admitted sum shapes are post-switch acyclic arms).
+    // Positional authority is acyclic: a later loop iteration may carry a new
+    // payload despite an apparent extraction-to-release dominance relation.
     if matches!(authority, Some(SkipAuthority::Positional(_)))
         && func_has_cycle_touching_view_or_container(inputs, state, hazard)
     {
@@ -234,11 +225,8 @@ pub(super) fn cure_view_with_field_decomposition(
         state.classes,
         authority.as_ref(),
     );
-    // Per-SITE fallback (sum shapes with a variant skip only): a bypass-edge
-    // release keeps the whole-var Dec (the recursive drop of the unmoved
-    // payload) while extraction-dominated sites take the variant skip; the
-    // view books the kept store consume + a CREDIT at each extraction
-    // (`FD_site_uniform_projection`; a MIXED site declines).
+    // Variant skips may fall back per site: bypass releases keep the whole-var
+    // decrement while extraction-dominated releases skip the moved payload.
     let per_site_verdicts: Option<Vec<SiteVerdict>> = if all_sites_safe {
         None
     } else {

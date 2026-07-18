@@ -1,19 +1,7 @@
-//! Iterator-collection RC ownership matrix tests.
+//! Iterator-collection RC ownership matrix.
 //!
-//! Comprehensive combinatorial coverage: 6 element types × 8 iteration
-//! patterns × 2 loop variants + E7 list-collect guards. Exercises every
-//! RC-relevant combination to prevent regression.
-//!
-//! Matrix dimensions:
-//!   Loop:    for-do (P1-P2, P4-P8), for-yield (P1-P8)
-//!   Type:    E1=str, E2=[int] nested, E3=Option<str>, E4=closure, E5=struct, E6=map
-//!   Pattern: P1=full, P2=break, P3=yield-transform, P4=two-call, P5=nested,
-//!            P6=guard, P7=unwind, P8=continue
-//!
-//! E7 (Set<int>) is covered through list collection and iteration; these
-//! fixtures do not exercise `__collect_set`. `Set<str>` iteration has separate
-//! coverage.
-//! E2×P5 for-yield excluded — nested yield of [int] collapses to flat int; covered by P1.
+//! The fixtures cross loop form, element representation, and control-flow
+//! pattern. Set collection and nested-list flattening have separate coverage.
 
 use crate::util::assert_aot_success;
 

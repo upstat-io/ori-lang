@@ -1,29 +1,7 @@
-//! Type unification engine.
+//! Link-based type unification with path compression.
 //!
-//! This module provides link-based unification with path compression,
-//! achieving O(α(n)) amortized complexity (nearly constant time).
-//!
-//! # Design
-//!
-//! Historical influence: the Gleam unification SHAPE:
-//! - Variables are linked directly to their unified type (no substitution maps)
-//! - Path compression shortens chains during resolution
-//! - Flag-gated occurs check skips traversal when `HAS_VAR` is false
-//! - Rich error context for helpful diagnostics
-//!
-//! # Usage
-//!
-//! ```rust
-//! use ori_types::{Idx, Pool, UnifyEngine};
-//!
-//! let mut pool = Pool::new();
-//! let mut engine = UnifyEngine::new(&mut pool);
-//!
-//! let var = engine.fresh_var();
-//! engine.unify(var, Idx::INT).expect("int should unify with a fresh variable");
-//!
-//! assert_eq!(engine.resolve(var), Idx::INT);
-//! ```
+//! Variables link directly to resolved types, ranks govern generalization, and
+//! flag-gated occurs checks skip types that cannot contain inference variables.
 
 mod error;
 mod generalization;
@@ -37,12 +15,8 @@ pub use rank::Rank;
 
 use crate::{Idx, Pool};
 
-/// The unification engine.
-///
-/// Handles type variable resolution and unification with:
-/// - Link-based union-find for O(α(n)) unification
-/// - Path compression for efficient resolution
-/// - Rank tracking for let-polymorphism
+/// Link-based unification state with path compression and rank generalization.
+#[derive(Debug)]
 pub struct UnifyEngine<'pool> {
     /// The type pool (mutable access for setting links).
     pub(super) pool: &'pool mut Pool,

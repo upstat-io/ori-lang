@@ -1,19 +1,23 @@
 //! Collection builtin dispatch declarations.
 
+use ori_arc::ir::ArgOwnership;
+
 use crate::codegen::type_info::TypeInfo;
+
+use super::super::RenderStyle;
 
 declare_builtins! { emitter, ctx;
     // Set
     ("Set", "debug") => {
         if let TypeInfo::Set { element } = ctx.type_info {
-            emitter.emit_set_debug(ctx.arg_vals[0], *element, true)
+            emitter.emit_set_debug(ctx.arg_vals[0], *element, RenderStyle::Debug)
         } else {
             None
         }
     },
     ("Set", "to_str") => {
         if let TypeInfo::Set { element } = ctx.type_info {
-            emitter.emit_set_debug(ctx.arg_vals[0], *element, false)
+            emitter.emit_set_debug(ctx.arg_vals[0], *element, RenderStyle::Printable)
         } else {
             None
         }
@@ -122,9 +126,14 @@ declare_builtins! { emitter, ctx;
             // Same credit gate as list/map: a borrowed-rooted receiver is
             // non-owning unless the final callee contract demanded an independent
             // whole-value credit for this invocation.
-            let receiver_owned = !emitter.is_var_borrowed_rooted(ctx.arc_args[0])
-                || emitter.iter_receiver_owns_via_contract(ctx.arc_args[0]);
-            emitter.emit_set_iter(ctx.arg_vals[0], *element, receiver_owned)
+            let receiver_ownership = if !emitter.is_var_borrowed_rooted(ctx.arc_args[0])
+                || emitter.iter_receiver_owns_via_contract(ctx.arc_args[0])
+            {
+                ArgOwnership::Owned
+            } else {
+                ArgOwnership::Borrowed
+            };
+            emitter.emit_set_iter(ctx.arg_vals[0], *element, receiver_ownership)
         } else {
             None
         }

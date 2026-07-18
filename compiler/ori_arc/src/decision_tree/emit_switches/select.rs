@@ -1,22 +1,8 @@
-//! Select chain optimization for branchless trivial matches.
+//! Branchless lowering for small matches with trivial arms.
 //!
-//! Instead of creating N basic blocks + a switch terminator + phi merge,
-//! emits a chain of `icmp eq` + `Select` instructions in a single block.
-//! This eliminates branch misprediction for small, trivial matches like:
-//!
-//! ```text
-//! match x { 0 => 10, 1 => 20, _ => 30 }
-//! ```
-//!
-//! Becomes (in a single block, no branches):
-//! ```text
-//! acc   = 30                      // default body
-//! cmp0  = eq x, 0
-//! acc   = select cmp0, 10, acc    // if x==0 then 10 else 30
-//! cmp1  = eq x, 1
-//! acc   = select cmp1, 20, acc    // if x==1 then 20 else previous acc
-//! jump merge_block(acc)
-//! ```
+//! The default arm seeds an accumulator, and each explicit case conditionally
+//! selects its value into that accumulator. One final jump supplies the result
+//! to the merge block, avoiding per-arm blocks and a switch terminator.
 
 use ori_ir::canon::CanExpr;
 use ori_ir::Span;
@@ -117,11 +103,8 @@ pub(super) fn emit_select_chain(
     default: Option<&DecisionTree>,
     ctx: &mut EmitContext,
 ) {
-    // Determine the fallback value and which edges need explicit comparison.
-    //
-    // If there's a default arm (wildcard), use its body as fallback and compare
-    // all edges. If the match is exhaustive (no default), use the last edge's
-    // body as fallback and skip its comparison — it's implied by elimination.
+    // A wildcard supplies the fallback while all edges are compared; an
+    // exhaustive match uses its implied final edge as the fallback.
     let (mut acc, compare_edges) = if let Some(DecisionTree::Leaf { arm_index, .. }) = default {
         let val = lowerer.lower_expr(ctx.arm_bodies[*arm_index]);
         (val, edges)

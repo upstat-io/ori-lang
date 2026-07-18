@@ -4,6 +4,10 @@
 //! per-parameter demand at the function entry point and determines return
 //! value uniqueness to produce a [`MemoryContract`].
 
+mod alias_flow;
+mod param_facts;
+mod return_contract;
+
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -17,10 +21,6 @@ use super::super::contract::{
 use super::super::intraprocedural::compute_requires_unique_params;
 use super::super::intraprocedural::AimsStateMap;
 use super::super::lattice::{AccessClass, Uniqueness};
-
-mod alias_flow;
-mod param_facts;
-mod return_contract;
 
 pub(crate) use alias_flow::build_subject_independent_alias_to_param_map;
 pub(crate) use param_facts::find_iter_consume_call_args;
@@ -101,10 +101,8 @@ pub(crate) fn extract_contract_with_call_ownership(
         .map(|(i, p)| (p.var, i))
         .collect();
 
-    // Per-param facts (consume/return/alias/containment/iter/borrowed-RO).
-    // The backward analysis only tracks cardinality demand through Apply
-    // instructions, so these structural scans supply the access-class facts
-    // the state map cannot; field semantics live on [`ParamFacts`].
+    // Structural scans supply access-class facts that backward cardinality
+    // analysis cannot derive; field semantics live on [`ParamFacts`].
     let facts = detect_param_facts(
         func,
         sigs,
@@ -135,10 +133,8 @@ pub(crate) fn extract_contract_with_call_ownership(
 
     let mut effects = state_map.effect_summary();
 
-    // Constant stack verification.
-    // Non-recursive functions have constant stack by definition. Recursive
-    // functions have constant stack only if ALL recursive calls (to self
-    // or mutual-recursion partners) are in syntactic tail position.
+    // Recursive functions have constant stack only when every recursive call
+    // within the SCC is syntactically tail-positioned.
     let has_unbounded_stack = if scc_peers.is_empty() {
         false
     } else {
@@ -150,19 +146,9 @@ pub(crate) fn extract_contract_with_call_ownership(
     // A function is FBIP if it never allocates on any code path.
     let is_fbip = !effects.may_allocate;
 
-    // FIP natural detection from converged state.
-    // Token balance determines FIP classification without a separate pass.
-    //
-    // FP² Theorem 2 requires `!may_allocate && !may_deallocate` for full FIP.
-    // At contract extraction time, `may_deallocate` is optimistic (`false`) —
-    // the true value is computed post-emission from `FipEvidence.missed_reuses`
-    // and applied in the second pass of `run_aims_pipeline_all`.
-    // The FBIP fast path (`!may_allocate → Certified`) is always valid: if the
-    // function never allocates, it trivially never deallocates.
-    //
-    // FIP also requires constant stack — `has_unbounded_stack`
-    // must be `false` for Certified. Functions with non-tail recursion that
-    // are allocation-balanced get Bounded, not Certified.
+    // Token balance classifies FIP, but certification also requires constant
+    // stack. Post-emission missed-reuse evidence supplies the final
+    // deallocation verdict; allocation-free FBIP remains immediately valid.
     let fip = if has_unbounded_stack {
         // Unbounded stack growth → cannot be Certified regardless of
         // allocation balance. Downgrade to Never (conservative).
@@ -231,14 +217,8 @@ fn param_contract_for(
     } else {
         state.access
     };
-    // return_alias is populated whenever the param structurally flows
-    // to a Direct or Project Return, regardless of access. The shape
-    // is a caller-side signal: when the caller passes the arg Owned,
-    // `apply_aliases::install_alias_entry` records the alias entry so
-    // the realize walk suppresses the caller's scope-exit dec on the
-    // arg. Borrowed-callee + Borrowed-caller-arg pairs leave the
-    // signal unused. Owned-only callee-side compensation is gated
-    // separately in `realize::emit_unified::build_return_project_inc_targets`.
+    // INVARIANT: Return shape is structural; caller ownership decides whether
+    // it suppresses an argument release or requires compensation.
     let return_alias = facts.return_alias_shapes.get(&i).copied();
     ParamContract {
         access,
@@ -246,11 +226,8 @@ fn param_contract_for(
         cardinality: state.cardinality,
         // v1: locality from backward demand
         locality_bound: state.locality,
-        // The converged backward state already carries the parameter-local
-        // sharing proof: heap-escaping aggregate capture, a live-across COW
-        // consume, or a borrowed call to a sharing callee widens uniqueness.
-        // Publish that proof so the realized retain and the caller-visible
-        // contract describe the same ownership effect.
+        // Publish the converged sharing proof so realized retains and the
+        // caller-visible contract describe the same ownership effect.
         may_escape: false,
         may_share: state.uniqueness != Uniqueness::Unique
             || (access == AccessClass::Borrowed && facts.owner_credit.contains(&i)),
@@ -258,26 +235,19 @@ fn param_contract_for(
         // Tightened to Unique by post-fixpoint demand propagation
         // when all callers satisfy the condition.
         uniqueness: Uniqueness::MaybeShared,
-        // Param flows directly to a `Return { value }` terminator —
-        // gates scope-exit dec suppression in the realize walk.
-        // The structural return-flow alias proves transfer; result freshness does not.
-        // Invariant: `transfers_through_return == true` IFF
-        // `return_alias == Some(Direct)`.
+        // Direct structural return flow, not freshness, gates scope-exit
+        // decrement suppression and implies `return_alias == Some(Direct)`.
         transfers_through_return: facts.return_flow.contains(&i),
         return_alias,
-        // Structural payload-containment fact — the param flows into a
-        // returned transitive-drop variant payload. Distinct from
-        // `return_alias`, which covers the result being an ALIAS of the
-        // param. Consumed by the burden-path transitive-drop alias machinery
-        // (`intraprocedural/apply_aliases.rs` + `post_convergence.rs`).
+        // Payload containment means the parameter enters a returned
+        // transitive-drop payload; unlike `return_alias`, the result need not
+        // be the same allocation.
         return_payload_contains_param: facts.payload_containment.contains(&i),
         // RL-2 iter-consume transfer fact (proven sound:
         // `AimsProof.Realization::RL2_iter_consuming_caller_dec_splits`).
         iter_consumes: facts.iter_consume.contains(&i),
-        // RL-2 borrowed-read-only fact: a surviving Borrowed collection arg
-        // is `ApplyToBorrowedParam` (caller decs); COW-mutated params are
-        // excluded. Proven sound:
-        // `AimsProof.Realization::RL2_borrowed_param_emits_caller_dec`.
+        // RL-2: surviving borrowed collection arguments remain caller-owned;
+        // COW-mutated parameters are excluded.
         borrowed_read_only: facts.borrowed_read_only.contains(&i),
         // RL-1 + RL-2 borrowed-COW-consume-at-death fact — the caller's
         // owned-call-arg duplication-inc admission funds one reference per

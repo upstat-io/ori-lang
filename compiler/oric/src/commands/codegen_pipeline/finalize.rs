@@ -7,13 +7,9 @@
 //!   verification. Returns the cloned module on success or a diagnostic string
 //!   on failure.
 
-#[cfg(feature = "llvm")]
 use ori_ir::StringInterner;
-#[cfg(feature = "llvm")]
 use ori_llvm::inkwell::module::Module;
-#[cfg(feature = "llvm")]
 use ori_llvm::SimpleCx;
-#[cfg(feature = "llvm")]
 use ori_types::Pool;
 
 /// Emit ARC-IR phase dumps when the corresponding env-var gates are set.
@@ -21,7 +17,6 @@ use ori_types::Pool;
 /// The ARC IR dump routes through the dump orchestrator (ARC phase); the
 /// `ORI_EMIT_ARC_DOT` `GraphViz` emit stays `dbg_do!`-gated. A single call site
 /// for both so the caller doesn't carry the gating noise inline.
-#[cfg(feature = "llvm")]
 pub(super) fn dump_arc_phases(
     executable: &ori_repr::executable::ExecutableProgram,
     interner: &StringInterner,
@@ -42,7 +37,6 @@ pub(super) fn dump_arc_phases(
 ///
 /// IR dump runs BEFORE verify so the dump is emitted even when the module has
 /// structural errors, matching the JIT path pattern.
-#[cfg(feature = "llvm")]
 pub(super) fn finalize_module<'ctx>(
     scx: &SimpleCx<'ctx>,
     codegen_errors: u32,

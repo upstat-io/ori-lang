@@ -118,9 +118,7 @@ fn cow_insert_existing(
         return;
     }
 
-    // SLOW PATH: shared — copy buffer and overwrite one value.
-    // We don't have key_hash here, so we can't rehash. Instead, copy the raw
-    // buffer (preserving hash table structure) and overwrite the value at bucket.
+    // Why: Raw copying preserves bucket assignments when no key-hash callback is available.
     slow_copy_overwrite_value(
         data, len, cap, ks, vs, bucket, value, key_inc, val_inc, key_dec, val_dec, out_ptr,
     );
@@ -133,7 +131,7 @@ fn cow_insert_existing(
 /// overwrites the value at `bucket`.
 #[expect(
     clippy::too_many_arguments,
-    reason = "COW map copy parameters — all independent"
+    reason = "copying a map entry requires table layout, ownership callbacks, and output storage"
 )]
 fn slow_copy_overwrite_value(
     data: *mut u8,
@@ -287,7 +285,6 @@ fn cow_insert_new(
         OriMap::alloc_hash_buffer(new_cap, ks, vs)
     };
 
-    // Insert new key
     let new_layout = HashTableLayout::for_map(new_cap, ks, vs);
     let slot = unsafe { probe_find_slot(new_data, new_cap, hash) };
     unsafe {
@@ -296,7 +293,7 @@ fn cow_insert_new(
         std::ptr::copy_nonoverlapping(key, key_dst, ks);
         std::ptr::copy_nonoverlapping(value, val_dst, vs);
         set_meta(new_data, slot, META_OCCUPIED);
-        // Inc RC for newly inserted key/value — borrowed from caller.
+        // INVARIANT: The new buffer retains its borrowed key and value owners.
         if let Some(inc) = key_inc {
             inc(key_dst);
         }
@@ -305,7 +302,6 @@ fn cow_insert_new(
         }
     }
 
-    // Release old buffer reference
     ori_map_buffer_rc_dec(
         data, cap as i64, len as i64, ks as i64, vs as i64, key_dec, val_dec,
     );
@@ -318,9 +314,9 @@ fn cow_insert_new(
 /// Replaces the value for an existing key. If the key is not found, returns
 /// unchanged (no insertion).
 #[cfg(test)]
-#[allow(
+#[expect(
     clippy::too_many_arguments,
-    reason = "mirrors extern C COW function signatures"
+    reason = "the C ABI passes map layout, callbacks, ownership mode, and output storage separately"
 )]
 pub(crate) fn ori_map_update_cow(
     data: *mut u8,

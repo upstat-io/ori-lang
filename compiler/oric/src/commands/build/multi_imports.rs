@@ -39,7 +39,8 @@ fn imported_module_infos<'a>(
         .collect()
 }
 
-type LocalFunctionNames = rustc_hash::FxHashMap<(PathBuf, String), Vec<String>>;
+type LocalFunctionNames =
+    rustc_hash::FxHashMap<PathBuf, rustc_hash::FxHashMap<String, Vec<String>>>;
 
 fn collect_local_function_names(
     resolved_imports: &crate::imports::ResolvedImports,
@@ -62,10 +63,9 @@ fn collect_local_function_names(
         });
         let local = interner.lookup(func_ref.local_name).to_string();
         let entry = local_names
-            .entry((
-                key_path,
-                interner.lookup(func_ref.original_name).to_string(),
-            ))
+            .entry(key_path)
+            .or_default()
+            .entry(interner.lookup(func_ref.original_name).to_string())
             .or_default();
         if !entry.contains(&local) {
             entry.push(local);
@@ -106,12 +106,7 @@ pub(super) fn build_import_infos(
     re_interned_function_sigs: &[rustc_hash::FxHashMap<ori_ir::Name, ori_types::FunctionSig>],
     interner: &ori_ir::StringInterner,
 ) -> Result<Vec<crate::commands::compile_common::ImportedFunctionInfo>, String> {
-    // Call-site local/aliased names keyed by (imported module path, exported
-    // fn name). Only functions the host names in a `use` get local keys;
-    // module-alias imports expand to qualified `alias.fn` entries during resolution.
-    // ONE exported fn can carry SEVERAL local names (`use { f as g, f as h }`,
-    // or a named import plus a module-alias qualified entry) - every alias
-    // needs its own registration or its call sites miss callee resolution.
+    // INVARIANT: every local alias gets a registration keyed to its exported function.
     let local_names = collect_local_function_names(resolved_imports, interner);
 
     let mut imported_functions = Vec::new();
@@ -146,6 +141,7 @@ pub(super) fn build_import_infos(
                 import_path.display()
             )
         })?;
+        let module_local_names = local_names.get(&key_path);
         imported_functions.reserve(module_info.public_functions.len());
         for ExportedFunctionInfo {
             mangled_name,
@@ -162,7 +158,7 @@ pub(super) fn build_import_infos(
                     source_name
                 )
             })?;
-            match local_names.get(&(key_path.clone(), source_name.clone())) {
+            match module_local_names.and_then(|names| names.get(source_name)) {
                 Some(locals) => {
                     // One entry PER local alias - each call-site name resolves
                     // to the same extern symbol.

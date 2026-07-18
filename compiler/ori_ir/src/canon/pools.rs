@@ -193,17 +193,30 @@ impl DecisionTreePool {
         }
     }
 
-    /// Store a decision tree and return its ID.
+    /// Store a decision tree with empty cleanup carriers and return its ID.
     pub fn push(&mut self, tree: DecisionTree) -> DecisionTreeId {
-        self.push_with_leaf_discards(tree, Vec::new())
+        let leaf_discard_paths = vec![Vec::new(); decision_tree_success_count(&tree)];
+        self.push_with_leaf_discards(tree, leaf_discard_paths)
     }
 
     /// Store a decision tree with its exact blank-pattern cleanup carriers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the carrier count does not match the tree's static Leaf/Guard
+    /// success count.
     pub fn push_with_leaf_discards(
         &mut self,
         tree: DecisionTree,
         leaf_discard_paths: Vec<LeafDiscardPaths>,
     ) -> DecisionTreeId {
+        let success_count = decision_tree_success_count(&tree);
+        assert_eq!(
+            leaf_discard_paths.len(),
+            success_count,
+            "decision tree has {success_count} success nodes but {} cleanup carriers",
+            leaf_discard_paths.len()
+        );
         let id = DecisionTreeId::new(to_u32(self.trees.len(), "decision trees"));
         self.trees.push(SharedDecisionTree::new(tree));
         self.tree_discard_paths.push(leaf_discard_paths);
@@ -237,5 +250,20 @@ impl DecisionTreePool {
     /// Returns `true` if no trees are stored.
     pub fn is_empty(&self) -> bool {
         self.trees.is_empty()
+    }
+}
+
+fn decision_tree_success_count(tree: &DecisionTree) -> usize {
+    match tree {
+        DecisionTree::Switch { edges, default, .. } => {
+            let edge_count = edges
+                .iter()
+                .map(|(_, subtree)| decision_tree_success_count(subtree))
+                .sum::<usize>();
+            edge_count + default.as_deref().map_or(0, decision_tree_success_count)
+        }
+        DecisionTree::Leaf { .. } => 1,
+        DecisionTree::Guard { on_fail, .. } => 1 + decision_tree_success_count(on_fail),
+        DecisionTree::Fail => 0,
     }
 }

@@ -5,7 +5,7 @@
 //! are thin wrappers in `lib.rs`.
 
 use ori_ir::{Comment, CommentKind, Span, StringInterner, Token, TokenFlags, TokenKind};
-use ori_lexer_core::{EncodingIssueKind, RawScanner, RawTag, SourceBuffer};
+use ori_lexer_core::{EncodingIssueKind, RawScanner, RawTag, RawToken, SourceBuffer};
 use tracing::{debug, trace};
 
 use crate::comments::classify_and_normalize_comment;
@@ -23,14 +23,6 @@ use crate::trivial::try_trivial;
 /// Uses const generics so LLVM monomorphizes two versions from the same source,
 /// preserving optimization context (inlining decisions, register allocation)
 /// while eliminating dead metadata branches at compile time.
-#[expect(
-    clippy::too_many_lines,
-    reason = "lexer main loop with token classification"
-)]
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "lexer driver: inherent complexity from token classification + metadata branches"
-)]
 pub(crate) fn lex_driver<const WITH_METADATA: bool>(
     source: &str,
     interner: &StringInterner,
@@ -43,7 +35,7 @@ pub(crate) fn lex_driver<const WITH_METADATA: bool>(
 
     let buf = SourceBuffer::new(source);
     let mut scanner = RawScanner::new(buf.cursor());
-    let mut cooker = TokenCooker::new(buf.as_bytes(), interner);
+    let mut cooker = TokenCooker::new(source, interner);
     let mut output = if WITH_METADATA {
         LexOutput::with_capacity(source.len())
     } else {
@@ -51,25 +43,12 @@ pub(crate) fn lex_driver<const WITH_METADATA: bool>(
         LexOutput::with_token_capacity(source.len())
     };
 
-    // Convert encoding issues detected by SourceBuffer into LexErrors.
-    for issue in buf.encoding_issues() {
-        let issue_span = Span::new(issue.pos, issue.pos + issue.len);
-        output.errors.push(match issue.kind {
-            EncodingIssueKind::Utf8Bom => LexError::utf8_bom(issue_span),
-            EncodingIssueKind::Utf16LeBom => LexError::utf16_le_bom(issue_span),
-            EncodingIssueKind::Utf16BeBom => LexError::utf16_be_bom(issue_span),
-            EncodingIssueKind::InteriorNull => LexError::interior_null(issue_span),
-        });
-    }
+    record_encoding_issues(&buf, &mut output);
 
     let mut offset: u32 = 0;
     let mut pending_flags = TokenFlags::EMPTY;
 
-    // Metadata-only state (dead code eliminated when WITH_METADATA=false)
-    let mut last_significant_was_newline = false;
-    let mut pending_doc: Option<(Span, DocMarker)> = None;
-    let mut had_blank_line_since_doc = false;
-    let mut pending_is_doc = false;
+    let mut metadata = MetadataState::default();
 
     loop {
         let raw = scanner.next_token();
@@ -78,129 +57,24 @@ pub(crate) fn lex_driver<const WITH_METADATA: bool>(
             break;
         }
 
-        match raw.tag {
-            RawTag::Whitespace => {
-                pending_flags.set(TokenFlags::SPACE_BEFORE);
-            }
-
-            RawTag::LineComment => {
-                if WITH_METADATA {
-                    let token_span = crate::cooker::span(offset, raw.len);
-                    let slice = &source[offset as usize..(offset + raw.len) as usize];
-                    let content_str = if slice.len() > 2 { &slice[2..] } else { "" };
-                    let (kind, normalized) = classify_and_normalize_comment(content_str);
-                    let content = interner.intern(&normalized);
-                    output
-                        .comments
-                        .push(Comment::new(content, token_span, kind));
-
-                    if kind.is_doc() {
-                        let marker = doc_comment_marker(kind);
-                        if pending_doc.is_some() && had_blank_line_since_doc {
-                            if let Some((doc_span, doc_marker)) = pending_doc.take() {
-                                output.warnings.push(DetachedDocWarning {
-                                    span: doc_span,
-                                    marker: doc_marker,
-                                });
-                            }
-                        }
-                        pending_doc = Some((token_span, marker));
-                        had_blank_line_since_doc = false;
-                        pending_is_doc = true;
-                    }
-
-                    last_significant_was_newline = false;
-                }
-                pending_flags.set(TokenFlags::TRIVIA_BEFORE);
-            }
-
-            RawTag::Newline => {
-                let token_span = crate::cooker::span(offset, raw.len);
-                if WITH_METADATA {
-                    output.newlines.push(token_span.start);
-
-                    if last_significant_was_newline {
-                        output.blank_lines.push(token_span.start);
-                        if pending_doc.is_some() {
-                            had_blank_line_since_doc = true;
-                        }
-                    }
-                }
-
-                let flags = finalize_flags(pending_flags);
-                output
-                    .tokens
-                    .push_with_flags(Token::new(TokenKind::Newline, token_span), flags);
-                pending_flags =
-                    TokenFlags::from_bits(TokenFlags::NEWLINE_BEFORE | TokenFlags::LINE_START);
-
-                if WITH_METADATA {
-                    last_significant_was_newline = true;
-                }
-            }
-
-            RawTag::InteriorNull => {}
-
-            // Cook everything else
-            _ => {
-                let token_span = crate::cooker::span(offset, raw.len);
-                if WITH_METADATA {
-                    last_significant_was_newline = false;
-                }
-
-                // Try the trivial fast path: operators and delimiters that
-                // map 1:1 from RawTag to TokenKind with no data or side effects.
-                // Bypasses cook() and discriminant_index() entirely.
-                let result = if let Some((kind, tag)) = try_trivial(raw.tag) {
-                    crate::cooker::CookResult::trivial(kind, tag)
-                } else {
-                    let result = cooker.cook(raw.tag, offset, raw.len);
-                    trace!(offset, raw_tag = ?raw.tag, kind = ?result.kind, "cooked token");
-                    result
-                };
-                let had_error = result.had_error();
-                let was_contextual = result.is_contextual_keyword();
-                let kind = result.kind;
-                let tag = result.tag;
-
-                if WITH_METADATA {
-                    if let Some((doc_span, doc_marker)) = pending_doc.take() {
-                        if had_blank_line_since_doc || !is_declaration_start(&kind) {
-                            output.warnings.push(DetachedDocWarning {
-                                span: doc_span,
-                                marker: doc_marker,
-                            });
-                        }
-                    }
-                }
-
-                let mut flags = finalize_flags(pending_flags);
-                if had_error {
-                    flags.set(TokenFlags::HAS_ERROR);
-                }
-                if was_contextual {
-                    flags.set(TokenFlags::CONTEXTUAL_KW);
-                }
-                if WITH_METADATA && pending_is_doc {
-                    flags.set(TokenFlags::IS_DOC);
-                    pending_is_doc = false;
-                }
-                output
-                    .tokens
-                    .push_with_tag(Token::new(kind, token_span), tag, flags);
-                pending_flags = TokenFlags::EMPTY;
-
-                // Track last non-trivia raw tag for O(1) method-position detection.
-                cooker.set_last_non_trivia(raw.tag);
-            }
-        }
+        process_raw_token::<WITH_METADATA>(
+            raw,
+            offset,
+            &mut DriverState {
+                source,
+                interner,
+                cooker: &mut cooker,
+                output: &mut output,
+                pending_flags: &mut pending_flags,
+                metadata: &mut metadata,
+            },
+        );
 
         offset += raw.len;
     }
 
-    // If a doc comment is still pending at EOF, it's detached
     if WITH_METADATA {
-        if let Some((doc_span, doc_marker)) = pending_doc {
+        if let Some((doc_span, doc_marker)) = metadata.pending_doc {
             output.warnings.push(DetachedDocWarning {
                 span: doc_span,
                 marker: doc_marker,
@@ -229,6 +103,159 @@ pub(crate) fn lex_driver<const WITH_METADATA: bool>(
     );
 
     output
+}
+
+#[derive(Default)]
+struct MetadataState {
+    last_significant_was_newline: bool,
+    pending_doc: Option<(Span, DocMarker)>,
+    had_blank_line_since_doc: bool,
+    pending_is_doc: bool,
+}
+
+struct DriverState<'state, 'src> {
+    source: &'src str,
+    interner: &'src StringInterner,
+    cooker: &'state mut TokenCooker<'src>,
+    output: &'state mut LexOutput,
+    pending_flags: &'state mut TokenFlags,
+    metadata: &'state mut MetadataState,
+}
+
+fn record_encoding_issues(buffer: &SourceBuffer, output: &mut LexOutput) {
+    for issue in buffer.encoding_issues() {
+        let span = Span::new(issue.pos, issue.pos + issue.len);
+        output.errors.push(match issue.kind {
+            EncodingIssueKind::Utf8Bom => LexError::utf8_bom(span),
+            EncodingIssueKind::Utf16LeBom => LexError::utf16_le_bom(span),
+            EncodingIssueKind::Utf16BeBom => LexError::utf16_be_bom(span),
+            EncodingIssueKind::InteriorNull => LexError::interior_null(span),
+        });
+    }
+}
+
+fn process_raw_token<const WITH_METADATA: bool>(
+    raw: RawToken,
+    offset: u32,
+    state: &mut DriverState<'_, '_>,
+) {
+    match raw.tag {
+        RawTag::Whitespace => state.pending_flags.set(TokenFlags::SPACE_BEFORE),
+        RawTag::LineComment => process_line_comment::<WITH_METADATA>(raw, offset, state),
+        RawTag::Newline => process_newline::<WITH_METADATA>(raw, offset, state),
+        RawTag::InteriorNull => {}
+        _ => process_cooked_token::<WITH_METADATA>(raw, offset, state),
+    }
+}
+
+fn process_line_comment<const WITH_METADATA: bool>(
+    raw: RawToken,
+    offset: u32,
+    state: &mut DriverState<'_, '_>,
+) {
+    if WITH_METADATA {
+        let token_span = crate::cooker::span(offset, raw.len);
+        let slice = &state.source[offset as usize..(offset + raw.len) as usize];
+        let content_str = slice.get(2..).unwrap_or_default();
+        let (kind, normalized) = classify_and_normalize_comment(content_str);
+        let content = state.interner.intern(&normalized);
+        state
+            .output
+            .comments
+            .push(Comment::new(content, token_span, kind));
+
+        if kind.is_doc() {
+            if state.metadata.had_blank_line_since_doc {
+                emit_detached_doc_warning(state);
+            }
+            state.metadata.pending_doc = Some((token_span, doc_comment_marker(kind)));
+            state.metadata.had_blank_line_since_doc = false;
+            state.metadata.pending_is_doc = true;
+        }
+        state.metadata.last_significant_was_newline = false;
+    }
+    state.pending_flags.set(TokenFlags::TRIVIA_BEFORE);
+}
+
+fn process_newline<const WITH_METADATA: bool>(
+    raw: RawToken,
+    offset: u32,
+    state: &mut DriverState<'_, '_>,
+) {
+    let token_span = crate::cooker::span(offset, raw.len);
+    if WITH_METADATA {
+        state.output.newlines.push(token_span.start);
+        if state.metadata.last_significant_was_newline {
+            state.output.blank_lines.push(token_span.start);
+            state.metadata.had_blank_line_since_doc |= state.metadata.pending_doc.is_some();
+        }
+    }
+
+    let flags = finalize_flags(*state.pending_flags);
+    state
+        .output
+        .tokens
+        .push_with_flags(Token::new(TokenKind::Newline, token_span), flags);
+    *state.pending_flags =
+        TokenFlags::from_bits(TokenFlags::NEWLINE_BEFORE | TokenFlags::LINE_START);
+    state.metadata.last_significant_was_newline = WITH_METADATA;
+}
+
+fn process_cooked_token<const WITH_METADATA: bool>(
+    raw: RawToken,
+    offset: u32,
+    state: &mut DriverState<'_, '_>,
+) {
+    let token_span = crate::cooker::span(offset, raw.len);
+    state.metadata.last_significant_was_newline = false;
+
+    let result = if let Some((kind, tag)) = try_trivial(raw.tag) {
+        crate::cooker::CookResult::trivial(kind, tag)
+    } else {
+        let result = state.cooker.cook(raw.tag, offset, raw.len);
+        trace!(offset, raw_tag = ?raw.tag, kind = ?result.kind, "cooked token");
+        result
+    };
+    let had_error = result.had_error();
+    let was_contextual = result.is_contextual_keyword();
+    let kind = result.kind;
+    let tag = result.tag;
+
+    if WITH_METADATA
+        && state.metadata.pending_doc.is_some()
+        && (state.metadata.had_blank_line_since_doc || !is_declaration_start(&kind))
+    {
+        emit_detached_doc_warning(state);
+    } else if WITH_METADATA {
+        state.metadata.pending_doc = None;
+    }
+
+    let mut flags = finalize_flags(*state.pending_flags);
+    if had_error {
+        flags.set(TokenFlags::HAS_ERROR);
+    }
+    if was_contextual {
+        flags.set(TokenFlags::CONTEXTUAL_KW);
+    }
+    if WITH_METADATA && state.metadata.pending_is_doc {
+        flags.set(TokenFlags::IS_DOC);
+        state.metadata.pending_is_doc = false;
+    }
+    state
+        .output
+        .tokens
+        .push_with_tag(Token::new(kind, token_span), tag, flags);
+    *state.pending_flags = TokenFlags::EMPTY;
+    state.cooker.set_last_non_trivia(raw.tag);
+}
+
+fn emit_detached_doc_warning(state: &mut DriverState<'_, '_>) {
+    if let Some((span, marker)) = state.metadata.pending_doc.take() {
+        state
+            .output
+            .warnings
+            .push(DetachedDocWarning { span, marker });
+    }
 }
 
 /// Finalize pending flags for a token about to be pushed.

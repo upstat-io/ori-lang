@@ -94,10 +94,7 @@ fn make_distance_impl_sig(
     }
 }
 
-// Note: SimpleCx has a Drop impl (LLVM module), which interacts with the
-// drop checker when other locals borrow `&scx`. We use ManuallyDrop to
-// suppress the drop checker's conservative analysis. The LLVM context
-// outlives all these locals (it owns the actual memory), so this is safe.
+// Why: ManuallyDrop avoids conservative dropck while the LLVM context owns all memory.
 
 #[test]
 fn physical_executor_sources_do_not_enter_the_aims_calculus() {
@@ -425,7 +422,6 @@ fn compile_impls_populates_method_functions_map() {
     let line_name = interner.intern("Line");
 
     let mut pool = Pool::new();
-    // Create named type Idx values for receiver types
     let point_idx = pool.named(point_name);
     let line_idx = pool.named(line_name);
 
@@ -446,8 +442,7 @@ fn compile_impls_populates_method_functions_map() {
         make_distance_impl_sig(1, line_idx, distance_name, self_name),
     ];
 
-    // Create a minimal CanonResult for testing (methods have INVALID bodies,
-    // which is fine since we're only testing declaration/dispatch, not lowering)
+    // Why: invalid bodies are sufficient for declaration and dispatch coverage.
     let canon = ori_ir::canon::CanonResult::empty();
 
     let classifier = ArcClassifier::new(&pool);
@@ -468,11 +463,7 @@ fn compile_impls_populates_method_functions_map() {
     // Compile Point impl first, then Line impl
     fc.compile_impls(&[impl_point, impl_line], &impl_sigs, &canon, &[]);
 
-    // Impl methods must NOT appear in the bare functions map — they are
-    // resolved exclusively via the type-qualified method_functions map.
-    // If they were in functions, an unresolved `distance` call on a field
-    // of the wrong type would resolve to the last registered impl method
-    // (wrong-function dispatch bug,).
+    // INVARIANT: Impl methods resolve only through the type-qualified map.
     assert!(
         !fc.function_map().contains_key(&distance_name),
         "impl methods must NOT be in the bare functions map"
@@ -816,12 +807,10 @@ fn mixed_params_selective_noundef() {
     drop(builder);
     drop(resolver);
 
-    // Check the declaration line for selective noundef
     let ir = scx.llmod.print_to_string().to_string();
     let decl_line = ir.lines().find(|l| l.contains("@_ori_mixed")).unwrap();
 
-    // All params and Direct return get noundef:
-    // - int (Direct), str (Indirect pointer), float (Direct), bool return (Direct)
+    // INVARIANT: direct values and indirect pointers all receive `noundef`.
     let noundef_count = decl_line.matches("noundef").count();
     assert_eq!(
         noundef_count, 4,
@@ -1062,8 +1051,7 @@ fn nounwind_invoke_unknown_callee_is_not_nounwind() {
         &classifier,
     );
 
-    // Register the callee as a declared user function so the intercepted
-    // heuristic correctly identifies it as a user function (not a builtin).
+    // INVARIANT: declaration membership distinguishes user callees from builtins.
     let unknown_name = interner.intern("unknown_fn");
     fc.codegen_ctx
         .functions
@@ -1210,10 +1198,7 @@ fn nounwind_unknown_user_function_is_not_nounwind() {
         &classifier,
     );
 
-    // Call to user function not in nounwind_functions set → NOT nounwind.
-    // Use empty args to avoid the builtin method interception path
-    // (which would recognize a call with a builtin-typed first arg as
-    // an intercepted builtin method).
+    // Why: Empty args isolate user-function classification from builtin interception.
     let func = make_arc_func(
         &interner,
         "caller_of_unknown",
@@ -1394,8 +1379,7 @@ fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
         &classifier,
     );
 
-    // Register both functions as declared so the intercepted heuristic
-    // correctly identifies them as user functions (not builtins).
+    // INVARIANT: declaration membership distinguishes user callees from builtins.
     let callee_name = interner.intern("might_panic");
     let caller_name = interner.intern("caller");
     fc.codegen_ctx
@@ -1582,10 +1566,7 @@ fn compute_nounwind_set_three_level_chain() {
 
 #[test]
 fn compute_nounwind_set_propagates_to_generic_original_name() {
-    // When ALL monomorphizations of a generic are nounwind,
-    // the original generic name should also be added to the set.
-    // This is critical because ARC IR `Invoke` terminators use the
-    // original name (e.g., "identity"), not the mangled name.
+    // INVARIANT: A generic name is nounwind only when every realization is nounwind.
     let pool = Pool::new();
     let ctx = Context::create();
     let interner = StringInterner::new();
@@ -1617,7 +1598,6 @@ fn compute_nounwind_set_propagates_to_generic_original_name() {
         },
     );
 
-    // Register the mono dispatch mapping: identity → [(int_params, identity$m$int)]
     let original = interner.intern("identity");
     fc.codegen_ctx
         .mono_dispatch
@@ -1669,7 +1649,6 @@ fn compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind() {
         &classifier,
     );
 
-    // First mono: identity$m$int — nounwind
     let mangled_int = interner.intern("identity$m$int");
     let int_func = make_arc_func(
         &interner,
@@ -1680,7 +1659,6 @@ fn compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind() {
         },
     );
 
-    // Second mono: identity$m$str — may unwind (calls panic)
     let mangled_str = interner.intern("identity$m$str");
     let str_func = make_arc_func(
         &interner,
@@ -1698,7 +1676,6 @@ fn compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind() {
         },
     );
 
-    // Register mono dispatch: identity → [int, str]
     let original = interner.intern("identity");
     fc.codegen_ctx
         .mono_dispatch
@@ -1747,7 +1724,7 @@ fn compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind() {
 /// Helper: create a minimal FunctionAbi for test PreparedFunctions.
 fn make_test_abi(pool: &Pool) -> FunctionAbi {
     use super::super::abi::{CallConv, FunctionAbi, ReturnAbi, ReturnPassing};
-    let _ = pool; // unused but kept for consistency
+    let _ = pool;
     FunctionAbi {
         params: vec![],
         return_abi: ReturnAbi {
@@ -1849,11 +1826,7 @@ fn test_process_arc_function_records_codegen_error_on_violation() {
     );
 
     let func_name = interner.intern("leaky");
-    // Synthesize an ArcFunction whose entry block carries a Tag::Var as a
-    // block parameter type AND in `var_types`. The validator
-    // (`ori_arc::assert_no_unresolved_type_vars`) walks these positions and
-    // must fire — exactly the input path the primary PC-2 seam is designed
-    // to catch.
+    // INVARIANT: PC-2 validation covers block parameters and `var_types` entries.
     let entry_block = ArcBlock {
         id: ArcBlockId::new(0),
         params: vec![(leak_var_id, leak_var_ty)],

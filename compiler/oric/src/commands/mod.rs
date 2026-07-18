@@ -1,5 +1,28 @@
 //! Ori compiler CLI handlers and shared frontend-reporting utilities.
 
+#[cfg(feature = "llvm")]
+mod backend;
+pub mod build;
+pub mod build_options;
+mod check;
+#[cfg(feature = "llvm")]
+mod codegen_pipeline;
+#[cfg(feature = "llvm")]
+mod compile_common;
+mod debug;
+mod demangle;
+mod emit_aims_state;
+mod emit_scip;
+mod explain;
+mod explain_idx;
+mod fmt;
+mod provenance;
+mod run;
+mod target;
+mod targets;
+mod test;
+mod watch;
+
 use ori_diagnostic::emitter::DiagnosticEmitter;
 use ori_diagnostic::queue::DiagnosticQueue;
 use ori_diagnostic::Diagnostic;
@@ -15,15 +38,6 @@ use oric::reporting::typeck::TypeErrorRenderer;
 use oric::{CompilerDb, Db, SourceFile};
 
 #[cfg(feature = "llvm")]
-mod backend;
-pub mod build;
-pub mod build_options;
-mod check;
-#[cfg(feature = "llvm")]
-mod codegen_pipeline;
-#[cfg(feature = "llvm")]
-mod compile_common;
-#[cfg(feature = "llvm")]
 pub(crate) use codegen_pipeline::imported_mono::{
     build_imported_mono_functions as build_imported_mono_functions_for_test_runner,
     collect_imported_impl_templates,
@@ -31,19 +45,6 @@ pub(crate) use codegen_pipeline::imported_mono::{
     ImportedImplTemplate, ImportedImplTemplateSource, ImportedMonoBody, ImportedMonoFn,
     ImportedPreludeSource, ImportedSurfaces, PoolReinternState,
 };
-mod debug;
-mod demangle;
-mod emit_aims_state;
-mod emit_scip;
-mod explain;
-mod explain_idx;
-mod fmt;
-mod provenance;
-mod run;
-mod target;
-mod targets;
-mod test;
-mod watch;
 
 /// Test enforcement level — controls whether missing tests are errors, warnings, or ignored.
 ///
@@ -93,6 +94,7 @@ pub use test::run_tests;
 pub use watch::watch_file;
 
 /// Result of running the frontend pipeline (lex → parse → typecheck).
+#[derive(Debug)]
 pub(super) struct FrontendResult {
     pub parse_result: ParseOutput,
     pub type_result: TypeCheckResult,
@@ -215,6 +217,7 @@ fn render_type_warning(warning: &TypeCheckWarning) -> Diagnostic {
 }
 
 /// Result of the post-frontend check pipeline (pattern exhaustiveness + test coverage).
+#[derive(Debug)]
 pub(super) struct CheckPipelineResult {
     /// Whether any hard errors occurred (frontend + pattern + coverage in error mode).
     pub has_errors: bool,

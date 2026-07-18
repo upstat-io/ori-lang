@@ -130,7 +130,6 @@ pub extern "C" fn ori_iter_chain(first: *mut u8, second: *mut u8) -> *mut u8 {
     if first.is_null() && second.is_null() {
         return ptr::null_mut();
     }
-    // If one is null, still chain — the null side yields nothing
     let first_state = match take_iter(first) {
         Some(state) => state,
         None => Box::new(empty_range()),
@@ -209,16 +208,16 @@ pub extern "C-unwind" fn ori_iter_rev(
     assert_elem_size(elem_size, "ori_iter_rev");
     let es = elem_size.max(1) as usize;
 
-    // Collect all elements. The `elements` buffer OWNS its copies: inc each
-    // stored master via `elem_inc_fn` so the collected fat pointers outlive
-    // source teardown. Drop decrements each master exactly once.
+    // INVARIANT: Each buffered owner is retained once and released once by `IterState::drop`.
     let mut elements = Vec::new();
     let mut elem_buf = ElemBuf::new();
-    // SAFETY: `elem_buf` is writable for every validated `elem_size`, and the owned iterator state keeps every variant source allocation alive.
+    // SAFETY:
+    // - `elem_buf` is writable for every validated `elem_size`.
+    // - `state` owns every source allocation read by `next`.
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         elements.extend_from_slice(&elem_buf[..es]);
         if let Some(inc) = elem_inc_fn {
-            // SAFETY: The appended element occupies the final `es` initialized bytes, so `len - es` is in-bounds and owned by `elements`.
+            // SAFETY: The appended element occupies `[len - es, len)` in `elements`.
             let stored = unsafe { elements.as_mut_ptr().add(elements.len() - es) };
             inc(stored);
         }
@@ -226,8 +225,7 @@ pub extern "C-unwind" fn ori_iter_rev(
 
     let count = (elements.len() / es) as i64;
 
-    // Free the source iterator (its Drop, gated by owns_data for a List source,
-    // decs the originals once; the collected masters survive via their own inc).
+    // INVARIANT: Source teardown releases originals; retained buffer owners remain live.
     drop(state);
 
     let rev_state = IterState::Reversed {

@@ -2,7 +2,7 @@
 
 use inkwell::{FloatPredicate, IntPredicate};
 
-use super::IrBuilder;
+use super::{IntegerSignedness, IrBuilder};
 use crate::codegen::value_id::ValueId;
 
 impl IrBuilder<'_, '_> {
@@ -186,20 +186,20 @@ impl IrBuilder<'_, '_> {
     /// Emit `icmp lt/gt → select` chain returning Ori `Ordering` (i8).
     ///
     /// Returns: 0 (Less), 1 (Equal), 2 (Greater).
-    /// Uses signed comparison when `signed` is true, unsigned otherwise.
-    pub fn emit_icmp_ordering(
+    /// Uses the selected integer signedness for both predicates.
+    pub(crate) fn emit_icmp_ordering(
         &mut self,
         lhs: ValueId,
         rhs: ValueId,
         name: &str,
-        signed: bool,
+        signedness: IntegerSignedness,
     ) -> ValueId {
-        let lt = if signed {
+        let lt = if signedness == IntegerSignedness::Signed {
             self.icmp_slt(lhs, rhs, &format!("{name}.lt"))
         } else {
             self.icmp_ult(lhs, rhs, &format!("{name}.lt"))
         };
-        let gt = if signed {
+        let gt = if signedness == IntegerSignedness::Signed {
             self.icmp_sgt(lhs, rhs, &format!("{name}.gt"))
         } else {
             self.icmp_ugt(lhs, rhs, &format!("{name}.gt"))

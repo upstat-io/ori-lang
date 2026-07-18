@@ -1,28 +1,8 @@
-//! Centralized debug flags for the Ori compiler.
+//! Debug environment-variable registry and access macros.
 //!
-//! This module is the single source of truth for compiler debugging environment
-//! variables. Flags are checked at runtime via env vars in ALL builds
-//! (debug and release). The overhead is a single `std::env::var()` call per
-//! flag — negligible for a CLI compiler.
-//!
-//! # Usage
-//!
-//! ```bash
-//! ORI_DUMP_AFTER_ARC=1 ori build program.ori
-//! ORI_DEBUG_LLVM=1 ori check program.ori
-//! ```
-//!
-//! # Pattern
-//!
-//! Three macros:
-//! - `dbg_set!` — returns `true` if the flag is set
-//! - `dbg_do!` — executes an expression if the flag is set
-//! - `flags!` — defines flag constants with doc comments
-//!
-//! Note: `ori_llvm` cannot depend on `oric` (the dep direction is reversed),
-//! so flags consumed inside `ori_llvm` (e.g., evaluator JIT path) use raw
-//! `std::env::var` checks. The `oric` call sites use `dbg_do!`/`dbg_set!`
-//! macros for consistent flag checking.
+//! [`dbg_set!`] tests a flag, [`dbg_do!`] gates an expression, and `flags!`
+//! declares documented constants. Flags work in every build profile. Crates
+//! below `oric` in the dependency graph read their variables directly.
 
 /// Check if a debug flag is set. Works in both debug and release builds.
 ///
@@ -84,9 +64,7 @@ macro_rules! flags {
 mod aims_ablation_phase5_core;
 mod aims_ablation_phase5_lineage;
 mod diagnostic_dumps;
+pub mod prelude;
 mod test_harness_and_runtime;
 
-pub use aims_ablation_phase5_core::*;
-pub use aims_ablation_phase5_lineage::*;
-pub use diagnostic_dumps::*;
-pub use test_harness_and_runtime::*;
+pub use prelude::*;

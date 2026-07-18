@@ -3,13 +3,131 @@
 //! Consolidates factory functions used across `borrow`, `liveness`, `aims`,
 //! and pipeline tests. Only compiled in test builds.
 
+#![expect(
+    clippy::disallowed_types,
+    reason = "tracing event capture needs thread-safe shared test state"
+)]
+
 use ori_ir::{Name, Span};
 use ori_types::{Idx, Pool, Tag};
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex};
+use tracing::field::{Field, Visit};
+use tracing::{Event, Subscriber};
+use tracing_subscriber::layer::Context;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::Layer;
 
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ArgOwnership,
 };
 use crate::ownership::Ownership;
+
+#[derive(Clone, Default)]
+struct EventCapture {
+    events: Arc<Mutex<Vec<BTreeMap<String, String>>>>,
+}
+
+impl<S> Layer<S> for EventCapture
+where
+    S: Subscriber,
+{
+    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+        let mut fields = BTreeMap::new();
+        event.record(&mut FieldCapture(&mut fields));
+        self.events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(fields);
+    }
+}
+
+struct FieldCapture<'a>(&'a mut BTreeMap<String, String>);
+
+impl Visit for FieldCapture<'_> {
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        self.0.insert(field.name().to_owned(), format!("{value:?}"));
+    }
+
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.0.insert(field.name().to_owned(), value.to_owned());
+    }
+}
+
+/// Assert that an action emits the standard structured ablation event.
+pub(crate) fn assert_ablation_event(
+    action: impl FnOnce(),
+    expected_toggle: &str,
+    expected_effect: &str,
+) {
+    let capture = EventCapture::default();
+    let events = Arc::clone(&capture.events);
+    let subscriber = tracing_subscriber::registry().with(capture);
+    tracing::subscriber::with_default(subscriber, action);
+
+    let events = events
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let event = events
+        .iter()
+        .find(|fields| {
+            fields
+                .get("toggle")
+                .is_some_and(|value| value == expected_toggle)
+        })
+        .unwrap_or_else(|| panic!("missing ablation event for {expected_toggle}: {events:?}"));
+    assert_eq!(
+        event.get("effect").map(String::as_str),
+        Some(expected_effect)
+    );
+    assert!(
+        event
+            .get("message")
+            .is_some_and(|message| message.contains("ablation toggle fired")),
+        "unexpected ablation event message: {event:?}"
+    );
+}
+
+/// Assert that an ablation event is reached through its environment reader.
+///
+/// A subprocess isolates process-global environment and one-shot `LazyLock`
+/// readers from the parallel unit-test process.
+pub(crate) fn assert_ablation_env_event(
+    test_name: &str,
+    toggle: &str,
+    expected_effect: &str,
+    read_disabled: impl FnOnce() -> bool,
+) {
+    const CHILD_MARKER: &str = "ORI_ARC_ABLATION_EVENT_TEST_CHILD";
+
+    if std::env::var_os(CHILD_MARKER).is_none() {
+        let test_name = test_name.strip_prefix("ori_arc::").unwrap_or(test_name);
+        let executable = std::env::current_exe()
+            .unwrap_or_else(|error| panic!("unit-test executable should be available: {error}"));
+        let output = std::process::Command::new(executable)
+            .arg("--exact")
+            .arg(test_name)
+            .arg("--nocapture")
+            .env(CHILD_MARKER, "1")
+            .env(toggle, "1")
+            .output()
+            .unwrap_or_else(|error| panic!("ablation-event child test should start: {error}"));
+        assert!(
+            output.status.success(),
+            "ablation-event child failed for {toggle}:\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        return;
+    }
+
+    assert_eq!(std::env::var(toggle).as_deref(), Ok("1"));
+    assert_ablation_event(
+        || assert!(read_disabled(), "{toggle} reader ignored the set flag"),
+        toggle,
+        expected_effect,
+    );
+}
 
 /// Shorthand for `ArcVarId::new(n)`.
 pub(crate) fn v(n: u32) -> ArcVarId {

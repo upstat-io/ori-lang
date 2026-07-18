@@ -71,6 +71,12 @@ pub(crate) enum CompilationMode {
     Aot,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum IntegerSignedness {
+    Signed,
+    Unsigned,
+}
+
 /// ID-based LLVM IR builder.
 ///
 /// All LLVM values are stored in an internal arena; callers only handle

@@ -5,6 +5,7 @@ use crate::Name;
 const INITIAL_KEY_CHUNK_LEN: usize = 4096;
 
 /// Per-shard storage for interned strings.
+#[derive(Debug)]
 pub(super) struct InternShard {
     /// Map from string content to local index.
     map: FxHashMap<&'static str, u32>,

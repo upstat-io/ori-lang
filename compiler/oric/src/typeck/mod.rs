@@ -1,24 +1,7 @@
-//! Type Checking Bridge.
+//! Bridge from `oric` queries to `ori_types` module checking.
 //!
-//! Wires `ori_types::check_module_with_imports` into oric's Salsa query
-//! pipeline. This module handles the oric-specific concerns (import resolution,
-//! prelude loading, Salsa queries) while delegating type checking to `ori_types`.
-//!
-//! # Architecture
-//!
-//! ```text
-//! typed() query
-//!   └── type_check_with_imports_and_pool()
-//!       └── resolve_imports()  ← unified import pipeline
-//!           └── ori_types::check_module_with_imports(module, arena, interner, |checker| {
-//!                   register_builtins()
-//!                   register_resolved_imports()  ← consumes ResolvedImports
-//!               })
-//! ```
-//!
-//! The closure-based API decouples `ori_types` from oric-specific types
-//! (Salsa, file resolution). oric orchestrates import resolution; `ori_types`
-//! handles type resolution internally via `ModuleChecker`.
+//! `oric` resolves imports and the prelude, then supplies those surfaces through
+//! the checker callback. `ori_types` remains independent of Salsa and file lookup.
 
 mod metadata;
 
@@ -49,23 +32,18 @@ use crate::parser::ParseOutput;
 pub(crate) fn prelude_candidates(current_file: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    // Env: ORI_STDLIB — overrides the standard-library root, stable.
-    // Accept both the `library/` root and a value pointing directly at
-    // `library/std/` (parent treated as the root).
     if let Ok(stdlib) = std::env::var("ORI_STDLIB") {
         for root in imports::ori_stdlib_library_roots(&stdlib) {
             candidates.push(root.join("std").join("prelude.ori"));
         }
     }
 
-    // 2. Walk up directory tree
     let mut dir = current_file.parent();
     while let Some(d) = dir {
         candidates.push(d.join("library").join("std").join("prelude.ori"));
         dir = d.parent();
     }
 
-    // 3. User-local install (XDG-compliant)
     if let Ok(home) = std::env::var("HOME") {
         candidates.push(PathBuf::from(&home).join(".local/share/ori/library/std/prelude.ori"));
     }
@@ -106,7 +84,6 @@ pub(crate) fn type_check_with_imports_and_pool(
 ) -> (TypeCheckResult, ori_types::Pool) {
     let interner = db.interner();
 
-    // Resolve all imports via the unified pipeline.
     let resolved = imports::resolve_imports(db, parse_result, current_file);
 
     // Use closure-based API: oric orchestrates import resolution,
@@ -271,8 +248,7 @@ fn register_resolved_imports(
 ) {
     // 1a. Register prelude functions (all public)
     if let Some(ref prelude) = resolved.prelude {
-        // Get prelude's type-checked signatures for hash-first resolution.
-        // Triggers prelude type checking (or returns cached result) via Salsa.
+        // Why: prelude signatures use the cached hash-first resolution path.
         let prelude_tcr = prelude.source_file.map(|sf| typed_or_poison(db, sf));
         propagate_circular_import_errors(checker, prelude_tcr.iter());
 
@@ -291,10 +267,7 @@ fn register_resolved_imports(
         checker.register_imported_traits(&prelude.parse_output.module, &prelude.parse_output.arena);
     }
 
-    // 2. Report any import resolution errors
-    //
-    // Span is guaranteed present: resolve_imports() always fills in the
-    // use-statement span via `e.span.unwrap_or(imp.span)` (imports.rs).
+    // INVARIANT: import resolution supplies every error span.
     for error in &resolved.errors {
         debug_assert!(
             error.span.is_some(),
@@ -314,11 +287,7 @@ fn register_resolved_imports(
         ));
     }
 
-    // 3. Register explicitly imported functions
-    // Each imported_function ref maps directly to a resolved module and function.
-    //
-    // Pre-compute type check results for hash-first signature resolution.
-    // One result per module (not per function) — avoids repeated Salsa clones.
+    // Why: cache one type-check result per module for signature resolution.
     let module_results: Vec<Option<TypeCheckResult>> = resolved
         .modules
         .iter()
@@ -387,7 +356,6 @@ fn register_resolved_imports(
                     .find(|s| s.name == func_ref.original_name)
             });
 
-        // Register with alias support
         if func_ref.local_name == func_ref.original_name {
             checker.register_imported_function(func, &imported_parsed.arena, imported_sig);
         } else {

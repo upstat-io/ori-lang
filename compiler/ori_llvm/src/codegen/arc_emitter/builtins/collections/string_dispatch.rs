@@ -1,5 +1,7 @@
 //! Collection builtin dispatch declarations.
 
+use super::super::super::StringRuntimeReturnAbi;
+
 declare_builtins! { emitter, ctx;
     // str
     ("str", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
@@ -10,7 +12,12 @@ declare_builtins! { emitter, ctx;
     ("str", "is_empty") => emitter.emit_str_is_empty_forwarded(ctx.arg_vals[0], ctx.arc_args[0]),
     ("str", "concat") => {
         if ctx.arg_vals.len() >= 2 {
-            Some(emitter.emit_str_runtime_call("ori_str_concat", ctx.arg_vals[0], ctx.arg_vals[1], true))
+            Some(emitter.emit_str_runtime_call(
+                "ori_str_concat",
+                ctx.arg_vals[0],
+                ctx.arg_vals[1],
+                StringRuntimeReturnAbi::StringSret,
+            ))
         } else {
             None
         }

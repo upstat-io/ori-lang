@@ -87,11 +87,6 @@ pub(crate) fn resolve_type_with_method_generics_from(
 }
 
 /// Inner implementation of Self-substituting type resolution with optional overlay.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive ParsedType match — splitting hides the dispatch shape; \
-              for the canonical tag enumeration"
-)]
 fn resolve_type_with_overlay_inner(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
@@ -102,50 +97,15 @@ fn resolve_type_with_overlay_inner(
 ) -> Idx {
     match parsed {
         ParsedType::SelfType => self_type,
-        ParsedType::Named { name, type_args } => {
-            // Method-level overlay first: the caller pre-allocated fresh
-            // RigidVars for method-level type generics; honor those overrides
-            // before falling through to the impl-level Named-interning path.
-            if let Some(&idx) = method_substitutions.get(name) {
-                return idx;
-            }
-            // Recurse into type_args through the overlay so types like
-            // `Box<T>` with a method-level
-            // `T` resolve as `Applied("Box", [overlay(T)])` instead of leaking
-            // back through `resolve_parsed_type_simple` which is overlay-blind.
-            // Without this, the body's expected return type for
-            // `@map<U> (...) -> Box<U>` resolves Box's type-arg `U` as a plain
-            // `Tag::Named("U")` while the body's actual return value carries
-            // the overlay's fresh-Var/RigidVar — UN-6 fails to unify them.
-            let arg_ids = arena.get_parsed_type_list(*type_args);
-            if !arg_ids.is_empty() {
-                let resolved_args: Vec<Idx> = arg_ids
-                    .iter()
-                    .map(|&arg_id| {
-                        let arg = arena.get_parsed_type(arg_id);
-                        resolve_type_with_overlay_inner(
-                            checker,
-                            arg,
-                            method_substitutions,
-                            type_params,
-                            self_type,
-                            arena,
-                        )
-                    })
-                    .collect();
-                if let Some(idx) = checker.resolve_well_known_generic_cached(*name, &resolved_args)
-                {
-                    return idx;
-                }
-                return checker.pool_mut().applied(*name, &resolved_args);
-            }
-            if type_params.contains(name) {
-                checker.pool_mut().named(*name)
-            } else {
-                resolve_parsed_type_simple(checker, parsed, arena)
-            }
-        }
-        ParsedType::List(elem_id) => {
+        ParsedType::Named { .. } => resolve_overlay_named(
+            checker,
+            parsed,
+            method_substitutions,
+            type_params,
+            self_type,
+            arena,
+        ),
+        ParsedType::List(elem_id) | ParsedType::FixedList { elem: elem_id, .. } => {
             let elem = arena.get_parsed_type(*elem_id);
             let elem_ty = resolve_type_with_overlay_inner(
                 checker,
@@ -178,51 +138,22 @@ fn resolve_type_with_overlay_inner(
             );
             checker.pool_mut().map(key_ty, value_ty)
         }
-        ParsedType::Tuple(elems) => {
-            let elem_ids = arena.get_parsed_type_list(*elems);
-            let elem_types: Vec<Idx> = elem_ids
-                .iter()
-                .map(|&elem_id| {
-                    let elem = arena.get_parsed_type(elem_id);
-                    resolve_type_with_overlay_inner(
-                        checker,
-                        elem,
-                        method_substitutions,
-                        type_params,
-                        self_type,
-                        arena,
-                    )
-                })
-                .collect();
-            checker.pool_mut().tuple(&elem_types)
-        }
-        ParsedType::Function { params, ret } => {
-            let param_ids = arena.get_parsed_type_list(*params);
-            let param_types: Vec<Idx> = param_ids
-                .iter()
-                .map(|&param_id| {
-                    let param = arena.get_parsed_type(param_id);
-                    resolve_type_with_overlay_inner(
-                        checker,
-                        param,
-                        method_substitutions,
-                        type_params,
-                        self_type,
-                        arena,
-                    )
-                })
-                .collect();
-            let ret_parsed = arena.get_parsed_type(*ret);
-            let ret_ty = resolve_type_with_overlay_inner(
-                checker,
-                ret_parsed,
-                method_substitutions,
-                type_params,
-                self_type,
-                arena,
-            );
-            checker.pool_mut().function(&param_types, ret_ty)
-        }
+        ParsedType::Tuple(_) => resolve_overlay_tuple(
+            checker,
+            parsed,
+            method_substitutions,
+            type_params,
+            self_type,
+            arena,
+        ),
+        ParsedType::Function { .. } => resolve_overlay_function(
+            checker,
+            parsed,
+            method_substitutions,
+            type_params,
+            self_type,
+            arena,
+        ),
         // Bounded trait object: resolve first bound with self-substitution
         ParsedType::TraitBounds(bounds) => {
             let bound_ids = arena.get_parsed_type_list(*bounds);
@@ -239,21 +170,6 @@ fn resolve_type_with_overlay_inner(
             } else {
                 Idx::ERROR
             }
-        }
-        // Fixed-capacity list `[T, max N]`: resolve the element through the
-        // overlay so a projection inside it (`[Self.Item, max N]`) resolves;
-        // capacity is erased to a plain list per `TYPES:PT-2`.
-        ParsedType::FixedList { elem, capacity: _ } => {
-            let elem_parsed = arena.get_parsed_type(*elem);
-            let elem_ty = resolve_type_with_overlay_inner(
-                checker,
-                elem_parsed,
-                method_substitutions,
-                type_params,
-                self_type,
-                arena,
-            );
-            checker.pool_mut().list(elem_ty)
         }
         // Associated-type projection `Self.Item` / `T.Assoc`. Resolve the base
         // first (base-first recursion — base may be `Self` already substituted
@@ -274,6 +190,113 @@ fn resolve_type_with_overlay_inner(
         }
         _ => resolve_parsed_type_simple(checker, parsed, arena),
     }
+}
+
+fn resolve_overlay_named(
+    checker: &mut ModuleChecker<'_>,
+    parsed: &ParsedType,
+    method_substitutions: &FxHashMap<Name, Idx>,
+    type_params: &[Name],
+    self_type: Idx,
+    arena: &ExprArena,
+) -> Idx {
+    let ParsedType::Named { name, type_args } = parsed else {
+        unreachable!("named overlay resolver called for non-named type");
+    };
+    if let Some(&idx) = method_substitutions.get(name) {
+        return idx;
+    }
+    let resolved_args: Vec<Idx> = arena
+        .get_parsed_type_list(*type_args)
+        .iter()
+        .map(|&arg_id| {
+            resolve_type_with_overlay_inner(
+                checker,
+                arena.get_parsed_type(arg_id),
+                method_substitutions,
+                type_params,
+                self_type,
+                arena,
+            )
+        })
+        .collect();
+    if !resolved_args.is_empty() {
+        if let Some(idx) = checker.resolve_well_known_generic_cached(*name, &resolved_args) {
+            return idx;
+        }
+        return checker.pool_mut().applied(*name, &resolved_args);
+    }
+    if type_params.contains(name) {
+        checker.pool_mut().named(*name)
+    } else {
+        resolve_parsed_type_simple(checker, parsed, arena)
+    }
+}
+
+fn resolve_overlay_tuple(
+    checker: &mut ModuleChecker<'_>,
+    parsed: &ParsedType,
+    method_substitutions: &FxHashMap<Name, Idx>,
+    type_params: &[Name],
+    self_type: Idx,
+    arena: &ExprArena,
+) -> Idx {
+    let ParsedType::Tuple(elements) = parsed else {
+        unreachable!("tuple overlay resolver called for non-tuple type");
+    };
+    let resolved: Vec<Idx> = arena
+        .get_parsed_type_list(*elements)
+        .iter()
+        .map(|&element_id| {
+            resolve_type_with_overlay_inner(
+                checker,
+                arena.get_parsed_type(element_id),
+                method_substitutions,
+                type_params,
+                self_type,
+                arena,
+            )
+        })
+        .collect();
+    checker.pool_mut().tuple(&resolved)
+}
+
+fn resolve_overlay_function(
+    checker: &mut ModuleChecker<'_>,
+    parsed: &ParsedType,
+    method_substitutions: &FxHashMap<Name, Idx>,
+    type_params: &[Name],
+    self_type: Idx,
+    arena: &ExprArena,
+) -> Idx {
+    let ParsedType::Function { params, ret } = parsed else {
+        unreachable!("function overlay resolver called for non-function type");
+    };
+    let resolved_params: Vec<Idx> = arena
+        .get_parsed_type_list(*params)
+        .iter()
+        .map(|&param_id| {
+            resolve_type_with_overlay_inner(
+                checker,
+                arena.get_parsed_type(param_id),
+                method_substitutions,
+                type_params,
+                self_type,
+                arena,
+            )
+        })
+        .collect();
+    let resolved_return = resolve_type_with_overlay_inner(
+        checker,
+        arena.get_parsed_type(*ret),
+        method_substitutions,
+        type_params,
+        self_type,
+        arena,
+    );
+    checker
+        .pool_mut()
+        .function(&resolved_params, resolved_return)
 }
 
 /// Project an associated-type binding for `base.assoc_name` once the base type

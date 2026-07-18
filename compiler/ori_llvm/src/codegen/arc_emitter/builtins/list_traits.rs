@@ -12,6 +12,7 @@
 use ori_ir::{FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
+use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::value_id::ValueId;
 
 use super::super::ArcIrEmitter;
@@ -170,9 +171,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Len compare: all shared elements equal, decide by length.
         self.builder.position_at_end(len_cmp_block);
-        let len_ord = self
-            .builder
-            .emit_icmp_ordering(lhs_len, rhs_len, "len_cmp", true);
+        let len_ord =
+            self.builder
+                .emit_icmp_ordering(lhs_len, rhs_len, "len_cmp", IntegerSignedness::Signed);
         self.builder.br(merge);
 
         // Merge: result from diff or len_cmp.

@@ -4,23 +4,16 @@
 //! batch is consumed once by backend-neutral executable realization; LLVM does
 //! not run a second ownership calculus over these bodies.
 
-#[cfg(feature = "llvm")]
 use ori_ir::canon::CanonResult;
-#[cfg(feature = "llvm")]
 use ori_types::{FunctionSig, Pool};
-#[cfg(feature = "llvm")]
 use oric::ir::StringInterner;
-#[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
-#[cfg(feature = "llvm")]
 use rustc_hash::FxHashSet;
 
-#[cfg(feature = "llvm")]
 use super::imported_mono::ImportedSurfaces;
 
 /// Complete pre-AIMS ARC families and their monomorphized emission inventory.
 ///
-#[cfg(feature = "llvm")]
 pub(super) struct ArcBatchLoweringResult {
     /// Pre-lowered ARC parent/lambda families before shared preparation.
     pub(super) groups: Vec<crate::realization::ArcFunctionGroup>,
@@ -29,7 +22,6 @@ pub(super) struct ArcBatchLoweringResult {
 }
 
 /// Failure before closed executable realization can consume the ARC batch.
-#[cfg(feature = "llvm")]
 pub(super) enum ArcBatchLoweringFailure {
     /// Raw declarations could not form one semantic callable seed inventory.
     CallableCensus(crate::realization::CallableCensusError),
@@ -39,7 +31,6 @@ pub(super) enum ArcBatchLoweringFailure {
     MonoInventory(crate::realization::MonoFunctionInventoryError),
 }
 
-#[cfg(feature = "llvm")]
 #[derive(Clone, Copy)]
 pub(super) struct ArcBatchLoweringInput<'a> {
     pub(super) parse: &'a ParseOutput,
@@ -155,7 +146,6 @@ fn lower_imported_mono_groups(
 /// shared executable realization and subsequent backend projection.
 /// ARC lowering emits diagnostics. The returned lowered state has
 /// not crossed the shared specialization and target-closure seam.
-#[cfg(feature = "llvm")]
 pub(super) fn lower_arc_batch(
     input: ArcBatchLoweringInput<'_>,
 ) -> Result<ArcBatchLoweringResult, ArcBatchLoweringFailure> {

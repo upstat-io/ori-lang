@@ -18,10 +18,9 @@
 //! Lean 4 borrow inference (IFL 2019), Linearity ≠ Uniqueness (ESOP 2022),
 //! `OxCaml` (ICFP 2024).
 
-// Exposed for dead-code lint satisfaction — the glob re-export below
-// is the intended public API surface.
 mod borrow_source;
 pub mod dimensions;
+pub mod prelude;
 #[cfg(test)]
 mod prop_tests;
 #[cfg(test)]
@@ -31,8 +30,7 @@ mod prop_tests;
 )]
 mod tests;
 
-pub use borrow_source::BorrowSource;
-pub use dimensions::*;
+pub use prelude::*;
 
 #[cfg(test)]
 use crate::ir::ArcVarId;
@@ -291,65 +289,34 @@ impl AimsState {
             self.consumption = Consumption::Dead;
         }
 
-        // Rule 3 (CN-3): Shared values cannot be reused via constructor reset.
-        // Per §2 CN-3: applies to ALL reusable shapes —
-        // `ReusableCtor(Struct)`, `ReusableCtor(EnumVariant)`, `CollectionBuffer`,
-        // and `ContextHole`. A Shared value has multiple logical owners;
-        // resetting any reusable allocation type would corrupt other views regardless of which
-        // reusable shape it carries. The check `!= NonReusable` covers all
-        // reusable variants in one branch; equivalent to the explicit
-        // `ReusableCtor(_) | CollectionBuffer | ContextHole` enumeration but
-        // resilient to future shape additions.
+        // CN-3 forbids resetting every reusable shape when multiple owners may
+        // observe the allocation; comparing with `NonReusable` covers future
+        // reusable variants as well.
         if self.uniqueness == Uniqueness::Shared && self.shape != ShapeClass::NonReusable {
             self.shape = ShapeClass::NonReusable;
         }
 
-        // Rule 8: Borrowed → locality <= FunctionLocal.
-        // A borrowed reference cannot escape its defining function — it is a
-        // temporary view. HeapEscaping locality is contradictory for Borrowed
-        // values. Tightens locality down (toward bottom).
-        // Spec: OxCaml §01.2 K4, I2 — borrows are function-scoped by definition.
-        // Placed before Rules 4 and 6 so that locality is precise when those
-        // rules check it.
+        // Rule 8 makes borrowed values function-local before later rules inspect
+        // locality; a temporary view cannot escape its defining function.
         if self.access == AccessClass::Borrowed && self.locality > Locality::FunctionLocal {
             self.locality = Locality::FunctionLocal;
             cross_fires += 1; // Rule 8: Access → Locality (2 dimensions)
         }
 
-        // Rule 6: HeapEscaping or Unknown → uniqueness >= MaybeShared.
-        // A value whose locality is HeapEscaping or Unknown may be reachable
-        // from the heap. Unless the containing structure is provably Unique
-        // (checked in transfer, not canonicalize), the value cannot be assumed
-        // Unique. Uses `>=` because Unknown subsumes HeapEscaping in the
-        // locality lattice — if HeapEscaping forces MaybeShared, then Unknown
-        // (which is more conservative) must also force MaybeShared.
-        // Only weakens Unique → MaybeShared. Does NOT affect MaybeShared or
-        // Shared (already at or above the ceiling).
-        // Spec: OxCaml §01.2 K1 — `global` modality forces `aliased`.
-        // Note: Rule 8 prevents Borrowed+HeapEscaping/Unknown from reaching
-        // here, so this only fires on Owned states with wide locality.
+        // Rule 6 weakens heap-reachable or unknown owned values from Unique to
+        // MaybeShared. Rule 8 has already removed borrowed values from this
+        // wide-locality state.
         if self.locality >= Locality::HeapEscaping && self.uniqueness == Uniqueness::Unique {
             self.uniqueness = Uniqueness::MaybeShared;
             cross_fires += 1; // Rule 6: Locality → Uniqueness (2 dimensions)
         }
 
-        // Rule 4: no rule promotes MaybeShared → Unique here.
-        //
-        // INVARIANT: uniqueness is established only by transfer functions
-        // and preserved (or lost) through joins — never re-derived in
-        // canonicalize. A rule promoting MaybeShared → Unique at a join
-        // point (e.g. on BlockLocal+Owned+≤Once) is anti-monotone: it
-        // injects optimistic information into the join, breaking
-        // associativity (join(join(a,b),c) ≠ join(a,join(b,c))) and
-        // transitivity of the join-based partial order. Fresh allocations
-        // already start as Unique via AimsState::FRESH, so no transfer
-        // function needs canonicalize to synthesize it.
+        // Rule 4 never reconstructs uniqueness: transfer establishes it and
+        // joins may only preserve or lose it. Promotion during canonicalization
+        // would be anti-monotone and break join associativity.
 
-        // Rule 5: Unique + Dead → preserve ReusableCtor.
-        // A unique dead value's memory IS reusable — don't collapse shape.
-        // This is implicit: no active rule collapses shape for Unique+Dead.
-        // Rule 3 only fires for Shared. This comment documents the invariant
-        // explicitly so future rules don't accidentally break it.
+        // Rule 5 implicitly preserves reusable shape for unique dead values;
+        // only Rule 3 collapses shape, and only for shared values.
 
         cross_fires
     }

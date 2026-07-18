@@ -32,10 +32,6 @@ pub(crate) fn resolve_const_param_type(
 }
 
 /// Resolve a parsed type while checking trait-object safety in one walk.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive ParsedType variant resolution with object-safety checking in one tree walk"
-)]
 pub(super) fn resolve_and_check_type_with_vars(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
@@ -88,61 +84,11 @@ pub(super) fn resolve_and_check_type_with_vars(
                 .collect();
             checker.pool_mut().tuple(&element_types)
         }
-        ParsedType::Function { params, ret } => {
-            let parameter_ids = arena.get_parsed_type_list(*params);
-            let parameter_types: Vec<Idx> = parameter_ids
-                .iter()
-                .map(|&parameter_id| {
-                    resolve_and_check_type_with_vars(
-                        checker,
-                        arena.get_parsed_type(parameter_id),
-                        type_param_vars,
-                        span,
-                        arena,
-                    )
-                })
-                .collect();
-            let return_type = resolve_and_check_type_with_vars(
-                checker,
-                arena.get_parsed_type(*ret),
-                type_param_vars,
-                span,
-                arena,
-            );
-            checker.pool_mut().function(&parameter_types, return_type)
+        ParsedType::Function { .. } => {
+            resolve_function_type(checker, parsed, type_param_vars, span, arena)
         }
-        ParsedType::Named { name, type_args } => {
-            if let Some(&variable) = type_param_vars.get(name) {
-                return variable;
-            }
-            let type_arg_ids = arena.get_parsed_type_list(*type_args);
-            let resolved_args: Vec<Idx> = type_arg_ids
-                .iter()
-                .map(|&arg_id| {
-                    resolve_and_check_type_with_vars(
-                        checker,
-                        arena.get_parsed_type(arg_id),
-                        type_param_vars,
-                        span,
-                        arena,
-                    )
-                })
-                .collect();
-            if !checker.is_well_known_concrete_cached(*name, type_arg_ids.len()) {
-                emit_object_safety_error(checker, *name, span);
-            }
-            if !resolved_args.is_empty() {
-                if let Some(index) =
-                    checker.resolve_well_known_generic_cached(*name, &resolved_args)
-                {
-                    return index;
-                }
-                return checker.pool_mut().applied(*name, &resolved_args);
-            }
-            if let Some(index) = checker.resolve_primitive_name(*name) {
-                return index;
-            }
-            checker.pool_mut().named(*name)
+        ParsedType::Named { .. } => {
+            resolve_named_type(checker, parsed, type_param_vars, span, arena)
         }
         ParsedType::FixedList { elem, capacity: _ } => {
             let element_type = resolve_and_check_type_with_vars(
@@ -185,6 +131,79 @@ pub(super) fn resolve_and_check_type_with_vars(
             primary
         }
     }
+}
+
+fn resolve_function_type(
+    checker: &mut ModuleChecker<'_>,
+    parsed: &ParsedType,
+    type_param_vars: &FxHashMap<Name, Idx>,
+    span: Span,
+    arena: &ExprArena,
+) -> Idx {
+    let ParsedType::Function { params, ret } = parsed else {
+        unreachable!("function resolver called for non-function type");
+    };
+    let parameter_types: Vec<Idx> = arena
+        .get_parsed_type_list(*params)
+        .iter()
+        .map(|&parameter_id| {
+            resolve_and_check_type_with_vars(
+                checker,
+                arena.get_parsed_type(parameter_id),
+                type_param_vars,
+                span,
+                arena,
+            )
+        })
+        .collect();
+    let return_type = resolve_and_check_type_with_vars(
+        checker,
+        arena.get_parsed_type(*ret),
+        type_param_vars,
+        span,
+        arena,
+    );
+    checker.pool_mut().function(&parameter_types, return_type)
+}
+
+fn resolve_named_type(
+    checker: &mut ModuleChecker<'_>,
+    parsed: &ParsedType,
+    type_param_vars: &FxHashMap<Name, Idx>,
+    span: Span,
+    arena: &ExprArena,
+) -> Idx {
+    let ParsedType::Named { name, type_args } = parsed else {
+        unreachable!("named resolver called for non-named type");
+    };
+    if let Some(&variable) = type_param_vars.get(name) {
+        return variable;
+    }
+    let type_arg_ids = arena.get_parsed_type_list(*type_args);
+    let resolved_args: Vec<Idx> = type_arg_ids
+        .iter()
+        .map(|&arg_id| {
+            resolve_and_check_type_with_vars(
+                checker,
+                arena.get_parsed_type(arg_id),
+                type_param_vars,
+                span,
+                arena,
+            )
+        })
+        .collect();
+    if !checker.is_well_known_concrete_cached(*name, type_arg_ids.len()) {
+        emit_object_safety_error(checker, *name, span);
+    }
+    if !resolved_args.is_empty() {
+        if let Some(index) = checker.resolve_well_known_generic_cached(*name, &resolved_args) {
+            return index;
+        }
+        return checker.pool_mut().applied(*name, &resolved_args);
+    }
+    checker
+        .resolve_primitive_name(*name)
+        .unwrap_or_else(|| checker.pool_mut().named(*name))
 }
 
 fn emit_object_safety_error(checker: &mut ModuleChecker<'_>, name: Name, span: Span) {

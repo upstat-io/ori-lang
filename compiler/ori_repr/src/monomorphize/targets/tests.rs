@@ -54,6 +54,25 @@ fn method_apply(
     }
 }
 
+fn top_level_mono(name: Name, target: Name, argument: Idx, instance_id: u32) -> MonoFunction {
+    let instance = MonoInstance::new_top_level(
+        name,
+        vec![GenericArg::Type(argument)],
+        vec![argument],
+        argument,
+        Vec::new(),
+    );
+    MonoFunction {
+        mangled_name: target,
+        origin: MonoFunctionOrigin::Source,
+        identity: MonoFunctionIdentity::new(&instance, MonoInstanceId::new(instance_id)),
+        sig: FunctionSig::synthetic(name, vec![Name::from_raw(9)], vec![argument], argument),
+        body_type_map: FxHashMap::default(),
+        is_imported: false,
+        receiver_type_name: None,
+    }
+}
+
 fn single_return_block(body: Vec<ArcInstr>, value: ArcVarId) -> ArcBlock {
     ArcBlock {
         id: ArcBlockId::new(0),
@@ -106,7 +125,7 @@ fn generated_method_fact_is_reserved_for_exact_receiver_rewrite() {
         receiver_type_name: None,
     };
 
-    MonoTargetMaps::build(&[mono], &Pool::new()).rewrite_function(
+    MonoTargetMaps::new(&[mono], &Pool::new()).rewrite_function(
         &mut function,
         &mut [],
         &Pool::new(),
@@ -171,7 +190,7 @@ fn method_generic_targets_dispatch_only_by_exact_instance_id() {
         is_imported: false,
         receiver_type_name: None,
     };
-    let maps = MonoTargetMaps::build(
+    let maps = MonoTargetMaps::new(
         &[
             mono(int_target, Idx::INT, 10),
             mono(str_target, Idx::STR, 11),
@@ -190,4 +209,59 @@ fn method_generic_targets_dispatch_only_by_exact_instance_id() {
         })
         .collect();
     assert_eq!(targets, vec![int_target, str_target, method]);
+}
+
+#[test]
+fn generic_targets_are_indexed_by_structural_signature_hash() {
+    let interner = StringInterner::new();
+    let generic = interner.intern("identity");
+    let int_target = interner.intern("identity$3_int");
+    let str_target = interner.intern("identity$3_str");
+    let pool = Pool::new();
+    let maps = MonoTargetMaps::new(
+        &[
+            top_level_mono(generic, int_target, Idx::INT, 10),
+            top_level_mono(generic, str_target, Idx::STR, 11),
+        ],
+        &pool,
+    );
+    let mut function = ArcFunction {
+        name: interner.intern("caller"),
+        var_types: vec![Idx::INT, Idx::STR, Idx::INT, Idx::STR],
+        blocks: vec![single_return_block(
+            vec![
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(2),
+                    ty: Idx::INT,
+                    func: generic,
+                    args: vec![ArcVarId::new(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(3),
+                    ty: Idx::STR,
+                    func: generic,
+                    args: vec![ArcVarId::new(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+            ArcVarId::new(3),
+        )],
+        ..ArcFunction::default()
+    };
+
+    assert_eq!(maps.generics.len(), 2);
+    maps.rewrite_function(&mut function, &mut [], &pool, &interner);
+
+    let targets = function.blocks[0]
+        .body
+        .iter()
+        .map(|instruction| match instruction {
+            ArcInstr::Apply { func, .. } => *func,
+            _ => panic!("test fixture must contain only apply instructions"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(targets, vec![int_target, str_target]);
 }

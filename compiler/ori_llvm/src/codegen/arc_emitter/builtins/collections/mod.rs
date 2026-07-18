@@ -18,10 +18,16 @@ mod set_dispatch;
 mod string_builtins;
 mod string_dispatch;
 
+#[cfg(test)]
+pub(in crate::codegen::arc_emitter) use list_cow::push_result_elem_header_store_disabled;
+
 use crate::codegen::value_id::ValueId;
 
 use super::super::ArcIrEmitter;
-use super::{BuiltinCtx, BuiltinRegistration};
+use super::BuiltinCtx;
+
+#[cfg(any(test, doc))]
+use super::BuiltinRegistration;
 
 pub(super) fn dispatch<'scx: 'ctx, 'ctx>(
     emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
@@ -34,6 +40,7 @@ pub(super) fn dispatch<'scx: 'ctx, 'ctx>(
         .or_else(|| range_dispatch::dispatch(emitter, ctx))
 }
 
+#[cfg(any(test, doc))]
 pub(super) const REGISTRATION_GROUPS: &[&[BuiltinRegistration]] = &[
     string_dispatch::REGISTERED,
     list_dispatch::REGISTERED,

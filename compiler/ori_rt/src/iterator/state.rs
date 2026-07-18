@@ -9,22 +9,17 @@ mod lifecycle;
 pub(super) use lifecycle::empty_range;
 pub(crate) use lifecycle::YieldGuard;
 
-/// Maximum element size for stack scratch buffers in `next()`.
-///
-/// Covers all current Ori types (str=24B, list=24B, practical structs <200B).
-/// Asserted at source/adapter creation time via `assert_elem_size`.
-pub(crate) const MAX_ELEM_SIZE: usize = 256;
-
 /// Stack scratch buffer for one iterator element, 16-byte aligned.
 ///
-/// A bare `[u8; MAX_ELEM_SIZE]` array has alignment 1; an element written into
+/// A bare byte array has alignment 1; an element written into
 /// it (e.g. a 24-byte `OriStr` fat pointer, 8-byte aligned) is then read back by
 /// a consumer/predicate as a typed value, and creating a Rust reference to a
 /// misaligned address is UB. `align(16)` covers every Ori value type's
 /// alignment. `Deref`/`DerefMut` to the inner array keep every existing
 /// `as_ptr` / `as_mut_ptr` / slice / `&mut` use site unchanged.
 #[repr(C, align(16))]
-pub(crate) struct ElemBuf([u8; MAX_ELEM_SIZE]);
+#[derive(Debug)]
+pub(crate) struct ElemBuf([u8; ElemBuf::MAX_SIZE]);
 
 // INVARIANT: the 16-byte alignment is load-bearing for UB prevention — drop it and
 // element reads through the scratch buffer become misaligned. Pin it so removing
@@ -32,14 +27,17 @@ pub(crate) struct ElemBuf([u8; MAX_ELEM_SIZE]);
 const _: () = assert!(core::mem::align_of::<ElemBuf>() == 16);
 
 impl ElemBuf {
+    /// Maximum element size admitted by iterator scratch storage.
+    pub(crate) const MAX_SIZE: usize = 256;
+
     #[inline]
     pub(crate) const fn new() -> Self {
-        Self([0u8; MAX_ELEM_SIZE])
+        Self([0u8; Self::MAX_SIZE])
     }
 }
 
 impl core::ops::Deref for ElemBuf {
-    type Target = [u8; MAX_ELEM_SIZE];
+    type Target = [u8; ElemBuf::MAX_SIZE];
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -56,16 +54,17 @@ impl core::ops::DerefMut for ElemBuf {
 /// Assert that an element size fits in the stack scratch buffer.
 ///
 /// Called at iterator source/adapter creation time to catch oversized elements
-/// before any `[0u8; MAX_ELEM_SIZE]` buffer is used.
+/// before any fixed-size [`ElemBuf`] is used.
 ///
 /// Uses `assert!` (not `debug_assert!`) because the scratch buffers are
-/// fixed-size `[0u8; MAX_ELEM_SIZE]` in both debug and release builds —
+/// fixed-size [`ElemBuf`] values in both debug and release builds —
 /// an oversized element causes a stack buffer overflow in release if unchecked.
 #[inline]
 pub(crate) fn assert_elem_size(elem_size: i64, context: &str) {
     assert!(
-        elem_size >= 0 && (elem_size as usize) <= MAX_ELEM_SIZE,
-        "{context}: element size {elem_size} exceeds MAX_ELEM_SIZE ({MAX_ELEM_SIZE})"
+        elem_size >= 0 && (elem_size as usize) <= ElemBuf::MAX_SIZE,
+        "{context}: element size {elem_size} exceeds MAX_ELEM_SIZE ({})",
+        ElemBuf::MAX_SIZE
     );
 }
 
@@ -93,6 +92,7 @@ pub(crate) type ElemDecFn = extern "C" fn(*mut u8);
 ///
 /// The source exists only while the first pass is being buffered. Once that
 /// pass ends, the iterator permanently replays its owned buffer.
+#[derive(Debug)]
 pub(crate) enum CycleSource {
     Reading(Box<IterState>),
     Replaying,
@@ -100,6 +100,7 @@ pub(crate) enum CycleSource {
 
 /// Iterator state machine. Each variant corresponds to an iterator source
 /// or adapter from the evaluator's `IteratorValue` enum.
+#[derive(Debug)]
 pub(crate) enum IterState {
     /// Iterates over a contiguous array of elements (list data buffer).
     ///

@@ -1,24 +1,7 @@
-//! Type, trait, and method registries.
+//! Semantic registries for types, traits, implementations, and methods.
 //!
-//! Registries provide lookup tables for user-defined types, traits, and methods.
-//! Unlike the Pool (which stores all type representations), registries store
-//! semantic information about type definitions.
-//!
-//! # Architecture
-//!
-//! ```text
-//! Pool (types as Idx)
-//!     |-- TypeRegistry (user-defined types)
-//!     |-- TraitRegistry (traits and implementations)
-//!     |-- MethodRegistry (unified method lookup)
-//! ```
-//!
-//! # Design Decisions
-//!
-//! - Registries use `Idx` (not legacy `TypeId`)
-//! - Dual indexing: `BTreeMap<Name, _>` (sorted) + `FxHashMap<Idx, _>` (fast)
-//! - Secondary indices for O(1) variant and field lookup
-//! - All types derive `Clone, Eq, PartialEq, Hash, Debug` for Salsa compatibility
+//! Registries index pooled [`Idx`](crate::Idx) values by names and definitions,
+//! while the pool owns structural type representations.
 
 pub mod burden;
 pub mod burden_compose;
@@ -27,16 +10,10 @@ mod methods;
 mod traits;
 mod types;
 
-// Access burden types through their module path, such as
-// `crate::registry::burden::UserBurdenSpec`; the registry root does not
-// re-export them.
-
-// Type registry exports
 pub use types::{
     FieldDef, StructDef, TypeEntry, TypeKind, TypeRegistry, VariantDef, VariantFields, Visibility,
 };
 
-// Trait registry exports
 pub use traits::{
     BoundChainLookup, GenericParamMeta, ImplEntry, ImplMethodDef, ImplSpecificity, MethodLookup,
     MethodLookupResult, ObjectSafetyViolation, TraitAssocTypeDef, TraitEntry, TraitMethodDef,
@@ -44,5 +21,4 @@ pub use traits::{
 };
 pub(crate) use traits::{ImportedMethodOrigin, RegisteredImplOrigin};
 
-// Method registry exports
 pub use methods::MethodRegistry;

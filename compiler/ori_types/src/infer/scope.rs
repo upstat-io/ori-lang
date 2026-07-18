@@ -69,11 +69,12 @@ impl InferEngine<'_> {
     /// Leave a `try {}` propagation boundary and return only the explicit
     /// `?` operations inferred directly inside it.
     pub(crate) fn pop_try_boundary(&mut self) -> Vec<TryPropagation> {
-        if let Some(Some(propagations)) = self.try_boundaries.pop() {
-            propagations
-        } else {
-            debug_assert!(false, "try propagation boundary stack is unbalanced");
-            Vec::new()
+        match self.try_boundaries.pop() {
+            Some(Some(propagations)) => propagations,
+            Some(None) => {
+                unreachable!("expected try propagation boundary, found function barrier")
+            }
+            None => unreachable!("try propagation boundary stack is empty"),
         }
     }
 
@@ -87,7 +88,7 @@ impl InferEngine<'_> {
     /// Leave a nested-function propagation barrier.
     pub(crate) fn pop_try_boundary_barrier(&mut self) {
         let popped = self.try_boundaries.pop();
-        debug_assert!(
+        assert!(
             matches!(popped, Some(None)),
             "try propagation function barrier stack is unbalanced"
         );

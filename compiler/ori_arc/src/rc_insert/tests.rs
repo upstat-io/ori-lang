@@ -369,10 +369,8 @@ fn indirect_call_alias_across_blocks_does_not_change_borrowed_abi() {
     let target_name = interner.intern("target");
     let func_name = interner.intern("caller");
 
-    // Block 0: v1 = PartialApply(target, [v0]), v2 = Let(Var(v1)) alias
-    //          Jump to block 1 with [v2]
-    // Block 1: params=[v3], ApplyIndirect(v3, [v4])
-    // v3 traces through block param → v2 → alias → v1 → PartialApply
+    // The indirect callee traces through a block parameter and an alias to a
+    // partial application.
     let blocks = vec![
         ArcBlock {
             id: ArcBlockId::new(0),
@@ -438,10 +436,8 @@ fn test_annotate_apply_indirect_merge_conflict_defaults_borrowed() {
     let target_b = interner.intern("func_b");
     let func_name = interner.intern("caller");
 
-    // Block 0: v1 = PartialApply(func_a, []), jump to block 2 with [v1]
-    // Block 1: v2 = PartialApply(func_b, []), jump to block 2 with [v2]
-    // Block 2: params=[v3], ApplyIndirect(v3, [v4])
-    // Two different closures merge → should fall back to all-Borrowed
+    // Two distinct partial applications merge into the indirect callee, which
+    // must fall back to all-borrowed ownership.
     let blocks = vec![
         ArcBlock {
             id: ArcBlockId::new(0),
@@ -514,10 +510,8 @@ fn loop_carried_indirect_call_uses_borrowed_abi_without_resolution() {
     let target_name = interner.intern("target");
     let func_name = interner.intern("caller");
 
-    // Block 0: v1 = PartialApply(target, [v0]), jump to block 1 with [v1]
-    // Block 1: params=[v2], ApplyIndirect(v2, [v3]), jump to block 1 with [v2]
-    // The back-edge creates a cycle: v2 → block param → v2
-    // Must terminate, not infinite recurse.
+    // A back edge makes the indirect callee's block-parameter trace cyclic;
+    // resolution must terminate.
     let blocks = vec![
         ArcBlock {
             id: ArcBlockId::new(0),
@@ -662,15 +656,9 @@ fn test_annotate_apply_indirect_builtin_partial_apply() {
     let mut builtins = BuiltinOwnershipSets::empty();
     builtins.consuming_receiver.insert(push_name);
 
-    // PartialApply(push, [list_var]) — captures the list (receiver)
-    // ApplyIndirect(closure, [element]) — 1 user arg (the element to push)
-    //
-    // push sig: [Owned, Borrowed] (receiver consumed, element borrowed)
-    // After capture offset: user args get [Borrowed] (param[1] onwards)
-    //
-    // But consuming_receiver override makes param[0] Owned for List.
-    // Since param[0] is a capture (not a user arg), the user args
-    // still see Borrowed from sig params[1].
+    // The consuming list receiver is captured by `PartialApply`; after the
+    // capture offset, the sole user argument still maps to push's borrowed
+    // element parameter.
     let blocks = vec![ArcBlock {
         id: ArcBlockId::new(0),
         params: vec![],
@@ -973,14 +961,7 @@ fn diamond_cfg_closure_provenance_keeps_borrowed_abi() {
     let target = interner.intern("target");
     let func_name = interner.intern("caller");
 
-    // Block 0: v1 = PartialApply(target, [v0])
-    //          v2 = Let(Var(v1))   — alias path A
-    //          v3 = Let(Var(v1))   — alias path B
-    //          Branch to block 1 (with v2) or block 2 (with v3)
-    // Block 1: params=[], jump to block 3 with [v2]
-    // Block 2: params=[], jump to block 3 with [v3]
-    // Block 3: params=[v4], ApplyIndirect(v4, [v5])
-    // Both paths converge on the same PartialApply → must resolve.
+    // INVARIANT: Both diamond arms preserve one partial-apply provenance.
     let blocks = vec![
         ArcBlock {
             id: ArcBlockId::new(0),

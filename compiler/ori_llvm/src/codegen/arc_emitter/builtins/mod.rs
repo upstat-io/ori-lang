@@ -50,17 +50,19 @@
 /// Each handler must evaluate to `Option<ValueId>`.
 macro_rules! declare_builtins {
     ($emitter:ident, $ctx:ident; $( ($type_name:expr, $method:expr) => $body:expr ),* $(,)?) => {
-        #[allow(dead_code, unused_variables, reason = "macro-generated; not all handlers use every field")]
         pub(super) fn dispatch<'scx: 'ctx, 'ctx>(
             $emitter: &mut $crate::codegen::arc_emitter::ArcIrEmitter<'_, 'scx, 'ctx, '_>,
             $ctx: &super::BuiltinCtx<'_>,
         ) -> Option<$crate::codegen::value_id::ValueId> {
+            let _ = &$emitter;
+            let _ = &$ctx;
             match ($ctx.type_name, $ctx.method) {
                 $(($type_name, $method) => $body,)*
                 _ => None,
             }
         }
 
+        #[cfg(any(test, doc))]
         pub(super) const REGISTERED: &[super::BuiltinRegistration] = &[
             $(super::BuiltinRegistration {
                 type_name: $type_name,
@@ -96,12 +98,30 @@ mod traceable;
 mod traits;
 mod trampolines;
 
+#[cfg(test)]
+pub(in crate::codegen::arc_emitter) use collections::push_result_elem_header_store_disabled;
+
 pub(super) use traits::CmpPredicate;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RenderStyle {
+    Debug,
+    Printable,
+}
+
+impl RenderStyle {
+    const fn is_debug(self) -> bool {
+        matches!(self, Self::Debug)
+    }
+}
+
+#[cfg(any(test, doc))]
 use std::sync::LazyLock;
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_types::Idx;
+
+#[cfg(any(test, doc))]
 use rustc_hash::FxHashMap;
 
 use crate::codegen::type_info::TypeInfo;
@@ -114,10 +134,7 @@ use crate::codegen::value_id::ValueId;
 /// Declared via [`declare_builtins!`] in each submodule's `REGISTERED` const.
 /// Aggregated into [`BuiltinTable`] for O(1) lookup and sync testing.
 #[derive(Clone, Debug)]
-#[allow(
-    dead_code,
-    reason = "test-only: REGISTERED arrays consumed by BuiltinTable sync tests"
-)]
+#[cfg(any(test, doc))]
 pub(crate) struct BuiltinRegistration {
     /// Type name matching `ori_registry` convention.
     /// Lowercase for primitives (`"int"`), `PascalCase` for named types (`"Option"`).
@@ -167,17 +184,13 @@ pub(super) struct BuiltinCtx<'a> {
 /// Used for:
 /// - Early rejection in `try_emit_builtin_method` (skip dispatch for non-builtins)
 /// - Enumeration in sync tests vs `ori_registry::BUILTIN_TYPES`
-// BuiltinTable and friends are test-only (called from tests.rs and
-// #[cfg(test)] helpers). Uses #[allow(dead_code)] (not #[expect]) because the
-// items are dead in non-test mode but alive in test mode — #[expect] would
-// trigger unfulfilled-lint-expectation errors under `clippy --tests`.
-#[allow(dead_code, reason = "test-only: used by sync tests and test helpers")]
+#[cfg(any(test, doc))]
 pub(crate) struct BuiltinTable {
     /// Two-level map: `type_name` → (`method_name` → registration).
     entries: FxHashMap<&'static str, FxHashMap<&'static str, &'static BuiltinRegistration>>,
 }
 
-#[allow(dead_code, reason = "test-only: used by sync tests and test helpers")]
+#[cfg(any(test, doc))]
 impl BuiltinTable {
     /// Build the table from all submodule registrations.
     fn build() -> Self {
@@ -222,15 +235,6 @@ impl BuiltinTable {
             .is_some_and(|methods| methods.contains_key(method))
     }
 
-    /// Look up the registration for a `(type_name, method_name)` pair.
-    pub(crate) fn lookup(
-        &self,
-        type_name: &str,
-        method: &str,
-    ) -> Option<&'static BuiltinRegistration> {
-        self.entries.get(type_name)?.get(method).copied()
-    }
-
     /// All registered `(type_name, method_name)` pairs, sorted for deterministic comparison.
     pub(crate) fn all_registered(&self) -> Vec<(&'static str, &'static str)> {
         let mut pairs = Vec::new();
@@ -248,11 +252,11 @@ impl BuiltinTable {
 ///
 /// Built once on first access from all submodule `REGISTERED` arrays.
 /// Thread-safe via `LazyLock`. All data is `'static`.
-#[allow(dead_code, reason = "test-only: used by sync tests and test helpers")]
+#[cfg(any(test, doc))]
 static BUILTIN_TABLE: LazyLock<BuiltinTable> = LazyLock::new(BuiltinTable::build);
 
 /// Access the global builtin table.
-#[allow(dead_code, reason = "test-only: used by sync tests and test helpers")]
+#[cfg(any(test, doc))]
 pub(crate) fn builtin_table() -> &'static BuiltinTable {
     &BUILTIN_TABLE
 }

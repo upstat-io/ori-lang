@@ -42,7 +42,7 @@ fn read_elements(data: *const u8, count: usize) -> Vec<i64> {
 
 #[test]
 fn slice_of_regular_list() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
     let mut out = [0u8; 24];
 
@@ -77,7 +77,7 @@ fn slice_of_regular_list() {
 
 #[test]
 fn slice_full_view() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Slicing [0, len) creates a full view — still a slice (separate reference)
     let (data, len, cap) = alloc_list(&[1, 2, 3]);
     let mut out = [0u8; 24];
@@ -100,7 +100,7 @@ fn slice_full_view() {
 
 #[test]
 fn slice_empty_range() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // start == end → empty result
     let (data, len, cap) = alloc_list(&[1, 2, 3]);
     let mut out = [0u8; 24];
@@ -140,7 +140,7 @@ fn slice_of_empty_list() {
 
 #[test]
 fn slice_of_slice_accumulates_offsets() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Create [10, 20, 30, 40, 50], slice [1,4) → [20, 30, 40],
     // then slice [1,2) of that → [30]
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
@@ -182,7 +182,7 @@ fn slice_of_slice_accumulates_offsets() {
 
 #[test]
 fn slice_rc_lifecycle() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Verify: create, inc from slice, dec from slice drop
     let (data, _, cap) = alloc_list(&[1, 2, 3, 4]);
     assert_eq!(ori_rc_count(data), 1);
@@ -200,7 +200,7 @@ fn slice_rc_lifecycle() {
 
 #[test]
 fn slice_start_clamped_to_zero() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Negative start should be treated as 0 (defensive clamping)
     let (data, len, cap) = alloc_list(&[10, 20, 30]);
     let mut out = [0u8; 24];
@@ -218,7 +218,7 @@ fn slice_start_clamped_to_zero() {
 
 #[test]
 fn slice_end_clamped_to_len() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // end > len should be clamped to len
     let (data, len, cap) = alloc_list(&[10, 20, 30]);
     let mut out = [0u8; 24];
@@ -238,7 +238,7 @@ fn slice_end_clamped_to_len() {
 
 #[test]
 fn take_first_n() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
     let mut out = [0u8; 24];
 
@@ -257,7 +257,7 @@ fn take_first_n() {
 
 #[test]
 fn take_more_than_len() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Taking more than available → clamps to len
     let (data, len, cap) = alloc_list(&[10, 20]);
     let mut out = [0u8; 24];
@@ -275,7 +275,7 @@ fn take_more_than_len() {
 
 #[test]
 fn take_zero() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, len, cap) = alloc_list(&[10, 20, 30]);
     let mut out = [0u8; 24];
 
@@ -293,7 +293,7 @@ fn take_zero() {
 
 #[test]
 fn drop_first_n() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
     let mut out = [0u8; 24];
 
@@ -312,7 +312,7 @@ fn drop_first_n() {
 
 #[test]
 fn drop_all() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Dropping all elements → empty result
     let (data, len, cap) = alloc_list(&[10, 20, 30]);
     let mut out = [0u8; 24];
@@ -329,7 +329,7 @@ fn drop_all() {
 
 #[test]
 fn drop_more_than_len() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Dropping more than available → clamps, returns empty
     let (data, len, cap) = alloc_list(&[10, 20]);
     let mut out = [0u8; 24];
@@ -348,7 +348,7 @@ fn drop_more_than_len() {
 
 #[test]
 fn multiple_slices_share_buffer() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Multiple slices of the same list share the buffer
     let (data, len, cap) = alloc_list(&[1, 2, 3, 4, 5]);
     assert_eq!(ori_rc_count(data), 1);
@@ -382,7 +382,7 @@ fn multiple_slices_share_buffer() {
 
 #[test]
 fn cow_push_on_slice_materializes() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Push to a slice → should materialize into an owned list
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
     let mut slice_out = [0u8; 24];
@@ -434,7 +434,7 @@ fn cow_push_on_slice_materializes() {
 
 #[test]
 fn cow_pop_on_slice_materializes() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40]);
     let mut slice_out = [0u8; 24];
 
@@ -472,7 +472,7 @@ fn cow_pop_on_slice_materializes() {
 
 #[test]
 fn cow_set_on_slice_materializes() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
     let mut slice_out = [0u8; 24];
 
@@ -511,7 +511,7 @@ fn cow_set_on_slice_materializes() {
 
 #[test]
 fn cow_insert_on_slice_materializes() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40]);
     let mut slice_out = [0u8; 24];
 
@@ -550,7 +550,7 @@ fn cow_insert_on_slice_materializes() {
 
 #[test]
 fn cow_remove_on_slice_materializes() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
     let mut slice_out = [0u8; 24];
 
@@ -587,7 +587,7 @@ fn cow_remove_on_slice_materializes() {
 
 #[test]
 fn cow_reverse_on_slice_materializes() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
     let mut slice_out = [0u8; 24];
 
@@ -621,7 +621,7 @@ fn cow_reverse_on_slice_materializes() {
 
 #[test]
 fn cow_concat_with_slice_list1() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Concatenate slice + regular list
     let (data1, len1, cap1) = alloc_list(&[10, 20, 30, 40]);
     let (data2, len2, cap2) = alloc_list(&[50, 60]);
@@ -662,7 +662,7 @@ fn cow_concat_with_slice_list1() {
 
 #[test]
 fn materialize_slice_produces_owned_list() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
     let mut slice_out = [0u8; 24];
 
@@ -702,7 +702,7 @@ fn materialize_slice_produces_owned_list() {
 
 #[test]
 fn materialize_non_slice_is_noop() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Materialize on a regular list should return it unchanged
     let (data, len, cap) = alloc_list(&[10, 20, 30]);
     let mut mat_out = [0u8; 24];
@@ -727,7 +727,7 @@ fn materialize_non_slice_is_noop() {
 
 #[test]
 fn cow_push_on_slice_rc_lifecycle() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Verify RC lifecycle: original RC=2 after slice, RC=1 after push_cow
     let (data, len, cap) = alloc_list(&[1, 2, 3]);
     let mut slice_out = [0u8; 24];
@@ -766,7 +766,7 @@ fn cow_push_on_slice_rc_lifecycle() {
 
 #[test]
 fn ori_list_rc_inc_on_regular_list() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, _, cap) = alloc_list(&[10, 20, 30]);
     assert_eq!(ori_rc_count(data), 1);
 
@@ -780,7 +780,7 @@ fn ori_list_rc_inc_on_regular_list() {
 
 #[test]
 fn ori_list_rc_inc_on_slice() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40]);
     let mut out = [0u8; 24];
 
@@ -800,7 +800,7 @@ fn ori_list_rc_inc_on_slice() {
 
 #[test]
 fn ori_list_rc_inc_null_is_noop() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // ori_list_rc_inc on null should be a no-op (no crash)
     ori_list_rc_inc(std::ptr::null_mut(), 0);
     ori_list_rc_inc(std::ptr::null_mut(), make_slice_cap(0));
@@ -808,7 +808,7 @@ fn ori_list_rc_inc_null_is_noop() {
 
 #[test]
 fn ori_buffer_rc_dec_on_slice_decs_original() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Create list, slice it, then dec the slice via ori_buffer_rc_dec
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
     let mut out = [0u8; 24];
@@ -826,7 +826,7 @@ fn ori_buffer_rc_dec_on_slice_decs_original() {
 
 #[test]
 fn ori_buffer_rc_dec_slice_last_ref_frees() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Create list, slice it, drop original (dec), drop slice (last ref → free)
     let (data, len, cap) = alloc_list(&[100, 200, 300, 400]);
     let mut out = [0u8; 24];
@@ -848,7 +848,7 @@ fn ori_buffer_rc_dec_slice_last_ref_frees() {
 
 #[test]
 fn ori_buffer_rc_dec_slice_of_slice_decs_original() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Slice-of-slice: both should target the original allocation's RC
     let (data, len, cap) = alloc_list(&[1, 2, 3, 4, 5, 6]);
     let mut out1 = [0u8; 24];
@@ -877,7 +877,7 @@ fn ori_buffer_rc_dec_slice_of_slice_decs_original() {
 
 #[test]
 fn ori_rc_data_size_returns_allocation_size() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Verify that ori_rc_data_size reads the stored allocation size
     let size = 5 * ELEM_SIZE as usize; // 40 bytes
     let data = ori_rc_alloc(size, 8);
@@ -890,13 +890,13 @@ fn ori_rc_data_size_returns_allocation_size() {
 
 #[test]
 fn ori_rc_data_size_null_returns_zero() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     assert_eq!(ori_rc_data_size(std::ptr::null()), 0);
 }
 
 #[test]
 fn slice_rc_full_lifecycle() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Lifecycle: create list → multiple slices → drop in order
     let (data, len, cap) = alloc_list(&[10, 20, 30, 40, 50]);
     assert_eq!(ori_rc_count(data), 1);

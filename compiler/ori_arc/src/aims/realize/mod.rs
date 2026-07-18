@@ -2,7 +2,8 @@
 //!
 //! [`realize_rc_reuse`] consumes converged state before block merging;
 //! [`realize_annotations`] consumes the same state after merging. Both use the
-//! shared [`AimsStateMap`] and decision functions.
+//! shared [`AimsStateMap`] and decision functions. Diagnostic events from this
+//! subsystem use the shared `ori_arc::aims::realize` target.
 
 mod decide;
 #[cfg(test)]
@@ -121,6 +122,7 @@ pub(crate) fn realize_rc_reuse(
 }
 
 /// Inputs read together by post-merge annotation decisions.
+#[derive(Debug)]
 pub struct AnnotationEnv<'a> {
     pub state_map: &'a AimsStateMap,
     pub interner: &'a ori_ir::StringInterner,

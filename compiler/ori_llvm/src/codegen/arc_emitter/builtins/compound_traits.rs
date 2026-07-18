@@ -200,7 +200,7 @@ declare_builtins! { emitter, ctx;
     ("tuple", "debug") => {
         if let TypeInfo::Tuple { elements } = ctx.type_info {
             let elements = elements.clone();
-            emitter.emit_tuple_debug(ctx.arg_vals[0], &elements, true)
+            emitter.emit_tuple_debug(ctx.arg_vals[0], &elements, RenderStyle::Debug)
         } else {
             None
         }
@@ -208,7 +208,7 @@ declare_builtins! { emitter, ctx;
     ("tuple", "to_str") => {
         if let TypeInfo::Tuple { elements } = ctx.type_info {
             let elements = elements.clone();
-            emitter.emit_tuple_debug(ctx.arg_vals[0], &elements, false)
+            emitter.emit_tuple_debug(ctx.arg_vals[0], &elements, RenderStyle::Printable)
         } else {
             None
         }
@@ -227,12 +227,16 @@ use ori_ir::Name;
 use ori_types::Idx;
 
 use crate::codegen::abi::{FunctionAbi, ParamAbi};
+use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::value_id::FunctionId;
 
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-use super::super::ArcIrEmitter;
+use super::{
+    super::{ArcIrEmitter, StringRuntimeReturnAbi},
+    RenderStyle,
+};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     // Recursive element dispatch
@@ -255,7 +259,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | TypeInfo::Size
             | TypeInfo::Ordering => Some(self.builder.icmp_eq(lhs, rhs, "elem_eq")),
             TypeInfo::Float => Some(self.builder.fcmp_oeq(lhs, rhs, "elem_eq")),
-            TypeInfo::Str => Some(self.emit_str_runtime_call("ori_str_eq", lhs, rhs, false)),
+            TypeInfo::Str => Some(self.emit_str_runtime_call(
+                "ori_str_eq",
+                lhs,
+                rhs,
+                StringRuntimeReturnAbi::BoolDirect,
+            )),
             TypeInfo::Option { inner } => {
                 let inner = *inner;
                 self.emit_option_equals(lhs, rhs, inner)
@@ -341,13 +350,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let type_info = self.type_info.get(elem_ty);
         match &type_info {
             TypeInfo::Unit | TypeInfo::Never => Some(self.builder.const_i8(1)),
-            TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
-                Some(self.builder.emit_icmp_ordering(lhs, rhs, "elem_cmp", true))
-            }
+            TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => Some(
+                self.builder
+                    .emit_icmp_ordering(lhs, rhs, "elem_cmp", IntegerSignedness::Signed),
+            ),
             TypeInfo::Float => Some(self.builder.emit_fcmp_ordering(lhs, rhs, "elem_cmp")),
-            TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte => {
-                Some(self.builder.emit_icmp_ordering(lhs, rhs, "elem_cmp", false))
-            }
+            TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte => Some(
+                self.builder
+                    .emit_icmp_ordering(lhs, rhs, "elem_cmp", IntegerSignedness::Unsigned),
+            ),
             TypeInfo::Str => self.emit_str_compare_call(lhs, rhs),
             TypeInfo::Option { inner } => {
                 let inner = *inner;

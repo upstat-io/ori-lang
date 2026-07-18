@@ -522,11 +522,7 @@ fn empty_list_with_push_and_len_typechecks_without_errors_end_to_end() {
     );
 }
 
-// Generalization normalization contract: every
-// `Tag::Var(VarState::Generalized)` leaf in
-// `InferOutput.expr_types` and every top-level polymorphic function's
-// `FunctionSig.param_types` and `return_type` is rewritten to
-// `Tag::BoundVar(var_id)` before body export.
+// Generalization normalization contract: exported types use `Tag::BoundVar` leaves.
 
 /// Cell H — `expr_types` port (positive pin for the SC-1 target shape).
 ///
@@ -703,11 +699,7 @@ fn scan_for_generalized_var_leaves(pool: &Pool, ty: Idx, report: &mut dyn FnMut(
     }
 }
 
-// Method-call return annotation propagation.
-//
-// An outer `Check(T)` annotation constrains a method call's generic return
-// slot during type checking. The annotation prevents unresolved `Tag::Var`
-// leaves from reaching later field or method access.
+// Method-call return annotations constrain generic return slots before later access.
 
 /// Cell 1 (positive): `let e: Error = msg.into()` compiles clean and
 /// `e.message` resolves to `str`. The LHS annotation `Error` must propagate
@@ -814,26 +806,10 @@ fn test_method_call_return_bd2_nested_into_in_map_err_closure() {
     );
 }
 
-// Unknown-method diagnostic — silent-poison class closure (concrete-receiver
-// case + rigid-receiver negative). A genuine NotFound method lookup on a
-// diagnosable receiver must emit a diagnostic, NOT silently poison via
-// Idx::ERROR.
+// Unknown-method diagnostics.
 
 #[test]
 fn test_builtin_assoc_fn_on_concrete_receiver_no_spurious_error() {
-    // Negative clamp on the emit's SCOPE: a `NotFound` on a CONCRETE
-    // receiver must NOT emit. Typeck's concrete-receiver dispatch is incomplete
-    // (builtin trait assoc-fns like `int.default()`, field-callables like
-    // `s.transform(...)`, builtin collection methods like `list.updated(...)`),
-    // and the evaluator resolves these via its own dispatch. Emitting on a
-    // concrete miss false-positives every such legitimate call. `int.default()`
-    // is the canonical case: it has no typeck-registry entry yet, so
-    // `lookup_impl_method` returns NotFound, but it is a valid call (Default is
-    // implemented for every primitive) — the emit must stay silent here. The
-    // genuine concrete-unknown case (`{str:int}.map(...)`) reverts to
-    // silent too; its cure depends on completing concrete-receiver dispatch so
-    // a miss reliably implies genuine absence. This pin fails if the emit is
-    // ever re-broadened to concrete receivers.
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
         "fixtures/builtin_assoc_fn_on_concrete_receiver_no_spurious_error.ori"
     )));
@@ -852,9 +828,6 @@ fn test_builtin_assoc_fn_on_concrete_receiver_no_spurious_error() {
 
 #[test]
 fn test_unknown_method_on_unbounded_rigid_receiver_reports_error() {
-    // Negative case: `@f<T>(x: T)` has no bound providing `hello`, so
-    // `x.hello()` must report a method-not-found (with an add-a-bound hint),
-    // not silently accept.
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
         "fixtures/unknown_method_on_unbounded_rigid_receiver_reports_error.ori"
     )));
@@ -866,13 +839,6 @@ fn test_unknown_method_on_unbounded_rigid_receiver_reports_error() {
 
 #[test]
 fn test_capability_namespace_receiver_no_spurious_error() {
-    // Discriminator clamp: a named-`Tag::Var` receiver whose name is a REGISTERED
-    // TRAIT is a capability/trait-namespace call (`Http.get(url:)`), NOT a generic
-    // type parameter. Its proper resolution is the capability/trait-associated
-    // path (CP-3 target-only, incomplete in typeck), so a NotFound must DEFER, not
-    // diagnose. Without the trait-name exclusion in `is_named_generic_var`, this
-    // mis-emits a method-not-found / arity error on every capability call. This
-    // pin fails if the discriminator regresses to name-presence alone.
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
         "fixtures/capability_namespace_receiver_no_spurious_error.ori"
     )));
@@ -891,14 +857,6 @@ fn test_capability_namespace_receiver_no_spurious_error() {
 
 #[test]
 fn test_capability_no_self_method_dispatch_resolves_clean() {
-    // A no-self capability/associated method call (`Http.get(url:)`,
-    // `@get` has no `self`) on a capability namespace must type-check with ZERO
-    // errors. The cap marker var stays a unifiable `Tag::Var` (so caller-side
-    // `with...in` provision unifies it with the concrete provider) and its
-    // var_id is exempt from the `validate_body_types` E2005 check, so the
-    // otherwise-unconstrained no-self receiver var does not surface a spurious
-    // "cannot infer type". This pin fails if the cap exempt regresses (E2005
-    // returns) or if cap_ty is forced to a non-unifiable RigidVar.
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
         "fixtures/capability_namespace_receiver_no_spurious_error.ori"
     )));
@@ -912,8 +870,6 @@ fn test_capability_no_self_method_dispatch_resolves_clean() {
 
 #[test]
 fn test_method_on_bounded_rigid_receiver_resolves_clean() {
-    // Positive boundary: with the `T: Greet` bound, `x.hello()` resolves via the
-    // bound-chain — no spurious method-not-found from the emit.
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
         "fixtures/method_on_bounded_rigid_receiver_resolves_clean.ori"
     )));
@@ -940,10 +896,7 @@ fn test_unbounded_impl_level_generic_receiver_reports_error() {
 
 #[test]
 fn test_bounded_impl_level_generic_receiver_resolves_clean() {
-    // Positive boundary: with the impl-level `T: Greet` bound registered
-    // on the impl RigidVar, `x.hello()` resolves via the bound-chain in
-    // typeck itself (not merely masked by the evaluator's dispatch) — no spurious
-    // method-not-found.
+    // INVARIANT: impl-level bounds drive type-checker dispatch without evaluator fallback.
     let (result, _interner) = parse_and_check(fixture_without_trailing_newline(include_str!(
         "fixtures/bounded_impl_level_generic_receiver_resolves_clean.ori"
     )));

@@ -1,21 +1,12 @@
 //! Registry for traits and their implementations.
 //!
-//! The `TraitRegistry` stores trait definitions and their implementations,
-//! enabling efficient lookup for method resolution and coherence checking.
-//!
-//! # Design
-//!
-//! - Traits indexed by name for definition lookup
-//! - Implementations indexed by self type for method resolution
-//! - Secondary index by trait for coherence checking
-//! - All types derive Salsa-required traits
-//!
-//! Read-only lookup paths (`get_trait_by_*`, `lookup_method*`,
-//! `all_super_traits`, `collected_methods`, `find_conflicting_defaults`,
-//! `impls_*`, coherence and iteration helpers) are provided by [`lookup`].
-//! This module owns the data definitions, the `new` constructor,
-//! and the registration mutators (`register_trait`, `register_impl`,
-//! `extend_object_safety_violations`).
+//! [`TraitRegistry`] indexes definitions by name and type, and implementations
+//! by receiver and trait. Lookup, coherence, supertrait traversal, and mutation
+//! operate on the same indexed entry vectors.
+
+mod lookup;
+mod registration;
+mod supertraits;
 
 use std::collections::BTreeMap;
 
@@ -23,10 +14,6 @@ use ori_ir::{ExprId, Name, Span};
 use rustc_hash::FxHashMap;
 
 use crate::Idx;
-
-mod lookup;
-mod registration;
-mod supertraits;
 
 /// Registry for traits and their implementations.
 ///

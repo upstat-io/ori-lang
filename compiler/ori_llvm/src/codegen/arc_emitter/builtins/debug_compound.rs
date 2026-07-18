@@ -13,7 +13,7 @@ use ori_types::Idx;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-use super::super::ArcIrEmitter;
+use super::{super::ArcIrEmitter, RenderStyle};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `Option.debug()` / `Option.to_str()` with branching.
@@ -25,9 +25,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         is_some: ValueId,
         payload: ValueId,
         inner_ty: Idx,
-        is_debug: bool,
+        style: RenderStyle,
     ) -> Option<ValueId> {
-        let inner_str = if is_debug {
+        let inner_str = if style.is_debug() {
             self.emit_element_debug(payload, inner_ty)?
         } else {
             self.emit_element_to_str(payload, inner_ty)?
@@ -73,16 +73,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// - `Ok(v)` -> `"Ok(" + v.debug()|v.to_str() + ")"`
     /// - `Err(e)` -> `"Err(" + e.debug()|e.to_str() + ")"`
     ///
-    /// `is_debug` selects Debug vs Printable rendering of the active payload.
+    /// `style` selects Debug vs Printable rendering of the active payload.
     ///
     /// IMPORTANT: Payload extraction and formatting MUST happen inside the
     /// respective branch blocks, not before the branch. The inactive variant's
     /// storage may contain garbage pointers that would segfault if formatted.
-    pub(crate) fn emit_result_debug(
+    pub(super) fn emit_result_debug(
         &mut self,
         arg_vals: &[ValueId],
         receiver_ty: Idx,
-        is_debug: bool,
+        style: RenderStyle,
     ) -> Option<ValueId> {
         let receiver = arg_vals[0];
         let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
@@ -110,7 +110,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Ok block: extract ACTIVE payload, format "Ok(" + ok_str + ")"
         self.builder.position_at_end(ok_bb);
         let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-        let ok_str = if is_debug {
+        let ok_str = if style.is_debug() {
             self.emit_element_debug(ok_payload, ok_ty)?
         } else {
             self.emit_element_to_str(ok_payload, ok_ty)?
@@ -126,7 +126,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Err block: extract ACTIVE payload, format "Err(" + err_str + ")"
         self.builder.position_at_end(err_bb);
         let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
-        let err_str = if is_debug {
+        let err_str = if style.is_debug() {
             self.emit_element_debug(err_payload, err_ty)?
         } else {
             self.emit_element_to_str(err_payload, err_ty)?
@@ -152,7 +152,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `emit_element_debug` / `emit_element_to_str`.
     ///
     /// Variant of `emit_result_debug` that takes pre-resolved type indices
-    /// instead of reading from `arg_vals`. `is_debug` selects Debug vs
+    /// instead of reading from `arg_vals`. `style` selects Debug vs
     /// Printable rendering of the active payload.
     ///
     /// IMPORTANT: Payload extraction happens inside branches, not before —
@@ -163,7 +163,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver_ty: Idx,
         ok_ty: Idx,
         err_ty: Idx,
-        is_debug: bool,
+        style: RenderStyle,
     ) -> Option<ValueId> {
         let tag = self.builder.extract_value(receiver, 0, "rdbg.n.tag")?;
         let ok_const = self
@@ -186,7 +186,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Ok branch — only format the ACTIVE Ok payload
         self.builder.position_at_end(ok_bb);
         let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-        let ok_str = if is_debug {
+        let ok_str = if style.is_debug() {
             self.emit_element_debug(ok_payload, ok_ty)?
         } else {
             self.emit_element_to_str(ok_payload, ok_ty)?
@@ -202,7 +202,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Err branch — only format the ACTIVE Err payload
         self.builder.position_at_end(err_bb);
         let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
-        let err_str = if is_debug {
+        let err_str = if style.is_debug() {
             self.emit_element_debug(err_payload, err_ty)?
         } else {
             self.emit_element_to_str(err_payload, err_ty)?
@@ -224,7 +224,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit `[T].debug()` / `[T].to_str()` -- element-wise loop producing
-    /// `"[e1, e2, ...]"`. `is_debug` selects Debug vs Printable element render;
+    /// `"[e1, e2, ...]"`. `style` selects Debug vs Printable element render;
     /// the bracket/separator literals are identical for both.
     ///
     /// Layout: `{i64 len, i64 cap, ptr data}`.
@@ -233,7 +233,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         list: ValueId,
         elem_ty: Idx,
-        is_debug: bool,
+        style: RenderStyle,
     ) -> Option<ValueId> {
         let len = self.builder.extract_value(list, FIELD_LEN, "ldbg.len")?;
         let data = self.builder.extract_value(list, FIELD_DATA, "ldbg.data")?;
@@ -267,7 +267,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ptr0 = self.builder.gep(elem_llvm_ty, data, &[zero], "ldbg.ep0");
         let elem0 = self.builder.load(elem_llvm_ty, ptr0, "ldbg.e0");
         let elem0 = self.sext_narrowed_int_element(elem0, elem_ty, "ldbg.e0.sext");
-        let elem0_str = if is_debug {
+        let elem0_str = if style.is_debug() {
             self.emit_element_debug(elem0, elem_ty)?
         } else {
             self.emit_element_to_str(elem0, elem_ty)?
@@ -296,7 +296,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ptr_i = self.builder.gep(elem_llvm_ty, data, &[idx_phi], "ldbg.epi");
         let elem_i = self.builder.load(elem_llvm_ty, ptr_i, "ldbg.ei");
         let elem_i = self.sext_narrowed_int_element(elem_i, elem_ty, "ldbg.ei.sext");
-        let elem_i_str = if is_debug {
+        let elem_i_str = if style.is_debug() {
             self.emit_element_debug(elem_i, elem_ty)?
         } else {
             self.emit_element_to_str(elem_i, elem_ty)?
@@ -336,13 +336,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit `(A, B, ...).debug()` / `.to_str()` -- field-wise formatting as
-    /// `"(a, b, ...)"`. `is_debug` selects Debug vs Printable per-field render;
+    /// `"(a, b, ...)"`. `style` selects Debug vs Printable per-field render;
     /// the parens/separator literals are identical for both.
     pub(super) fn emit_tuple_debug(
         &mut self,
         tuple: ValueId,
         elements: &[Idx],
-        is_debug: bool,
+        style: RenderStyle,
     ) -> Option<ValueId> {
         if elements.is_empty() {
             return self.emit_literal_ori_str("()");
@@ -359,7 +359,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let field = self
                 .builder
                 .extract_value(tuple, i as u32, &format!("tdbg.f{i}"))?;
-            let field_str = if is_debug {
+            let field_str = if style.is_debug() {
                 self.emit_element_debug(field, elem_ty)?
             } else {
                 self.emit_element_to_str(field, elem_ty)?

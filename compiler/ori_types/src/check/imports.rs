@@ -1,9 +1,7 @@
 //! Import and signature management for `ModuleChecker`.
 //!
-//! Handles registering imported functions, traits, built-in functions/values,
-//! module aliases, and function signature storage.
-//! Supports both hash-first resolution (O(1) per type) and AST fallback for
-//! generic or missing types.
+//! Imported functions, traits, builtins, aliases, and signatures use hash-first
+//! resolution with AST fallback for generic or missing types.
 
 use ori_ir::{ExprArena, Name};
 use rustc_hash::FxHashMap;
@@ -199,13 +197,11 @@ impl ModuleChecker<'_> {
             return None;
         }
 
-        // Try to resolve every param type by hash
         let mut local_param_types = Vec::with_capacity(ext_sig.param_types.len());
         for &hash in &ext_sig.param_hashes {
             local_param_types.push(self.pool.lookup_by_hash(hash)?);
         }
 
-        // Try to resolve return type by hash
         let local_return_type = self.pool.lookup_by_hash(ext_sig.return_hash)?;
 
         // All types resolved — build local FunctionSig
