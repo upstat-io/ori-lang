@@ -1,0 +1,9 @@
+type BadCapacityAlias = [int, max 0];
+
+type CapacitySignatureOwner = { value: int }
+
+@bad_capacity_signatures (items: [int, max 0]) -> [int, max -1] = [];
+
+impl CapacitySignatureOwner {
+    @bad_capacity_method (self, items: [int, max 0]) -> [int, max -1] = [];
+}

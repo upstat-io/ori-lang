@@ -115,7 +115,6 @@ fn test_map_three_owned_invoke_forks_base_unmodified() {
 /// multiply the freed surface, so the over-consume lands as a double-free
 /// on element strings, not just the buffer.
 #[test]
-#[ignore = "BUG-04-175: Option-payload map 3-fork misaligned inc (nested heap element double-free) — distinct root from BUG-04-182 builtin-Invoke-result lineage"]
 fn test_option_payload_map_three_forks_no_double_free() {
     assert_cell_output(
         r#"
@@ -462,7 +461,6 @@ fn test_borrowed_read_args_no_extra_inc_no_leak() {
 /// `use_count >= 3` — the under-inc double-frees TODAY, so this cell is also
 /// a failing clamp of the same lineage ledger.
 #[test]
-#[ignore = "BUG-04-175: iter-consume-then-fork double-free — distinct root from BUG-04-182 builtin-Invoke-result lineage"]
 fn test_iter_consume_then_fork_no_extra_inc_no_leak() {
     assert_cell_output(
         r#"

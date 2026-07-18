@@ -11,7 +11,7 @@ use crate::{ExprId, Name};
 use super::arena::CanArena;
 use super::ids::CanId;
 use super::pools::{ConstantPool, DecisionTreePool};
-use super::support::PatternProblem;
+use super::support::{ConstEvalProblem, NamedConstValue, PatternProblem};
 
 /// Concrete value admitted for a generic const parameter.
 ///
@@ -129,6 +129,16 @@ pub struct CanonResult {
     pub method_roots: Vec<MethodRoot>,
     /// Pattern problems detected during exhaustiveness checking.
     pub problems: Vec<PatternProblem>,
+    /// Evaluated constants defined by this module, under their original names.
+    pub named_constants: Vec<NamedConstValue>,
+    /// Exact imported values used to build this result.
+    ///
+    /// The query driver compares this vector before reusing a consumer canon
+    /// cache entry, so a value-only provider edit invalidates the frozen
+    /// consumer expression even when provider and consumer types are unchanged.
+    pub constant_inputs: Vec<NamedConstValue>,
+    /// Module-constant failures that block evaluation and code generation.
+    pub const_problems: Vec<ConstEvalProblem>,
     /// Map from canonical `CanId` of a generic call site to its resolved
     /// monomorphic instance index.
     ///
@@ -184,6 +194,9 @@ impl CanonResult {
             roots: Vec::new(),
             method_roots: Vec::new(),
             problems: Vec::new(),
+            named_constants: Vec::new(),
+            constant_inputs: Vec::new(),
+            const_problems: Vec::new(),
             mono_dispatch_map_can: Vec::new(),
             mono_const_bindings: Vec::new(),
         }

@@ -607,6 +607,27 @@ fn generic_struct_fixture(
     (s, type_params, generic)
 }
 
+#[test]
+fn finalized_body_map_registration_materializes_concrete_applied_body() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let (s, type_params, generic) = generic_struct_fixture(&mut pool, &interner);
+    let concrete = pool.applied(s, &[Idx::INT, Idx::STR]);
+
+    super::register_concrete_applied_resolutions(&mut pool, &[(generic, concrete)], &type_params);
+
+    let body = pool
+        .resolve(concrete)
+        .unwrap_or_else(|| panic!("finalized mono body map must register the concrete layout"));
+    assert_eq!(
+        pool.struct_fields(body),
+        vec![
+            (interner.intern("a"), Idx::INT),
+            (interner.intern("b"), Idx::STR),
+        ]
+    );
+}
+
 // Multi-param distinct interning. `S<int, str>` and `S<str, int>` must
 // materialize to DISTINCT concrete struct Idxs with distinct concrete field
 // bodies (positive pin: distinct args intern distinctly).
@@ -676,6 +697,125 @@ fn materialized_concrete_struct_distinct_from_generic_definition() {
     );
 }
 
+/// Regression: a generic shell such as `S<A, str>` is not a concrete
+/// instantiation merely because `Named(A)` has no cached variable flag.
+#[test]
+fn materialize_unresolved_named_argument_does_not_register_generic_body() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let (s, type_params, generic) = generic_struct_fixture(&mut pool, &interner);
+    let unresolved_a = pool.named(interner.intern("A"));
+    let applied = pool.applied(s, &[unresolved_a, Idx::STR]);
+
+    let mut in_progress = FxHashSet::default();
+    materialize_applied_body(&mut pool, applied, &type_params, &mut in_progress);
+
+    assert_eq!(
+        pool.resolve(applied),
+        None,
+        "an unresolved named binder must not register the generic body as concrete"
+    );
+    assert_eq!(
+        pool.struct_fields(generic)[0].1,
+        unresolved_a,
+        "the generic definition remains the sole body carrying the binder"
+    );
+}
+
+/// A type parameter may shadow an outer nominal type with the same name. The
+/// generic application must remain unresolved even though the shared `Named`
+/// pool handle carries the outer nominal type's resolution.
+#[test]
+fn materialize_shadowing_named_binder_keeps_application_unresolved() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let (s, type_params, _) = generic_struct_fixture(&mut pool, &interner);
+    let a = interner.intern("A");
+    let value = interner.intern("value");
+    let shadowing_binder = pool.named(a);
+    let generic_shell = pool.applied(s, &[shadowing_binder, Idx::STR]);
+    let outer_nominal_body = pool.struct_type(a, &[(value, Idx::INT)]);
+    pool.set_resolution(shadowing_binder, outer_nominal_body);
+    let nominal_a = pool.named(a);
+    let concrete_same_spelling = pool.applied(s, &[nominal_a, Idx::STR]);
+
+    assert_eq!(
+        generic_shell, concrete_same_spelling,
+        "the pool currently erases the lexical origin that distinguishes the generic shell from S<global A>"
+    );
+
+    let mut in_progress = FxHashSet::default();
+    materialize_applied_body(&mut pool, generic_shell, &type_params, &mut in_progress);
+
+    assert_eq!(
+        pool.resolve(shadowing_binder),
+        Some(outer_nominal_body),
+        "the outer nominal type must keep its concrete resolution"
+    );
+    assert_eq!(
+        pool.resolve(generic_shell),
+        None,
+        "the shadowing binder must not turn the generic application concrete"
+    );
+}
+
+/// Regression: a named binder nested under another application remains
+/// generic; neither the inner nor outer application may gain a resolution.
+#[test]
+fn materialize_nested_unresolved_named_argument_registers_no_resolution() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let (s, type_params, _) = generic_struct_fixture(&mut pool, &interner);
+    let wrapper = interner.intern("Wrapper");
+    let unresolved_a = pool.named(interner.intern("A"));
+    let inner = pool.applied(wrapper, &[unresolved_a]);
+    let outer = pool.applied(s, &[inner, Idx::STR]);
+
+    let mut in_progress = FxHashSet::default();
+    materialize_applied_body(&mut pool, outer, &type_params, &mut in_progress);
+
+    assert_eq!(
+        pool.resolve(outer),
+        None,
+        "an outer application containing a generic inner argument must remain unresolved"
+    );
+    assert_eq!(
+        pool.resolve(inner),
+        None,
+        "the bottom-up walk must not materialize a generic inner application"
+    );
+}
+
+/// A resolved nominal argument is concrete and must not be rejected merely
+/// because its surface node is `Named` or an unrelated generic declaration
+/// happens to reuse the nominal's spelling as one of its binders.
+#[test]
+fn materialize_resolved_named_argument_registers_concrete_body() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let (s, mut type_params, _) = generic_struct_fixture(&mut pool, &interner);
+    let user = interner.intern("User");
+    let unrelated = interner.intern("Unrelated");
+    let value = interner.intern("value");
+    type_params.insert(unrelated, vec![user]);
+    let named_user = pool.named(user);
+    let user_body = pool.struct_type(user, &[(value, Idx::INT)]);
+    pool.set_resolution(named_user, user_body);
+    let applied = pool.applied(s, &[named_user, Idx::STR]);
+
+    let mut in_progress = FxHashSet::default();
+    materialize_applied_body(&mut pool, applied, &type_params, &mut in_progress);
+
+    let concrete = pool
+        .resolve(applied)
+        .unwrap_or_else(|| panic!("a resolved nominal argument must materialize"));
+    assert_eq!(
+        pool.resolve_fully(pool.struct_fields(concrete)[0].1),
+        user_body,
+        "the materialized field must retain the concrete nominal argument"
+    );
+}
+
 // Self-referential composite termination. `List<T> = Nil | Cons(T,
 // List<T>)` materialized at `List<int>` must TERMINATE (no stack overflow /
 // infinite intern) under the in-progress recursion guard, and the recursive
@@ -736,6 +876,62 @@ fn materialize_self_referential_enum_terminates() {
     assert!(
         in_progress.is_empty(),
         "in_progress guard must drain on completion"
+    );
+}
+
+#[test]
+fn materialize_rebuilds_stale_applied_resolution_from_generic_declaration() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let holder = interner.intern("Holder");
+    let parameter = interner.intern("T");
+    let empty = interner.intern("Empty");
+    let full = interner.intern("Full");
+    let named_parameter = pool.named(parameter);
+    let generic = pool.enum_type(
+        holder,
+        &[
+            crate::pool::EnumVariant {
+                name: empty,
+                field_types: Vec::new(),
+            },
+            crate::pool::EnumVariant {
+                name: full,
+                field_types: vec![named_parameter],
+            },
+        ],
+    );
+    let named_holder = pool.named(holder);
+    pool.set_resolution(named_holder, generic);
+    let mut type_params = FxHashMap::default();
+    type_params.insert(holder, vec![parameter]);
+
+    let holder_string = pool.applied(holder, &[Idx::STR]);
+    let stale_outer = pool.enum_type(
+        holder,
+        &[
+            crate::pool::EnumVariant {
+                name: empty,
+                field_types: Vec::new(),
+            },
+            crate::pool::EnumVariant {
+                name: full,
+                field_types: vec![holder_string],
+            },
+        ],
+    );
+    pool.set_resolution(holder_string, stale_outer);
+
+    let mut in_progress = FxHashSet::default();
+    materialize_applied_body(&mut pool, holder_string, &type_params, &mut in_progress);
+
+    let concrete = pool
+        .resolve(holder_string)
+        .unwrap_or_else(|| panic!("Holder<str> must retain a concrete body"));
+    assert_eq!(
+        pool.enum_variants(concrete)[1].1,
+        vec![Idx::STR],
+        "re-materialization must not reuse a stale nested specialization as the generic template"
     );
 }
 

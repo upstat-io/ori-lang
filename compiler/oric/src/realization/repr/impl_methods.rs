@@ -51,6 +51,14 @@ pub(crate) fn lower_impl_methods_for_analysis(
         lower_declared_impl_methods(impl_def, impl_index, type_name_name, &inputs, &mut outputs);
         lower_default_trait_methods(impl_def, impl_index, type_name_name, &inputs, &mut outputs);
     }
+    for (extension_index, extension) in parse_result.module.extends.iter().enumerate() {
+        lower_extension_methods(
+            extension,
+            parse_result.module.impls.len() + extension_index,
+            &inputs,
+            &mut outputs,
+        );
+    }
     for sig in &type_result.typed.impl_sigs {
         if !outputs.consumed_sig_ids.contains(&sig.id) {
             outputs.problems.push(ori_arc::ArcProblem::InternalError {
@@ -68,6 +76,72 @@ pub(crate) fn lower_impl_methods_for_analysis(
         })
     } else {
         Err(outputs.problems)
+    }
+}
+
+fn lower_extension_methods(
+    extension: &ori_ir::ExtendDef,
+    owner_index: usize,
+    inputs: &ImplLoweringInputs<'_>,
+    outputs: &mut ImplLoweringOutputs,
+) {
+    let self_kw = inputs.interner.intern("self");
+    for method in &extension.methods {
+        if inputs
+            .parse_result
+            .arena
+            .get_params(method.params)
+            .first()
+            .is_none_or(|param| param.name != self_kw)
+        {
+            continue;
+        }
+
+        let method_id = ImplMethodId::new(owner_index, method.body);
+        let Some(ori_types::ImplSig { receiver, sig, .. }) =
+            inputs.sig_by_id.get(&method_id).copied()
+        else {
+            outputs.problems.push(ori_arc::ArcProblem::InternalError {
+                message: format!("missing typed extension-method identity {method_id:?}"),
+                span: method.span,
+            });
+            outputs.emission_names.push(None);
+            continue;
+        };
+        outputs.consumed_sig_ids.insert(method_id);
+        if sig.is_generic() {
+            outputs.emission_names.push(None);
+            continue;
+        }
+
+        let (_, qualified_name) = make_qualified_name(
+            Some(method_receiver_key(inputs.pool, *receiver)),
+            method.name,
+            inputs.interner,
+            &mut outputs.method_ordinals,
+        );
+        outputs.dispatch.record_extension(
+            Some(method_receiver_key(inputs.pool, *receiver)),
+            method.name,
+            qualified_name,
+        );
+        outputs.emission_names.push(Some(qualified_name));
+        let mut context = crate::arc_lowering::ArcLoweringContext {
+            canon: inputs.canon,
+            interner: inputs.interner,
+            pool: inputs.pool,
+            problems: &mut outputs.problems,
+        };
+        let (arc_fn, lambdas) = crate::arc_lowering::lower_impl_method_to_arc_by_source(
+            qualified_name,
+            sig,
+            method.body,
+            &mut context,
+            None,
+        );
+        outputs
+            .groups
+            .push(super::super::ArcFunctionGroup::new(arc_fn, lambdas));
     }
 }
 

@@ -75,7 +75,6 @@ use std.testing { assert_eq }
     _ -> 0
 }
 
-#skip("BUG-04-203: unused owned list-element binding (head) extracted via @__index is rc-inc'd on extraction but never gets the RL-2 dead-binding dec; the buffer free leaves it at rc=1. Slice-independent (reproduces on exact [head,second] patterns); SSO masks it for short strings. Distinct from the drop-uniqueness SIGSEGV facet of BUG-04-202 fixed by propagate_alias_forward_state.")
 @test_rest_len_nested tests @rest_len_nested () -> void = {
     assert_eq(actual: rest_len_nested([[1], [2], [3]]), expected: 2);
     assert_eq(actual: rest_len_nested([[9]]), expected: 0)

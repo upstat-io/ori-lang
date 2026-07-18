@@ -37,7 +37,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let Some(sig) = sig_map.get(&func.name) else {
                 continue;
             };
-            if sig.is_generic() {
+            if sig.requires_specialization() {
                 continue;
             }
 

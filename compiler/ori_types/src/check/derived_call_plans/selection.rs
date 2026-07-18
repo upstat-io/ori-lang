@@ -47,31 +47,82 @@ fn select_producer_inner(
     let Some(method_text) = interner.try_lookup(method_name) else {
         return SelectionOutcome::Missing;
     };
-    let resolved_receiver = pool.resolve_fully(receiver);
-    if let Some(receiver_tag) = pool.builtin_type_tag(resolved_receiver) {
-        if let Some(method) = ori_registry::find_method(receiver_tag, method_text) {
-            if method.trait_name == Some(trait_text) {
-                if let Some(identity) = ori_registry::find_method_id(receiver_tag, method_text) {
-                    return SelectionOutcome::Found(ProducerSelection {
-                        producer: MethodProducer::Registry(
-                            RegistryMethodIdentity::from_registered(identity),
-                        ),
-                        impl_args: Vec::new(),
-                        has_self: method.kind == ori_registry::MethodKind::Instance,
-                    });
-                }
-            }
-        }
+    tracing::trace!(
+        ?receiver,
+        ?trait_type,
+        ?trait_name,
+        trait_text,
+        ?method_name,
+        method_text,
+        "select producer names"
+    );
+    if let Some(selection) = registry_producer(pool, receiver, trait_text, method_text) {
+        return SelectionOutcome::Found(selection);
     }
 
     if !active.insert((receiver, trait_type)) {
         return SelectionOutcome::Missing;
     }
+    let candidates = collect_impl_candidates(
+        receiver,
+        trait_type,
+        method_name,
+        traits,
+        interner,
+        pool,
+        active,
+    );
+    active.remove(&(receiver, trait_type));
+
+    select_best_candidate(candidates)
+}
+
+/// Fast-path producer lookup against the builtin method registry.
+fn registry_producer(
+    pool: &Pool,
+    receiver: Idx,
+    trait_text: &str,
+    method_text: &str,
+) -> Option<ProducerSelection> {
+    let receiver_tag = pool.builtin_method_type_tag(receiver)?;
+    let method = ori_registry::find_method(receiver_tag, method_text)?;
+    if method.trait_name != Some(trait_text) {
+        return None;
+    }
+    let identity = ori_registry::find_method_id(receiver_tag, method_text)?;
+    Some(ProducerSelection {
+        producer: MethodProducer::Registry(RegistryMethodIdentity::from_registered(identity)),
+        impl_args: Vec::new(),
+        has_self: method.kind == ori_registry::MethodKind::Instance,
+    })
+}
+
+/// Collect every trait-impl candidate matching `trait_type` on `receiver` whose bounds hold.
+fn collect_impl_candidates(
+    receiver: Idx,
+    trait_type: Idx,
+    method_name: Name,
+    traits: &TraitRegistry,
+    interner: &StringInterner,
+    pool: &mut Pool,
+    active: &mut FxHashSet<(Idx, Idx)>,
+) -> Vec<(crate::ImplSpecificity, ProducerSelection)> {
     let mut candidates = Vec::new();
     for (impl_index, implementation) in traits.impls_iter() {
         if implementation.trait_idx != Some(trait_type) {
             continue;
         }
+        tracing::trace!(
+            ?receiver,
+            ?trait_type,
+            ?impl_index,
+            self_type = ?implementation.self_type,
+            type_params = ?implementation.type_params,
+            bounds = ?implementation.type_param_bounds,
+            ?method_name,
+            methods = ?implementation.methods.keys().collect::<Vec<_>>(),
+            "select candidate trait match"
+        );
         let Some(method) = implementation.methods.get(&method_name) else {
             continue;
         };
@@ -88,10 +139,13 @@ fn select_producer_inner(
             };
             subst
         };
-        if !impl_bounds_hold(implementation, &subst, traits, interner, pool, active) {
+        let bounds_hold = impl_bounds_hold(implementation, &subst, traits, interner, pool, active);
+        tracing::trace!(?subst, bounds_hold, "select candidate subst");
+        if !bounds_hold {
             continue;
         }
         let Some(producer) = traits.method_producer(impl_index, method) else {
+            tracing::trace!("select candidate missing producer");
             continue;
         };
         let Some(impl_args) = implementation
@@ -112,8 +166,13 @@ fn select_producer_inner(
             },
         ));
     }
-    active.remove(&(receiver, trait_type));
+    candidates
+}
 
+/// Pick the highest-specificity candidate, or report ambiguity among ties.
+fn select_best_candidate(
+    candidates: Vec<(crate::ImplSpecificity, ProducerSelection)>,
+) -> SelectionOutcome {
     let Some(max_specificity) = candidates.iter().map(|(specificity, _)| *specificity).max() else {
         return SelectionOutcome::Missing;
     };
@@ -149,15 +208,33 @@ fn impl_bounds_hold(
             return false;
         };
         for bound in bounds {
-            let Some(bound_trait) = traits.get_trait_by_name(*bound) else {
+            let Some(trait_name) = interner.try_lookup(*bound) else {
                 return false;
             };
-            let Some(trait_name) = interner.try_lookup(bound_trait.name) else {
-                return false;
-            };
-            if crate::infer::type_satisfies_named_trait(receiver, trait_name, pool) {
+            let builtin_satisfies =
+                crate::infer::type_satisfies_named_trait(receiver, trait_name, pool);
+            tracing::trace!(
+                ?receiver,
+                ?bound,
+                trait_name,
+                builtin_satisfies,
+                "impl bound"
+            );
+            if builtin_satisfies {
                 continue;
             }
+            let Some(bound_trait) = traits.get_trait_by_name(*bound) else {
+                tracing::trace!(
+                    ?bound,
+                    trait_name,
+                    indexed_traits = ?traits
+                        .iter_traits()
+                        .map(|entry| (entry.name, interner.try_lookup(entry.name), entry.idx))
+                        .collect::<Vec<_>>(),
+                    "impl bound missing trait"
+                );
+                return false;
+            };
             let Some(method) = bound_trait.methods.keys().min().copied() else {
                 continue;
             };

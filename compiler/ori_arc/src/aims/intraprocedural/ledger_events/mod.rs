@@ -192,19 +192,17 @@ impl Classifier<'_> {
     }
 
     /// Function params birth their classes: Owned = FOREIGN, Borrowed =
-    /// BORROWED — EXCEPT a Borrowed param this function's OWN contract marks
-    /// iter-consuming (PV-4: the caller classified its arg
-    /// `ApplyToIterConsumingParam` and transferred the reference in), which
-    /// arrives OWNING that reference and births FOREIGN. Borrowed-origin
-    /// classification would make the emitter self-fund the internal
-    /// `@iter [own]` hand-off the caller's transfer already pays for
-    /// (double-funding: the caller's transferred reference never released).
+    /// BORROWED — EXCEPT a Borrowed param whose own contract requires a
+    /// whole-value credit. Iter-consuming params receive the caller's
+    /// transferred reference; borrowed-COW-consuming params receive a newly
+    /// funded reference while the caller retains its original owner. Both
+    /// arrive owning one reference and therefore birth FOREIGN.
     fn classify_params(&mut self, func: &ArcFunction, stream: &mut Vec<ClassInstr>) {
-        let own_iter: Vec<bool> = self.boundary_facts.get(&func.name).map_or_else(
+        let incoming_credit: Vec<bool> = self.boundary_facts.get(&func.name).map_or_else(
             || vec![false; func.params.len()],
             |facts| {
                 (0..func.params.len())
-                    .map(|position| facts.iter_consume_transfer(position))
+                    .map(|position| facts.incoming_whole_value_credit(position))
                     .collect()
             },
         );
@@ -238,10 +236,10 @@ impl Classifier<'_> {
                 self.absent_params.insert(param.var);
                 continue;
             }
-            let iter_consuming = own_iter.get(position).copied().unwrap_or(false);
+            let owns_credit = incoming_credit.get(position).copied().unwrap_or(false);
             let origin = match param.ownership {
                 Ownership::Owned => ClassOrigin::Foreign,
-                Ownership::Borrowed if iter_consuming => ClassOrigin::Foreign,
+                Ownership::Borrowed if owns_credit => ClassOrigin::Foreign,
                 Ownership::Borrowed => ClassOrigin::Borrowed,
             };
             self.birth(stream, param.var, origin);
@@ -433,7 +431,7 @@ pub(crate) fn sib_read_count(class: NodeIdx, value: ArcVarId, rest: &[ClassInstr
 }
 
 /// The `Let`-alias closure of every Borrowed param this function's own
-/// contract does NOT mark iter-consuming. This is the backend-neutral
+/// contract does NOT give an incoming whole-value credit. This is the backend-neutral
 /// classification every physical projection must consume: an iterator created
 /// from such a var does not own its source; the owner/caller releases it, per
 /// `RL2_borrowed_param_emits_caller_dec`. The LLVM emitter's current
@@ -446,8 +444,8 @@ fn collect_borrowed_rooted_vars(
     let own_facts = boundary_facts.get(&func.name);
     let mut roots = rustc_hash::FxHashSet::default();
     for (position, param) in func.params.iter().enumerate() {
-        let iter_consuming = own_facts.is_some_and(|f| f.iter_consume_transfer(position));
-        if param.ownership == Ownership::Borrowed && !iter_consuming {
+        let owns_credit = own_facts.is_some_and(|f| f.incoming_whole_value_credit(position));
+        if param.ownership == Ownership::Borrowed && !owns_credit {
             roots.insert(param.var);
         }
     }

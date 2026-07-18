@@ -6,13 +6,13 @@
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_arc::ownership::Ownership;
-use ori_arc::{ClosureAdapterPlan, DropKind};
+use ori_arc::{ClosureAdapterPlan, ClosureAdapterSource, DropKind};
 use ori_ir::Name;
 use ori_types::Idx;
 
 use super::context::EmittedValue;
 use super::ArcIrEmitter;
-use crate::codegen::abi::{FunctionAbi, ParamAbi};
+use crate::codegen::abi::{compute_closure_param_passing, FunctionAbi, ParamAbi};
 use crate::codegen::type_info::TypeLayoutResolver;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
@@ -53,14 +53,44 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         };
 
-        // Non-capturing fast path: lambda already has closure-compatible ABI,
-        // so use its function pointer directly only when the frozen adapter
-        // has no ownership work for residual arguments.
+        let num_captures = args.len();
+        let remaining_params: Vec<ParamAbi> = callee_abi.params[num_captures..]
+            .iter()
+            .enumerate()
+            .map(|(residual_index, target)| {
+                let ty = frozen_adapter.as_ref().map_or(target.ty, |adapter| {
+                    adapter.slots()[num_captures + residual_index].ty
+                });
+                ParamAbi {
+                    name: target.name,
+                    ty,
+                    passing: compute_closure_param_passing(
+                        ty,
+                        self.type_info,
+                        self.repr_plan,
+                        self.classifier,
+                    ),
+                    readonly: true,
+                }
+            })
+            .collect();
+
+        // Non-capturing fast path: use the target function pointer directly
+        // only when both its logical adapter and physical residual ABI already
+        // match the target-independent closure convention.
+        let residual_abi_matches_target =
+            remaining_params
+                .iter()
+                .map(|param| param.passing)
+                .eq(callee_abi.params[num_captures..]
+                    .iter()
+                    .map(|param| param.passing));
         if is_non_capturing
             && args.is_empty()
             && frozen_adapter
                 .as_ref()
                 .is_none_or(|adapter| !adapter.requires_retain())
+            && residual_abi_matches_target
         {
             let fn_ptr = self.builder.get_function_ptr(callee_func_id);
             let null_env = self.builder.const_null_ptr();
@@ -72,13 +102,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        let num_captures = args.len();
-
         // Capture types (from ARC IR variable types)
         let capture_types: Vec<Idx> = args.iter().map(|&v| func.var_type(v)).collect();
-
-        // Remaining user params (the closure awaits these)
-        let remaining_params: Vec<ParamAbi> = callee_abi.params[num_captures..].to_vec();
 
         // Capture ownership: which captures are borrowed (skip RcInc in wrapper — body borrows from env).
         let capture_ownership: Vec<Ownership> = if frozen_adapter.is_some() {
@@ -152,9 +177,39 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if frozen_adapter.as_ref().is_some_and(|adapter| {
             adapter.capture_count() != capture_count
                 || adapter.slots().len() != callee_abi.params.len()
+                || adapter
+                    .slots()
+                    .iter()
+                    .zip(&callee_abi.params)
+                    .enumerate()
+                    .any(|(index, (slot, param))| {
+                        slot.ty != param.ty
+                            || if index < capture_count {
+                                slot.source != ClosureAdapterSource::EnvironmentCapture
+                            } else {
+                                slot.source != ClosureAdapterSource::BorrowedCallArgument
+                            }
+                    })
         }) {
             self.builder.record_codegen_error_with_msg(format!(
                 "closure adapter for {callee_name} disagrees with its emitted target signature"
+            ));
+            self.emit_invalid_partial_apply(dst, "partial_apply.invalid");
+            return None;
+        }
+
+        if frozen_adapter.is_none()
+            && callee_abi.params[capture_count..].iter().any(|param| {
+                compute_closure_param_passing(
+                    param.ty,
+                    self.type_info,
+                    self.repr_plan,
+                    self.classifier,
+                ) != param.passing
+            })
+        {
+            self.builder.record_codegen_error_with_msg(format!(
+                "closure target {callee_name} needs an ownership adapter for its residual signature"
             ));
             self.emit_invalid_partial_apply(dst, "partial_apply.invalid");
             return None;

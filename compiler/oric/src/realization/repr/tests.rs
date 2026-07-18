@@ -163,7 +163,90 @@ fn same_named_associated_monos_are_keyed_by_concrete_receiver() {
 }
 
 #[test]
-fn non_newtype_receiver_keys_keep_concrete_resolution_matching() {
+fn generic_mono_target_registers_materialized_receiver_alias() {
+    let interner = StringInterner::new();
+    let method = interner.intern("eq");
+    let target = interner.intern("eq_box_int");
+    let owner = interner.intern("Box");
+    let mut pool = Pool::new();
+    let receiver = pool.applied(owner, &[Idx::INT]);
+    let body = pool.struct_type(owner, &[(interner.intern("item"), Idx::INT)]);
+    pool.set_resolution(receiver, body);
+    let monos = vec![mono_method(target, method, receiver, 1)];
+    let mut targets = FxHashMap::default();
+
+    if let Err(problems) = extend_mono_method_targets(&mut targets, &monos, &interner, &pool) {
+        panic!(
+            "one generic receiver must register exact semantic and physical targets: {problems:?}"
+        );
+    }
+
+    assert_eq!(targets.get(&(receiver, method)), Some(&target));
+    assert_eq!(targets.get(&(body, method)), Some(&target));
+}
+
+#[test]
+fn ambiguous_materialized_receiver_alias_fails_closed() {
+    let interner = StringInterner::new();
+    let method = interner.intern("eq");
+    let first_target = interner.intern("eq_box_int");
+    let second_target = interner.intern("eq_box_str");
+    let owner = interner.intern("Box");
+    let mut pool = Pool::new();
+    let first_receiver = pool.applied(owner, &[Idx::INT]);
+    let second_receiver = pool.applied(owner, &[Idx::STR]);
+    let shared_body = pool.struct_type(owner, &[]);
+    pool.set_resolution(first_receiver, shared_body);
+    pool.set_resolution(second_receiver, shared_body);
+    let monos = vec![
+        mono_method(first_target, method, first_receiver, 1),
+        mono_method(second_target, method, second_receiver, 2),
+    ];
+    let mut targets = FxHashMap::default();
+
+    let Err(problems) = extend_mono_method_targets(&mut targets, &monos, &interner, &pool) else {
+        panic!("one physical operator receiver must not select between nominal targets");
+    };
+
+    assert_eq!(problems.len(), 1);
+    assert_eq!(targets.get(&(first_receiver, method)), Some(&first_target));
+    assert_eq!(
+        targets.get(&(second_receiver, method)),
+        Some(&second_target)
+    );
+    assert_eq!(targets.get(&(shared_body, method)), Some(&first_target));
+}
+
+#[test]
+fn receiver_alias_registration_preserves_newtypes_and_identity_controls() {
+    let interner = StringInterner::new();
+    let method = interner.intern("eq");
+    let newtype_target = interner.intern("eq_key");
+    let struct_target = interner.intern("eq_record");
+    let newtype_name = interner.intern("Key");
+    let mut pool = Pool::new();
+    let newtype = pool.named(newtype_name);
+    pool.register_newtype_ctor(newtype_name, Idx::INT);
+    pool.set_resolution(newtype, Idx::INT);
+    let structural = pool.struct_type(interner.intern("Record"), &[]);
+    let monos = vec![
+        mono_method(newtype_target, method, newtype, 1),
+        mono_method(struct_target, method, structural, 2),
+    ];
+    let mut targets = FxHashMap::default();
+
+    if let Err(problems) = extend_mono_method_targets(&mut targets, &monos, &interner, &pool) {
+        panic!("newtype and identity receiver aliases must remain exact: {problems:?}");
+    }
+
+    assert_eq!(targets.len(), 2);
+    assert_eq!(targets.get(&(newtype, method)), Some(&newtype_target));
+    assert_eq!(targets.get(&(structural, method)), Some(&struct_target));
+    assert!(!targets.contains_key(&(Idx::INT, method)));
+}
+
+#[test]
+fn receiver_keys_resolve_nominals_and_preserve_generic_carriers() {
     let interner = StringInterner::new();
     let mut pool = Pool::new();
 
@@ -192,8 +275,13 @@ fn non_newtype_receiver_keys_keep_concrete_resolution_matching() {
     assert_eq!(method_receiver_key(&pool, record), record);
     assert_eq!(method_receiver_key(&pool, choice_nominal), choice);
     assert_eq!(method_receiver_key(&pool, choice), choice);
-    assert_eq!(method_receiver_key(&pool, concrete_box), box_body);
+    assert_eq!(method_receiver_key(&pool, concrete_box), concrete_box);
     assert_eq!(method_receiver_key(&pool, box_body), box_body);
+    assert_ne!(
+        method_receiver_key(&pool, concrete_box),
+        method_receiver_key(&pool, box_body),
+        "generic dispatch identity must not collapse through its representation body"
+    );
 }
 
 #[test]

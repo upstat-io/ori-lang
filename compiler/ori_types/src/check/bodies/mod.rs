@@ -13,8 +13,8 @@ mod method_sig;
 
 pub(super) use def_impls::check_def_impl_bodies;
 pub(super) use functions::{check_function_bodies, check_test_bodies};
-pub(super) use impls::check_impl_bodies;
-pub(crate) use method_sig::allocate_rigid_var_map;
+pub(super) use impls::{check_extension_bodies, check_impl_bodies};
+pub(crate) use method_sig::{allocate_rigid_var_map, allocate_rigid_var_map_for_names};
 
 use ori_ir::{ExprId, ExprKind};
 use rustc_hash::FxHashMap;
@@ -71,6 +71,8 @@ pub(super) struct BodyOutputs {
     /// Keys are exact source call `ExprId`s; values carry the iterator type and
     /// optional eager-adapter type consumed by `ori_canon`.
     pub iter_route_desugars: Vec<(ExprId, crate::IterMethodRoute)>,
+    /// Ordered capability-provider selections for free calls in this body.
+    pub capability_calls: Vec<(ExprId, crate::CapabilityCallSite)>,
 }
 
 /// Shared post-inference spine for every body-checking pass.
@@ -100,6 +102,7 @@ pub(super) fn finalize_body_and_export(
         assign_desugars,
         module_alias_calls,
         iter_route_desugars,
+        capability_calls,
     } = outputs;
 
     // Validate PC-2 contract: no unbound Tag::Var in expr_types or sig positions.
@@ -139,6 +142,7 @@ pub(super) fn finalize_body_and_export(
     checker.assign_desugars.extend(assign_desugars);
     checker.module_alias_calls.extend(module_alias_calls);
     checker.iter_route_desugars.extend(iter_route_desugars);
+    checker.capability_calls.extend(capability_calls);
 
     // INVARIANT: registering burdens here exposes them to codegen and later-body dedup.
     for (idx, spec) in composed_burdens {

@@ -213,6 +213,7 @@ impl ModuleChecker<'_> {
             param_types: local_param_types,
             return_type: local_return_type,
             capabilities: ext_sig.capabilities.clone(),
+            capability_params: ext_sig.capability_params.clone(),
             is_public: ext_sig.is_public,
             is_test: ext_sig.is_test,
             is_main: ext_sig.is_main,

@@ -273,13 +273,17 @@ impl<I: StringLookup> Formatter<'_, I> {
             // The $ prefix is emitted by emit_binding_pattern(), not here
             ori_ir::StmtKind::Let {
                 pattern,
-                ty: _,
+                ty,
                 init,
                 mutable: _,
             } => {
                 self.ctx.emit("let ");
                 let pat = self.arena.get_binding_pattern(*pattern);
                 self.emit_binding_pattern(pat);
+                if ty.is_valid() {
+                    self.ctx.emit(": ");
+                    self.emit_type(self.arena.get_parsed_type(*ty));
+                }
                 self.ctx.emit(" = ");
                 self.format(*init);
             }

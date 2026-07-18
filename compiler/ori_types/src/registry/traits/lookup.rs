@@ -100,6 +100,9 @@ impl TraitRegistry {
             super::RegisteredImplOrigin::Source { impl_index } => Some(
                 crate::MethodProducer::Impl(crate::ImplMethodId::new(*impl_index, method.body)),
             ),
+            super::RegisteredImplOrigin::Extension { owner_index, .. } => Some(
+                crate::MethodProducer::Impl(crate::ImplMethodId::new(*owner_index, method.body)),
+            ),
             super::RegisteredImplOrigin::Derived(id) => Some(crate::MethodProducer::Derived(*id)),
             super::RegisteredImplOrigin::Imported(methods) => {
                 methods
@@ -109,6 +112,22 @@ impl TraitRegistry {
                         signature_hash: origin.signature_hash,
                     })
             }
+        }
+    }
+
+    /// Whether a registered provider is an extension rather than an inherent
+    /// impl. Both carry `trait_idx == None`, so precedence must consult origin.
+    pub(crate) fn is_extension_impl(&self, impl_idx: usize) -> bool {
+        matches!(
+            self.impl_origins.get(impl_idx).and_then(Option::as_ref),
+            Some(super::RegisteredImplOrigin::Extension { .. })
+        )
+    }
+
+    fn extension_target_name(&self, impl_idx: usize) -> Option<Name> {
+        match self.impl_origins.get(impl_idx)?.as_ref()? {
+            super::RegisteredImplOrigin::Extension { target_name, .. } => Some(*target_name),
+            _ => None,
         }
     }
 
@@ -196,7 +215,7 @@ impl TraitRegistry {
         self.impls_by_type.get(&self_type).and_then(|indices| {
             indices.iter().find_map(|&i| {
                 let entry = &self.impls[i];
-                if entry.trait_idx.is_none() {
+                if entry.trait_idx.is_none() && !self.is_extension_impl(i) {
                     Some((i, entry))
                 } else {
                     None
@@ -207,7 +226,7 @@ impl TraitRegistry {
 
     /// Look up a method implementation for a given type.
     ///
-    /// Searches inherent impls first, then trait impls.
+    /// Searches inherent impls first, then trait impls, then extensions.
     pub fn lookup_method(&self, self_type: Idx, method_name: Name) -> Option<MethodLookup<'_>> {
         // 1. Check inherent impl first
         if let Some((impl_idx, impl_entry)) = self.inherent_impl(self_type) {
@@ -234,6 +253,22 @@ impl TraitRegistry {
                     impl_idx,
                     method,
                 });
+            }
+        }
+
+        // 3. Check extensions only after every trait provider.
+        for (impl_idx, impl_entry) in self
+            .impls_by_type
+            .get(&self_type)
+            .into_iter()
+            .flat_map(|indices| indices.iter())
+            .filter_map(|&i| Some((i, self.impls.get(i)?)))
+        {
+            if !self.is_extension_impl(impl_idx) {
+                continue;
+            }
+            if let Some(method) = impl_entry.methods.get(&method_name) {
+                return Some(MethodLookup::Extension { impl_idx, method });
             }
         }
 
@@ -273,6 +308,24 @@ impl TraitRegistry {
             }
         }
 
+        let trait_result = self.resolve_trait_candidates(candidates);
+        if !matches!(trait_result, MethodLookupResult::NotFound) {
+            return trait_result;
+        }
+
+        // 3. Extensions are the final tier and conflicts fail closed.
+        self.resolve_extension_candidates(self_type, method_name)
+    }
+
+    /// Disambiguate 2+ trait-impl candidates providing the same method: first
+    /// prune super-trait-superseded candidates (a sub-trait overriding an
+    /// inherited super-trait method), then fall back to specificity ranking.
+    /// Returns `Ambiguous` when neither tier narrows to a single candidate.
+    /// Shared tier-2 resolution step of [`Self::lookup_method_checked`].
+    fn resolve_trait_candidates<'a>(
+        &self,
+        candidates: Vec<(usize, Idx, &'a ImplMethodDef, ImplSpecificity)>,
+    ) -> MethodLookupResult<'a> {
         match candidates.len() {
             0 => MethodLookupResult::NotFound,
             1 => {
@@ -340,6 +393,48 @@ impl TraitRegistry {
                     }
                 }
             }
+        }
+    }
+
+    /// Final extension-impl tier of [`Self::lookup_method_checked`]: fires
+    /// only after every inherent and trait provider has missed. A single
+    /// extension match resolves; 2+ conflicting extensions fail closed as
+    /// `Ambiguous`.
+    fn resolve_extension_candidates(
+        &self,
+        self_type: Idx,
+        method_name: Name,
+    ) -> MethodLookupResult<'_> {
+        let extension_candidates: Vec<_> = self
+            .impls_by_type
+            .get(&self_type)
+            .into_iter()
+            .flat_map(|indices| indices.iter())
+            .filter_map(|&impl_idx| {
+                if !self.is_extension_impl(impl_idx) {
+                    return None;
+                }
+                let method = self.impls.get(impl_idx)?.methods.get(&method_name)?;
+                Some((impl_idx, method))
+            })
+            .collect();
+        match extension_candidates.as_slice() {
+            [] => MethodLookupResult::NotFound,
+            [(impl_idx, method)] => MethodLookupResult::Found(MethodLookup::Extension {
+                impl_idx: *impl_idx,
+                method,
+            }),
+            candidates => MethodLookupResult::Ambiguous {
+                candidates: candidates
+                    .iter()
+                    .map(|(impl_idx, _)| {
+                        (
+                            Idx::ERROR,
+                            self.extension_target_name(*impl_idx).unwrap_or(method_name),
+                        )
+                    })
+                    .collect(),
+            },
         }
     }
 

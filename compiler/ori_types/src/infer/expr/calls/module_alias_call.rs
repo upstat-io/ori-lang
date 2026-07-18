@@ -12,6 +12,7 @@ use ori_ir::{ExprArena, ExprId, Name, Span};
 
 use super::super::super::InferEngine;
 use super::super::infer_expr;
+use super::constraints::check_signature_capabilities;
 use crate::{ContextKind, Expected, ExpectedOrigin, FunctionSig, Idx, Tag, TypeCheckError};
 
 /// Resolve a qualified positional call `alias.func(arg, ...)` against the
@@ -28,7 +29,8 @@ pub(super) fn try_infer_module_alias_call(
     span: Span,
 ) -> Option<Idx> {
     let (alias, sig) = resolve_alias_sig(engine, arena, receiver, method)?;
-    record_qualified_call(engine, call_expr_id, alias, method);
+    let qualified = record_qualified_call(engine, call_expr_id, alias, method).unwrap_or(method);
+    check_signature_capabilities(engine, call_expr_id, qualified, &sig, span);
     Some(check_positional(engine, arena, &sig, arg_ids, span))
 }
 
@@ -45,7 +47,8 @@ pub(super) fn try_infer_module_alias_call_named(
     span: Span,
 ) -> Option<Idx> {
     let (alias, sig) = resolve_alias_sig(engine, arena, receiver, method)?;
-    record_qualified_call(engine, call_expr_id, alias, method);
+    let qualified = record_qualified_call(engine, call_expr_id, alias, method).unwrap_or(method);
+    check_signature_capabilities(engine, call_expr_id, qualified, &sig, span);
     Some(check_named(engine, arena, &sig, args, span))
 }
 
@@ -59,7 +62,7 @@ fn record_qualified_call(
     call_expr_id: ExprId,
     alias: Name,
     method: Name,
-) {
+) -> Option<Name> {
     let qualified = (|| {
         let alias_str = engine.lookup_name(alias)?;
         let method_str = engine.lookup_name(method)?;
@@ -68,6 +71,7 @@ fn record_qualified_call(
     if let Some(qualified) = qualified {
         engine.record_module_alias_call(call_expr_id, qualified);
     }
+    qualified
 }
 
 /// Resolve the receiver to a module-alias namespace and look up `method` in

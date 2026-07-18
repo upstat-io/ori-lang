@@ -11,6 +11,7 @@ mod expr;
 pub(crate) use expr::match_self_type;
 pub(crate) use expr::register_concrete_applied_resolutions;
 pub(crate) use expr::type_satisfies_named_trait;
+pub(crate) use expr::validate_fixed_list_capacities;
 pub(crate) use expr::{NestedPathStep, RefutableReason};
 mod scope;
 pub(crate) use scope::{LoopContext, LoopForm};
@@ -129,6 +130,16 @@ pub struct InferEngine<'pool> {
     /// Capabilities provided in scope (`with...in`).
     provided_capabilities: FxHashSet<Name>,
 
+    /// Lexically ordered value-provider bindings for capability calls.
+    ///
+    /// Each namespace owns a stack so nested `with` bindings shadow and then
+    /// restore the outer provider exactly. Function-level entries represent
+    /// hidden provider parameters and sit at the bottom of the stack.
+    capability_providers: FxHashMap<Name, Vec<crate::CapabilityProvider>>,
+
+    /// Frozen provider selections for direct free calls in this body.
+    capability_call_sites: Vec<(ExprId, crate::CapabilityCallSite)>,
+
     /// Pattern resolutions accumulated during match checking.
     ///
     /// Records `Binding` patterns that were resolved to unit variants.
@@ -138,13 +149,17 @@ pub struct InferEngine<'pool> {
     /// Module-level constant types for `$name` reference resolution.
     const_types: Option<&'pool FxHashMap<Name, Idx>>,
 
-    /// Method-level const-generic parameter types for `$name` reference
-    /// resolution inside an impl/def-impl method body. Populated at body-check
-    /// entry so that bodies can use `$N` in type-arg
-    /// positions (e.g., `to_fixed<$N>()`). Owned (not borrowed) because the
-    /// scope is per-method, not module-level. Consulted by `const_type` AFTER
-    /// the module-level lookup misses.
-    method_const_types: FxHashMap<Name, Idx>,
+    /// Concrete module-constant values in the supported const-expression
+    /// subset. A declared module const absent here is not symbolically valid;
+    /// capacity validation rejects it as unevaluable.
+    const_values: Option<&'pool FxHashMap<Name, crate::ConstValue>>,
+
+    /// Body-local const-generic parameter types for `$name` reference
+    /// resolution inside functions and impl/def-impl methods. Populated at
+    /// body-check entry so bodies can use `$N` in type and value positions.
+    /// Owned because the const-parameter scope belongs to one body, not the
+    /// module. Consulted by `const_type` after module-level lookup misses.
+    const_param_types: FxHashMap<Name, Idx>,
 
     /// Method-level `RigidVar` trait-bound assumptions for body-internal trait
     /// dispatch. Populated at impl/def-impl body-check
@@ -241,11 +256,13 @@ pub struct InferEngine<'pool> {
     /// each burden walk (proposal §Generic Burden Composition rationale).
     composed_burdens: Vec<(Idx, crate::registry::burden::UserBurdenSpec)>,
 
-    /// Name of the function under type checking.
+    /// Exact locally checked body that may own deferred generic calls, plus its
+    /// type-only binder roots in declaration order.
     ///
-    /// Used by `maybe_record_mono_instance()` to identify the caller when
-    /// recording deferred mono calls.
-    current_function: Option<Name>,
+    /// Top-level roots remain signature-derived at the writer. Impl-method
+    /// roots are captured here because method signatures intentionally do not
+    /// expose top-level `scheme_var_ids`.
+    deferred_mono_caller: Option<(crate::DeferredMonoCaller, Vec<Idx>)>,
 
     /// Snapshot of name bindings that were in place at engine-creation time
     /// (typically `base_env.names()` — the module-level set of imported
@@ -291,7 +308,7 @@ impl std::fmt::Debug for InferEngine<'_> {
             .field("warning_count", &self.warnings.len())
             .field("mono_instance_count", &self.mono_instances.len())
             .field("body_inference_complete", &self.body_inference_complete)
-            .field("current_function", &self.current_function)
+            .field("deferred_mono_caller", &self.deferred_mono_caller)
             .finish_non_exhaustive()
     }
 }

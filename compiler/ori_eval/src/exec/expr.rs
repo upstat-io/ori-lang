@@ -52,22 +52,22 @@ pub fn eval_index(value: Value, index: Value) -> EvalResult {
         (Value::List(items), Value::Int(i)) => {
             let raw = i.raw();
             let idx = resolve_index(raw, items.len())
-                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw)))?;
+                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw, items.len())))?;
             items
                 .get(idx)
                 .cloned()
-                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw)))
+                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw, items.len())))
         }
         (Value::Str(s), Value::Int(i)) => {
             // String indexing returns a single-codepoint str (not char)
             let raw = i.raw();
             let char_count = s.chars().count();
             let idx = resolve_index(raw, char_count)
-                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw)))?;
+                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw, char_count)))?;
             s.chars()
                 .nth(idx)
                 .map(|c| Value::string(c.to_string()))
-                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw)))
+                .ok_or_else(|| ControlAction::from(index_out_of_bounds(raw, char_count)))
         }
         (Value::Map(map), key) => {
             // Map indexing returns Option<V>: Some(value) if found, None if not.
@@ -100,7 +100,7 @@ pub fn eval_field_access(value: Value, field: Name, interner: &StringInterner) -
                 items
                     .get(idx)
                     .cloned()
-                    .ok_or_else(|| tuple_index_out_of_bounds(idx).into())
+                    .ok_or_else(|| tuple_index_out_of_bounds(idx, items.len()).into())
             } else {
                 Err(invalid_tuple_field(field_name).into())
             }

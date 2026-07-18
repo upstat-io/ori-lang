@@ -5,15 +5,15 @@
 //! except from parent test modules, and module aliases bind qualified names.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
-use ori_ir::canon::SharedCanonResult;
+use ori_ir::{canon::SharedCanonResult, ImportCycleGuard};
 
 use crate::eval::{Environment, FunctionValue, Mutability, Value};
-use crate::imports::{is_parent_module_import, is_test_module, ImportError, ImportErrorKind};
+use crate::imports::{self, is_parent_module_import, is_test_module, ImportError, ImportErrorKind};
 use crate::ir::{Name, SharedArena, StringInterner};
 use crate::parser::ParseOutput;
 
@@ -40,8 +40,6 @@ fn extract_function_metadata(
 pub struct ImportedModule<'a> {
     /// The parse result containing the module's AST.
     pub result: &'a ParseOutput,
-    /// The expression arena for the imported module.
-    pub arena: &'a SharedArena,
     /// Pre-built map of all functions in the module.
     /// Uses `BTreeMap` for deterministic iteration order.
     pub functions: BTreeMap<Name, Value>,
@@ -54,15 +52,145 @@ impl<'a> ImportedModule<'a> {
     /// each function's `FunctionValue` is enriched with canonical IR data,
     /// enabling the evaluator to dispatch on `CanExpr` instead of `ExprKind`.
     pub fn new(
+        db: &dyn crate::db::Db,
         result: &'a ParseOutput,
         arena: &'a SharedArena,
+        module_path: &Path,
         canon: Option<&SharedCanonResult>,
-    ) -> Self {
-        let functions = Self::build_functions(result, arena, canon);
-        ImportedModule {
-            result,
-            arena,
-            functions,
+    ) -> Result<Self, Vec<ImportError>> {
+        let mut cycle_guard = ImportCycleGuard::new();
+        Self::build_with_guard(db, result, arena, module_path, canon, &mut cycle_guard)
+    }
+
+    /// Build one module after recursively completing its lexical imports.
+    ///
+    /// A fresh environment is used for each module so imported functions do
+    /// not accidentally capture bindings from their eventual consumer. Direct
+    /// imports are completed first, then local constructors and functions are
+    /// registered into that same environment before its bindings are frozen.
+    fn build_with_guard<'module>(
+        db: &dyn crate::db::Db,
+        result: &'module ParseOutput,
+        arena: &'module SharedArena,
+        module_path: &Path,
+        canon: Option<&SharedCanonResult>,
+        cycle_guard: &mut ImportCycleGuard,
+    ) -> Result<ImportedModule<'module>, Vec<ImportError>> {
+        if let Err(cycle) = cycle_guard.start_loading(module_path.to_path_buf()) {
+            return Err(vec![circular_import_error(&cycle)]);
+        }
+
+        let built =
+            Self::build_lexical_environment(db, result, arena, module_path, canon, cycle_guard);
+
+        // INVARIANT: every successful guard entry exits on both Ok and Err.
+        // `is_visited` is intentionally not consulted: the same provider may
+        // need a fresh lexical environment along separate diamond branches.
+        cycle_guard.finish_loading(module_path);
+        built
+    }
+
+    fn build_lexical_environment<'module>(
+        db: &dyn crate::db::Db,
+        result: &'module ParseOutput,
+        arena: &'module SharedArena,
+        module_path: &Path,
+        canon: Option<&SharedCanonResult>,
+        cycle_guard: &mut ImportCycleGuard,
+    ) -> Result<ImportedModule<'module>, Vec<ImportError>> {
+        let resolved = imports::resolve_imports(db, result, module_path);
+        let mut errors = resolved.errors.clone();
+        let mut env = Environment::new();
+
+        // Prelude bindings are part of every module's lexical environment, not
+        // ambient bindings inherited from whichever module eventually imports it.
+        if let Some(prelude) = &resolved.prelude {
+            let prelude_arena = prelude.parse_output.arena.clone();
+            let prelude_canon = crate::query::canonicalize_module(
+                db,
+                &prelude.parse_output,
+                &prelude.module_path,
+                prelude.source_file,
+            );
+            let prelude_path = prelude
+                .source_file
+                .map_or(prelude.module_path.as_path(), |source| source.path(db));
+
+            match Self::build_with_guard(
+                db,
+                &prelude.parse_output,
+                &prelude_arena,
+                prelude_path,
+                prelude_canon.as_ref(),
+                cycle_guard,
+            ) {
+                Ok(imported_prelude) => imported_prelude.register_public_functions(&mut env),
+                Err(prelude_errors) => errors.extend(prelude_errors),
+            }
+        }
+
+        // INVARIANT: visit every direct sibling even after one fails so import
+        // diagnostics accumulate in source order.
+        for imported in &resolved.modules {
+            let import = &result.module.imports[imported.import_index];
+            let imported_arena = imported.parse_output.arena.clone();
+            let imported_canon = crate::query::canonicalize_module(
+                db,
+                &imported.parse_output,
+                &imported.module_path,
+                imported.source_file,
+            );
+
+            match Self::build_with_guard(
+                db,
+                &imported.parse_output,
+                &imported_arena,
+                &imported.module_path,
+                imported_canon.as_ref(),
+                cycle_guard,
+            ) {
+                Ok(imported_module) => {
+                    if let Err(import_errors) = register_imports(
+                        import,
+                        &imported_module,
+                        &mut env,
+                        db.interner(),
+                        &imported.module_path,
+                        module_path,
+                        imported_canon.as_ref(),
+                    ) {
+                        errors.extend(import_errors);
+                    }
+                }
+                Err(mut import_errors) => {
+                    for error in &mut import_errors {
+                        if error.span.is_none() {
+                            error.span = Some(import.span);
+                        }
+                    }
+                    errors.extend(import_errors);
+                }
+            }
+        }
+
+        ori_eval::register_module_bindings(&result.module, arena, &mut env, canon);
+        let functions = env.capture().into_iter().collect();
+        let imported = ImportedModule { result, functions };
+
+        if errors.is_empty() {
+            Ok(imported)
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn register_public_functions(&self, env: &mut Environment) {
+        for function in &self.result.module.functions {
+            if function.visibility.is_public() {
+                if let Some(value) = self.functions.get(&function.name) {
+                    env.define_global(function.name, value.clone());
+                }
+            }
         }
     }
 
@@ -78,7 +206,7 @@ impl<'a> ImportedModule<'a> {
         imported_arena: &SharedArena,
         canon: Option<&SharedCanonResult>,
     ) -> BTreeMap<Name, Value> {
-        let mut module_functions: BTreeMap<Name, Value> = BTreeMap::new();
+        let mut function_values = FxHashMap::default();
 
         for func in &parse_result.module.functions {
             let (params, capabilities) = extract_function_metadata(func, imported_arena);
@@ -96,10 +224,13 @@ impl<'a> ImportedModule<'a> {
                 }
             }
 
-            module_functions.insert(func.name, Value::Function(func_value));
+            function_values.insert(func.name, func_value);
         }
-
-        module_functions
+        FunctionValue::attach_module_scope(&mut function_values);
+        function_values
+            .into_iter()
+            .map(|(name, function)| (name, Value::Function(function)))
+            .collect()
     }
 
     /// Capture the importing environment together with every function owned by
@@ -115,6 +246,18 @@ impl<'a> ImportedModule<'a> {
         }
         Arc::new(captures)
     }
+}
+
+fn circular_import_error(cycle: &[PathBuf]) -> ImportError {
+    let path = cycle
+        .iter()
+        .map(|entry| entry.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" -> ");
+    ImportError::new(
+        ImportErrorKind::CircularImport,
+        format!("circular import detected: {path}"),
+    )
 }
 
 /// Build a map of all functions in a module.
@@ -171,12 +314,47 @@ pub(crate) fn register_imports(
         .map(|f| (f.name, f))
         .collect();
 
-    // Why: share one captured environment across imported functions.
-    let shared_captures = imported.shared_captures(env);
-
     let mut errors = Vec::new();
 
     for item in &import.items {
+        if item.is_constant {
+            let Some(constant) = imported
+                .result
+                .module
+                .consts
+                .iter()
+                .find(|constant| constant.name == item.name)
+            else {
+                errors.push(ImportError::with_span(
+                    ImportErrorKind::ItemNotFound,
+                    format!(
+                        "constant '${}' not found in '{}'",
+                        interner.lookup(item.name),
+                        import_path.display()
+                    ),
+                    import.span,
+                ));
+                continue;
+            };
+
+            if !constant.visibility.is_public() && !allow_private_access {
+                let name = interner.lookup(item.name);
+                errors.push(ImportError::with_span(
+                    ImportErrorKind::PrivateAccess,
+                    format!(
+                        "constant '${name}' is private in '{}'; add `pub` to the constant definition before importing it",
+                        import_path.display()
+                    ),
+                    import.span,
+                ));
+            }
+
+            // Canon replaced every successful module-constant reference with
+            // `CanExpr::Constant`; there is intentionally no runtime binding
+            // and no second evaluator at this import boundary.
+            continue;
+        }
+
         if let Some(&func) = func_by_name.get(&item.name) {
             // INVARIANT: private imports require `::` outside parent test modules.
             if !func.visibility.is_public() && !item.is_private && !allow_private_access {
@@ -192,29 +370,16 @@ pub(crate) fn register_imports(
                 continue;
             }
 
-            let (params, capabilities) = extract_function_metadata(func, imported.arena);
-
-            let mut func_value = FunctionValue::with_shared_captures(
-                params,
-                Arc::clone(&shared_captures),
-                imported.arena.clone(),
-                capabilities,
-            );
-
-            // Attach canonical IR when available
-            if let Some(cr) = canon {
-                if let Some(can_id) = cr.root_for(func.name) {
-                    func_value.set_canon(can_id, cr.clone());
-                }
-            }
-
             // Use alias if provided, otherwise use original name
             let bind_name = item.alias.unwrap_or(item.name);
-            env.define(
-                bind_name,
-                Value::Function(func_value),
-                Mutability::Immutable,
-            );
+            let value = imported
+                .functions
+                .get(&func.name)
+                .cloned()
+                .unwrap_or_else(|| {
+                    unreachable!("imported function inventory must cover every parsed function")
+                });
+            env.define(bind_name, value, Mutability::Immutable);
         } else {
             errors.push(ImportError::with_span(
                 ImportErrorKind::ItemNotFound,
@@ -246,7 +411,7 @@ fn register_module_alias(
     alias: Name,
     interner: &StringInterner,
     import_path: &Path,
-    canon: Option<&SharedCanonResult>,
+    _canon: Option<&SharedCanonResult>,
 ) -> Result<(), ImportError> {
     // Module alias imports should not have individual items
     if !import.items.is_empty() {
@@ -263,44 +428,24 @@ fn register_module_alias(
     // Why: namespace iteration must remain deterministic.
     let mut namespace: BTreeMap<Name, Value> = BTreeMap::new();
 
-    // Why: `FunctionValue` shares `FxHashMap` captures across namespace functions.
-    let shared_captures: Arc<FxHashMap<Name, Value>> = Arc::new(
-        imported
-            .functions
-            .iter()
-            .map(|(&k, v)| (k, v.clone()))
-            .collect(),
-    );
-
     for func in &imported.result.module.functions {
         if func.visibility.is_public() {
-            let (params, capabilities) = extract_function_metadata(func, imported.arena);
-            let mut func_value = FunctionValue::with_shared_captures(
-                params,
-                Arc::clone(&shared_captures),
-                imported.arena.clone(),
-                capabilities,
-            );
-
-            // Attach canonical IR when available
-            if let Some(cr) = canon {
-                if let Some(can_id) = cr.root_for(func.name) {
-                    func_value.set_canon(can_id, cr.clone());
-                }
-            }
+            let value = imported
+                .functions
+                .get(&func.name)
+                .cloned()
+                .unwrap_or_else(|| {
+                    unreachable!("imported function inventory must cover every parsed function")
+                });
 
             // INVARIANT: canonical alias calls and namespace dispatch share this binding.
             let qualified = interner.intern(&ori_ir::qualified_alias_name(
                 interner.lookup(alias),
                 interner.lookup(func.name),
             ));
-            env.define(
-                qualified,
-                Value::Function(func_value.clone()),
-                Mutability::Immutable,
-            );
+            env.define(qualified, value.clone(), Mutability::Immutable);
 
-            namespace.insert(func.name, Value::Function(func_value));
+            namespace.insert(func.name, value);
         }
     }
 

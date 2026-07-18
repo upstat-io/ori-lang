@@ -86,7 +86,10 @@ pub(super) fn resolve_receiver_and_builtin(
             let mut dispatch_receiver_ty = resolved;
             if tag == Tag::Range {
                 if let Some(route) = range_eager_iter_route(engine, resolved, name_str, ret) {
-                    dispatch_receiver_ty = route.iter_ty;
+                    let Some(iter_ty) = route.iter_ty else {
+                        unreachable!("eager Range routes must materialize an iterator receiver")
+                    };
+                    dispatch_receiver_ty = iter_ty;
                     engine.record_iter_route(call_expr_id, route);
                 }
             }
@@ -151,8 +154,9 @@ pub(super) fn resolve_receiver_and_builtin(
                     engine.record_iter_route(
                         call_expr_id,
                         IterMethodRoute {
-                            iter_ty,
+                            iter_ty: Some(iter_ty),
                             adapter_ty: None,
+                            collect_ty: None,
                         },
                     );
                     return ReceiverDispatch::Return {
@@ -199,8 +203,9 @@ fn range_eager_iter_route(
     };
 
     Some(IterMethodRoute {
-        iter_ty,
+        iter_ty: Some(iter_ty),
         adapter_ty,
+        collect_ty: None,
     })
 }
 

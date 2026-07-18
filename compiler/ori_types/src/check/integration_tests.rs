@@ -27,11 +27,14 @@
 
 mod builtin_materialization;
 mod deferred_mono;
+mod derived_callable_closure;
 mod drop_invariants;
 mod expressions;
+mod extensions;
 mod generic_calls;
 mod hash_first_imports;
 mod imports;
+mod index_dispatch;
 mod language_basics;
 mod resolution_contracts;
 mod support;

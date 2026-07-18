@@ -155,10 +155,8 @@ pub struct ExprArena {
 
     /// Call-site type arguments for `MethodCall` / `MethodCallNamed`, keyed by the
     /// call expression's `ExprId`. Recorded by the parser for a method turbofish
-    /// (`obj.method<T>(...)`). The downstream method-generic instantiation consumer
-    /// is not yet wired, so these are parser-recorded only — pinned by the
-    /// `method_*_turbofish_parses_with_type_args` parser tests, not yet read by
-    /// typeck. A sparse side-table (turbofish calls are rare).
+    /// (`obj.method<T>(...)`) and consumed by type inference for explicit type and
+    /// const binding. A sparse side-table keeps the common no-turbofish node small.
     method_call_type_args: SparseSideTable<ExprId, ParsedTypeRange>,
 
     /// Receiver-position type arguments for a primary-position type-path turbofish

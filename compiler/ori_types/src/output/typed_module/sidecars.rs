@@ -1,8 +1,44 @@
 //! Typed-module metadata and type-directed canonicalization sidecars.
 
-use ori_ir::ReprAttrKind;
+use ori_ir::{ExprId, Name, ReprAttrKind};
 
 use crate::Idx;
+
+/// Lexical origin selected for one implicit capability-provider argument.
+///
+/// The origin is retained for diagnostics and auditability, while Canon
+/// materializes the source-erased argument through the capability namespace.
+/// Provider values never participate in specialization identity; only their
+/// concrete types do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CapabilityProviderSource {
+    /// Provider forwarded from the current function's hidden parameter.
+    Parameter { provider_var_id: u32 },
+    /// Provider introduced by the innermost matching `with ... in` binding.
+    WithBinding { provider: ExprId },
+    /// Stateless provider selected from a `def impl`.
+    DefaultImpl,
+}
+
+/// One ordered implicit provider selected at a concrete call site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CapabilityProvider {
+    /// Capability/trait namespace bound by the provider.
+    pub capability: Name,
+    /// Concrete provider type at this lexical call site.
+    pub provider_type: Idx,
+    /// Exact lexical source of the provider value.
+    pub source: CapabilityProviderSource,
+}
+
+/// Frozen capability-provider selection for one free-function call.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CapabilityCallSite {
+    /// Exact checker-selected free callable identity.
+    pub callee: Name,
+    /// Ordered value providers; marker capabilities are intentionally absent.
+    pub providers: Vec<CapabilityProvider>,
+}
 
 /// Per-type metadata exported for cross-module repr plan construction.
 ///
@@ -56,20 +92,21 @@ pub struct AssignDesugar {
     pub level_types: Vec<Idx>,
 }
 
-/// Type-directed canonicalization plan for a method routed through `iter()`.
+/// Type-directed canonicalization plan for an iterator method.
 ///
-/// `iter_ty` types the synthesized `receiver.iter()` node. `adapter_ty` is
-/// present for eager collection methods whose iterator adapter must be
-/// collected immediately: `Range.map` and `Range.filter` lower to
-/// `receiver.iter().method(...).collect()`. A route without `adapter_ty`
-/// lowers only through `iter()`, as ordinary Iterable fallthrough and
-/// terminal `Range.fold` do.
+/// `iter_ty` types a synthesized `receiver.iter()` node when the source
+/// receiver is only `Iterable`; `None` preserves an already-iterator receiver.
+/// `adapter_ty` is present for eager collection methods whose iterator adapter
+/// must be collected immediately. `collect_ty` freezes a type-checker-selected
+/// `Collect` target so canonicalization never rediscovers it from method text.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IterMethodRoute {
-    /// Type of the synthesized `receiver.iter()` node.
-    pub iter_ty: Idx,
+    /// Type of the synthesized `receiver.iter()` node, if one is required.
+    pub iter_ty: Option<Idx>,
     /// Type of the intermediate iterator adapter collected by canonicalization.
     pub adapter_ty: Option<Idx>,
+    /// Exact result collection selected by bidirectional type checking.
+    pub collect_ty: Option<Idx>,
 }
 
 /// Pool `Idx` values for the builtin `FormatSpec` struct and its `Option<_>`

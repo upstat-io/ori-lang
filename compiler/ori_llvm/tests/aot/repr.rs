@@ -10,11 +10,10 @@ use crate::util::compile_and_run_capture;
 /// Covers: `canonical_enum` → `EnumTag::None` → `resolve_enum_tagless` →
 /// LLVM named struct with payload only → construction → match → output.
 ///
-/// Blocked: codegen consumers (`variant_construction`, `instr_dispatch`,
-/// `drop_enum`) still hardcode tag access via GEP index 0. Once
-/// `TagEncoding` is wired in (niche/tagless codegen consumers), remove `#[ignore]`.
+/// Tagless single-variant codegen is active. This cell pins its payload-only
+/// construction, projection, match, and drop path independently from the
+/// still-gated multi-variant niche encoding.
 #[test]
-#[ignore = "BUG-04-222: blocked by codegen consumer migration to niche/tagless TagEncoding"]
 fn test_tagless_single_variant_enum_aot() {
     let (exit_code, stdout, stderr) =
         compile_and_run_capture(include_str!("fixtures/repr/tagless_single_variant.ori"));

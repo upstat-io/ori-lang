@@ -1,4 +1,4 @@
-//! Method dispatch for the Size unit type (stored as u64 bytes).
+//! Method dispatch for the Size unit type (a non-negative signed byte count).
 
 use ori_ir::builtin_constants::size;
 use ori_ir::Name;
@@ -13,6 +13,13 @@ use super::super::DispatchCtx;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+fn checked_size(result: Option<u64>, operation: &'static str) -> EvalResult {
+    result
+        .filter(|value| *value <= size::MAX_BYTES)
+        .map(Value::Size)
+        .ok_or_else(|| integer_overflow(operation).into())
+}
+
 /// Create a Size value from an integer with a multiplier.
 ///
 /// Reduces repetition in Size factory methods (`from_kilobytes`, `from_megabytes`, etc.).
@@ -25,10 +32,10 @@ fn size_from_int(method: &str, args: &[Value], multiplier: u64) -> EvalResult {
         return Err(EvalError::new("Size cannot be negative").into());
     }
     #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
-    (val as u64)
-        .checked_mul(multiplier)
-        .map(Value::Size)
-        .ok_or_else(|| integer_overflow("size factory conversion").into())
+    checked_size(
+        (val as u64).checked_mul(multiplier),
+        "size factory conversion",
+    )
 }
 
 /// Dispatch Size associated functions (factory methods).
@@ -55,7 +62,7 @@ pub fn dispatch_size_associated(method: &str, args: &[Value]) -> EvalResult {
 }
 
 /// Dispatch methods on Size values.
-/// Size is stored as u64 bytes.
+/// Size uses a u64 carrier constrained to the non-negative i64 range.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
@@ -94,10 +101,7 @@ pub fn dispatch_size_method(
     } else if method == n.add {
         require_args("add", 1, args.len())?;
         let other = require_size_arg("add", &args, 0)?;
-        bytes
-            .checked_add(other)
-            .map(Value::Size)
-            .ok_or_else(|| integer_overflow("size addition").into())
+        checked_size(bytes.checked_add(other), "size addition")
     } else if method == n.sub || method == n.subtract {
         require_args("sub", 1, args.len())?;
         let other = require_size_arg("sub", &args, 0)?;
@@ -112,10 +116,7 @@ pub fn dispatch_size_method(
             return Err(size_negative_multiply().into());
         }
         #[expect(clippy::cast_sign_loss, reason = "checked for negative above")]
-        bytes
-            .checked_mul(scalar as u64)
-            .map(Value::Size)
-            .ok_or_else(|| integer_overflow("size multiplication").into())
+        checked_size(bytes.checked_mul(scalar as u64), "size multiplication")
     } else if method == n.div || method == n.divide {
         require_args("div", 1, args.len())?;
         let scalar = require_int_arg("div", &args, 0)?;

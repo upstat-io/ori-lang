@@ -138,6 +138,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let cleanup_fn = self.builder.runtime_fn("ori_catch_cleanup");
             self.builder.call(cleanup_fn, &[exc_ptr], "");
         }
+        let report_panic = self.builder.runtime_fn("ori_report_uncaught_panic");
+        self.builder.call(report_panic, &[], "");
         self.builder.ret_void();
 
         // Function-level LLVM IR verification for the outer wrapper.

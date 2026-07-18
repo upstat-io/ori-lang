@@ -8,6 +8,15 @@ type Response = { status: int, body: str }
 
 type ApiError = Network(msg: str) | Timeout | NotFound;
 
+type MockHttp = { enabled: bool }
+
+impl MockHttp: Http {
+    @get (self, url: str) -> Result<str, Error> = Ok(url);
+    @post (self, url: str, body: str) -> Result<str, Error> = Ok(body);
+    @put (self, url: str, body: str) -> Result<str, Error> = Ok(body);
+    @delete (self, url: str) -> Result<str, Error> = Ok(url);
+}
+
 @build_request (method: Method, url: str, body: str) -> Request = Request {
     method: method,
     url: url,
@@ -52,7 +61,7 @@ type ApiError = Network(msg: str) | Timeout | NotFound;
 }
 
 @test_get tests @get () -> void = {
-    let result = with Http = "mock" in get(url: "/health");
+    let result = with Http = MockHttp { enabled: true } in get(url: "/health");
     assert(
         cond: match result {
             Ok(response) -> response.status == 200 && response.body == "GET /health",
@@ -62,7 +71,7 @@ type ApiError = Network(msg: str) | Timeout | NotFound;
 }
 
 @test_post tests @post () -> void = {
-    let result = with Http = "mock" in post(url: "/users", body: "Ada");
+    let result = with Http = MockHttp { enabled: true } in post(url: "/users", body: "Ada");
     assert(
         cond: match result {
             Ok(response) -> response.status == 201 && response.body == "Ada",

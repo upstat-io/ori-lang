@@ -182,8 +182,11 @@ impl Parser<'_> {
                 return Ok(false);
             }
             let tag = p.cursor.current_tag();
-            if tag == TK::TAG_DOLLAR || tag == TK::TAG_INT {
-                // Const expression in type argument position: $N, $N + 1, 42
+            if matches!(
+                tag,
+                TK::TAG_DOLLAR | TK::TAG_INT | TK::TAG_MINUS | TK::TAG_TRUE | TK::TAG_FALSE
+            ) {
+                // Const expression in type argument position: $N, $N + 1, 42, -1, true
                 let expr_id = p.parse_non_comparison_expr().into_result()?;
                 type_args.push(p.arena.alloc_parsed_type(ParsedType::const_expr(expr_id)));
                 Ok(true)

@@ -3,13 +3,40 @@
 use std.testing { assert_eq }
 // Tests for with...in expression (capability provision)
 
+// These value-only test capabilities intentionally have no methods. Explicit
+// impls keep every provider binding valid under the capability-trait contract
+// while the tests focus on lexical value scoping.
+trait TestHttp {}
+trait TestCache {}
+trait TestLogger {}
+trait TestCounter {}
+trait TestDebug {}
+trait TestValue {}
+trait TestA {}
+trait TestB {}
+trait TestC {}
+trait TestX {}
+trait TestDataStore {}
+trait TestCfg {}
+
+impl str: TestHttp {}
+impl str: TestCache {}
+impl str: TestLogger {}
+impl int: TestCounter {}
+impl int: TestValue {}
+impl int: TestA {}
+impl int: TestB {}
+impl int: TestC {}
+impl int: TestX {}
+impl bool: TestDebug {}
+
 // =============================================================================
 // Basic Capability Provision
 // =============================================================================
 
 // Simple with...in expression
 @test_basic_provision tests _ () -> void = {
-    let result = with Http = "mock_http" in Http;
+    let result = with TestHttp = "mock_http" in TestHttp;
     assert_eq(
         actual: result,
         expected: "mock_http",
@@ -19,8 +46,10 @@ use std.testing { assert_eq }
 // With struct provider
 type MockHttp = { base_url: str }
 
+impl MockHttp: TestHttp {}
+
 @test_struct_provider tests _ () -> void = {
-    let result = with Http = MockHttp { base_url: "https://api.example.com" } in Http.base_url;
+    let result = with TestHttp = MockHttp { base_url: "https://api.example.com" } in TestHttp.base_url;
     assert_eq(
         actual: result,
         expected: "https://api.example.com",
@@ -34,7 +63,7 @@ type MockHttp = { base_url: str }
 // Capability is only available in body
 @test_scoping tests _ () -> void = {
     let outer = "outer";
-    let inner = with Http = "http" in Http;
+    let inner = with TestHttp = "http" in TestHttp;
     assert_eq(actual: outer, expected: "outer");
     assert_eq(actual: inner, expected: "http")
 }
@@ -45,9 +74,9 @@ type MockHttp = { base_url: str }
 
 // Multiple capabilities via nesting
 @test_nested_provision tests _ () -> void = {
-    let result = with Http = "http" in
-        with Cache = "cache" in
-            Http + "-" + Cache;
+    let result = with TestHttp = "http" in
+        with TestCache = "cache" in
+            TestHttp + "-" + TestCache;
     assert_eq(
         actual: result,
         expected: "http-cache",
@@ -56,8 +85,8 @@ type MockHttp = { base_url: str }
 
 // Inner shadows outer
 @test_shadowing tests _ () -> void = {
-    let result = with Http = "outer" in
-        with Http = "inner" in Http;
+    let result = with TestHttp = "outer" in
+        with TestHttp = "inner" in TestHttp;
     assert_eq(
         actual: result,
         expected: "inner",
@@ -69,7 +98,7 @@ type MockHttp = { base_url: str }
 // =============================================================================
 
 @test_returns_body_value tests _ () -> void = {
-    let result = with Http = "unused" in 42;
+    let result = with TestHttp = "unused" in 42;
     assert_eq(
         actual: result,
         expected: 42,
@@ -77,7 +106,7 @@ type MockHttp = { base_url: str }
 }
 
 @test_complex_body tests _ () -> void = {
-    let result = with Logger = "log" in {
+    let result = with TestLogger = "log" in {
         let x = 10;
         let y = 20;
         x + y
@@ -94,57 +123,59 @@ type MockHttp = { base_url: str }
 
 // Test capability with different types
 @test_int_capability tests _ () -> void = {
-    let result = with Counter = 42 in Counter + 1;
+    let result = with TestCounter = 42 in TestCounter + 1;
     assert_eq(actual: result, expected: 43)
 }
 
 @test_bool_capability tests _ () -> void = {
-    let result = with Debug = true in if Debug then "on" else "off";
+    let result = with TestDebug = true in if TestDebug then "on" else "off";
     assert_eq(actual: result, expected: "on")
 }
 
 // Test capability with list value
 type MockDataStore = { data: [int] }
 
+impl MockDataStore: TestDataStore {}
+
 @test_list_capability tests _ () -> void = {
     let store = MockDataStore { data: [1, 2, 3] };
-    let result = with DataStore = store in DataStore.data[0];
+    let result = with TestDataStore = store in TestDataStore.data[0];
     assert_eq(actual: result, expected: 1)
 }
 
 // Test capability used in conditional
 @test_capability_in_conditional tests _ () -> void = {
-    let result = with Debug = true in
-        if Debug then "debug mode" else "release mode";
+    let result = with TestDebug = true in
+        if TestDebug then "debug mode" else "release mode";
     assert_eq(actual: result, expected: "debug mode")
 }
 
 // Test capability with multiple uses in body
 @test_multiple_uses tests _ () -> void = {
-    let result = with Value = 10 in Value + Value + Value;
+    let result = with TestValue = 10 in TestValue + TestValue + TestValue;
     assert_eq(actual: result, expected: 30)
 }
 
 // Test deeply nested capabilities (three levels)
 @test_three_level_nesting tests _ () -> void = {
-    let result = with A = 1 in
-        with B = 2 in
-            with C = 3 in
-                A + B + C;
+    let result = with TestA = 1 in
+        with TestB = 2 in
+            with TestC = 3 in
+                TestA + TestB + TestC;
     assert_eq(actual: result, expected: 6)
 }
 
 // Test capability with closure that doesn't capture it
 @test_capability_not_in_closure tests _ () -> void = {
     let f = (x: int) -> x * 2;
-    let result = with Logger = "log" in f(5);
+    let result = with TestLogger = "log" in f(5);
     assert_eq(actual: result, expected: 10)
 }
 
 // Test capability visible in let binding
 @test_capability_in_let tests _ () -> void = {
-    let result = with X = 100 in {
-        let y = X / 10;
+    let result = with TestX = 100 in {
+        let y = TestX / 10;
         y
     };
     assert_eq(actual: result, expected: 10)
@@ -153,21 +184,22 @@ type MockDataStore = { data: [int] }
 // Test capability with struct method access
 type Config = { name: str, port: int }
 
+impl Config: TestCfg {}
+
 impl Config {
     @get_address (self) -> str = self.name + ":" + str(self.port);
 }
 
 @test_capability_method_call tests _ () -> void = {
     let cfg = Config { name: "localhost", port: 8080 };
-    let result = with Cfg = cfg in Cfg.get_address();
+    let result = with TestCfg = cfg in TestCfg.get_address();
     assert_eq(actual: result, expected: "localhost:8080")
 }
 
 // Test capability preserves through function call
-@uses_cap () -> int uses Value = Value;
+@uses_cap () -> int uses TestValue = TestValue;
 
-#skip("BUG-04-208: cross-function capability provision not implemented in codegen/ARC")
 @test_capability_through_function tests _ () -> void = {
-    let result = with Value = 42 in uses_cap();
+    let result = with TestValue = 42 in uses_cap();
     assert_eq(actual: result, expected: 42)
 }

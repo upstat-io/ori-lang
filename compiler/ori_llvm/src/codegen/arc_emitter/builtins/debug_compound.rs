@@ -27,12 +27,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         inner_ty: Idx,
         style: RenderStyle,
     ) -> Option<ValueId> {
-        let inner_str = if style.is_debug() {
-            self.emit_element_debug(payload, inner_ty)?
-        } else {
-            self.emit_element_to_str(payload, inner_ty)?
-        };
-
         let some_bb = self.builder.append_block(self.current_function, "dbg.some");
         let none_bb = self.builder.append_block(self.current_function, "dbg.none");
         let merge_bb = self
@@ -47,11 +41,31 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let none_bb_current = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Some block: produce "Some(" + inner_str + ")"
+        // Some block: materialize and format only the active payload. Recursive
+        // struct/enum payloads are stored as RC box pointers in Option slots.
         self.builder.position_at_end(some_bb);
+        let payload = if crate::codegen::type_info::repr_box_oracle::payload_type_is_rc_boxed(
+            self.pool, inner_ty,
+        ) {
+            let inner_llvm_ty = self.resolve_type(inner_ty);
+            self.builder
+                .load(inner_llvm_ty, payload, "dbg.opt.payload.boxed")
+        } else {
+            payload
+        };
+        let inner_str = if style.is_debug() {
+            self.emit_element_debug(payload, inner_ty)?
+        } else {
+            self.emit_element_to_str(payload, inner_ty)?
+        };
+        let inner_str_is_borrowed = style == RenderStyle::Printable
+            && matches!(self.type_info.get(inner_ty), TypeInfo::Str);
         let prefix = self.emit_literal_ori_str("Some(")?;
         let suffix = self.emit_literal_ori_str(")")?;
         let tmp = self.emit_str_concat(prefix, inner_str)?;
+        if !inner_str_is_borrowed {
+            self.dec_intermediate_str(inner_str);
+        }
         let some_str = self.emit_str_concat(tmp, suffix)?;
         self.dec_intermediate_str(tmp);
         let some_bb_current = self.builder.current_block().unwrap();

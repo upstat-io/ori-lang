@@ -6,12 +6,13 @@
 use ori_ir::{ExprArena, Module, StringInterner};
 
 use super::bodies::{
-    check_def_impl_bodies, check_function_bodies, check_impl_bodies, check_test_bodies,
+    check_def_impl_bodies, check_extension_bodies, check_function_bodies, check_impl_bodies,
+    check_test_bodies,
 };
 use super::registration::{
-    register_builtin_extensions, register_builtin_types, register_consts, register_derived_impls,
+    register_builtin_types, register_consts, register_derived_impls, register_extensions,
     register_extern_burdens, register_impls, register_object_safety_violations, register_traits,
-    register_user_types,
+    register_user_types, validate_declared_fixed_list_capacities,
 };
 use super::signatures::collect_signatures;
 use super::ModuleChecker;
@@ -177,11 +178,11 @@ fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
     register_traits(checker, module);
     register_object_safety_violations(checker, module);
     register_impls(checker, module);
-    // Why: Extension methods must be indexed before unknown-method diagnostics.
-    register_builtin_extensions(checker, module);
+    register_extensions(checker, module);
 
     register_derived_impls(checker, module);
     register_consts(checker, module);
+    validate_declared_fixed_list_capacities(checker, module);
     tracing::debug!("registration passes complete");
 
     collect_signatures(checker, module);
@@ -190,6 +191,7 @@ fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
     check_function_bodies(checker, module);
     check_test_bodies(checker, module);
     check_impl_bodies(checker, module);
+    check_extension_bodies(checker, module);
     check_def_impl_bodies(checker, module);
     tracing::debug!("body checking complete");
 }

@@ -288,6 +288,7 @@ fn build_imported_impl_sig(
         return_type,
         return_hash: checker.pool().hash(return_type),
         capabilities: method.capabilities.iter().map(|cap| cap.name).collect(),
+        capability_params: Vec::new(),
         is_public: false,
         is_test: false,
         is_main: false,

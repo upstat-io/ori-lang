@@ -313,6 +313,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         method: Name,
     ) -> Option<(FunctionId, FunctionAbi)> {
+        if self.ctx.executable_facts_bound {
+            return self.lookup_exact_method_target(ty, method).cloned();
+        }
         let resolved = self.pool.resolve_fully(ty);
         if let Some((fid, abi)) = self.ctx.mono_derive_functions.get(&(resolved, method)) {
             return Some((*fid, abi.clone()));

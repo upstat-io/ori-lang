@@ -7,6 +7,7 @@ use super::super::type_resolution::{
     build_method_generic_metadata_from, resolve_type_with_method_generics_from,
 };
 use crate::check::bodies::allocate_rigid_var_map;
+use crate::const_eval::collect_method_capacity_constraints;
 use crate::{Idx, ImplMethodDef, ModuleChecker};
 
 /// Build a registered impl-method signature.
@@ -159,6 +160,19 @@ pub(super) fn build_impl_method_from(
         .filter(|p| p.default.is_some())
         .count();
 
+    let const_params: Vec<Name> = generic_params
+        .iter()
+        .filter(|param| param.is_const)
+        .map(|param| param.name)
+        .collect();
+    let fixed_list_capacity_constraints = collect_method_capacity_constraints(
+        arena,
+        &const_params,
+        &params,
+        &method.return_ty,
+        Some(method.body),
+    );
+
     ImplMethodDef {
         name: method.name,
         signature,
@@ -167,6 +181,7 @@ pub(super) fn build_impl_method_from(
         scheme_var_ids,
         generic_param_metadata,
         where_clause_metadata,
+        fixed_list_capacity_constraints,
         optional_param_count,
         span: method.span,
     }

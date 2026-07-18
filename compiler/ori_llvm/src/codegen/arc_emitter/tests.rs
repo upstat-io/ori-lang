@@ -3039,6 +3039,51 @@ fn register_unrelated_method(
 }
 
 #[test]
+fn bound_user_method_miss_does_not_fall_back_to_legacy_map() {
+    let mut pool = Pool::new();
+    let type_name = ori_ir::Name::from_raw(300);
+    let struct_ty = pool.struct_type(type_name, &[]);
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_bound_method_miss"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_ty);
+
+    let cl = TestClassifier;
+    let mut codegen_ctx = super::CodegenContext {
+        executable_facts_bound: true,
+        ..super::CodegenContext::default()
+    };
+    let method_name = interner.intern("debug");
+    codegen_ctx.type_idx_to_name.insert(struct_ty, type_name);
+    codegen_ctx
+        .method_functions
+        .insert((type_name, method_name), (host, dummy_method_abi()));
+
+    let em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+        None,
+    );
+
+    assert!(
+        em.user_method(struct_ty, method_name).is_none(),
+        "a bound exact-table miss must not resolve through legacy method maps"
+    );
+}
+
+#[test]
 fn lookup_method_fallback_registered_struct_receiver_warns() {
     let mut pool = Pool::new();
     let struct_ty = pool.struct_type(ori_ir::Name::from_raw(300), &[]);
@@ -3523,4 +3568,102 @@ fn pointer_only_rc_on_other_variable_passes() {
     let pointer_only_params = FxHashSet::from_iter([pointer_only]);
 
     super::emit_function::assert_pointer_only_params_have_no_rc(&func, &pointer_only_params);
+}
+
+fn emit_sret_forwarding_probe(matching_pointee: bool) -> (String, bool) {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_sret_forwarding"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+
+    let current_llvm = scx.type_struct(
+        &[
+            scx.type_i64().into(),
+            scx.type_i64().into(),
+            scx.type_ptr().into(),
+        ],
+        false,
+    );
+    let nested_llvm = scx.type_struct(&[scx.type_i64().into(), current_llvm.into()], false);
+    let current_ty = builder.register_type(current_llvm.into());
+    let requested_ty = builder.register_type(if matching_pointee {
+        current_llvm.into()
+    } else {
+        nested_llvm.into()
+    });
+
+    let ptr_ty = builder.ptr_type();
+    let host = builder.declare_void_function("host", &[ptr_ty]);
+    let nested = builder.declare_void_function("nested", &[ptr_ty]);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+    let destination = builder.get_param(host, 0);
+
+    let classifier = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+    let mut emitter = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &classifier as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+        None,
+    );
+    emitter.current_sret = Some((destination, current_ty));
+    let _ = emitter.call_with_sret(nested, &[], requested_ty, "nested");
+    let destination_preserved = emitter.current_sret.is_some();
+    emitter.builder.ret_void();
+    drop(emitter);
+
+    (
+        scx.llmod.print_to_string().to_string(),
+        destination_preserved,
+    )
+}
+
+#[test]
+fn sret_forwarding_mismatched_pointee_uses_typed_temporary() {
+    let (ir, destination_preserved) = emit_sret_forwarding_probe(false);
+
+    assert!(
+        destination_preserved,
+        "a mismatched nested return must leave the outer destination available"
+    );
+    assert!(
+        ir.contains("%sret.tmp = alloca { i64, { i64, i64, ptr } }"),
+        "mismatched nested return must allocate its own typed slot:\n{ir}"
+    );
+    assert!(
+        ir.contains("call void @nested(ptr %sret.tmp)"),
+        "nested return must receive the typed temporary:\n{ir}"
+    );
+    assert!(
+        !ir.contains("call void @nested(ptr %0)"),
+        "nested return must not overwrite the outer destination:\n{ir}"
+    );
+}
+
+#[test]
+fn sret_forwarding_matching_pointee_reuses_destination() {
+    let (ir, destination_preserved) = emit_sret_forwarding_probe(true);
+
+    assert!(
+        !destination_preserved,
+        "a forwarded destination must be consumed after one compatible call"
+    );
+    assert!(
+        ir.contains("call void @nested(ptr %0)"),
+        "matching nested return should reuse the outer destination:\n{ir}"
+    );
+    assert!(
+        !ir.contains("%sret.tmp = alloca"),
+        "matching nested return should not allocate a temporary:\n{ir}"
+    );
 }

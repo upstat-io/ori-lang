@@ -381,6 +381,8 @@ impl EvalErrorSnapshot {
 /// - `eval_error` is the structured runtime-only snapshot: set *only* when the
 ///   failure originated from the evaluator at runtime. It carries span, backtrace,
 ///   kind, and notes for enriched diagnostic rendering.
+/// - `const_problems` preserves pre-runtime E2058 failures so command consumers
+///   render their original spans, causes, and actionable suggestions.
 ///
 /// The `run` command checks `eval_error` first for rich diagnostics, then falls
 /// back to `error` for pre-runtime failures (lex/parse/type errors).
@@ -402,6 +404,8 @@ pub struct ModuleEvalResult {
     /// `error` field discards. Pre-runtime failures (lex, parse, type errors)
     /// leave this as `None` and use `error` alone.
     pub eval_error: Option<EvalErrorSnapshot>,
+    /// Structured module-constant failures produced before runtime evaluation.
+    pub const_problems: Vec<ori_ir::canon::ConstEvalProblem>,
 }
 
 impl ModuleEvalResult {
@@ -411,6 +415,7 @@ impl ModuleEvalResult {
             result: Some(result),
             error: None,
             eval_error: None,
+            const_problems: Vec::new(),
         }
     }
 
@@ -427,6 +432,23 @@ impl ModuleEvalResult {
             result: None,
             error: Some(error),
             eval_error: None,
+            const_problems: Vec::new(),
+        }
+    }
+
+    /// Create a pre-runtime failure while retaining every structured E2058
+    /// problem for rich command rendering.
+    #[cold]
+    pub fn constant_errors(
+        error: String,
+        const_problems: Vec<ori_ir::canon::ConstEvalProblem>,
+    ) -> Self {
+        debug_assert!(!const_problems.is_empty());
+        ModuleEvalResult {
+            result: None,
+            error: Some(error),
+            eval_error: None,
+            const_problems,
         }
     }
 
@@ -440,6 +462,7 @@ impl ModuleEvalResult {
             result: None,
             error: Some(err.message.clone()),
             eval_error: Some(EvalErrorSnapshot::from_eval_error(err)),
+            const_problems: Vec::new(),
         }
     }
 
@@ -460,6 +483,7 @@ impl Default for ModuleEvalResult {
             result: Some(EvalOutput::Void),
             error: None,
             eval_error: None,
+            const_problems: Vec::new(),
         }
     }
 }

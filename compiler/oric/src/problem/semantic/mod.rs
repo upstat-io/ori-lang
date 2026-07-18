@@ -480,7 +480,10 @@ fn unknown_name_diagnostic(
 
 mod test_coverage;
 
-pub use test_coverage::{check_test_coverage, pattern_problem_to_diagnostic};
+pub use test_coverage::{
+    check_test_coverage, const_eval_problem_to_diagnostic, const_eval_problems_summary,
+    const_eval_problems_to_diagnostics, pattern_problem_to_diagnostic,
+};
 
 #[cfg(test)]
 mod tests;

@@ -211,9 +211,12 @@ fn test_wrong_function_args() {
 
 #[test]
 fn test_index_out_of_bounds() {
-    let err = index_out_of_bounds(10);
-    assert!(err.message.contains("10"));
-    assert!(err.message.contains("bounds"));
+    let err = index_out_of_bounds(10, 3);
+    assert!(err
+        .message
+        .contains("index out of bounds: index 10, length 3"));
+    assert!(err.message.contains("use 0 <= index < length"));
+    assert!(err.message.contains("Spec: Clause 14.1.2"));
 }
 
 #[test]
@@ -250,8 +253,9 @@ fn test_invalid_tuple_field() {
 
 #[test]
 fn test_tuple_index_out_of_bounds() {
-    let err = tuple_index_out_of_bounds(5);
+    let err = tuple_index_out_of_bounds(5, 2);
     assert!(err.message.contains("5"));
+    assert!(err.message.contains("length 2"));
 }
 
 #[test]

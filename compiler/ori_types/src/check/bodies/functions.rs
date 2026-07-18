@@ -70,9 +70,19 @@ fn prepare_function(
     let mut capability_var_bounds = Vec::new();
     let mut capability_var_ids = Vec::new();
     for &capability in &sig.capabilities {
-        let capability_ty = checker.pool_mut().fresh_var();
+        let retained = sig
+            .capability_params
+            .iter()
+            .copied()
+            .find(|param| param.capability() == capability)
+            .and_then(crate::CapabilityParam::provider);
+        let (capability_ty, var_id) = if let Some((provider_type, provider_var_id)) = retained {
+            (provider_type, provider_var_id)
+        } else {
+            let capability_ty = checker.pool_mut().fresh_var();
+            (capability_ty, checker.pool().data(capability_ty))
+        };
         param_env.bind(capability, capability_ty);
-        let var_id = checker.pool().data(capability_ty);
         capability_var_bounds.push((var_id, capability));
         capability_var_ids.push(var_id);
     }
@@ -131,7 +141,11 @@ fn configure_function_engine(
     capability_var_bounds: &[(u32, Name)],
 ) {
     engine.set_self_type(fn_type);
-    engine.set_current_function(Some(func_name));
+    engine.set_deferred_mono_caller(crate::DeferredMonoCaller::TopLevel(func_name), Vec::new());
+    engine.set_capability_parameters(&sig.capability_params);
+    for param in &sig.const_params {
+        engine.bind_const_param(param.name, param.const_type);
+    }
 
     for (index, &var_id) in sig.scheme_var_ids.iter().enumerate() {
         if let Some(bounds) = sig.type_param_bounds.get(index) {
@@ -254,6 +268,7 @@ fn finish_function_inference(
         assign_desugars: engine.take_assign_desugars(),
         module_alias_calls: engine.take_module_alias_calls(),
         iter_route_desugars: engine.take_iter_routes(),
+        capability_calls: engine.take_capability_calls(),
     }
 }
 
@@ -301,7 +316,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     engine.set_self_type(fn_type);
 
     // INVARIANT: test bodies supply the caller identity required by deferred mono calls.
-    engine.set_current_function(Some(test.name));
+    engine.set_deferred_mono_caller(crate::DeferredMonoCaller::TopLevel(test.name), Vec::new());
 
     engine.push_context(ContextKind::TestBody);
 
@@ -347,6 +362,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     let assign_desugars = engine.take_assign_desugars();
     let module_alias_calls = engine.take_module_alias_calls();
     let iter_route_desugars = engine.take_iter_routes();
+    let capability_calls = engine.take_capability_calls();
 
     // Shared PC-2 validation + store/push/accumulate spine.
     super::finalize_body_and_export(
@@ -367,6 +383,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
             assign_desugars,
             module_alias_calls,
             iter_route_desugars,
+            capability_calls,
         },
     );
 

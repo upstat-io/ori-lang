@@ -10,6 +10,9 @@ pub(super) fn program_realization_error_kind(
 ) -> RealizationErrorKind {
     match error {
         ProgramRealizationError::CallableCensus(_) => RealizationErrorKind::CallableCensus,
+        ProgramRealizationError::GenericMonoClosure { .. } => {
+            RealizationErrorKind::GenericMonoClosure
+        }
         ProgramRealizationError::ArcLowering { .. } => RealizationErrorKind::ArcLowering,
         ProgramRealizationError::LambdaSpecialization { .. } => {
             RealizationErrorKind::LambdaSpecialization
@@ -126,6 +129,10 @@ fn realization_error_kind(error: &RealizationError) -> RealizationErrorKind {
         Error::OrphanMethodCallFact { .. } => call_kind(CallKind::OrphanMethodFact),
         Error::MissingMethodReceiver { .. } => call_kind(CallKind::MissingMethodReceiver),
         Error::MethodReceiverMismatch { .. } => call_kind(CallKind::MethodReceiverMismatch),
+        Error::InvalidMethodTargetReceiver { .. } => Kind::InvalidMethodTargetReceiver,
+        Error::UnknownMethodTargetName { .. } => Kind::UnknownMethodTargetName,
+        Error::MissingMethodTarget { .. } => Kind::MissingMethodTarget,
+        Error::MethodTargetIsLambda { .. } => Kind::MethodTargetIsLambda,
         Error::InvalidPrimitiveFacts { .. } => call_kind(CallKind::InvalidPrimitiveFacts),
         Error::UnresolvedBoundVar { .. } => call_kind(CallKind::UnresolvedBoundVar),
         Error::MissingCallable { .. } => call_kind(CallKind::MissingCallable),

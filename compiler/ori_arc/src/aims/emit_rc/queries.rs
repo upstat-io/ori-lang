@@ -25,6 +25,7 @@ pub(crate) fn collect_rc_incremented_vars(
     use crate::ir::ArcTerminator;
 
     let mut incremented = FxHashSet::default();
+    seed_borrowed_cow_boundary_credits(func, contracts, &mut incremented);
     let mut alias_edges: Vec<Option<ArcVarId>> = vec![None; func.var_types.len()];
     let mut select_aliases: Vec<(ArcVarId, ArcVarId, ArcVarId)> = Vec::new();
 
@@ -99,6 +100,32 @@ pub(crate) fn collect_rc_incremented_vars(
     );
 
     incremented
+}
+
+/// Seeds caller-funded credits that cross a borrowed COW-mutator boundary.
+///
+/// The caller retains its original owner while transferring a funded credit to
+/// the callee. That credit is not represented by an `RcInc` in the callee IR,
+/// but it still makes static-unique COW unsound for the parameter and aliases.
+fn seed_borrowed_cow_boundary_credits(
+    func: &ArcFunction,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    incremented: &mut FxHashSet<ArcVarId>,
+) {
+    use crate::aims::lattice::AccessClass;
+    use crate::ownership::Ownership;
+
+    let Some(contract) = contracts.get(&func.name) else {
+        return;
+    };
+    for (param, facts) in func.params.iter().zip(&contract.params) {
+        if param.ownership == Ownership::Borrowed
+            && facts.access == AccessClass::Borrowed
+            && facts.borrowed_cow_mutated
+        {
+            incremented.insert(param.var);
+        }
+    }
 }
 
 fn propagate_incremented_vars(

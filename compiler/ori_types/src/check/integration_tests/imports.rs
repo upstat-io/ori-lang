@@ -45,6 +45,45 @@ fn check_with_imports(
 }
 
 #[test]
+fn imported_method_reconstructs_const_capacity_constraints() {
+    let interner = StringInterner::new();
+    let provider = parse_source(
+        concat!(
+            "type Shared<T> = { items: [T] }\n",
+            "impl<T> Shared<T> {\n",
+            "    @capacity<$N: int> (self) -> [T, max N] = self.items;\n",
+            "}\n",
+        ),
+        &interner,
+    );
+    let consumer = parse_source(
+        concat!(
+            "type Shared<T> = { items: [T] }\n",
+            "@probe () -> void = {\n",
+            "    let values = Shared { items: [1, 2, 3] };\n",
+            "    let invalid = values.capacity<0>();\n",
+            "    ()\n",
+            "}\n",
+        ),
+        &interner,
+    );
+
+    let (result, _pool) = crate::check::check_module_with_imports(
+        &consumer.module,
+        &consumer.arena,
+        &interner,
+        |checker| checker.register_imported_impls(&provider.module, &provider.arena, "provider"),
+    );
+    assert_eq!(
+        result.typed.errors.len(),
+        1,
+        "import registration must rebuild the provider's capacity metadata: {:?}",
+        result.typed.errors
+    );
+    assert_eq!(format!("{:?}", result.typed.errors[0].code()), "E2057");
+}
+
+#[test]
 fn import_simple_function() {
     // Module A exports `add(a: int, b: int) -> int`
     // Module B calls it with positional args (positional call is fully

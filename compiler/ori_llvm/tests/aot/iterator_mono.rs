@@ -15,10 +15,7 @@
 //! ("unresolved function `rev`") this pin guards against. The printed values
 //! are the negative pin against a wrong direction.
 //!
-//! Read-back uses list indexing / scalar results, not `.join()` on a collected
-//! list — `iter().collect().join(sep:)` independently SIGSEGVs at AOT (a
-//! pre-existing collect-result-to-join interaction, orthogonal to the DEI
-//! dispatch under test; the JIT path is clean).
+//! Read-back uses list indexing, scalar results, and direct iterator join.
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -84,4 +81,137 @@ const REV_AFTER_MAP_SRC: &str = r#"
 #[test]
 fn test_rev_after_map_aot() {
     assert_cell_output(REV_AFTER_MAP_SRC, "rev_after_map", "30 20 10");
+}
+
+// Selection consumers retain the escaping Option payload, then release the
+// dynamic mapped yield. Each mapped value exceeds the SSO boundary.
+const MAPPED_MANAGED_SELECTION_SRC: &str = r#"
+@main () -> void = {
+    let suffix = "-mapped-managed-payload-beyond-sso";
+    let $found = ["alpha", "beta", "gamma"]
+        .iter()
+        .map((s: str) -> str = s + suffix)
+        .find((s: str) -> s.starts_with(prefix: "beta"));
+    let value = match found {
+        Some(s) -> s,
+        None -> "",
+    };
+    let $last = ["alpha", "beta", "gamma"]
+        .iter()
+        .map((s: str) -> str = s + suffix)
+        .last();
+    let last_value = match last {
+        Some(s) -> s,
+        None -> "",
+    };
+    let $rfind = ["alpha", "beta", "gamma"]
+        .iter()
+        .map((s: str) -> str = s + suffix)
+        .rfind((s: str) -> s.starts_with(prefix: "beta"));
+    let rfind_value = match rfind {
+        Some(s) -> s,
+        None -> "",
+    };
+    print(msg: `{value}|{last_value}|{rfind_value}`);
+}
+"#;
+
+#[test]
+fn mapped_managed_selection_outputs_survive_iterator_teardown() {
+    let suffix = "-mapped-managed-payload-beyond-sso";
+    let expected = format!("beta{suffix}|gamma{suffix}|beta{suffix}");
+    assert_cell_output(
+        MAPPED_MANAGED_SELECTION_SRC,
+        "mapped_managed_selection",
+        &expected,
+    );
+}
+
+// Every terminal family consumes fresh heap strings from map. The output pins
+// short-circuit consumers, full traversal, backward order, and join.
+const MAPPED_MANAGED_TERMINALS_SRC: &str = r#"
+@rank (s: str) -> int =
+    if s.starts_with(prefix: "alpha") then 1
+    else if s.starts_with(prefix: "beta") then 2
+    else 3;
+
+@main () -> void = {
+    let suffix = "-mapped-managed-payload-beyond-sso";
+    let count = ["alpha", "beta", "gamma"]
+        .iter()
+        .map((s: str) -> str = s + suffix)
+        .count();
+    let any = ["alpha", "beta", "gamma"]
+        .iter()
+        .map((s: str) -> str = s + suffix)
+        .any((s: str) -> s.starts_with(prefix: "beta"));
+    let all = ["alpha", "beta", "gamma"]
+        .iter()
+        .map((s: str) -> str = s + suffix)
+        .all((s: str) -> s.contains(substr: "mapped-managed"));
+    let expected_beta = "beta" + suffix;
+    let filtered = ["alpha", "beta", "gamma"]
+        .iter()
+        .map((s: str) -> str = s + suffix)
+        .filter((s: str) -> s == expected_beta)
+        .count();
+    ["alpha", "beta", "gamma"]
+        .iter()
+        .map((s: str) -> str = s + suffix)
+        .for_each((s: str) -> s.length());
+    let fold = ["alpha", "beta", "gamma"]
+        .iter()
+        .map((s: str) -> str = s + suffix)
+        .fold(0, (acc: int, s: str) -> int = acc + rank(s: s));
+    let rfold = ["alpha", "beta", "gamma"]
+        .iter()
+        .map((s: str) -> str = s + suffix)
+        .rfold(0, (acc: int, s: str) -> int = acc * 10 + rank(s: s));
+    let joined = ["alpha", "beta", "gamma"]
+        .iter()
+        .map((s: str) -> str = s + suffix)
+        .join(separator: ",");
+    print(msg: `{count}|{any}|{all}|{filtered}|{fold}|{rfold}|{joined}`);
+}
+"#;
+
+#[test]
+fn mapped_managed_terminal_consumers_release_every_yield() {
+    let suffix = "-mapped-managed-payload-beyond-sso";
+    let expected = format!("3|true|true|1|6|321|alpha{suffix},beta{suffix},gamma{suffix}");
+    assert_cell_output(
+        MAPPED_MANAGED_TERMINALS_SRC,
+        "mapped_managed_terminals",
+        &expected,
+    );
+}
+
+// The first map result is retained into rev's buffer. The second transform
+// unwinds, so both that retained prefix and the consumed source yield must drop.
+const MAPPED_MANAGED_REV_UNWIND_SRC: &str = r#"
+@main () -> void = {
+    let suffix = "-mapped-managed-payload-beyond-sso";
+    let result = catch(expr: {
+        ["alpha", "panic", "gamma"]
+            .iter()
+            .map((s: str) -> str =
+                if s == "panic" then panic(msg: "reverse transform panic")
+                else s + suffix)
+            .rev()
+            .count()
+    });
+    match result {
+        Ok(_) -> panic(msg: "reverse transform should unwind"),
+        Err(_) -> print(msg: "caught"),
+    }
+}
+"#;
+
+#[test]
+fn mapped_managed_rev_releases_partial_buffer_on_unwind() {
+    assert_cell_output(
+        MAPPED_MANAGED_REV_UNWIND_SRC,
+        "mapped_managed_rev_unwind",
+        "caught",
+    );
 }

@@ -213,7 +213,7 @@ fn mark_needs_load_slice(
 /// resolves through the ABI path (which checks `borrowed_param_ptrs`).
 pub(super) fn compute_pointer_only_params(
     func: &ArcFunction,
-    is_forwarding_safe: impl Fn(Name, &[ArcVarId]) -> bool,
+    is_forwarding_safe: impl Fn(ArcVarId, Name, &[ArcVarId]) -> bool,
 ) -> FxHashSet<ArcVarId> {
     let param_vars: FxHashSet<ArcVarId> = func.params.iter().map(|p| p.var).collect();
     if param_vars.is_empty() {
@@ -282,13 +282,16 @@ fn record_pointer_load_for_instr(
     instr: &ArcInstr,
     var_to_param: &FxHashMap<ArcVarId, ArcVarId>,
     needs_load: &mut FxHashSet<ArcVarId>,
-    is_forwarding_safe: &impl Fn(Name, &[ArcVarId]) -> bool,
+    is_forwarding_safe: &impl Fn(ArcVarId, Name, &[ArcVarId]) -> bool,
 ) {
     match instr {
         ArcInstr::Apply {
-            func: callee, args, ..
+            dst,
+            func: callee,
+            args,
+            ..
         } => {
-            if !is_forwarding_safe(*callee, args) {
+            if !is_forwarding_safe(*dst, *callee, args) {
                 mark_needs_load_slice(args, var_to_param, needs_load);
             }
         }
@@ -343,14 +346,17 @@ fn record_pointer_load_for_terminator(
     terminator: &ArcTerminator,
     var_to_param: &FxHashMap<ArcVarId, ArcVarId>,
     needs_load: &mut FxHashSet<ArcVarId>,
-    is_forwarding_safe: &impl Fn(Name, &[ArcVarId]) -> bool,
+    is_forwarding_safe: &impl Fn(ArcVarId, Name, &[ArcVarId]) -> bool,
 ) {
     match terminator {
         ArcTerminator::Return { value } => mark_needs_load(*value, var_to_param, needs_load),
         ArcTerminator::Invoke {
-            func: callee, args, ..
+            dst,
+            func: callee,
+            args,
+            ..
         } => {
-            if !is_forwarding_safe(*callee, args) {
+            if !is_forwarding_safe(*dst, *callee, args) {
                 mark_needs_load_slice(args, var_to_param, needs_load);
             }
         }

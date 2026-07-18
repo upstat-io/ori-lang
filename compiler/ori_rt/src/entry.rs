@@ -121,6 +121,8 @@ unsafe extern "C-unwind" fn run_main_thunk(ctx: *mut u8) {
 /// Invoke an AOT `@main` function through the platform panic boundary.
 #[no_mangle]
 pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
+    io::reset_panic_state();
+
     #[cfg(all(target_os = "windows", target_env = "msvc"))]
     {
         // SAFETY: `ori_try_call` is the linked C++ SEH boundary.
@@ -128,15 +130,18 @@ pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
         if succeeded == 1 {
             return check_leaks_and_exit();
         }
+        io::ori_report_uncaught_panic();
         1
     }
 
     #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     {
         // SAFETY: The JIT recovery boundary owns its stack-local jump buffer.
-        match unsafe { io::jit_recovery::jit_run_protected(main_fn) } {
-            Ok(()) => check_leaks_and_exit(),
-            Err(_) => 1,
+        if unsafe { io::jit_recovery::jit_run_protected(main_fn) }.is_ok() {
+            check_leaks_and_exit()
+        } else {
+            io::ori_report_uncaught_panic();
+            1
         }
     }
 }

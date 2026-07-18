@@ -288,7 +288,6 @@ fn test_template_in_match_arm_no_uaf_no_leak() {
 /// phi-threaded attribution covers conversion sources only). Failing clamp:
 /// flips GREEN when those roots are cured.
 #[test]
-#[ignore = "BUG-04-184: loop-body str-literal lineage leak (Let Literal::String root inside the loop + loop merge-disagreement elision) — distinct root from the builtin-Invoke-result family cured here"]
 fn test_template_in_loop_body_no_uaf_no_leak() {
     assert_cell_output(
         r#"

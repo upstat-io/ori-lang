@@ -6,7 +6,7 @@
 //! - The replaced element's RC is released on the unique fast path via `dec_fn`
 //!   (the new element is moved in; ownership transfers from the caller).
 
-use crate::io::ori_panic_cstr;
+use crate::io::panic_index_out_of_bounds;
 use crate::rc::ori_rc_is_unique;
 use crate::slice_encoding::is_slice_cap;
 
@@ -20,8 +20,8 @@ use super::cow::slow_copy_replace_element;
 ///
 /// # Panics
 ///
-/// Panics if `index < 0 || index >= len` (via `ori_panic_cstr`, which unwinds)
-/// — same bounds contract as `ori_list_get` (`list[index]`).
+/// Panics if `index < 0 || index >= len` — same bounds contract as
+/// `ori_list_get` (`list[index]`).
 ///
 /// # Element RC
 ///
@@ -56,7 +56,7 @@ pub extern "C-unwind" fn ori_list_updated_cow(
     // Bounds check — panics like `list[index]` (a null buffer is the empty
     // sentinel, so every index is out of bounds for it).
     if data.is_null() || index < 0 || index >= len {
-        ori_panic_cstr(c"index out of bounds".as_ptr());
+        panic_index_out_of_bounds(index, len.max(0));
     }
 
     let es = elem_size.max(1) as usize;

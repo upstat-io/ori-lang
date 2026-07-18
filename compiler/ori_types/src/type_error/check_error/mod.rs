@@ -30,8 +30,9 @@ pub(crate) mod kind;
 mod message;
 
 pub use kind::{
-    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, ImportErrorKind, NonCollectingLoopKind,
-    OrBindingMismatchReason, TypeErrorKind, VoidLoopKind,
+    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, ImportErrorKind,
+    InvalidFixedListCapacityReason, NonCollectingLoopKind, OrBindingMismatchReason, TypeErrorKind,
+    VoidLoopKind,
 };
 
 use ori_diagnostic::Suggestion;
@@ -336,6 +337,41 @@ impl TypeCheckError {
                 ),
             ],
         }
+    }
+
+    /// Create an undeclared fixed-list capacity const error (E2056).
+    pub fn undeclared_fixed_list_capacity_const(span: Span, name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UndeclaredFixedListCapacityConst { name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text_with_names(
+                "declare it in `<${0}: int>` or use a declared const",
+                vec![name],
+                0,
+            )],
+        }
+    }
+
+    /// Create a non-positive fixed-list capacity error (E2057).
+    pub fn non_positive_fixed_list_capacity(span: Span, value: i64) -> Self {
+        Self::new_with_suggestion(
+            span,
+            TypeErrorKind::NonPositiveFixedListCapacity { value },
+            "use a capacity greater than zero (Spec: Clause 8.2.2)",
+        )
+    }
+
+    /// Create an invalid fixed-list capacity expression error (E2059).
+    pub fn invalid_fixed_list_capacity_expression(
+        span: Span,
+        reason: InvalidFixedListCapacityReason,
+    ) -> Self {
+        Self::new_with_suggestion(
+            span,
+            TypeErrorKind::InvalidFixedListCapacityExpression { reason },
+            "use a positive integer literal or an allowed expression over declared int consts",
+        )
     }
 
     /// Create a partial-move-on-Drop-type error (E2048).

@@ -28,6 +28,7 @@ impl Lowerer<'_> {
             src_ids.into_iter().map(|id| (None, id)).collect();
         let params = self.resolve_func_params(func_kind);
         let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
+        let lowered_args = self.append_capability_args(call_expr_id, lowered_args, span);
         let args = self.arena.push_expr_list(&lowered_args);
         let can_id = self.push(CanExpr::Call { func, args }, span, ty);
         self.record_mono_dispatch_if_present(call_expr_id, can_id);
@@ -45,8 +46,15 @@ impl Lowerer<'_> {
         span: Span,
     ) -> Option<(CanId, Option<ori_types::Idx>, Option<ori_types::Idx>)> {
         let route = self.typed.resolve_iter_route(call_expr_id)?;
-        let iter_ty = TypeId::from_raw(route.iter_ty.raw());
         let lowered_receiver = self.lower_expr(receiver);
+        let Some(iter_ty) = route.iter_ty else {
+            return Some((
+                lowered_receiver,
+                self.typed.expr_type(receiver.index()),
+                route.adapter_ty,
+            ));
+        };
+        let iter_type_id = TypeId::from_raw(iter_ty.raw());
         let iter_name = self.interner.intern("iter");
         let empty_args = self.arena.push_expr_list(&[]);
         let iter_call = self.push(
@@ -56,10 +64,10 @@ impl Lowerer<'_> {
                 args: empty_args,
             },
             span,
-            iter_ty,
+            iter_type_id,
         );
         // INVARIANT: Default lookup consumes pool indices, not canonical `TypeId`s.
-        Some((iter_call, Some(route.iter_ty), route.adapter_ty))
+        Some((iter_call, Some(iter_ty), route.adapter_ty))
     }
 
     /// Lower a method receiver and preserve its type-checked iterator route.
@@ -150,7 +158,7 @@ impl Lowerer<'_> {
         let params = self.resolve_method_params(method, receiver_ty);
         let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
         let args = self.arena.push_expr_list(&lowered_args);
-        let method = self.specialize_collect(method, ty);
+        let method = self.specialize_collect(call_expr_id, method);
         let method_ty = adapter_ty.map_or(ty, |idx| TypeId::from_raw(idx.raw()));
         let adapter_call = self.push(
             CanExpr::MethodCall {
@@ -184,6 +192,7 @@ impl Lowerer<'_> {
         let func = self.push(CanExpr::FunctionRef(qualified), span, ty);
         let params = self.resolve_func_params(ori_ir::ExprKind::FunctionRef(qualified));
         let lowered_args = self.reorder_and_lower_args(src_args, params.as_deref());
+        let lowered_args = self.append_capability_args(call_expr_id, lowered_args, span);
         let args = self.arena.push_expr_list(&lowered_args);
         let can_id = self.push(CanExpr::Call { func, args }, span, ty);
         self.record_mono_dispatch_if_present(call_expr_id, can_id);
@@ -200,22 +209,49 @@ impl Lowerer<'_> {
         }
     }
 
-    /// Rewrite `collect` → `__collect_set` when the resolved type is `Set<T>`.
-    ///
-    /// The type checker stores the resolved return type for each expression.
-    /// A bidirectionally checked `collect()` expression has a `Set`-tagged
-    /// result type when it requires the set collector.
-    fn specialize_collect(&self, method: Name, ty: TypeId) -> Name {
-        if method != self.name_collect {
-            return method;
+    /// Append the type-checker-selected implicit provider values in source
+    /// `uses` order. The capability namespace is already bound to the exact
+    /// lexical provider by either `with ... in` or the callee's own hidden
+    /// parameter, so Canon materializes a normal identifier operand while the
+    /// sidecar supplies its concrete type.
+    pub(crate) fn append_capability_args(
+        &mut self,
+        call_expr_id: ExprId,
+        mut args: Vec<CanId>,
+        span: Span,
+    ) -> Vec<CanId> {
+        let providers = self
+            .typed
+            .resolve_capability_call(call_expr_id)
+            .map(|site| site.providers.clone())
+            .unwrap_or_default();
+        args.reserve(providers.len());
+        for provider in providers {
+            args.push(self.push(
+                CanExpr::Ident(provider.capability),
+                span,
+                TypeId::from_raw(provider.provider_type.raw()),
+            ));
         }
+        args
+    }
 
-        let idx = ori_types::Idx::from_raw(ty.raw());
-        let tag = self.pool.tag(idx);
-        if tag == ori_types::Tag::Set {
-            self.name_collect_set
-        } else {
-            method
+    /// Apply the exact `Collect` target selected by type checking.
+    ///
+    /// Absence of an exact call-site route preserves the selected method
+    /// identity, even when an unrelated user method returns `Set<T>`.
+    fn specialize_collect(&self, call_expr_id: ExprId, method: Name) -> Name {
+        let Some(collect_ty) = self
+            .typed
+            .resolve_iter_route(call_expr_id)
+            .and_then(|route| route.collect_ty)
+        else {
+            return method;
+        };
+        let resolved = self.pool.resolve_fully(collect_ty);
+        match self.pool.tag(resolved) {
+            ori_types::Tag::Set => self.name_collect_set,
+            _ => method,
         }
     }
 

@@ -80,6 +80,400 @@ fn eager_nested_generic_param_records_complete_instance() {
     );
 }
 
+#[test]
+fn immutable_const_let_capacity_records_exact_method_instance() {
+    let source = include_str!(
+        "../fixtures/integration/const_let_fixed_list_capacity_records_method_instance.ori"
+    );
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "immutable const capacity program must type-check; kinds: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("first_n");
+    assert_eq!(
+        instances.len(),
+        1,
+        "const-generic method call must publish one exact instance: {instances:?}"
+    );
+    assert_eq!(
+        instances[0].method_args,
+        vec![crate::GenericArg::Const(crate::ConstValue::Int(5))]
+    );
+    assert_eq!(
+        instances[0].const_bindings,
+        vec![crate::MonoConstBinding {
+            name: result.interner.intern("N"),
+            value: crate::ConstValue::Int(5),
+        }]
+    );
+}
+
+#[test]
+fn fixed_list_capacity_rejects_undeclared_const_with_actionable_error() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/fixed_list_capacity_unresolved_const.ori"
+    )));
+    assert_eq!(
+        result.error_count(),
+        1,
+        "one undeclared capacity const must produce one error: {:?}",
+        result.error_kinds()
+    );
+    let error = &result.result.typed.errors[0];
+    assert_eq!(format!("{:?}", error.code()), "E2056");
+    let message = error.format_with(&result.pool, &result.interner);
+    assert!(
+        message.contains("undeclared fixed-list capacity const `$M`")
+            && message.contains("declare it in `<$M: int>` or use a declared const"),
+        "diagnostic must state the cause and actionable fix: {message}"
+    );
+}
+
+#[test]
+fn fixed_list_capacity_rejects_zero_and_negative_literals() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/fixed_list_capacity_non_positive.ori"
+    )));
+    assert_eq!(
+        result.error_count(),
+        2,
+        "zero and negative capacities must each produce one error: {:?}",
+        result.error_kinds()
+    );
+    let messages: Vec<_> = result
+        .result
+        .typed
+        .errors
+        .iter()
+        .map(|error| {
+            assert_eq!(format!("{:?}", error.code()), "E2057");
+            error.format_with(&result.pool, &result.interner)
+        })
+        .collect();
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("supplied 0")));
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("supplied -1")));
+}
+
+#[test]
+fn fixed_list_capacity_accepts_positive_and_declared_consts() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/fixed_list_capacity_valid.ori"
+    )));
+    assert!(
+        !result.has_errors(),
+        "positive literals and declared consts must remain valid: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn fixed_list_capacity_rejects_runtime_and_mutable_bindings() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/fixed_list_capacity_runtime_binding.ori"
+    )));
+    assert_eq!(
+        result.error_count(),
+        2,
+        "runtime and mutable bindings must each be rejected: {:?}",
+        result.error_kinds()
+    );
+    for error in &result.result.typed.errors {
+        assert_eq!(format!("{:?}", error.code()), "E2056");
+        let message = error.format_with(&result.pool, &result.interner);
+        assert!(
+            message.contains("declare it in `<$capacity: int>` or use a declared const"),
+            "diagnostic must explain how to introduce compile-time evidence: {message}"
+        );
+    }
+}
+
+#[test]
+fn fixed_list_capacity_rejects_non_integer_and_unsupported_expressions() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/fixed_list_capacity_invalid_expression.ori"
+    )));
+    assert_eq!(
+        result.error_count(),
+        3,
+        "bool capacities and unsupported operators must be rejected: {:?}",
+        result.error_kinds()
+    );
+    for error in &result.result.typed.errors {
+        assert_eq!(format!("{:?}", error.code()), "E2059");
+        let message = error.format_with(&result.pool, &result.interner);
+        assert!(
+            message.contains("fixed-list capacity must be an evaluable integer expression")
+                && message.contains("use a positive integer literal"),
+            "diagnostic must state the integer-expression contract and fix: {message}"
+        );
+    }
+}
+
+#[test]
+fn fixed_list_capacity_evaluates_dependent_module_consts() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/fixed_list_capacity_module_values.ori"
+    )));
+    assert_eq!(
+        result.error_count(),
+        2,
+        "dependent zero and negative module consts must be rejected: {:?}",
+        result.error_kinds()
+    );
+    let messages: Vec<_> = result
+        .result
+        .typed
+        .errors
+        .iter()
+        .map(|error| {
+            assert_eq!(format!("{:?}", error.code()), "E2057");
+            error.format_with(&result.pool, &result.interner)
+        })
+        .collect();
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("supplied 0")));
+    assert!(messages
+        .iter()
+        .any(|message| message.contains("supplied -1")));
+}
+
+#[test]
+fn fixed_list_capacity_evaluates_forward_module_const_dependencies() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/fixed_list_capacity_forward_module_const.ori"
+    )));
+    assert!(
+        !result.has_errors(),
+        "forward module const dependencies must be declaration-order independent: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn fixed_list_capacity_rejects_module_const_cycles_once() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/fixed_list_capacity_module_const_cycle.ori"
+    )));
+    assert_eq!(
+        result.error_count(),
+        1,
+        "a const cycle used as a capacity must produce one focused error: {:?}",
+        result.error_kinds()
+    );
+    let error = &result.result.typed.errors[0];
+    assert_eq!(format!("{:?}", error.code()), "E2059");
+    let message = error.format_with(&result.pool, &result.interner);
+    assert!(message.contains("fixed-list capacity must be an evaluable integer expression"));
+}
+
+#[test]
+fn fixed_list_capacity_const_params_shadow_module_const_values() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/fixed_list_capacity_const_param_shadow.ori"
+    )));
+    assert!(
+        !result.has_errors(),
+        "function and method const params must shadow same-named module values: {:?}",
+        result.error_kinds()
+    );
+}
+
+#[test]
+fn fixed_list_capacity_rejects_lexical_bindings_that_shadow_module_consts() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/fixed_list_capacity_module_shadowing.ori"
+    )));
+    assert_eq!(
+        result.error_count(),
+        2,
+        "runtime and mutable lexical shadows must each produce one focused error: {:?}",
+        result.error_kinds()
+    );
+    assert!(result
+        .result
+        .typed
+        .errors
+        .iter()
+        .all(|error| format!("{:?}", error.code()) == "E2056"));
+}
+
+#[test]
+fn fixed_list_capacity_rejects_non_positive_declared_type_positions() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/fixed_list_capacity_declared_types.ori"
+    )));
+    assert_eq!(
+        result.error_count(),
+        5,
+        "newtype, function parameter/return, and method parameter/return capacities must all be validated: {:?}",
+        result.error_kinds()
+    );
+    assert!(result
+        .result
+        .typed
+        .errors
+        .iter()
+        .all(|error| format!("{:?}", error.code()) == "E2057"));
+}
+
+#[test]
+fn method_const_capacity_rejects_non_positive_call_args_without_result_annotations() {
+    let source = fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/method_const_capacity_call_site_non_positive.ori"
+    ));
+    let result = check_source(source);
+    assert_eq!(
+        result.error_count(),
+        3,
+        "explicit zero, explicit negative, and default zero capacity args must each be rejected: {:?}",
+        result.error_kinds()
+    );
+    let messages: Vec<_> = result
+        .result
+        .typed
+        .errors
+        .iter()
+        .map(|error| {
+            assert_eq!(
+                format!("{:?}", error.code()),
+                "E2057",
+                "zero on an unrelated int const generic must remain valid"
+            );
+            error.format_with(&result.pool, &result.interner)
+        })
+        .collect();
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message.contains("supplied 0"))
+            .count(),
+        2,
+        "explicit and default zero must both identify the concrete value: {messages:?}"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("supplied -1")),
+        "negative explicit arg must identify the concrete value: {messages:?}"
+    );
+    let diagnostic_sources: Vec<_> = result
+        .result
+        .typed
+        .errors
+        .iter()
+        .map(|error| &source[error.span().to_range()])
+        .collect();
+    assert_eq!(
+        diagnostic_sources,
+        [
+            "values.explicit<0>()",
+            "values.explicit<-1>()",
+            "values.defaulted()",
+        ],
+        "explicit/default failures must remain call-site diagnostics"
+    );
+}
+
+#[test]
+fn method_const_capacity_inferred_from_invalid_annotation_reports_once_at_annotation() {
+    let source = fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/method_const_capacity_expected_annotation_non_positive.ori"
+    ));
+    let result = check_source(source);
+    assert_eq!(
+        result.error_count(),
+        1,
+        "the validated result annotation must not be duplicated at the method call: {:?}",
+        result.error_kinds()
+    );
+    let error = &result.result.typed.errors[0];
+    assert_eq!(format!("{:?}", error.code()), "E2057");
+    assert_eq!(
+        &source[error.span().to_range()],
+        "0",
+        "annotation-inferred capacity errors belong to the exact capacity expression"
+    );
+}
+
+#[test]
+fn method_const_body_capacity_rejects_non_positive_call_arg() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/method_const_body_capacity_call_site_non_positive.ori"
+    )));
+    assert_eq!(
+        result.error_count(),
+        1,
+        "body-local fixed-list capacity must retain its call-site constraint: {:?}",
+        result.error_kinds()
+    );
+    assert_eq!(
+        format!("{:?}", result.result.typed.errors[0].code()),
+        "E2057"
+    );
+}
+
+#[test]
+fn method_const_call_site_explicit_and_default_values_publish_exact_bindings() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/method_const_call_site_positive_bindings.ori"
+    )));
+    assert!(
+        !result.has_errors(),
+        "positive capacity args and unrelated zero must type-check: {:?}",
+        result.error_kinds()
+    );
+
+    for (method, expected) in [("explicit", 3), ("defaulted", 2), ("unrelated", 0)] {
+        let instances = result.mono_instances_for(method);
+        assert_eq!(
+            instances.len(),
+            1,
+            "{method} must publish exactly one annotation-free call instance: {instances:?}"
+        );
+        assert_eq!(
+            instances[0].method_args,
+            vec![crate::GenericArg::Const(crate::ConstValue::Int(expected))]
+        );
+        assert_eq!(
+            instances[0].const_bindings,
+            vec![crate::MonoConstBinding {
+                name: result.interner.intern("N"),
+                value: crate::ConstValue::Int(expected),
+            }]
+        );
+    }
+}
+
+#[test]
+fn method_const_call_site_rejects_extra_and_wrong_typed_arguments() {
+    let result = check_source(fixture_without_trailing_newline(include_str!(
+        "../fixtures/integration/method_const_call_site_argument_diagnostics.ori"
+    )));
+    assert_eq!(
+        result.error_count(),
+        2,
+        "extra and wrong-typed method const args need focused diagnostics: {:?}",
+        result.error_kinds()
+    );
+    let codes: Vec<_> = result
+        .result
+        .typed
+        .errors
+        .iter()
+        .map(|error| format!("{:?}", error.code()))
+        .collect();
+    assert!(codes.iter().any(|code| code == "E2004"), "{codes:?}");
+    assert!(codes.iter().any(|code| code == "E2001"), "{codes:?}");
+}
+
 // Pin 3 — derived-Eq comparison on a GENERIC composite instantiation. Operator
 // dispatch must publish the same concrete receiver-bearing method demand as an
 // ordinary generic method call; ARC uses its receiver-qualified operator fact

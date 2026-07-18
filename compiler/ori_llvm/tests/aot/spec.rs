@@ -1295,3 +1295,11 @@ fn test_aot_hash_combine_nonzero_inputs_nonzero() {
         "hash_combine_basic",
     );
 }
+
+#[test]
+fn test_aot_concrete_and_generic_extension_methods() {
+    assert_aot_success(
+        include_str!("fixtures/spec/aot_extension_methods.ori"),
+        "extension_methods",
+    );
+}

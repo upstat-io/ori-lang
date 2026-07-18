@@ -1,13 +1,12 @@
 //! Realization of compiler-generated derived method bodies.
 
-use ori_ir::canon::CanonResult;
 use ori_ir::DerivedTrait;
-use ori_repr::monomorphize::{MonoFunction, MonoFunctionOrigin};
+use ori_repr::monomorphize::{MonoFunction, MonoFunctionOrigin, MonoTargetMaps};
 use ori_types::{AcceptedDerivedImpl, DerivedCallPlan, Idx, Pool, Tag};
 use oric::ir::{Name, StringInterner};
 use rustc_hash::FxHashMap;
 
-use super::derived_binding::bind_derived_call_plan;
+use super::derived_binding::{bind_derived_call_plan, rewrite_frozen_derived_targets};
 use super::{method_receiver_key, DerivedMethodAnalysis};
 
 /// Build shared ARC bodies for supported accepted non-generic derives.
@@ -96,44 +95,30 @@ pub(crate) fn lower_non_generic_derived_methods_for_analysis(
 /// fail-closed coverage gate while shared body coverage is expanded.
 pub(crate) fn lower_mono_function_for_analysis(
     mono: &MonoFunction,
+    mono_targets: &MonoTargetMaps,
     accepted_derives: &[AcceptedDerivedImpl],
     derived_call_plans: &[DerivedCallPlan],
-    canon: &CanonResult,
-    interner: &StringInterner,
-    pool: &Pool,
-    problems: &mut Vec<ori_arc::ArcProblem>,
+    context: &mut crate::arc_lowering::ArcLoweringContext<'_>,
 ) -> Option<super::super::ArcFunctionGroup> {
     match mono.origin {
         MonoFunctionOrigin::Source => {
-            let mut context = crate::arc_lowering::ArcLoweringContext {
-                canon,
-                interner,
-                pool,
-                problems,
-            };
             let lowered = crate::arc_lowering::lower_mono_to_arc(
                 mono.mangled_name,
                 &mono.sig,
                 mono.identity.original_name(),
                 mono.receiver_type_name,
-                &mut context,
+                context,
                 &mono.body_type_map,
                 mono.identity.const_bindings(),
             );
             Some(lowered.into())
         }
         MonoFunctionOrigin::Impl(id) => {
-            let mut context = crate::arc_lowering::ArcLoweringContext {
-                canon,
-                interner,
-                pool,
-                problems,
-            };
             let lowered = crate::arc_lowering::lower_mono_impl_method_to_arc_by_source(
                 mono.mangled_name,
                 &mono.sig,
                 id.body(),
-                &mut context,
+                context,
                 &mono.body_type_map,
                 mono.identity.const_bindings(),
             );
@@ -142,10 +127,10 @@ pub(crate) fn lower_mono_function_for_analysis(
         MonoFunctionOrigin::Derived(id) => {
             let mut matches = accepted_derives.iter().filter(|accepted| accepted.id == id);
             let Some(accepted) = matches.next() else {
-                problems.push(ori_arc::ArcProblem::InternalError {
+                context.problems.push(ori_arc::ArcProblem::InternalError {
                     message: format!(
                         "monomorphized derived body {} references absent accepted identity {:?}",
-                        interner.lookup(mono.mangled_name),
+                        context.interner.lookup(mono.mangled_name),
                         id,
                     ),
                     span: ori_ir::Span::DUMMY,
@@ -153,42 +138,50 @@ pub(crate) fn lower_mono_function_for_analysis(
                 return None;
             };
             if matches.next().is_some() {
-                problems.push(ori_arc::ArcProblem::InternalError {
+                context.problems.push(ori_arc::ArcProblem::InternalError {
                     message: format!(
                         "monomorphized derived body {} has duplicate accepted identity {:?}",
-                        interner.lookup(mono.mangled_name),
+                        context.interner.lookup(mono.mangled_name),
                         id,
                     ),
                     span: accepted.span,
                 });
                 return None;
             }
-            let binder_substitutions =
-                mono_binder_substitutions(accepted, mono, pool, interner, problems)?;
+            let binder_substitutions = mono_binder_substitutions(
+                accepted,
+                mono,
+                context.pool,
+                context.interner,
+                context.problems,
+            )?;
             let plan = unique_derived_plan(
                 accepted,
                 &binder_substitutions,
                 derived_call_plans,
                 mono.mangled_name,
-                interner,
-                problems,
+                context.interner,
+                context.problems,
             )?;
             let body = build_supported_derived_body(
                 accepted,
                 plan,
                 mono.mangled_name,
                 &mono.sig,
-                interner,
-                pool,
+                context.interner,
+                context.pool,
             )?;
             match body {
-                Ok(function) => Some(super::super::ArcFunctionGroup::new(function, Vec::new())),
+                Ok(mut function) => {
+                    rewrite_frozen_derived_targets(&mut function, plan, mono_targets, context.pool);
+                    Some(super::super::ArcFunctionGroup::new(function, Vec::new()))
+                }
                 Err(error) => {
-                    problems.push(ori_arc::ArcProblem::InternalError {
+                    context.problems.push(ori_arc::ArcProblem::InternalError {
                         message: format!(
                             "monomorphized derived {:?} {} cannot form an executable body: {error}",
                             accepted.trait_kind,
-                            interner.lookup(mono.mangled_name),
+                            context.interner.lookup(mono.mangled_name),
                         ),
                         span: accepted.span,
                     });
@@ -348,9 +341,9 @@ fn mono_binder_substitutions(
     }
     let substitutions = pool.applied_args(receiver);
     if substitutions.len() != accepted.signature.type_params.len()
-        || substitutions
-            .iter()
-            .any(|&ty| !pool.is_valid_idx(ty) || !pool.flags(ty).is_recordable())
+        || substitutions.iter().any(|&ty| {
+            !pool.is_valid_idx(ty) || !pool.flags(pool.resolve_fully(ty)).is_recordable()
+        })
     {
         problems.push(ori_arc::ArcProblem::InternalError {
             message: format!(

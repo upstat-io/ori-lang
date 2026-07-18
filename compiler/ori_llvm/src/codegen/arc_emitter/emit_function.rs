@@ -137,8 +137,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     fn find_pointer_only_params(&mut self, func: &ArcFunction) -> FxHashSet<ArcVarId> {
         let length_name = self.interner.intern("length");
         let len_name = self.interner.intern("len");
-        compute_pointer_only_params(func, |callee, args| {
+        compute_pointer_only_params(func, |dst, callee, args| {
             let callee_name = self.interner.lookup(callee);
+            if self.ctx.executable_facts_bound {
+                match self.ctx.executable_call_targets.get(&(func.name, dst)) {
+                    Some(
+                        ori_repr::executable::CallableTarget::Function(_)
+                        | ori_repr::executable::CallableTarget::External(_),
+                    ) => return true,
+                    Some(ori_repr::executable::CallableTarget::Runtime(_)) | None => {
+                        if (callee == length_name || callee == len_name) && !args.is_empty() {
+                            let receiver_ty = func.var_type(args[0]);
+                            return self.pool.tag(receiver_ty) == ori_types::Tag::Str;
+                        }
+                        return false;
+                    }
+                }
+            }
             if !super::context::is_callee_intercepted(
                 callee_name,
                 callee,

@@ -107,6 +107,7 @@ pub fn register_module_functions(
         })
         .unwrap_or_default();
 
+    let mut module_functions = FxHashMap::default();
     for (name, funcs) in func_groups {
         // For multi-clause functions, `lower_module()` synthesizes a single
         // canonical match body. Use canonical param names from CanonRoot
@@ -159,7 +160,12 @@ pub fn register_module_functions(
             }
         }
 
-        env.define(name, Value::Function(func_value), Mutability::Immutable);
+        module_functions.insert(name, func_value);
+    }
+
+    FunctionValue::attach_module_scope(&mut module_functions);
+    for (name, function) in module_functions {
+        env.define(name, Value::Function(function), Mutability::Immutable);
     }
 }
 

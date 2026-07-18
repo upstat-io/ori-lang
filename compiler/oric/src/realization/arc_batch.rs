@@ -6,7 +6,19 @@ use ori_repr::executable::FunctionFamilyTopology;
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
 
+/// Realized concrete-receiver method dispatch targets, keyed by receiver type and method name.
+pub(crate) type MethodTargetMap = FxHashMap<(Idx, Name), Name>;
+
+/// Executable bodies plus their exact names-only family topology and method
+/// dispatch targets, consumed after a [`PreparedArcBatch`] is closed.
+pub(crate) type ExecutableParts = (
+    Vec<ArcFunction>,
+    Vec<FunctionFamilyTopology>,
+    MethodTargetMap,
+);
+
 /// One lowered callable body and every lambda body it owns.
+#[derive(Clone)]
 pub(crate) struct ArcFunctionGroup {
     parent: ArcFunction,
     lambdas: Vec<ArcFunction>,
@@ -26,7 +38,12 @@ impl ArcFunctionGroup {
         (self.parent, self.lambdas)
     }
 
-    fn parent_name(&self) -> Name {
+    /// Iterate the parent and its owned lambdas without flattening ownership.
+    pub(crate) fn bodies(&self) -> impl Iterator<Item = &ArcFunction> {
+        std::iter::once(&self.parent).chain(&self.lambdas)
+    }
+
+    pub(crate) fn parent_name(&self) -> Name {
         self.parent.name
     }
 }
@@ -48,6 +65,7 @@ pub(crate) struct PreparedArcBatch {
     functions: Vec<ArcFunction>,
     function_families: Vec<FunctionFamilyTopology>,
     parent_order: Vec<Name>,
+    method_targets: MethodTargetMap,
 }
 
 /// Failure while closing a lowered ARC batch for every executable backend.
@@ -139,7 +157,7 @@ impl LoweredArcBatch {
     pub(crate) fn prepare(
         mut self,
         mono_functions: &[ori_repr::monomorphize::MonoFunction],
-        impl_targets: &FxHashMap<(Idx, Name), Name>,
+        impl_targets: &MethodTargetMap,
         pool: &mut Pool,
         interner: &StringInterner,
     ) -> Result<PreparedArcBatch, ArcBatchPreparationError> {
@@ -150,13 +168,6 @@ impl LoweredArcBatch {
                 .then_with(|| left.parent_name().raw().cmp(&right.parent_name().raw()))
         });
         validate_family_identities(&self.groups, interner)?;
-
-        if !mono_functions.is_empty() {
-            let maps = ori_repr::monomorphize::MonoTargetMaps::new(mono_functions, pool);
-            for group in &mut self.groups {
-                maps.rewrite_function(&mut group.parent, &mut group.lambdas, pool, interner);
-            }
-        }
 
         let mut specialization_errors = Vec::new();
         for group in &mut self.groups {
@@ -177,8 +188,21 @@ impl LoweredArcBatch {
         }
         validate_family_identities(&self.groups, interner)?;
 
-        let resolve_operator_target =
-            |receiver, method| impl_targets.get(&(receiver, method)).copied();
+        // Lambda specialization is the producer of the exact concrete types
+        // used by signature fallback. The mono inventory is closed before this
+        // seam, but target rewriting must consume the specialized bodies.
+        if !mono_functions.is_empty() {
+            let maps = ori_repr::monomorphize::MonoTargetMaps::new(mono_functions, pool);
+            for group in &mut self.groups {
+                maps.rewrite_function(&mut group.parent, &mut group.lambdas, pool, interner);
+            }
+        }
+
+        let resolve_operator_target = |receiver, method| {
+            impl_targets
+                .get(&(super::method_receiver_key(pool, receiver), method))
+                .copied()
+        };
         let mut operator_errors = Vec::new();
         for group in &mut self.groups {
             if let Err(mut errors) = ori_arc::rewrite_operator_trait_calls(
@@ -230,6 +254,7 @@ impl LoweredArcBatch {
             functions,
             function_families,
             parent_order,
+            method_targets: impl_targets.clone(),
         })
     }
 }
@@ -249,8 +274,8 @@ impl PreparedArcBatch {
 
     /// Consume the type-state seam into executable bodies plus their exact
     /// names-only family topology. No grouped body authority survives.
-    pub(crate) fn into_executable_parts(self) -> (Vec<ArcFunction>, Vec<FunctionFamilyTopology>) {
-        (self.functions, self.function_families)
+    pub(crate) fn into_executable_parts(self) -> ExecutableParts {
+        (self.functions, self.function_families, self.method_targets)
     }
 }
 

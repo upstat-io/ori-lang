@@ -314,6 +314,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         };
 
+        // Arm intercepted unwind routing before every interception tier,
+        // including prelude functions. Checked `int`/`byte` conversions live
+        // in that early tier and must retain their cleanup/catch edge.
+        self.intercepted_unwind = (callee_intercepted
+            && !unwind_is_empty_cleanup
+            && self.current_cleanup_pad.is_none()
+            && self.intercept_routes_unwind(callee, dst, arc_args, arc_func))
+        .then(|| self.block(unwind));
+
         let runtime_projection_allowed = self.runtime_projection_allowed(arc_func, dst);
         if self.try_emit_invoke_runtime_projection(
             dst,
@@ -323,6 +332,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             arc_func,
             runtime_projection_allowed,
         ) {
+            self.intercepted_unwind = None;
             return;
         }
 
@@ -352,11 +362,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // so cleanup decs run on the panic path and the panic lands in an
         // enclosing `catch(expr:)` handler. Same predicate as
         // `detect_dead_unwind_blocks` (the block is live iff this fires).
-        self.intercepted_unwind = (callee_intercepted
-            && !unwind_is_empty_cleanup
-            && self.current_cleanup_pad.is_none()
-            && self.intercept_routes_unwind(callee, arc_args, arc_func))
-        .then(|| self.block(unwind));
         // Internal protocol intercepts: `__index` arrives as an Invoke when
         // the receiver can panic (list OOB → `ori_list_get`); the armed
         // route above sends that runtime call through `invoke`.
@@ -490,32 +495,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         };
 
-        let ptr_ty = self.builder.ptr_type();
-        let mut arg_vals = Vec::with_capacity(1 + args.len());
-        let mut param_types = Vec::with_capacity(1 + args.len());
-        arg_vals.push(env_ptr);
-        param_types.push(ptr_ty);
-
-        for &a in args {
-            let arg_ty = arc_func.var_type(a);
-            let passing =
-                crate::codegen::abi::compute_param_passing(arg_ty, self.type_info, self.repr_plan);
-            match passing {
-                crate::codegen::abi::ParamPassing::Indirect { .. }
-                | crate::codegen::abi::ParamPassing::Reference => {
-                    let llvm_ty = self.resolve_type(arg_ty);
-                    let alloca = self.builder.alloca(llvm_ty, "icall.arg.tmp");
-                    self.builder.store(self.var(a), alloca);
-                    arg_vals.push(alloca);
-                    param_types.push(ptr_ty);
-                }
-                crate::codegen::abi::ParamPassing::Void => {}
-                crate::codegen::abi::ParamPassing::Direct => {
-                    arg_vals.push(self.var(a));
-                    param_types.push(self.resolve_type(arg_ty));
-                }
-            }
-        }
+        let (arg_vals, param_types) = self.marshal_indirect_call_args(env_ptr, args, arc_func);
 
         let ret_ty = self.resolve_type(ty);
         let ret_is_indirect =

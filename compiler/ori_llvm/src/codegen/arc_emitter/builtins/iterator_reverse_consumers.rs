@@ -1,4 +1,4 @@
-//! Reverse iterator consumers, string joining, and join provenance.
+//! Reverse iterator consumers and string joining.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
@@ -10,7 +10,7 @@ use super::super::ArcIrEmitter;
 use super::trampolines::TrampolineKind;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Emit `last()` — iterate forward keeping the last element.
+    /// Emit `last()` — advance the double-ended iterator from the back once.
     ///
     /// Returns `Option<T>`: `{ i64 tag, T payload }` via sret.
     pub(in crate::codegen) fn emit_iter_last(
@@ -20,6 +20,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
         // Option layout: {i64 tag, T payload}
         let tag_llvm = self.builder.scx().type_i64().into();
@@ -35,12 +36,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .create_entry_alloca(self.current_function, "last.out", opt_struct_ty);
 
         let func_id = self.builder.runtime_fn("ori_iter_last");
-        self.emit_rt_call(func_id, &[iter_ptr, elem_size_val, out_ptr], "");
+        self.emit_rt_call(
+            func_id,
+            &[iter_ptr, elem_size_val, elem_inc_fn, out_ptr],
+            "",
+        );
 
         Some(self.builder.load(opt_struct_ty, out_ptr, "last.result"))
     }
 
-    /// Emit `rfind(predicate)` — find last matching element (collect + search backward).
+    /// Emit `rfind(predicate)` — search directly from the iterator's back.
     pub(in crate::codegen) fn emit_iter_rfind(
         &mut self,
         iter_ptr: ValueId,
@@ -59,6 +64,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
         // Option layout: {i64 tag, T payload}
         let tag_llvm = self.builder.scx().type_i64().into();
@@ -76,14 +82,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_iter_rfind");
         self.emit_rt_call(
             func_id,
-            &[iter_ptr, tramp_fn, closure_env, elem_size_val, out_ptr],
+            &[
+                iter_ptr,
+                tramp_fn,
+                closure_env,
+                elem_size_val,
+                elem_inc_fn,
+                out_ptr,
+            ],
             "",
         );
 
         Some(self.builder.load(opt_struct_ty, out_ptr, "rfind.result"))
     }
 
-    /// Emit `rfold(initial, op)` — fold right-to-left (collect + fold backward).
+    /// Emit `rfold(initial, op)` — fold by advancing directly from the back.
     ///
     /// Follows the same pattern as `emit_iter_fold`, delegating to `ori_iter_rfold`.
     pub(in crate::codegen) fn emit_iter_rfold(
@@ -146,19 +159,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `ori_str_from_*` runtime function. Unsupported types (byte, Duration,
     /// Size, Ordering, structs, closures, etc.) produce a codegen error.
     ///
-    /// The consumed-element release argument (`elem_dec_fn`) is computed by
-    /// a compile-time provenance walk over the iterator's def chain: non-null
-    /// only when every element reaching join is provably adapter-produced
-    /// (a `map`-terminal chain, possibly through element-identity adapters);
-    /// source-borrowed, mixed-provenance (`chain`), inner-dependent
-    /// (`flat_map`), and untraceable chains all pass null — the leak-safe
-    /// verdict that can never double-free.
+    /// The runtime iterator state owns yield provenance and releases each input
+    /// after join copies it. LLVM therefore passes no ownership verdict.
     pub(in crate::codegen) fn emit_iter_join(
         &mut self,
         iter_ptr: ValueId,
         arg_vals: &[ValueId],
-        args: &[ArcVarId],
-        arc_func: &ArcFunction,
+        _args: &[ArcVarId],
+        _arc_func: &ArcFunction,
         elem_ty: Idx,
     ) -> Option<ValueId> {
         if arg_vals.len() < 2 {
@@ -203,19 +211,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        // Consumed-element release: non-null iff the provenance walk proves
-        // every element adapter-produced. `get_or_generate_elem_dec_fn`
-        // returns null for scalar element types, so the trampoline path
-        // stays behavior-unchanged even on a map-terminal scalar chain.
-        let elem_dec_fn = if args
-            .first()
-            .is_some_and(|&iter_var| self.join_chain_yields_fresh(iter_var, arc_func))
-        {
-            self.get_or_generate_elem_dec_fn(elem_ty)
-        } else {
-            self.builder.const_null_ptr()
-        };
-
         // OriStr result type (always str, regardless of element type)
         let str_ty = self.resolve_type(ori_types::Idx::STR);
         let out_alloca =
@@ -233,7 +228,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 to_str_fn,
                 to_str_env,
                 elem_size_val,
-                elem_dec_fn,
                 out_alloca,
             ],
             "",
@@ -342,149 +336,4 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         Some(func_id)
     }
-}
-
-impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Provenance walk for the join consumer's element-release verdict.
-    ///
-    /// Walks the iterator variable's def chain through element-identity adapters
-    /// (`filter`/`take`/`skip`/`rev` — single upstream iterator, each surviving
-    /// element passed through unchanged) to the nearest defining node:
-    ///
-    /// - `map` — every element reaching join is a fresh trampoline-produced
-    ///   value (consumer-owned, RC 1): the join call releases each consumed
-    ///   element, so return `true`.
-    /// - anything else — a source (`iter` — elements borrowed from the backing
-    ///   buffer), `chain` (two operands with potentially mixed provenance),
-    ///   `flat_map`/`flatten` (element ownership depends on the inner
-    ///   iterators), `cycle` (re-yields the same element), an unknown adapter,
-    ///   a function parameter, or a block-param merge: return `false`, the
-    ///   leak-safe verdict (never a double-free; byte-identical to the
-    ///   pre-release behavior for those chains).
-    ///
-    /// Every adapter-name match is gated on TWO conditions: the adapted
-    /// operand is iterator-typed, AND `resolve_callee` — the same 4-step
-    /// resolution order (`lookup_method_by_receiver` ->
-    /// `lookup_method_by_return_type` -> `ctx.functions` unqualified ->
-    /// `lookup_mono_dispatch`) codegen uses to dispatch the call itself —
-    /// finds no matching user-defined symbol under that bare name. Only a
-    /// call `resolve_callee` cannot resolve necessarily falls through to the
-    /// compiler's builtin dispatcher (`try_emit_builtin_method`), so only
-    /// then does the surface name genuinely identify the builtin adapter
-    /// rather than a same-named user free function
-    /// (`@map(xs: Iterator<str>) -> Iterator<str>`) or a `map` method on a
-    /// non-iterator receiver.
-    fn join_chain_yields_fresh(&self, iter_var: ArcVarId, arc_func: &ArcFunction) -> bool {
-        let is_iter = |var: ArcVarId| -> bool {
-            self.pool
-                .tag(self.pool.resolve_fully(arc_func.var_type(var)))
-                .is_iterator()
-        };
-        // Adapter chains are expression-local and short; the bound only guards
-        // against a pathological alias cycle in malformed IR.
-        let mut current = iter_var;
-        for _ in 0..64 {
-            match find_var_definition(arc_func, current) {
-                VarDef::Alias(src) => current = src,
-                VarDef::Call {
-                    func,
-                    args,
-                    dst,
-                    mono_instance_id,
-                } => {
-                    // A genuine iterator adapter consumes an iterator; if the first
-                    // argument is not iterator-typed the name is not the builtin
-                    // adapter — leak-safe decline.
-                    let Some(src) = args.first().copied().filter(|&fa| is_iter(fa)) else {
-                        return false;
-                    };
-                    // A resolved user symbol (free function, type-qualified
-                    // method, or monomorphized instance) sharing this bare
-                    // name is not the builtin adapter — leak-safe decline.
-                    if self
-                        .resolve_callee(func, &args, dst, arc_func, mono_instance_id)
-                        .is_some()
-                    {
-                        return false;
-                    }
-                    match self.interner.lookup(func) {
-                        "map" => return true,
-                        "filter" | "take" | "skip" | "rev" => current = src,
-                        _ => return false,
-                    }
-                }
-                VarDef::Other => return false,
-            }
-        }
-        false
-    }
-}
-
-/// A variable's defining node, reduced to what the join provenance walk
-/// distinguishes: a transparent alias, a named direct call (instruction
-/// `Apply` or terminator `Invoke`) with its full argument list, destination,
-/// and mono-dispatch index (the `resolve_callee` call-site shape), or
-/// anything else.
-enum VarDef {
-    Alias(ArcVarId),
-    Call {
-        func: ori_ir::Name,
-        args: Vec<ArcVarId>,
-        dst: ArcVarId,
-        mono_instance_id: Option<ori_ir::canon::MonoInstanceId>,
-    },
-    Other,
-}
-
-fn find_var_definition(arc_func: &ArcFunction, var: ArcVarId) -> VarDef {
-    use ori_arc::ir::{ArcInstr, ArcTerminator, ArcValue};
-
-    for block in &arc_func.blocks {
-        for instr in &block.body {
-            match instr {
-                ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Var(src),
-                    ..
-                } if *dst == var => return VarDef::Alias(*src),
-                ArcInstr::Apply {
-                    dst,
-                    func,
-                    args,
-                    mono_instance_id,
-                    ..
-                } if *dst == var => {
-                    return VarDef::Call {
-                        func: *func,
-                        args: args.clone(),
-                        dst: *dst,
-                        mono_instance_id: *mono_instance_id,
-                    };
-                }
-                _ => {
-                    if instr.defined_var() == Some(var) {
-                        return VarDef::Other;
-                    }
-                }
-            }
-        }
-        if let ArcTerminator::Invoke {
-            dst,
-            func,
-            args,
-            mono_instance_id,
-            ..
-        } = &block.terminator
-        {
-            if *dst == var {
-                return VarDef::Call {
-                    func: *func,
-                    args: args.clone(),
-                    dst: *dst,
-                    mono_instance_id: *mono_instance_id,
-                };
-            }
-        }
-    }
-    VarDef::Other
 }

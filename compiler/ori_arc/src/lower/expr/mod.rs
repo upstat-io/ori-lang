@@ -13,6 +13,7 @@ use ori_types::{Idx, Pool, Tag, TypeFlags};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcFunction, ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
+use crate::operator_calls::operator_call_plan;
 
 use super::scope::ArcScope;
 use super::{ArcIrBuilder, ArcProblem, VariantCtors};
@@ -228,14 +229,10 @@ impl ArcLowerer<'_> {
     fn lower_ident(&mut self, name: Name, ty: Idx, span: Span) -> ArcVarId {
         if let Some(var) = self.scope.lookup(name) {
             self.builder.emit_let(ty, ArcValue::Var(var), Some(span))
-        } else if let Some(binding) = self
-            .const_bindings
-            .and_then(|bindings| bindings.iter().find(|binding| binding.name == name))
-        {
-            let literal = match &binding.value {
-                GenericConstValue::Int(value) => LitValue::Int(*value),
-                GenericConstValue::Bool(value) => LitValue::Bool(*value),
-            };
+        } else if let Some(literal) = self.const_binding_literal(name) {
+            // Method const binders use ordinary identifier syntax in bodies.
+            // Lexical scope wins above so a runtime/local shadow cannot be
+            // replaced by specialization metadata.
             self.builder
                 .emit_let(ty, ArcValue::Literal(literal), Some(span))
         } else if let Some(&(enum_name, variant_idx, field_count)) = self.variant_ctors.get(&name) {
@@ -273,6 +270,39 @@ impl ArcLowerer<'_> {
     }
 
     // Constant lowering
+
+    fn const_binding_literal(&self, name: Name) -> Option<LitValue> {
+        let binding = self
+            .const_bindings?
+            .iter()
+            .find(|binding| binding.name == name)?;
+        Some(match &binding.value {
+            GenericConstValue::Int(value) => LitValue::Int(*value),
+            GenericConstValue::Bool(value) => LitValue::Bool(*value),
+        })
+    }
+
+    /// Lower a named generic-const reference for a concrete mono instance.
+    ///
+    /// Module constants are frozen into [`CanExpr::Constant`] during Canon.
+    /// Therefore a surviving named reference is valid only when the current
+    /// monomorphization supplies its exact declaration-name binding.
+    fn lower_const_reference(&mut self, name: Name, ty: Idx, span: Span) -> ArcVarId {
+        if let Some(literal) = self.const_binding_literal(name) {
+            return self
+                .builder
+                .emit_let(ty, ArcValue::Literal(literal), Some(span));
+        }
+
+        self.problems.push(ArcProblem::InternalError {
+            message: format!(
+                "named constant `{}` survived canonicalization without an exact monomorphization binding",
+                self.name_str(name)
+            ),
+            span,
+        });
+        self.emit_unit()
+    }
 
     /// Lower a compile-time constant from the `ConstantPool`.
     fn lower_constant(
@@ -331,10 +361,21 @@ impl ArcLowerer<'_> {
 
         let lhs = self.lower_expr(left);
         let rhs = self.lower_expr(right);
+        let operation = PrimOp::Binary(op);
+        if let Some(destination) = self.lower_unresolved_operator_call(
+            operation,
+            self.expr_type(left),
+            lhs,
+            vec![lhs, rhs],
+            ty,
+            span,
+        ) {
+            return destination;
+        }
         let dst = self.builder.emit_let(
             ty,
             ArcValue::PrimOp {
-                op: PrimOp::Binary(op),
+                op: operation,
                 args: vec![lhs, rhs],
             },
             Some(span),
@@ -367,10 +408,22 @@ impl ArcLowerer<'_> {
             return arg;
         }
 
+        let operation = PrimOp::Unary(op);
+        if let Some(destination) = self.lower_unresolved_operator_call(
+            operation,
+            self.expr_type(operand),
+            arg,
+            vec![arg],
+            ty,
+            span,
+        ) {
+            return destination;
+        }
+
         let dst = self.builder.emit_let(
             ty,
             ArcValue::PrimOp {
-                op: PrimOp::Unary(op),
+                op: operation,
                 args: vec![arg],
             },
             Some(span),
@@ -386,6 +439,31 @@ impl ArcLowerer<'_> {
             self.builder.note_checked_op(dst);
         }
         dst
+    }
+
+    fn lower_unresolved_operator_call(
+        &mut self,
+        operation: PrimOp,
+        receiver_type: Idx,
+        receiver: ArcVarId,
+        arguments: Vec<ArcVarId>,
+        result_type: Idx,
+        span: Span,
+    ) -> Option<ArcVarId> {
+        let plan = operator_call_plan(operation)?;
+        if self.pool.builtin_method_type_tag(receiver_type).is_some() {
+            return None;
+        }
+        let destination = self.builder.emit_invoke(
+            result_type,
+            self.interner.intern(plan.method),
+            arguments,
+            Some(span),
+            None,
+        );
+        self.builder
+            .note_operator_call(destination, receiver, operation, Some(span));
+        Some(destination)
     }
 }
 

@@ -325,6 +325,16 @@ fn build_records(path: &str) -> Result<Vec<(String, Value)>, String> {
         &frontend.type_result,
         &frontend.pool,
     );
+    if super::emit_const_eval_problems(&shared_canon.const_problems, db.interner(), &mut emitter) {
+        emitter.flush();
+        return Err(format!(
+            "error: {}; AIMS state not emitted",
+            oric::problem::semantic::const_eval_problems_summary(
+                &shared_canon.const_problems,
+                db.interner(),
+            )
+        ));
+    }
     let canon = &*shared_canon;
 
     let function_sigs =

@@ -6,7 +6,10 @@
 #[cfg(debug_assertions)]
 use super::check_leaks_enabled;
 #[cfg(debug_assertions)]
-use super::debug::{alloc_registry_insert, alloc_registry_remove, rt_debug_register_freed};
+use super::debug::{
+    alloc_registry_insert, alloc_registry_remove, rt_debug_register_allocated,
+    rt_debug_register_freed,
+};
 use super::debug::{rc_trace_alloc, rc_trace_free, rc_trace_realloc};
 use super::{rc_trace_enabled, RC_HEADER_SIZE, RC_LIVE_COUNT};
 
@@ -61,6 +64,9 @@ pub extern "C" fn ori_rc_alloc(size: usize, align: usize) -> *mut u8 {
     // Return data pointer (32 bytes past the base)
     // SAFETY: base is valid for total_size bytes, so base + 32 is valid
     let data_ptr = unsafe { base.add(RC_HEADER_SIZE) };
+
+    #[cfg(debug_assertions)]
+    rt_debug_register_allocated(data_ptr.cast_const());
 
     #[cfg(debug_assertions)]
     if check_leaks_enabled() {
@@ -166,6 +172,12 @@ pub extern "C" fn ori_rc_realloc(
     // Return data pointer (32 bytes past the header)
     // SAFETY: new_base is valid for new_total bytes, so new_base + 32 is valid.
     let new_data = unsafe { new_base.add(RC_HEADER_SIZE) };
+
+    #[cfg(debug_assertions)]
+    if new_data != data_ptr {
+        rt_debug_register_freed(data_ptr.cast_const());
+        rt_debug_register_allocated(new_data.cast_const());
+    }
 
     // Update leak tracker metadata.
     if new_data == data_ptr {

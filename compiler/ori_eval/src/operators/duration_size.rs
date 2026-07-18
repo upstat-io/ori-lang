@@ -1,12 +1,19 @@
 //! Binary operator implementations for Duration and Size types.
 
-use ori_ir::BinaryOp;
+use ori_ir::{builtin_constants::size, BinaryOp};
 use ori_patterns::{
     division_by_zero, integer_overflow, invalid_binary_op_for, size_negative_divide,
     size_negative_multiply, size_would_be_negative, EvalResult, ScalarInt, Value,
 };
 
 use super::{checked_arith, checked_mod};
+
+fn checked_size_arith(result: Option<u64>, operation: &'static str) -> EvalResult {
+    result
+        .filter(|value| *value <= size::MAX_BYTES)
+        .map(Value::Size)
+        .ok_or_else(|| integer_overflow(operation).into())
+}
 
 /// Binary operations on Duration values (stored as i64 nanoseconds).
 pub(super) fn eval_duration_binary(a: i64, b: i64, op: BinaryOp) -> EvalResult {
@@ -63,10 +70,10 @@ pub(super) fn eval_int_duration_binary(a: ScalarInt, b: i64, op: BinaryOp) -> Ev
     }
 }
 
-/// Binary operations on Size values (stored as u64 bytes).
+/// Binary operations on Size values (stored as non-negative signed byte counts).
 pub(super) fn eval_size_binary(a: u64, b: u64, op: BinaryOp) -> EvalResult {
     match op {
-        BinaryOp::Add => checked_arith(a.checked_add(b), Value::Size, "size addition"),
+        BinaryOp::Add => checked_size_arith(a.checked_add(b), "size addition"),
         BinaryOp::Sub => a
             .checked_sub(b)
             .map(Value::Size)
@@ -89,10 +96,9 @@ pub(super) fn eval_size_int_binary(a: u64, b: ScalarInt, op: BinaryOp) -> EvalRe
     match op {
         BinaryOp::Mul => match b_val.cmp(&0) {
             Ordering::Less => Err(size_negative_multiply().into()),
-            Ordering::Equal | Ordering::Greater => a
-                .checked_mul(b_val.cast_unsigned())
-                .map(Value::Size)
-                .ok_or_else(|| integer_overflow("size multiplication").into()),
+            Ordering::Equal | Ordering::Greater => {
+                checked_size_arith(a.checked_mul(b_val.cast_unsigned()), "size multiplication")
+            }
         },
         BinaryOp::Div => match b_val.cmp(&0) {
             Ordering::Equal => Err(division_by_zero().into()),
@@ -113,11 +119,9 @@ pub(super) fn eval_int_size_binary(a: ScalarInt, b: u64, op: BinaryOp) -> EvalRe
     match op {
         BinaryOp::Mul => match a_val.cmp(&0) {
             Ordering::Less => Err(size_negative_multiply().into()),
-            Ordering::Equal | Ordering::Greater => a_val
-                .cast_unsigned()
-                .checked_mul(b)
-                .map(Value::Size)
-                .ok_or_else(|| integer_overflow("size multiplication").into()),
+            Ordering::Equal | Ordering::Greater => {
+                checked_size_arith(a_val.cast_unsigned().checked_mul(b), "size multiplication")
+            }
         },
         _ => Err(invalid_binary_op_for("int and Size", op).into()),
     }

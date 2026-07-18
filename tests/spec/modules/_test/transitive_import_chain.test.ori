@@ -17,9 +17,8 @@
 //     distinct source modules in one module (mid_multi)
 //   - composition: an imported symbol combined with a directly-exported
 //     (pub) sibling in the SAME module (mid_combine)
-//   - scope boundary: a same-module PRIVATE-sibling-chain (skipped —
-//     tracked as a distinct, deeper defect than transitive import
-//     resolution)
+//   - scope boundary: a same-module private-sibling chain retained in the
+//     imported callable closure
 
 use std.testing { assert_eq }
 
@@ -74,18 +73,9 @@ use "../transitive_import_private_sibling_chain_lib" { private_chain_exported }
     assert_eq(actual: deep_top_wrap(x: 0), expected: 200)
 }
 
-// --- Scope boundary: same-module PRIVATE-sibling chain ---
-//
-// Deliberately out of scope for the transitive cross-module import fix.
-// `FunctionValue.captures` is frozen (immutable after creation) with no
-// setter, so any snapshot of an imported module's own function map taken
-// before ITS OWN functions are finalized still holds placeholder values —
-// a private sibling reached transitively through another private sibling's
-// captures never resolves. Distinct, deeper defect than cross-module
-// transitive import resolution.
+// --- Scope boundary: same-module private-sibling chain ---
 
-#skip("BUG-03-018: same-module 2+-deep private-sibling-chain resolution needs a live/mutable scope representation for FunctionValue.captures")
-@test_private_sibling_chain_still_broken tests @private_chain_exported () -> void = {
+@test_private_sibling_chain_closes tests @private_chain_exported () -> void = {
     // private_chain_exported(x) = private_chain_h1(x) = (x + 2) * 2
     assert_eq(actual: private_chain_exported(x: 5), expected: 14)
 }

@@ -8,7 +8,7 @@
 
 use std::ptr;
 
-use super::state::{ElemBuf, IterState, PredicateFn, TransformFn, YieldGuard};
+use super::state::{CallbackEnv, ElemBuf, IterState, PredicateFn, TransformFn, YieldGuard};
 
 impl IterState {
     /// Advance the iterator from the back, writing the element to `out_ptr`.
@@ -42,13 +42,13 @@ impl IterState {
                 transform_env,
                 in_size,
                 ..
-            } => Self::next_back_mapped(source, *transform_fn, *transform_env, *in_size, out_ptr),
+            } => Self::next_back_mapped(source, *transform_fn, transform_env, *in_size, out_ptr),
             Self::Filtered {
                 source,
                 predicate_fn,
                 predicate_env,
                 elem_size: es,
-            } => Self::next_back_filtered(source, *predicate_fn, *predicate_env, *es, out_ptr),
+            } => Self::next_back_filtered(source, *predicate_fn, predicate_env, *es, out_ptr),
             Self::Reversed {
                 elements,
                 pos,
@@ -126,7 +126,7 @@ impl IterState {
     unsafe fn next_back_mapped(
         source: &mut IterState,
         transform_fn: TransformFn,
-        transform_env: *mut u8,
+        transform_env: &mut CallbackEnv,
         in_size: i64,
         out_ptr: *mut u8,
     ) -> bool {
@@ -135,7 +135,7 @@ impl IterState {
             return false;
         }
         let _source_yield = YieldGuard::new(source, scratch.as_mut_ptr());
-        (transform_fn)(transform_env, scratch.as_ptr(), out_ptr);
+        (transform_fn)(transform_env.as_mut_ptr(), scratch.as_ptr(), out_ptr);
         true
     }
 
@@ -143,7 +143,7 @@ impl IterState {
     unsafe fn next_back_filtered(
         source: &mut IterState,
         predicate_fn: PredicateFn,
-        predicate_env: *mut u8,
+        predicate_env: &mut CallbackEnv,
         es: i64,
         out_ptr: *mut u8,
     ) -> bool {
@@ -152,7 +152,7 @@ impl IterState {
                 return false;
             }
             let mut source_yield = YieldGuard::new(source, out_ptr);
-            if (predicate_fn)(predicate_env, out_ptr) {
+            if (predicate_fn)(predicate_env.as_mut_ptr(), out_ptr) {
                 source_yield.disarm();
                 return true;
             }

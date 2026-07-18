@@ -3,7 +3,7 @@
 use ori_ir::Name;
 use rustc_hash::FxHashMap;
 
-use crate::{Idx, Pool, Tag};
+use crate::{Idx, Pool};
 
 /// Register pool resolutions for concrete Applied types produced by monomorphization.
 ///
@@ -19,11 +19,11 @@ pub(crate) fn register_concrete_applied_resolutions(
     body_type_map: &[(Idx, Idx)],
     generic_type_params: &FxHashMap<Name, Vec<Name>>,
 ) {
-    for &(_generic_idx, concrete_idx) in body_type_map {
-        if pool.tag(concrete_idx) == Tag::Applied {
-            resolve_applied_type(pool, concrete_idx, generic_type_params);
-        }
-    }
+    crate::pool::substitute::register_concrete_applied_resolutions(
+        pool,
+        body_type_map,
+        generic_type_params,
+    );
 }
 
 /// Resolve a single concrete Applied type to its concrete composite body in the

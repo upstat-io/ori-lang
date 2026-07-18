@@ -128,7 +128,10 @@ fn all_kinds_have_unique_codes() {
             method: String::new(),
             type_name: String::new(),
         },
-        EvalErrorKind::IndexOutOfBounds { index: 0 },
+        EvalErrorKind::IndexOutOfBounds {
+            index: 0,
+            length: 0,
+        },
         EvalErrorKind::KeyNotFound { key: String::new() },
         EvalErrorKind::ImmutableBinding {
             name: String::new(),

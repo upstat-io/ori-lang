@@ -300,6 +300,7 @@ mod tests {
             roots: vec![read_name],
             cli_entry: Some(read_name),
             externals: Vec::new(),
+            method_targets: FxHashMap::default(),
             user_drop_bindings: Vec::new(),
             repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
             type_registry: TypeRegistry::new(),

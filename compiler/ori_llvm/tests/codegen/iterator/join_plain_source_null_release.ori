@@ -1,12 +1,8 @@
-// FileCheck test: join over a plain source passes a null consumed-element
-// release fn — the source buffer owns its elements; releasing them at join
-// would double-free.
+// FileCheck test: join over a plain source also receives no generated release
+// verdict; runtime state knows that borrowed source yields need no release.
 //
 // CHECK-LABEL: define void @_ori_main
-// CHECK: i64 24, ptr null, ptr %join.out
-//
-// The list literal's own buffer header still gets a dec thunk stored; the
-// assertion above pins only the JOIN call's release slot.
+// CHECK: ptr null, i64 24, ptr %join.out)
 
 @main () -> void = {
     let $plain = ["gamma-gamma-gamma-gamma-gamma", "delta-delta-delta-delta-delta"]

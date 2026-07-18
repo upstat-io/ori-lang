@@ -4,7 +4,9 @@ use ori_ir::{ExprArena, ExprId, ImplMethod, Module, Name, Param, Span, TraitDef,
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::method_sig::{allocate_generic_binders, build_method_sig};
-use crate::check::registration::resolve_type_with_method_generics;
+use crate::check::registration::{
+    extension_method_has_self, extension_type_params, resolve_type_with_method_generics,
+};
 use crate::check::ModuleChecker;
 use crate::output::ConstParamInfo;
 use crate::{
@@ -19,6 +21,48 @@ use crate::{
 pub(in crate::check) fn check_impl_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
     for (impl_index, impl_def) in module.impls.iter().enumerate() {
         check_impl_block(checker, impl_def, &module.traits, impl_index);
+    }
+}
+
+/// Type check extension bodies using the same signature/export spine as impl
+/// methods. Synthetic owner indices follow parsed impl indices so producer
+/// identity is collision-free without adding a second identity family.
+#[tracing::instrument(level = "debug", skip_all, fields(count = module.extends.len()))]
+pub(in crate::check) fn check_extension_bodies(checker: &mut ModuleChecker<'_>, module: &Module) {
+    for (extension_index, extension) in module.extends.iter().enumerate() {
+        let owner_index = module.impls.len() + extension_index;
+        let type_params = extension_type_params(checker, extension);
+        let preallocated = checker.impl_rigid_var_map(owner_index).cloned();
+        let (mut substitutions, explicit_params, _const_params, inline_bounds) =
+            allocate_generic_binders(checker, extension.generics, preallocated.as_ref());
+        let generic_params = if extension.generics.is_empty() {
+            substitutions = preallocated.unwrap_or_default();
+            type_params
+        } else {
+            explicit_params
+        };
+        let self_type = resolve_type_with_method_generics(
+            checker,
+            &extension.target_ty,
+            &substitutions,
+            &generic_params,
+            Idx::ERROR,
+        );
+        let context = ImplBodyContext {
+            impl_index: owner_index,
+            self_type,
+            trait_type: None,
+            type_params: &generic_params,
+            substitutions: &substitutions,
+            inline_bounds: &inline_bounds,
+        };
+        let self_kw = checker.well_known().self_kw;
+        let arena = checker.arena();
+        for method in &extension.methods {
+            if extension_method_has_self(arena, method, self_kw) {
+                check_impl_method(checker, method, &context);
+            }
+        }
     }
 }
 
@@ -130,7 +174,7 @@ fn check_impl_method(
         return;
     };
 
-    let outputs = infer_impl_method(checker, method, impl_context, &mut setup);
+    let outputs = infer_impl_method(checker, method, method_id, impl_context, &mut setup);
     let sig = build_method_sig(
         method.name,
         &setup.params,
@@ -158,6 +202,7 @@ struct MethodSetup {
     param_types: Vec<Idx>,
     return_type: Idx,
     combined_type_params: Vec<Name>,
+    caller_binder_roots: Vec<Idx>,
     method_const_params: Vec<ConstParamInfo>,
     method_inline_bounds: Vec<(Idx, Vec<Name>)>,
     impl_inline_bounds: Vec<(Idx, Vec<Name>)>,
@@ -176,13 +221,26 @@ fn prepare_impl_method(
     let (method_substitutions, method_generic_params, method_const_params, method_inline_bounds) =
         allocate_generic_binders(checker, method.generics, preallocated.as_ref());
 
+    // Preserve both declaration axes before the method overlay is merged.
+    // A method binder may shadow an impl binder with the same spelling; the
+    // exact rigid roots must remain distinct and ordered impl-first.
+    let caller_binder_roots = impl_context
+        .type_params
+        .iter()
+        .filter_map(|name| impl_context.substitutions.get(name).copied())
+        .chain(
+            method_generic_params
+                .iter()
+                .filter_map(|name| method_substitutions.get(name).copied()),
+        )
+        .collect::<Vec<_>>();
     let mut combined_substitutions = impl_context.substitutions.clone();
     combined_substitutions.extend(method_substitutions);
     let combined_type_params = impl_context
         .type_params
         .iter()
         .copied()
-        .chain(method_generic_params)
+        .chain(method_generic_params.iter().copied())
         .collect::<Vec<_>>();
     let params = checker.arena().get_params(method.params).to_vec();
     let param_types = resolve_method_parameters(
@@ -221,6 +279,7 @@ fn prepare_impl_method(
         param_types,
         return_type,
         combined_type_params,
+        caller_binder_roots,
         method_const_params,
         method_inline_bounds,
         impl_inline_bounds: impl_context.inline_bounds.to_vec(),
@@ -261,6 +320,7 @@ fn resolve_method_parameters(
 fn infer_impl_method(
     checker: &mut ModuleChecker<'_>,
     method: &ImplMethod,
+    method_id: ImplMethodId,
     impl_context: &ImplBodyContext<'_>,
     setup: &mut MethodSetup,
 ) -> super::BodyOutputs {
@@ -268,6 +328,13 @@ fn infer_impl_method(
         checker.with_function_scope(setup.fn_type, FxHashSet::default(), |checker| {
             let arena = checker.arena();
             let mut engine = checker.create_engine_with_env(setup.param_env.clone());
+            engine.set_deferred_mono_caller(
+                crate::DeferredMonoCaller::ImplMethod {
+                    name: method.name,
+                    id: method_id,
+                },
+                setup.caller_binder_roots.clone(),
+            );
             configure_method_engine(
                 &mut engine,
                 &setup.method_const_params,
@@ -299,7 +366,7 @@ fn configure_method_engine(
     impl_bounds: &[(Idx, Vec<Name>)],
 ) {
     for param in const_params {
-        engine.bind_method_const(param.name, param.const_type);
+        engine.bind_const_param(param.name, param.const_type);
     }
     for (rigid, trait_names) in method_bounds.iter().chain(impl_bounds) {
         for &trait_name in trait_names {
@@ -378,5 +445,6 @@ fn finish_method_inference(
         assign_desugars: engine.take_assign_desugars(),
         module_alias_calls: engine.take_module_alias_calls(),
         iter_route_desugars: engine.take_iter_routes(),
+        capability_calls: engine.take_capability_calls(),
     }
 }

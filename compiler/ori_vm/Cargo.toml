@@ -16,6 +16,7 @@ thiserror.workspace = true
 [dev-dependencies]
 ori_types.workspace = true
 pretty_assertions.workspace = true
+rustc-hash.workspace = true
 
 [lints]
 workspace = true

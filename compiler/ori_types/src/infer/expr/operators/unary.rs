@@ -71,7 +71,7 @@ pub(crate) fn infer_unary(
 
             // Trait dispatch for non-primitive, non-variable types.
             if !tag.is_primitive() && !tag.is_type_variable() {
-                if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op) {
+                if let Some(ret) = resolve_unary_op_via_trait(engine, resolved, op, operand_span) {
                     return ret;
                 }
                 if let Some(trait_name) = op.trait_name() {
@@ -116,8 +116,8 @@ pub(crate) fn infer_unary(
 
 /// Try to resolve a unary operator via trait dispatch.
 ///
-/// Looks up the operator's method name in the `TraitRegistry` for the
-/// operand's type. If found, returns the method's return type.
+/// Resolves the operator through the ordinary impl-method path so generic impl
+/// receivers publish the same concrete body demand as binary operators.
 ///
 /// Uses `UnaryOp::trait_method_name()` as the single source of truth for
 /// the operator→method mapping.
@@ -125,20 +125,10 @@ fn resolve_unary_op_via_trait(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
     op: UnaryOp,
+    span: Span,
 ) -> Option<Idx> {
     let method_name = op.trait_method_name()?;
     let name = engine.intern_name(method_name)?;
 
-    let sig_ty = {
-        let trait_registry = engine.trait_registry()?;
-        let lookup = trait_registry.lookup_method(receiver_ty, name)?;
-        lookup.method().signature
-    };
-
-    let resolved_sig = engine.resolve(sig_ty);
-    if engine.pool().tag(resolved_sig) != Tag::Function {
-        return Some(Idx::ERROR);
-    }
-
-    Some(engine.pool().function_return(resolved_sig))
+    super::super::calls::resolve_unary_operator_method(engine, receiver_ty, name, span)
 }

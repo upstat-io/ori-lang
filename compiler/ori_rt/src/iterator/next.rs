@@ -3,7 +3,8 @@
 use std::ptr;
 
 use super::state::{
-    assert_elem_size, CycleSource, ElemBuf, IterState, PredicateFn, TransformFn, YieldGuard,
+    assert_elem_size, CallbackEnv, CycleSource, ElemBuf, IterState, PredicateFn, TransformFn,
+    YieldGuard,
 };
 
 impl IterState {
@@ -37,13 +38,13 @@ impl IterState {
                 transform_env,
                 in_size,
                 ..
-            } => Self::next_mapped(source, *transform_fn, *transform_env, *in_size, out_ptr),
+            } => Self::next_mapped(source, *transform_fn, transform_env, *in_size, out_ptr),
             Self::Filtered {
                 source,
                 predicate_fn,
                 predicate_env,
                 elem_size: es,
-            } => Self::next_filtered(source, *predicate_fn, *predicate_env, *es, out_ptr),
+            } => Self::next_filtered(source, *predicate_fn, predicate_env, *es, out_ptr),
             Self::TakeN { source, remaining } => {
                 Self::next_take(source, remaining, elem_size, out_ptr)
             }
@@ -160,7 +161,7 @@ impl IterState {
     unsafe fn next_mapped(
         source: &mut IterState,
         transform_fn: TransformFn,
-        transform_env: *mut u8,
+        transform_env: &mut CallbackEnv,
         in_size: i64,
         out_ptr: *mut u8,
     ) -> bool {
@@ -169,7 +170,7 @@ impl IterState {
             return false;
         }
         let _source_yield = YieldGuard::new(source, scratch.as_mut_ptr());
-        (transform_fn)(transform_env, scratch.as_ptr(), out_ptr);
+        (transform_fn)(transform_env.as_mut_ptr(), scratch.as_ptr(), out_ptr);
         true
     }
 
@@ -177,7 +178,7 @@ impl IterState {
     unsafe fn next_filtered(
         source: &mut IterState,
         predicate_fn: PredicateFn,
-        predicate_env: *mut u8,
+        predicate_env: &mut CallbackEnv,
         es: i64,
         out_ptr: *mut u8,
     ) -> bool {
@@ -186,7 +187,7 @@ impl IterState {
                 return false;
             }
             let mut source_yield = YieldGuard::new(source, out_ptr);
-            if (predicate_fn)(predicate_env, out_ptr) {
+            if (predicate_fn)(predicate_env.as_mut_ptr(), out_ptr) {
                 source_yield.disarm();
                 return true;
             }
@@ -355,6 +356,7 @@ impl IterState {
         if let CycleSource::Reading(src) = source {
             let mut elem_buf = ElemBuf::new();
             if src.next(elem_buf.as_mut_ptr(), elem_size) {
+                let mut source_yield = YieldGuard::new(src, elem_buf.as_mut_ptr());
                 // INVARIANT: Each buffered owner is retained once and released once by `Drop`.
                 buffer.extend_from_slice(&elem_buf[..es]);
                 if let Some(inc) = elem_inc_fn {
@@ -362,6 +364,9 @@ impl IterState {
                     inc(stored);
                 }
                 ptr::copy_nonoverlapping(elem_buf.as_ptr(), out_ptr, es);
+                // The cycle forwards the current source obligation. Its parent
+                // consumer releases it through `Cycled::release_last_yield`.
+                source_yield.disarm();
                 return true;
             }
             *source = CycleSource::Replaying;

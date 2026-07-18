@@ -11,6 +11,7 @@ use ori_repr::executable::{
 };
 use ori_repr::{NarrowingPolicy, ReprPlan};
 use ori_types::{Idx, Pool, TypeRegistry};
+use rustc_hash::FxHashMap;
 
 use super::arena::{Aggregate, AggregateKind, IteratorSourceState, IteratorState};
 use super::frame::{Frame, ReturnTo};
@@ -246,7 +247,7 @@ fn zero_frame_limit_rejects_before_root_activation_is_created() {
 }
 
 #[test]
-fn report_aggregate_arena_metrics_include_explicit_session_cleanup() {
+fn report_materialized_aggregate_is_reclaimed_before_exit_metrics() {
     let program = verified_aggregate_program();
 
     let report = execute_report(&program, ExecutionConfig::default());
@@ -270,20 +271,33 @@ fn report_aggregate_arena_metrics_include_explicit_session_cleanup() {
         report.metrics.cumulative_value_arena_iterator_allocations,
         0
     );
-    assert_eq!(report.metrics.exit_value_arena_entries, 1);
+    assert_eq!(report.metrics.exit_value_arena_entries, 0);
+    assert_eq!(report.metrics.exit_value_arena_slots, 1);
     assert!(report.metrics.exit_value_arena_owned_bytes > 0);
     assert_eq!(report.metrics.final_value_arena_entries, 0);
     assert_eq!(report.metrics.final_value_arena_slots, 0);
     assert_eq!(report.metrics.final_value_arena_owned_bytes, 0);
     assert_eq!(report.metrics.peak_value_arena_entries, 1);
     assert_eq!(report.metrics.peak_value_arena_slots, 1);
-    assert_eq!(report.metrics.cumulative_value_arena_collections, 0);
-    assert_eq!(report.metrics.cumulative_value_arena_reclaimed_entries, 0);
+    assert_eq!(report.metrics.cumulative_value_arena_collections, 1);
+    assert_eq!(report.metrics.cumulative_value_arena_reclaimed_entries, 1);
     assert_eq!(report.metrics.cumulative_value_arena_reused_entries, 0);
     assert_eq!(
         report.metrics.peak_value_arena_owned_bytes,
         report.metrics.exit_value_arena_owned_bytes
     );
+}
+
+#[test]
+fn report_reclaimed_aggregate_does_not_hide_unreleased_heap_child() {
+    let program = verified_aggregate_with_unreleased_list_program();
+
+    let report = execute_report(&program, ExecutionConfig::default());
+
+    assert!(matches!(report.result, Ok(ExitValue::Int(0))));
+    assert_eq!(report.metrics.exit_value_arena_entries, 0);
+    assert_eq!(report.metrics.exit_live_heap_objects, 1);
+    assert_eq!(report.metrics.final_live_heap_objects, 0);
 }
 
 #[test]
@@ -1172,6 +1186,7 @@ pub(super) fn verified_aggregate_program() -> VerifiedProgram {
             roots: vec![main],
             cli_entry: Some(main),
             externals: Vec::new(),
+            method_targets: FxHashMap::default(),
             user_drop_bindings: Vec::new(),
             repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
             type_registry: TypeRegistry::new(),
@@ -1180,6 +1195,47 @@ pub(super) fn verified_aggregate_program() -> VerifiedProgram {
     );
     let bytecode = must_succeed(compile(&program), "test executable should compile");
     must_succeed(verify(bytecode), "test bytecode should verify")
+}
+
+fn verified_aggregate_with_unreleased_list_program() -> VerifiedProgram {
+    let symbols = SharedInterner::new();
+    let main = symbols.intern("main");
+    let mut pool = Pool::new();
+    let list_type = pool.list(Idx::INT);
+    let tuple_type = pool.tuple(&[list_type]);
+    let function = test_function(
+        main,
+        vec![
+            ArcInstr::Let {
+                dst: ArcVarId::new(0),
+                ty: Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(7)),
+            },
+            ArcInstr::Construct {
+                dst: ArcVarId::new(1),
+                ty: list_type,
+                ctor: CtorKind::ListLiteral,
+                args: vec![ArcVarId::new(0)],
+            },
+            ArcInstr::Construct {
+                dst: ArcVarId::new(2),
+                ty: tuple_type,
+                ctor: CtorKind::Tuple,
+                args: vec![ArcVarId::new(1)],
+            },
+            ArcInstr::Let {
+                dst: ArcVarId::new(3),
+                ty: Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+        ],
+        ArcTerminator::Return {
+            value: ArcVarId::new(3),
+        },
+        vec![Idx::INT, list_type, tuple_type, Idx::INT],
+        Idx::INT,
+    );
+    verified_program(symbols, pool, vec![function], main)
 }
 
 pub(super) fn verified_constant_string_program(text: &str) -> VerifiedProgram {
@@ -1270,6 +1326,7 @@ pub(super) fn verified_program(
             roots: vec![main],
             cli_entry: Some(main),
             externals: Vec::new(),
+            method_targets: FxHashMap::default(),
             user_drop_bindings: Vec::new(),
             repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
             type_registry,
@@ -1339,6 +1396,7 @@ fn test_function_with_blocks(
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
         method_call_facts: Vec::new(),
+        operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
         class_ledger_emission: false,
     }

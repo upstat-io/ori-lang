@@ -85,6 +85,15 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_type(ty)
     }
 
+    /// Whether two arena handles denote the same LLVM type.
+    ///
+    /// Type handles themselves are registration identities: resolving one
+    /// semantic type twice can produce two handles for the same LLVM type.
+    #[inline]
+    pub fn same_llvm_type(&self, lhs: LLVMTypeId, rhs: LLVMTypeId) -> bool {
+        self.arena.get_type(lhs) == self.arena.get_type(rhs)
+    }
+
     /// Register and return the `i1` (bool) type ID.
     #[inline]
     pub fn bool_type(&mut self) -> LLVMTypeId {

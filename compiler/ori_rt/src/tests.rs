@@ -4545,6 +4545,23 @@ fn freed_set_reset_clears_state() {
 
 #[cfg(debug_assertions)]
 #[test]
+fn new_allocation_lifetime_clears_reused_address_tombstone() {
+    with_rt_debug(|| {
+        let ptr = ori_rc_alloc(16, 8);
+        let addr = ptr as usize;
+        ori_rc_free(ptr, 16, 8);
+        assert!(freed_set().lock().unwrap().contains(&addr));
+
+        // Model the allocator returning the same address for a new lifetime.
+        // The registration step must make subsequent RC validation live again.
+        rt_debug_register_allocated(ptr.cast_const());
+        assert!(!freed_set().lock().unwrap().contains(&addr));
+        rt_debug_check_not_freed(ptr.cast_const(), "reused-allocation-test");
+    });
+}
+
+#[cfg(debug_assertions)]
+#[test]
 fn debug_validate_rc_accepts_valid_refcount() {
     with_rt_debug(|| {
         let ptr = ori_rc_alloc(16, 8);
@@ -7953,6 +7970,57 @@ fn cow_map_updated_replaces_existing_key_value() {
 }
 
 // ori_panic message ownership
+
+/// The Itanium unwinder returning means an uncaught panic had no generated
+/// exception boundary. Preserve the user's panic message, explain the cause,
+/// and give a concrete report command instead of exposing only ABI jargon.
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+#[test]
+fn uncaught_panic_without_native_handler_is_friendly_and_actionable() {
+    use std::process::Command;
+
+    let result =
+        Command::new(std::env::current_exe().expect("could not determine test binary path"))
+            .arg("--exact")
+            .arg("tests::uncaught_panic_without_native_handler_child")
+            .arg("--nocapture")
+            .env("ORI_UNCAUGHT_PANIC_BOUNDARY_TEST", "1")
+            .output()
+            .expect("failed to spawn child process");
+
+    assert_eq!(
+        result.status.code(),
+        Some(134),
+        "missing native panic boundary must use the fatal exit code"
+    );
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        stderr.contains("ori panic: boundary regression pin"),
+        "the original panic cause must be preserved: {stderr}"
+    );
+    assert!(
+        stderr.contains("uncaught panic reached the end of the native exception stack"),
+        "the diagnostic must explain the missing boundary: {stderr}"
+    );
+    assert!(
+        stderr.contains("`ori --version`") && stderr.contains("source program"),
+        "the diagnostic must name the concrete reporting evidence: {stderr}"
+    );
+}
+
+/// Subprocess helper for
+/// [`uncaught_panic_without_native_handler_is_friendly_and_actionable`].
+#[cfg(not(all(target_os = "windows", target_env = "msvc")))]
+#[test]
+fn uncaught_panic_without_native_handler_child() {
+    if std::env::var("ORI_UNCAUGHT_PANIC_BOUNDARY_TEST").is_err() {
+        return;
+    }
+
+    crate::io::set_panic_state_for_test("boundary regression pin");
+    crate::io::ori_report_unhandled_exception(5);
+    std::process::exit(134);
+}
 
 thread_local! {
     /// Message pointer smuggled into the `extern "C"` panic thunk

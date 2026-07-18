@@ -1,0 +1,19 @@
+type Left<T> = { value: T };
+type Right<T> = { value: T };
+
+@left_id<T> (value: T) -> T = value;
+@right_id<T> (value: T) -> T = value;
+
+@use_left (value: Left<int>) -> int = value.forward();
+@use_right (value: Right<str>) -> str = value.forward();
+
+impl<T> Left<T> {
+    @forward (self) -> T = left_id(value: self.value);
+}
+
+impl<T> Right<T> {
+    @forward (self) -> T = right_id(value: self.value);
+}
+
+@test_left tests @use_left () -> void = ();
+@test_right tests @use_right () -> void = ();

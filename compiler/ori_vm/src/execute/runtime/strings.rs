@@ -31,18 +31,20 @@ impl Interpreter<'_> {
     }
 
     pub(super) fn convert_to_string(&mut self, value: VmValue) -> Result<VmValue, ExecutionError> {
-        let string = match value.kind() {
+        let string = Self::primitive_string(value, "to_str")?;
+        self.allocate_string(string)
+    }
+
+    fn primitive_string(value: VmValue, operation: &'static str) -> Result<String, ExecutionError> {
+        Ok(match value.kind() {
             ValueKind::Int => value.as_int()?.to_string(),
             ValueKind::Bool => value.as_bool()?.to_string(),
             ValueKind::Float => value.as_float()?.to_string(),
             ValueKind::Char => value.as_char()?.to_string(),
             _ => {
-                return Err(ExecutionError::UnsupportedPrimitive {
-                    operation: "to_str",
-                });
+                return Err(ExecutionError::UnsupportedPrimitive { operation });
             }
-        };
-        self.allocate_string(string)
+        })
     }
 
     pub(super) fn concat(
@@ -189,7 +191,12 @@ impl Interpreter<'_> {
     }
 
     pub(super) fn print(&mut self, value: VmValue) -> Result<VmValue, ExecutionError> {
-        let string = self.string_owned(value)?;
+        let string = match value.kind() {
+            ValueKind::ConstantString | ValueKind::Heap => self
+                .string_ref(value, RuntimeCall::Print)
+                .map(str::to_owned)?,
+            _ => Self::primitive_string(value, "print")?,
+        };
         let requested = self
             .output
             .len()
@@ -214,6 +221,17 @@ impl Interpreter<'_> {
         Err(ExecutionError::Panic {
             message: self.string_owned(message)?,
         })
+    }
+
+    pub(super) fn catch_recover(&mut self) -> Result<VmValue, ExecutionError> {
+        match self
+            .pending_panic
+            .take()
+            .ok_or(ExecutionError::CatchRecoverWithoutPanic)?
+        {
+            ExecutionError::Panic { message } => self.allocate_string(message),
+            error => Err(error),
+        }
     }
 
     fn allocate_string(&mut self, value: String) -> Result<VmValue, ExecutionError> {

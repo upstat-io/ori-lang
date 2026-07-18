@@ -676,6 +676,8 @@ impl<'a> RetainPlanBuilder<'a> {
     }
 
     fn duplication_for(&mut self, ty: Idx) -> Result<Duplication, &'static str> {
+        // Retain `ty` as the frozen semantic identity. Resolution supplies the
+        // topology view only; it may cross a nominal-to-layout boundary.
         let resolved = self.pool.resolve_fully(ty);
         if resolved == Idx::NONE || resolved.raw() as usize >= self.pool.len() {
             return Err("the parameter type is unresolved");
@@ -693,7 +695,7 @@ impl<'a> RetainPlanBuilder<'a> {
         if matches!(tag, Tag::Struct | Tag::Enum) && self.pool.aggregate_type_is_recursive(resolved)
         {
             return self
-                .intern(resolved, RetainPlanKind::SelfOwnedIdentity)
+                .intern(ty, RetainPlanKind::SelfOwnedIdentity)
                 .map(Duplication::Retain)
                 .map_err(|_| "the retain-plan table exceeds its stable identity range");
         }
@@ -701,12 +703,17 @@ impl<'a> RetainPlanBuilder<'a> {
         if !self.visiting.insert(resolved) {
             return Err("the inline ownership topology is cyclic");
         }
-        let duplication = self.duplication_for_resolved(resolved, tag);
+        let duplication = self.duplication_for_resolved(ty, resolved, tag);
         self.visiting.remove(&resolved);
         duplication
     }
 
-    fn duplication_for_resolved(&mut self, ty: Idx, tag: Tag) -> Result<Duplication, &'static str> {
+    fn duplication_for_resolved(
+        &mut self,
+        identity: Idx,
+        resolved: Idx,
+        tag: Tag,
+    ) -> Result<Duplication, &'static str> {
         match tag {
             Tag::Int
             | Tag::Float
@@ -719,42 +726,43 @@ impl<'a> RetainPlanBuilder<'a> {
             | Tag::Size
             | Tag::Ordering => Ok(Duplication::Copy),
             Tag::Str | Tag::List | Tag::Map | Tag::Set | Tag::Channel | Tag::Function => self
-                .intern(ty, RetainPlanKind::SelfOwnedIdentity)
+                .intern(identity, RetainPlanKind::SelfOwnedIdentity)
                 .map(Duplication::Retain)
                 .map_err(|_| "the retain-plan table exceeds its stable identity range"),
             Tag::Tuple => {
-                let fields = self.pool.tuple_elems(ty);
-                self.product_duplication(ty, fields)
+                let fields = self.pool.tuple_elems(resolved);
+                self.product_duplication(identity, fields)
             }
             Tag::Struct => {
                 let fields = self
                     .pool
-                    .struct_fields(ty)
+                    .struct_fields(resolved)
                     .into_iter()
                     .map(|(_, field)| field)
                     .collect();
-                self.product_duplication(ty, fields)
+                self.product_duplication(identity, fields)
             }
-            Tag::Option => {
-                self.variant_duplication(ty, vec![vec![self.pool.option_inner(ty)], Vec::new()])
-            }
+            Tag::Option => self.variant_duplication(
+                identity,
+                vec![vec![self.pool.option_inner(resolved)], Vec::new()],
+            ),
             Tag::Result => self.variant_duplication(
-                ty,
+                identity,
                 vec![
-                    vec![self.pool.result_ok(ty)],
-                    vec![self.pool.result_err(ty)],
+                    vec![self.pool.result_ok(resolved)],
+                    vec![self.pool.result_err(resolved)],
                 ],
             ),
             Tag::Enum => {
                 let variants = self
                     .pool
-                    .enum_variants(ty)
+                    .enum_variants(resolved)
                     .into_iter()
                     .map(|(_, fields)| fields)
                     .collect();
-                self.variant_duplication(ty, variants)
+                self.variant_duplication(identity, variants)
             }
-            Tag::Range => match self.duplication_for(self.pool.range_elem(ty))? {
+            Tag::Range => match self.duplication_for(self.pool.range_elem(resolved))? {
                 Duplication::Copy => Ok(Duplication::Copy),
                 Duplication::Retain(_) => {
                     Err("a range with ownership-bearing endpoints has no frozen retain topology")
@@ -826,7 +834,7 @@ impl<'a> RetainPlanBuilder<'a> {
             Duplication::Copy => Ok(Duplication::Copy),
             Duplication::Retain(child) => self
                 .intern(
-                    resolved,
+                    ty,
                     RetainPlanKind::OwnedFields(
                         vec![RetainPlanEdge { field, child }].into_boxed_slice(),
                     ),
@@ -1015,6 +1023,45 @@ mod tests {
         ));
         assert_eq!(plan.slots()[1].action, ClosureAdapterAction::Copy);
         assert_eq!(plan.slots()[2].action, ClosureAdapterAction::Borrow);
+    }
+
+    #[test]
+    fn retain_plan_root_preserves_nominal_adapter_slot_identity() {
+        let mut pool = Pool::new();
+        let bundle_name = Name::from_raw(30);
+        let items_name = Name::from_raw(31);
+        let nominal_bundle = pool.named(bundle_name);
+        let list_str = pool.list(Idx::STR);
+        let bundle_body = pool.struct_type(bundle_name, &[(items_name, list_str)]);
+        pool.set_resolution(nominal_bundle, bundle_body);
+        let registry = TypeRegistry::new();
+        let target_name = Name::from_raw(32);
+        let target = realized_target(
+            target_name,
+            &[(
+                nominal_bundle,
+                Ownership::Owned,
+                ValueRepr::Aggregate,
+                Some(RcStrategy::AggregateFields),
+            )],
+            0,
+        );
+        let caller = caller(target_name, &[]);
+        let contracts = contract_map(target_name, contract_for(&target));
+
+        let frozen = freeze_successfully(&[caller, target], &contracts, &pool, &registry);
+        let slot = frozen.adapters[&target_name].slots()[0];
+        let ClosureAdapterAction::Retain(root) = slot.action else {
+            panic!("owned Bundle must retain its nested list")
+        };
+        let Some(root_node) = frozen.retain_plans.get(root) else {
+            panic!("Bundle retain root must exist")
+        };
+
+        assert_ne!(nominal_bundle, bundle_body);
+        assert_eq!(slot.ty, nominal_bundle);
+        assert_eq!(root_node.ty, nominal_bundle);
+        assert!(matches!(root_node.kind, RetainPlanKind::OwnedFields(_)));
     }
 
     #[test]

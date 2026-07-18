@@ -2,7 +2,9 @@
 
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind, Tag, TypeCheckError};
+use crate::{
+    ContextKind, Expected, ExpectedOrigin, Idx, IterMethodRoute, SequenceKind, Tag, TypeCheckError,
+};
 
 use super::super::InferEngine;
 use super::infer_expr;
@@ -335,5 +337,13 @@ pub(crate) fn check_collect_to_set(
     let elem = engine.pool().iterator_elem(resolved);
     let set_ty = engine.pool_mut().set(elem);
     engine.store_type(expr_id.raw() as usize, set_ty);
+    engine.record_iter_route(
+        expr_id,
+        IterMethodRoute {
+            iter_ty: None,
+            adapter_ty: None,
+            collect_ty: Some(set_ty),
+        },
+    );
     Some(set_ty)
 }

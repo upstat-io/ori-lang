@@ -74,6 +74,10 @@ pub(super) fn check_source(
         &frontend.type_result,
         &frontend.pool,
     );
+    if super::emit_const_eval_problems(&shared_canon.const_problems, db.interner(), &mut emitter) {
+        emitter.flush();
+        return None;
+    }
     Some((
         frontend.parse_result,
         frontend.type_result,
@@ -274,3 +278,6 @@ pub fn compile_to_llvm_with_imports<'ctx>(
 
     backend.compile(&program).map_err(|e| e.0)
 }
+
+#[cfg(test)]
+mod tests;

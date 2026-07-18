@@ -8,7 +8,6 @@
 use super::super::module::import;
 use super::Evaluator;
 use crate::imports;
-use crate::input::SourceFile;
 use crate::parser::ParseOutput;
 use ori_eval::{
     collect_def_impl_methods_with_config, collect_extend_methods_with_config,
@@ -52,7 +51,7 @@ impl Evaluator<'_> {
                 let prelude_arena = prelude.parse_output.arena.clone();
 
                 // Type-check and canonicalize prelude for canonical function dispatch.
-                let prelude_canon = Self::canonicalize_module(
+                let prelude_canon = crate::query::canonicalize_module(
                     self.db,
                     &prelude.parse_output,
                     &prelude.module_path,
@@ -75,13 +74,8 @@ impl Evaluator<'_> {
             }
         }
 
-        // Why: clone the cold-path errors to preserve the caller's structured result.
-        if !resolved.errors.is_empty() {
-            return Err(resolved.errors.clone());
-        }
-
         // INVARIANT: all use-statement errors accumulate before returning.
-        let mut import_errors = Vec::new();
+        let mut import_errors = resolved.errors.clone();
         let mut user_methods = UserMethodRegistry::new();
         for imp_module in &resolved.modules {
             let imp = &parse_result.module.imports[imp_module.import_index];
@@ -89,18 +83,26 @@ impl Evaluator<'_> {
             let imported_arena = imp_module.parse_output.arena.clone();
 
             // Type-check and canonicalize the imported module for canonical dispatch.
-            let imp_canon = Self::canonicalize_module(
+            let imp_canon = crate::query::canonicalize_module(
                 self.db,
                 &imp_module.parse_output,
                 &imp_module.module_path,
                 imp_module.source_file,
             );
 
-            let imported_module = import::ImportedModule::new(
+            let imported_module = match import::ImportedModule::new(
+                self.db,
                 &imp_module.parse_output,
                 &imported_arena,
+                &imp_module.module_path,
                 imp_canon.as_ref(),
-            );
+            ) {
+                Ok(imported) => imported,
+                Err(errors) => {
+                    import_errors.extend(errors);
+                    continue;
+                }
+            };
 
             if let Err(errs) = import::register_imports(
                 imp,
@@ -164,62 +166,6 @@ impl Evaluator<'_> {
         self.default_field_types().write().merge(default_ft);
 
         Ok(())
-    }
-
-    /// Type-check and canonicalize a module, returning its `SharedCanonResult`.
-    ///
-    /// This enables imported functions to carry canonical IR for `eval_can()`
-    /// dispatch. Results are cached in the session-scoped `CanonCache` so that
-    /// repeated calls for the same module (e.g., the prelude across multiple
-    /// Evaluator instances in the test runner) avoid redundant work.
-    ///
-    /// When a `SourceFile` is available, type checking goes through Salsa queries
-    /// (`typed()` + `typed_pool()`), ensuring results are cached in Salsa's
-    /// dependency graph and the Pool is stored in `PoolCache`. Falls back to
-    /// direct `type_check_with_imports_and_pool()` only when no `SourceFile`
-    /// exists (e.g., synthetic modules not loaded through Salsa).
-    ///
-    /// Skips canonicalization (returns `None`) when type errors are present,
-    /// unlike `canonicalize_cached()` which always canonicalizes. This is
-    /// intentional: imported modules with type errors should not produce
-    /// incomplete canonical IR that could cause evaluator crashes, whereas
-    /// the `check` command needs canon IR even with errors to detect pattern
-    /// exhaustiveness problems.
-    fn canonicalize_module(
-        db: &dyn crate::db::Db,
-        parse_output: &ParseOutput,
-        module_path: &std::path::Path,
-        source_file: Option<SourceFile>,
-    ) -> Option<SharedCanonResult> {
-        // Why: cached canonical IR is shared across evaluator instances.
-        if let Some(cached) = db.canon_cache().get(module_path) {
-            return Some(cached);
-        }
-
-        // Type-check via shared helper (Salsa queries when SourceFile is available,
-        // direct type checking otherwise).
-        let (type_result, pool) =
-            crate::query::type_check_module(db, parse_output, module_path, source_file)?;
-
-        // Only canonicalize if there are no type errors — otherwise the
-        // canonical IR may be incomplete or inconsistent.
-        if type_result.has_errors() {
-            tracing::debug!(
-                module = %module_path.display(),
-                errors = type_result.errors().len(),
-                "skipping canonicalization due to type errors"
-            );
-            return None;
-        }
-
-        // Delegate to the shared cache→compute→store helper.
-        Some(crate::query::canonicalize_cached_by_path(
-            db,
-            module_path,
-            parse_output,
-            &type_result,
-            &pool,
-        ))
     }
 }
 

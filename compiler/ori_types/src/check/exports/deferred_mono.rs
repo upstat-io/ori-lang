@@ -35,7 +35,7 @@ pub(super) fn var_subst_from_body_type_map(
 /// rigid->concrete bindings). Read together from one `MonoInstance` at every
 /// call site, so they travel as one domain value rather than three params.
 pub(super) struct CallerContext<'a> {
-    pub(super) name: Name,
+    pub(super) id: crate::DeferredMonoCaller,
     pub(super) generic_args: &'a [crate::GenericArg],
     pub(super) body_type_map: &'a [(crate::Idx, crate::Idx)],
 }
@@ -51,12 +51,12 @@ pub(super) fn try_resolve_deferred_call(
     pool: &mut Pool,
     mono_instances: &mut Vec<crate::MonoInstance>,
     mono_dispatch_pre_dedup: &mut Vec<(ExprId, MonoInstanceId)>,
-    seen: &mut rustc_hash::FxHashSet<(Name, Vec<crate::GenericArg>)>,
+    seen: &mut rustc_hash::FxHashSet<(Name, Vec<crate::GenericArg>, Vec<crate::Idx>)>,
     caller: &CallerContext<'_>,
     deferred: &crate::DeferredMonoCall,
 ) {
     tracing::trace!(
-        caller = ?caller.name,
+        caller = ?caller.id,
         callee = ?deferred.callee,
         caller_generic_args = ?caller.generic_args,
         var_subst = ?deferred.var_subst,
@@ -77,9 +77,15 @@ pub(super) fn try_resolve_deferred_call(
     // SSOT — shared with the
     // eager-path site at infer::expr::calls::monomorphization and
     // the JIT imported-mono site at oric::test::runner::imported_mono.
+    let retained_var_ids: Vec<_> = deferred
+        .callee_scheme_var_ids
+        .iter()
+        .copied()
+        .chain(deferred.capability_var_ids.iter().copied())
+        .collect();
     crate::pool::substitute::extend_var_subst_with_roots(
         pool,
-        &deferred.callee_scheme_var_ids,
+        &retained_var_ids,
         &mut resolved_var_subst,
     );
 
@@ -96,8 +102,20 @@ pub(super) fn try_resolve_deferred_call(
     if generic_args.len() != deferred.callee_scheme_var_ids.len() {
         return;
     }
+    let capability_args: Vec<_> = deferred
+        .capability_var_ids
+        .iter()
+        .filter_map(|var_id| resolved_var_subst.get(var_id).copied())
+        .collect();
+    if capability_args.len() != deferred.capability_var_ids.len() {
+        return;
+    }
 
-    let key = (deferred.callee, generic_args.clone());
+    let key = (
+        deferred.callee,
+        generic_args.clone(),
+        capability_args.clone(),
+    );
     if !seen.insert(key) {
         // The `(callee, generic_args)` instance already exists — created
         // eagerly (seeded into `seen` from the pre-existing instances) or by an
@@ -108,10 +126,11 @@ pub(super) fn try_resolve_deferred_call(
         // entry against the existing instance, else `call_expr_id` receives no
         // `MonoInstanceId` and AOT mono-dispatch drops the call (interp↔LLVM
         // parity break).
-        if let Some(existing_idx) = mono_instances
-            .iter()
-            .position(|inst| inst.fn_name == deferred.callee && inst.generic_args == generic_args)
-        {
+        if let Some(existing_idx) = mono_instances.iter().position(|inst| {
+            inst.fn_name == deferred.callee
+                && inst.generic_args == generic_args
+                && inst.capability_args == capability_args
+        }) {
             #[expect(
                 clippy::cast_possible_truncation,
                 reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
@@ -126,6 +145,7 @@ pub(super) fn try_resolve_deferred_call(
         pool,
         deferred.callee,
         generic_args,
+        capability_args,
         &deferred.callee_param_types,
         deferred.callee_return_type,
         &resolved_var_subst,
@@ -235,6 +255,7 @@ fn build_mono_instance(
     pool: &mut Pool,
     fn_name: Name,
     generic_args: Vec<crate::GenericArg>,
+    capability_args: Vec<crate::Idx>,
     param_types: &[crate::Idx],
     return_type: crate::Idx,
     var_subst: &rustc_hash::FxHashMap<u32, crate::Idx>,
@@ -252,9 +273,10 @@ fn build_mono_instance(
     // has no named entries and NO register tail (must NOT register).
     let body_type_map = build_finalized_body_type_map(pool, var_subst, &[]);
 
-    crate::MonoInstance::new_top_level(
+    crate::MonoInstance::new_top_level_with_capabilities(
         fn_name,
         generic_args,
+        capability_args,
         concrete_param_types,
         concrete_return_type,
         body_type_map,

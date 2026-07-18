@@ -207,14 +207,11 @@ impl ArcLowerer<'_> {
         let index_fn = self
             .interner
             .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.name());
-        // Spec: Clause 17.2.3 — list / str indexing panics on OOB (`__index`
-        // lowers to may-unwind `ori_list_get`). An in-frame `catch(expr:)` needs
-        // an Invoke carrier for the panic to land in the handler; outside a
-        // catch the body-`Apply` carrier suffices (cross-frame catchability uses
-        // the CALLER's user-call Invoke unwind edge — mirrors `emit_indirect_call`).
-        // A non-panicking map / set index always keeps the `Apply` carrier.
-        let in_catch = self.builder.catch_unwind_target.is_some();
-        if panics_on_oob && in_catch {
+        // Spec: Clause 17.2.3 — list / str indexing panics on OOB. Always retain
+        // an Invoke carrier: even when the catch lives in a caller, this frame
+        // must run cleanup for values live across `__index` before resuming the
+        // unwind. A non-panicking map / set index keeps the Apply carrier.
+        if panics_on_oob {
             self.builder
                 .emit_invoke(ty, index_fn, vec![recv, idx_var], Some(span), None)
         } else {
@@ -378,11 +375,20 @@ impl ArcLowerer<'_> {
         span: Span,
     ) -> ArcVarId {
         let val = self.lower_expr(expr);
+        let source_ty = self.pool.resolve_fully(self.builder.var_type(val));
+        let target_ty = self.pool.resolve_fully(ty);
+        let may_unwind = self.pool.tag(source_ty) == Tag::Int
+            && matches!(self.pool.tag(target_ty), Tag::Byte | Tag::Char);
         let cast_fn = self
             .interner
             .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Cast.name());
-        self.builder
-            .emit_apply(ty, cast_fn, vec![val], Some(span), None)
+        if may_unwind {
+            self.builder
+                .emit_invoke(ty, cast_fn, vec![val], Some(span), None)
+        } else {
+            self.builder
+                .emit_apply(ty, cast_fn, vec![val], Some(span), None)
+        }
     }
 
     // Helpers

@@ -1,0 +1,16 @@
+use std.testing { assert }
+
+#derive(Eq)
+type UserId = int;
+
+#derive(Eq)
+type Account = { id: UserId }
+
+@same_account () -> bool = Account { id: UserId(7) } == Account { id: UserId(7) };
+
+@test_derived_newtype_field_eq tests @same_account () -> void = {
+    assert(cond: same_account());
+    let first = Account { id: UserId(7) };
+    let second = Account { id: UserId(8) };
+    assert(cond: !(first == second))
+}

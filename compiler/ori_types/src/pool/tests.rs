@@ -5,6 +5,83 @@ use super::*;
 use crate::pool::construct::EnumVariant;
 use crate::tag::Tag;
 
+#[test]
+fn builtin_method_receiver_preserves_newtype_identity() {
+    let mut pool = Pool::new();
+    let newtype_name = ori_ir::Name::from_raw(1);
+    let alias_name = ori_ir::Name::from_raw(2);
+    let newtype_alias_name = ori_ir::Name::from_raw(3);
+    let newtype = pool.named(newtype_name);
+    let alias = pool.named(alias_name);
+    let newtype_alias = pool.named(newtype_alias_name);
+    pool.register_newtype_ctor(newtype_name, Idx::INT);
+    pool.set_resolution(newtype, Idx::INT);
+    pool.set_resolution(alias, Idx::INT);
+    pool.set_resolution(newtype_alias, newtype);
+
+    assert!(pool.is_newtype_type(newtype));
+    assert_eq!(pool.method_receiver_type(newtype), newtype);
+    assert_eq!(pool.builtin_method_type_tag(newtype), None);
+    assert!(!pool.is_newtype_type(alias));
+    assert_eq!(pool.method_receiver_type(alias), Idx::INT);
+    assert_eq!(
+        pool.builtin_method_type_tag(alias),
+        Some(ori_registry::TypeTag::Int)
+    );
+    assert!(!pool.is_newtype_type(newtype_alias));
+    assert_eq!(pool.method_receiver_type(newtype_alias), newtype);
+    assert_eq!(pool.builtin_method_type_tag(newtype_alias), None);
+}
+
+#[test]
+fn method_receiver_key_preserves_concrete_generic_instantiations() {
+    let mut pool = Pool::new();
+    let owner = ori_ir::Name::from_raw(10);
+    let first_field = ori_ir::Name::from_raw(11);
+    let second_field = ori_ir::Name::from_raw(12);
+
+    let int_var_a = pool.fresh_var();
+    let int_var_b = pool.fresh_var();
+    let int_a = pool.applied(owner, &[int_var_a]);
+    let int_b = pool.applied(owner, &[int_var_b]);
+    let string = pool.applied(owner, &[Idx::STR]);
+    let int_body = pool.struct_type(owner, &[(first_field, Idx::INT)]);
+    let string_body = pool.struct_type(owner, &[(first_field, Idx::STR)]);
+    pool.set_resolution(int_a, int_body);
+    pool.set_resolution(int_b, int_body);
+    pool.set_resolution(string, string_body);
+    let int_var_a_id = pool.data(int_var_a);
+    let int_var_b_id = pool.data(int_var_b);
+    *pool.var_state_mut(int_var_a_id) = VarState::Link { target: Idx::INT };
+    *pool.var_state_mut(int_var_b_id) = VarState::Link { target: Idx::INT };
+
+    assert_eq!(
+        pool.method_receiver_key(int_a),
+        pool.method_receiver_key(int_b),
+        "equivalent pre-link carriers must share one method target key"
+    );
+    assert_ne!(
+        pool.method_receiver_key(int_a),
+        pool.method_receiver_key(string),
+        "different concrete arguments must not collapse through one nominal body"
+    );
+
+    let int_string = pool.applied(owner, &[Idx::INT, Idx::STR]);
+    let string_int = pool.applied(owner, &[Idx::STR, Idx::INT]);
+    let int_string_body =
+        pool.struct_type(owner, &[(first_field, Idx::INT), (second_field, Idx::STR)]);
+    let string_int_body =
+        pool.struct_type(owner, &[(first_field, Idx::STR), (second_field, Idx::INT)]);
+    pool.set_resolution(int_string, int_string_body);
+    pool.set_resolution(string_int, string_int_body);
+
+    assert_ne!(
+        pool.method_receiver_key(int_string),
+        pool.method_receiver_key(string_int),
+        "swapped generic arguments must remain distinct method targets"
+    );
+}
+
 // Structural Equality Reference Implementation (02.3)
 //
 // Recursively compares types by structure (tag + children), ignoring Idx

@@ -193,7 +193,6 @@ type Holder = { kept: [int] }
 /// per-edge partition gap; the edge release correctly declines both edges
 /// (Jump-arg consumes forward of each). Interpreter prints a=6 b=13.
 #[test]
-#[ignore = "BUG-04-180: loop lowering threads the loop-invariant heap local through loop block-params into a dead merge/exit block-param the RL-5 dead-param scans cannot resolve (rep fractures across the Jump-arg hop)"]
 fn test_loop_inside_branch_per_iteration_store_no_leak() {
     assert_cell_output(
         r#"

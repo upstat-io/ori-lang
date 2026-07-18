@@ -12,19 +12,25 @@ use ori_ir::{Mutability, Name};
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
-use crate::Idx;
+use crate::{ConstValue, Idx};
 
 /// A single binding entry in the type environment.
 ///
 /// Combines the type scheme and optional mutability info into one struct,
 /// eliminating the need for parallel `bindings`/`mutability` maps.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct Binding {
     /// The type (or type scheme) for this name.
     ty: Idx,
     /// Mutability from `let` bindings. `None` for prelude/param bindings
     /// that don't carry explicit mutability.
     mutable: Option<Mutability>,
+    /// Compile-time value for an immutable local const binding.
+    ///
+    /// This stays beside the type binding so ordinary lexical shadowing also
+    /// shadows const evidence. Only the const-generic `int | bool` domain is
+    /// admitted; mutable locals and non-value bindings carry `None`.
+    const_value: Option<ConstValue>,
 }
 
 /// Internal storage for `TypeEnv`.
@@ -100,9 +106,14 @@ impl TypeEnv {
     /// For monomorphic types, pass the type directly.
     /// For polymorphic types, pass a Scheme `Idx`.
     pub fn bind(&mut self, name: Name, ty: Idx) {
-        Rc::make_mut(&mut self.0)
-            .bindings
-            .insert(name, Binding { ty, mutable: None });
+        Rc::make_mut(&mut self.0).bindings.insert(
+            name,
+            Binding {
+                ty,
+                mutable: None,
+                const_value: None,
+            },
+        );
     }
 
     /// Bind a name to a type and record its mutability.
@@ -115,8 +126,40 @@ impl TypeEnv {
             Binding {
                 ty,
                 mutable: Some(mutable),
+                const_value: None,
             },
         );
+    }
+
+    /// Record the compile-time value of an immutable binding in this scope.
+    ///
+    /// Returns `false` when `name` is absent locally or is mutable. Callers use
+    /// this after the ordinary pattern binder has installed a simple `$name`
+    /// binding, keeping const evidence subordinate to the lexical binding.
+    pub(crate) fn record_local_const_value(&mut self, name: Name, value: ConstValue) -> bool {
+        let Some(binding) = Rc::make_mut(&mut self.0).bindings.get_mut(&name) else {
+            return false;
+        };
+        if binding.mutable != Some(Mutability::Immutable) {
+            return false;
+        }
+        binding.const_value = Some(value);
+        true
+    }
+
+    /// Look up an immutable local const value through lexical parent scopes.
+    ///
+    /// A same-named child binding without const evidence stops the search: it
+    /// shadows the parent value exactly as it shadows the parent's type.
+    pub(crate) fn lookup_const_value(&self, name: Name) -> Option<ConstValue> {
+        match self.0.bindings.get(&name) {
+            Some(binding) => binding.const_value.clone(),
+            None => self
+                .0
+                .parent
+                .as_ref()
+                .and_then(|parent| parent.lookup_const_value(name)),
+        }
     }
 
     /// Check if a binding is mutable, searching parent scopes.

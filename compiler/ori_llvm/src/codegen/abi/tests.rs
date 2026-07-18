@@ -351,6 +351,7 @@ fn compute_abi_simple_function() {
         param_types: vec![Idx::INT, Idx::INT],
         return_type: Idx::INT,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -388,6 +389,7 @@ fn compute_abi_void_return() {
         param_types: vec![],
         return_type: Idx::UNIT,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -422,6 +424,7 @@ fn compute_abi_main_uses_c_convention() {
         param_types: vec![],
         return_type: Idx::UNIT,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: true,
@@ -583,6 +586,36 @@ fn borrowed_large_type_becomes_reference() {
     );
 }
 
+#[test]
+fn closure_arguments_use_uniform_borrowed_passing() {
+    let mut pool = Pool::new();
+    let closure = pool.function(&[Idx::INT, Idx::INT], Idx::INT);
+    let list_int = pool.list(Idx::INT);
+    let store = TypeInfoStore::new(&pool);
+    let classifier = ArcClassifier::new(&pool);
+
+    assert_eq!(abi_size(closure, &store, None), 16);
+    assert_eq!(
+        compute_closure_param_passing(closure, &store, None, &classifier),
+        ParamPassing::Reference,
+        "a two-word managed closure argument is borrowed by reference"
+    );
+    assert_eq!(
+        compute_closure_param_passing(Idx::INT, &store, None, &classifier),
+        ParamPassing::Direct,
+        "borrowed scalars retain their size-based direct ABI"
+    );
+    assert_eq!(
+        compute_closure_param_passing(list_int, &store, None, &classifier),
+        ParamPassing::Reference,
+        "fat managed arguments use Reference rather than owned Indirect"
+    );
+    assert_eq!(
+        compute_closure_param_passing(Idx::UNIT, &store, None, &classifier),
+        ParamPassing::Void
+    );
+}
+
 // compute_function_abi_with_ownership e2e
 
 #[test]
@@ -599,6 +632,7 @@ fn abi_with_ownership_uses_reference_for_borrowed_params() {
         param_types: vec![Idx::STR, Idx::INT],
         return_type: Idx::INT,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -654,6 +688,7 @@ fn abi_with_ownership_none_falls_through() {
         param_types: vec![Idx::STR],
         return_type: Idx::STR,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,

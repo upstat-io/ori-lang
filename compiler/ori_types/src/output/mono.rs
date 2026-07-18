@@ -6,7 +6,7 @@
 use ori_ir::ExprId;
 use ori_ir::Name;
 
-use crate::{Idx, MethodProducer};
+use crate::{Idx, ImplMethodId, MethodProducer};
 
 pub use ori_ir::canon::GenericConstValue as ConstValue;
 pub use ori_ir::canon::MonoConstBinding;
@@ -45,6 +45,30 @@ pub enum GenericArg {
 
 pub use ori_ir::canon::MonoInstanceId;
 
+/// Exact body producer that owns a deferred generic free-function call.
+///
+/// A source impl method is qualified by [`ImplMethodId`], not just its spelling:
+/// unrelated impls may declare same-named methods whose nested calls must
+/// specialize independently. Other [`MethodProducer`] variants do not identify
+/// locally checked source bodies and therefore cannot own deferred records.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum DeferredMonoCaller {
+    /// A top-level function or test body.
+    TopLevel(Name),
+    /// One exact locally checked source/default impl method body.
+    ImplMethod { name: Name, id: ImplMethodId },
+}
+
+impl DeferredMonoCaller {
+    /// Source spelling retained for diagnostics and tracing only.
+    #[must_use]
+    pub const fn name(self) -> Name {
+        match self {
+            Self::TopLevel(name) | Self::ImplMethod { name, .. } => name,
+        }
+    }
+}
+
 /// A concrete instantiation of a generic function or method discovered during type checking.
 ///
 /// Two shapes share this struct, distinguished by `receiver_type`:
@@ -75,6 +99,13 @@ pub struct MonoInstance {
     ///
     /// Empty for method instances (use `impl_args` + `method_args`).
     pub generic_args: Vec<GenericArg>,
+    /// Ordered concrete provider types for value capabilities.
+    ///
+    /// This lane is distinct from source generics: it participates in
+    /// specialization identity and mangling, but never in source-level generic
+    /// arity. Provider values of the same ordered types intentionally share
+    /// one instance and are passed separately at each call site.
+    pub capability_args: Vec<Idx>,
     /// Concrete impl-level type arguments for method instances.
     ///
     /// Empty for top-level instances. Populated from the enclosing impl block's
@@ -142,6 +173,34 @@ impl MonoInstance {
         let inst = Self {
             fn_name,
             generic_args,
+            capability_args: Vec::new(),
+            impl_args: Vec::new(),
+            method_args: Vec::new(),
+            const_bindings: Vec::new(),
+            receiver_type: None,
+            method_producer: None,
+            concrete_param_types,
+            concrete_return_type,
+            body_type_map,
+        };
+        inst.check_invariants();
+        inst
+    }
+
+    /// Construct a top-level specialization with ordered capability-provider
+    /// types in addition to any ordinary generic arguments.
+    pub fn new_top_level_with_capabilities(
+        fn_name: Name,
+        generic_args: Vec<GenericArg>,
+        capability_args: Vec<Idx>,
+        concrete_param_types: Vec<Idx>,
+        concrete_return_type: Idx,
+        body_type_map: Vec<(Idx, Idx)>,
+    ) -> Self {
+        let inst = Self {
+            fn_name,
+            generic_args,
+            capability_args,
             impl_args: Vec::new(),
             method_args: Vec::new(),
             const_bindings: Vec::new(),
@@ -190,6 +249,7 @@ impl MonoInstance {
         let inst = Self {
             fn_name,
             generic_args: Vec::new(),
+            capability_args: Vec::new(),
             impl_args,
             method_args,
             const_bindings,
@@ -207,8 +267,9 @@ impl MonoInstance {
     ///
     /// `assert!` (not `debug_assert!`): a release-build mangling collision
     /// from a violated invariant is silent miscompilation, so the soundness
-    /// invariant must hold in release builds too. The check is O(1) (Vec
-    /// emptiness + Option tag), negligible relative to the soundness guarantee.
+    /// invariant must hold in release builds too. The check is linear only in
+    /// the method's generic-argument count, negligible relative to the
+    /// soundness guarantee.
     fn check_invariants(&self) {
         if self.receiver_type.is_some() {
             assert!(
@@ -245,6 +306,25 @@ impl MonoInstance {
                 self.fn_name,
             );
         }
+
+        let method_const_values: Vec<_> = self
+            .method_args
+            .iter()
+            .filter_map(|arg| match arg {
+                GenericArg::Const(value) => Some(value),
+                GenericArg::Type(_) => None,
+            })
+            .collect();
+        let binding_values: Vec<_> = self
+            .const_bindings
+            .iter()
+            .map(|binding| &binding.value)
+            .collect();
+        assert_eq!(
+            method_const_values, binding_values,
+            "MonoInstance invariant violated: const-valued method_args for {:?} must exactly match ordered const_bindings values",
+            self.fn_name,
+        );
     }
 }
 
@@ -282,8 +362,8 @@ pub enum DeferredVarBinding {
 /// `make_pair`'s `A` → `CallerSchemeVar(0)`, `B` → `Concrete(Idx::INT)`.
 #[derive(Clone, Debug)]
 pub struct DeferredMonoCall {
-    /// The generic function that contains the call.
-    pub caller: Name,
+    /// The exact source body that contains the call.
+    pub caller: DeferredMonoCaller,
     /// The generic function being called.
     pub callee: Name,
     /// The callee's scheme var IDs (in declaration order).
@@ -292,6 +372,13 @@ pub struct DeferredMonoCall {
     /// concrete type). This semantic mapping avoids dependence on pool
     /// union-find state.
     pub var_subst: Vec<(u32, DeferredVarBinding)>,
+    /// Ordered provider binders owned by the callee signature.
+    ///
+    /// Their bindings live in `var_subst` beside ordinary scheme binders so
+    /// one deferred publication substitutes the complete source body. The
+    /// order is the provider ABI order and therefore also the capability
+    /// specialization identity order.
+    pub capability_var_ids: Vec<u32>,
     /// The callee's parameter types (from its generic signature).
     pub callee_param_types: Vec<Idx>,
     /// The callee's return type (from its generic signature).

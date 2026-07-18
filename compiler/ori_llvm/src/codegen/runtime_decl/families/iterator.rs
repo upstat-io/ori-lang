@@ -95,15 +95,24 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     // Iterator adapters store callbacks without invoking them.
     RtFn {
         name: "ori_iter_map",
-        // INVARIANT: Transform code and environment precede input layout and output cleanup.
-        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
+        // INVARIANT: Transform code and environment precede the environment's
+        // retain/release hooks, input layout, and output cleanup.
+        params: &[
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::Ptr,
+        ],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_filter",
-        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
@@ -215,7 +224,8 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_find",
-        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
+        // INVARIANT: The retain hook precedes the escaping Option output.
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: None,
         attrs: &[],
         jit_allowed: true,
@@ -244,16 +254,16 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_last",
-        // INVARIANT: Element layout precedes the output pointer.
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
+        // INVARIANT: Element layout and retain hook precede the Option output.
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: None,
         attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_rfind",
-        // INVARIANT: Predicate code and environment precede layout and output.
-        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
+        // INVARIANT: Predicate state and layout precede retain and Option output.
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: None,
         attrs: &[],
         jit_allowed: true,
@@ -278,7 +288,6 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         name: "ori_iter_join",
         // INVARIANT: The separator crosses as three raw, SSO-safe `OriStr` fields.
         // INVARIANT: Conversion code and environment precede element layout and output.
-        // INVARIANT: The drop hook is non-null only for proven adapter-produced elements.
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -287,7 +296,6 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
             Ty::Ptr,
             Ty::Ptr,
             Ty::I64,
-            Ty::Ptr,
             Ty::Ptr,
         ],
         ret: None,

@@ -127,6 +127,12 @@ pub fn finalize_body_type_map(body_type_map: &mut Vec<(Idx, Idx)>) {
 /// INVARIANT: pure build+extend+finalize — NEVER registers Applied->concrete
 /// resolutions (`register_concrete_applied_resolutions` stays at the registering
 /// call sites; `build_mono_instance` must NOT register).
+#[expect(
+    clippy::implicit_hasher,
+    reason = "var_subst is consistently FxHashMap<u32, Idx> across the whole ori_types crate \
+              (matches substitute_in_pool's signature); generalizing would force BuildHasher \
+              plumbing through every caller for no measurable benefit."
+)]
 pub fn build_finalized_body_type_map(
     pool: &mut Pool,
     var_subst: &FxHashMap<u32, Idx>,

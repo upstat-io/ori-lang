@@ -60,7 +60,18 @@ impl Lowerer<'_> {
                     self.push(CanExpr::Ident(name), span, ty)
                 }
             }
-            ExprKind::Const(name) => self.push(CanExpr::Const(name), span, ty),
+            ExprKind::Const(name) => {
+                if let Some(value) = self.named_constants.get(&name).cloned() {
+                    let constant = self.constants.intern(value);
+                    self.push(CanExpr::Constant(constant), span, ty)
+                } else {
+                    // Generic const parameters and error-recovery references
+                    // retain their name. Module constants are populated before
+                    // executable roots and therefore never take this branch in
+                    // a successful module.
+                    self.push(CanExpr::Const(name), span, ty)
+                }
+            }
             ExprKind::SelfRef => self.push(CanExpr::SelfRef, span, ty),
             ExprKind::FunctionRef(name) => self.push(CanExpr::FunctionRef(name), span, ty),
             ExprKind::HashLength => self.push(CanExpr::HashLength, span, ty),
@@ -323,7 +334,7 @@ impl Lowerer<'_> {
             ExprKind::TemplateLiteral { head, parts } => {
                 self.desugar_template_literal(head, parts, span, ty)
             }
-            ExprKind::CallNamed { func, args } => self.desugar_call_named(func, args, span, ty),
+            ExprKind::CallNamed { func, args } => self.desugar_call_named(id, func, args, span, ty),
             ExprKind::MethodCallNamed {
                 receiver,
                 method,

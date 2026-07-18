@@ -22,6 +22,92 @@ fn nested_bound_vars_are_not_concrete_function_components() {
 }
 
 #[test]
+fn single_instantiation_preserves_nominal_callable_component_identity() {
+    let mut pool = Pool::new();
+    let interner = StringInterner::new();
+    let parent_name = interner.intern("parent");
+    let lambda_name = interner.intern("parent.__lambda0");
+    let bundle_name = interner.intern("Bundle");
+    let items_name = interner.intern("items");
+    let first_bound = pool.intern(Tag::BoundVar, 21);
+    let second_bound = pool.intern(Tag::BoundVar, 22);
+    let schema_function = pool.function(&[first_bound, second_bound], first_bound);
+    let nominal_bundle = pool.named(bundle_name);
+    let bundle_body = pool.struct_type(bundle_name, &[(items_name, Idx::STR)]);
+    pool.set_resolution(nominal_bundle, bundle_body);
+    let list_int = pool.list(Idx::INT);
+    let concrete_function = pool.function(&[nominal_bundle, list_int], nominal_bundle);
+
+    let mut parent = make_func_named(
+        parent_name,
+        Vec::new(),
+        Idx::UNIT,
+        vec![ArcBlock {
+            id: b(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::PartialApply {
+                    dst: v(0),
+                    ty: schema_function,
+                    func: lambda_name,
+                    args: Vec::new(),
+                },
+                ArcInstr::Let {
+                    dst: v(1),
+                    ty: concrete_function,
+                    value: ArcValue::Var(v(0)),
+                },
+                ArcInstr::Let {
+                    dst: v(2),
+                    ty: Idx::UNIT,
+                    value: ArcValue::Literal(crate::LitValue::Unit),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![schema_function, concrete_function, Idx::UNIT],
+    );
+    let lambda = make_func_named(
+        lambda_name,
+        vec![
+            ArcParam {
+                var: v(0),
+                ty: first_bound,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: v(1),
+                ty: second_bound,
+                ownership: Ownership::Owned,
+            },
+        ],
+        first_bound,
+        vec![ArcBlock {
+            id: b(0),
+            params: Vec::new(),
+            body: Vec::new(),
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![first_bound, second_bound],
+    );
+    let mut lambdas = vec![lambda];
+
+    let result = specialize_polymorphic_lambdas(&mut parent, &mut lambdas, &mut pool, &interner);
+
+    assert!(
+        result.is_ok(),
+        "unexpected specialization error: {result:?}"
+    );
+    assert_ne!(nominal_bundle, bundle_body);
+    assert_eq!(lambdas[0].params[0].ty, nominal_bundle);
+    assert_eq!(lambdas[0].return_type, nominal_bundle);
+    assert!(matches!(
+        parent.blocks[0].body[0],
+        ArcInstr::PartialApply { ty, .. } if ty == concrete_function
+    ));
+}
+
+#[test]
 fn unused_non_capturing_polymorphic_template_is_eliminated_exactly() {
     let mut pool = Pool::new();
     let interner = StringInterner::new();

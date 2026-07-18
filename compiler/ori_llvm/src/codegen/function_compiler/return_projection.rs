@@ -213,6 +213,7 @@ mod tests {
             roots: vec![fresh_name],
             cli_entry: Some(fresh_name),
             externals: Vec::new(),
+            method_targets: FxHashMap::default(),
             user_drop_bindings: Vec::new(),
             repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
             type_registry: TypeRegistry::new(),

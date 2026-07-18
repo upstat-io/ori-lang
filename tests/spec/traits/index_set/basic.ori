@@ -6,16 +6,6 @@
 use std.testing { assert_eq }
 
 // =============================================================================
-// Negative pin — str implements Index, NOT IndexSet: `updated` does not resolve
-// =============================================================================
-
-#fail("no method 'updated' on type str")
-@test_str_updated_does_not_resolve tests _ () -> void = {
-    let s = "x".updated(key: 0, value: "H");
-    ()
-}
-
-// =============================================================================
 // User-defined IndexSet impl — struct keyed by int, replaced field-by-field
 // =============================================================================
 

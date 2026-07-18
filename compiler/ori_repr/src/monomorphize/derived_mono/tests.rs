@@ -52,7 +52,7 @@ fn resolved_body_recovers_exact_applied_receiver_and_impl_argument() {
     assert!(mono.identity.instance_ids().is_empty());
     assert_eq!(
         interner.lookup(mono.mangled_name),
-        "hash$m$5_SWrap3_int$im$"
+        "hash$m$9_AWrap_int3_int$im$"
     );
 }
 

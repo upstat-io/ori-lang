@@ -2,10 +2,42 @@
 
 use ori_ir::BinaryOp;
 use ori_registry::RuntimeOperator;
+use ori_types::Idx;
 
 use super::super::builtins;
 use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
+use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
+
+#[derive(Clone, Copy)]
+enum CheckedIntSemantics {
+    Int,
+    Duration,
+    Size,
+}
+
+impl CheckedIntSemantics {
+    const fn overflow_message(self, operation: BinaryOp) -> &'static str {
+        match (self, operation) {
+            (Self::Int, BinaryOp::Add) => "integer overflow in addition",
+            (Self::Int, BinaryOp::Sub) => "integer overflow in subtraction",
+            (Self::Int, BinaryOp::Mul) => "integer overflow in multiplication",
+            (Self::Int, BinaryOp::Div) => "integer overflow in division",
+            (Self::Int, BinaryOp::FloorDiv) => "integer overflow in floor division",
+            (Self::Duration, BinaryOp::Add) => "integer overflow in duration addition",
+            (Self::Duration, BinaryOp::Sub) => "integer overflow in duration subtraction",
+            (Self::Duration, BinaryOp::Mul) => "integer overflow in duration multiplication",
+            (Self::Duration, BinaryOp::Div | BinaryOp::FloorDiv) => {
+                "integer overflow in duration division"
+            }
+            (Self::Size, BinaryOp::Add) => "integer overflow in size addition",
+            (Self::Size, BinaryOp::Sub) => "integer overflow in size subtraction",
+            (Self::Size, BinaryOp::Mul) => "integer overflow in size multiplication",
+            (Self::Size, BinaryOp::Div | BinaryOp::FloorDiv) => "integer overflow in size division",
+            _ => "integer overflow",
+        }
+    }
+}
 
 const fn native_runtime_symbol(runtime: RuntimeOperator) -> Option<&'static str> {
     match runtime {
@@ -18,6 +50,79 @@ const fn native_runtime_symbol(runtime: RuntimeOperator) -> Option<&'static str>
 }
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    fn emit_checked_int_sub(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        semantics: CheckedIntSemantics,
+        op: BinaryOp,
+    ) -> ValueId {
+        if matches!(semantics, CheckedIntSemantics::Size) {
+            self.builder.panic_if_signed_less_than(
+                lhs,
+                rhs,
+                "size_sub.negative",
+                "size subtraction would result in negative value",
+            );
+        }
+        self.builder
+            .checked_sub_msg(lhs, rhs, "sub", semantics.overflow_message(op))
+    }
+
+    fn emit_checked_int_mul(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        lhs_is_size: bool,
+        rhs_is_size: bool,
+        semantics: CheckedIntSemantics,
+        op: BinaryOp,
+    ) -> ValueId {
+        if matches!(semantics, CheckedIntSemantics::Size) {
+            let scalar = if lhs_is_size && !rhs_is_size {
+                Some(rhs)
+            } else if rhs_is_size && !lhs_is_size {
+                Some(lhs)
+            } else {
+                None
+            };
+            if let Some(scalar) = scalar {
+                self.builder.panic_if_negative(
+                    scalar,
+                    "size_mul.negative",
+                    "cannot multiply Size by negative integer",
+                );
+            }
+        }
+        self.builder
+            .checked_mul_msg(lhs, rhs, "mul", semantics.overflow_message(op))
+    }
+
+    fn emit_checked_int_div(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        lhs_is_size: bool,
+        rhs_is_size: bool,
+        semantics: CheckedIntSemantics,
+        op: BinaryOp,
+    ) -> ValueId {
+        if lhs_is_size && !rhs_is_size {
+            self.builder.panic_if_negative(
+                rhs,
+                "size_div.negative",
+                "cannot divide Size by negative integer",
+            );
+        }
+        self.builder.checked_div_msg(
+            lhs,
+            rhs,
+            "div",
+            "division by zero",
+            semantics.overflow_message(op),
+        )
+    }
+
     /// Emit a binary op using signed integer LLVM instructions.
     ///
     /// Handles arithmetic (`checked_add`, `checked_sub`, etc.), signed comparison
@@ -29,14 +134,46 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         op: BinaryOp,
         lhs: ValueId,
         rhs: ValueId,
+        lhs_ty: Idx,
+        rhs_ty: Idx,
+        result_ty: Idx,
     ) -> ValueId {
+        let lhs_is_size = matches!(self.type_info.get(lhs_ty), TypeInfo::Size);
+        let rhs_is_size = matches!(self.type_info.get(rhs_ty), TypeInfo::Size);
+        let result_is_size = matches!(self.type_info.get(result_ty), TypeInfo::Size);
+        let has_duration = matches!(self.type_info.get(lhs_ty), TypeInfo::Duration)
+            || matches!(self.type_info.get(rhs_ty), TypeInfo::Duration)
+            || matches!(self.type_info.get(result_ty), TypeInfo::Duration);
+        let semantics = if lhs_is_size || rhs_is_size || result_is_size {
+            CheckedIntSemantics::Size
+        } else if has_duration {
+            CheckedIntSemantics::Duration
+        } else {
+            CheckedIntSemantics::Int
+        };
+
         match op {
-            BinaryOp::Add => self.builder.checked_add(lhs, rhs, "add"),
-            BinaryOp::Sub => self.builder.checked_sub(lhs, rhs, "sub"),
-            BinaryOp::Mul => self.builder.checked_mul(lhs, rhs, "mul"),
-            BinaryOp::Div => self.builder.checked_div(lhs, rhs, "div"),
-            BinaryOp::Mod => self.builder.checked_rem(lhs, rhs, "rem"),
-            BinaryOp::FloorDiv => self.builder.checked_div(lhs, rhs, "floordiv"),
+            BinaryOp::Add => self.builder.checked_add_msg(
+                lhs,
+                rhs,
+                "add",
+                semantics.overflow_message(op),
+            ),
+            BinaryOp::Sub => self.emit_checked_int_sub(lhs, rhs, semantics, op),
+            BinaryOp::Mul => {
+                self.emit_checked_int_mul(lhs, rhs, lhs_is_size, rhs_is_size, semantics, op)
+            }
+            BinaryOp::Div => {
+                self.emit_checked_int_div(lhs, rhs, lhs_is_size, rhs_is_size, semantics, op)
+            }
+            BinaryOp::Mod => self.builder.checked_rem_msg(lhs, rhs, "rem", "modulo by zero"),
+            BinaryOp::FloorDiv => self.builder.checked_div_msg(
+                lhs,
+                rhs,
+                "floordiv",
+                "division by zero",
+                semantics.overflow_message(op),
+            ),
             BinaryOp::Eq => self.builder.icmp_eq(lhs, rhs, "eq"),
             BinaryOp::NotEq => self.builder.icmp_ne(lhs, rhs, "ne"),
             BinaryOp::Lt => self.builder.icmp_slt(lhs, rhs, "lt"),

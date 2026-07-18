@@ -7,6 +7,7 @@ use ori_repr::executable::{
 };
 use ori_repr::{NarrowingPolicy, ReprPlan};
 use ori_types::{Idx, Pool, TypeRegistry};
+use rustc_hash::FxHashMap;
 
 use crate::bytecode::{
     BytecodeFunction, BytecodeProgram, Constant, Op, OperandListId, RegisterClass, TableKind,
@@ -407,6 +408,7 @@ fn parameter_function_artifact() -> ParameterFunctionArtifact {
         roots: vec![main_name],
         cli_entry: Some(main_name),
         externals: Vec::new(),
+        method_targets: FxHashMap::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
         type_registry: TypeRegistry::new(),

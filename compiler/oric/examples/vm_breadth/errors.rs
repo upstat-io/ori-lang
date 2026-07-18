@@ -65,6 +65,7 @@ pub(crate) enum FrontendErrorKind {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RealizationErrorKind {
     CallableCensus,
+    GenericMonoClosure,
     ArcLowering,
     LambdaSpecialization,
     OperatorCallResolution,
@@ -144,6 +145,10 @@ pub(crate) enum RealizationErrorKind {
     OrphanMethodCallFact,
     MissingMethodReceiver,
     MethodReceiverMismatch,
+    InvalidMethodTargetReceiver,
+    UnknownMethodTargetName,
+    MissingMethodTarget,
+    MethodTargetIsLambda,
     InvalidPrimitiveFacts,
     UnresolvedBoundVar,
     MissingCallable,
@@ -241,6 +246,7 @@ pub(crate) enum ExecutionErrorKind {
     InvalidPrimitiveObject,
     Panic,
     ResumeWithoutPanic,
+    CatchRecoverWithoutPanic,
     ReachedUnreachable,
     UnsupportedConstructor,
     UnsupportedPrimitive,

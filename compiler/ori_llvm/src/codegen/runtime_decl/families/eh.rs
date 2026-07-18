@@ -26,6 +26,14 @@ pub(in crate::codegen::runtime_decl) static EH: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    // Default panic reporting is deferred to a true uncaught boundary.
+    RtFn {
+        name: "ori_report_uncaught_panic",
+        params: &[],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // SEH/MSVC catch trampoline — wraps a function call in __try/__except.
     // extern "C" (catches exceptions internally, returns status code)
     RtFn {

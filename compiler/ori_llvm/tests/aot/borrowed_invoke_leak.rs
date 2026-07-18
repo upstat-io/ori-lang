@@ -110,7 +110,6 @@ fn multi_variant_heap_arm_releases_borrowed_arg_no_leak() {
 /// double-free in RC codegen for a borrowed-Invoke `[Tree]` result. The carrier
 /// decline is unit-pinned by `no_sink_declines_heap_result_carrier`.
 #[test]
-#[ignore = "BUG-04-164: borrowed-Invoke recursive-sum-list [Tree] result double-frees (orthogonal to the no-sink scan)"]
 fn non_scalar_result_carrier_declined_clean() {
     assert_aot_success(
         include_str!("fixtures/borrowed_invoke_leak/non_scalar_result_carrier.ori"),
@@ -138,7 +137,6 @@ fn live_project_extract_declined_clean() {
 /// Project extract. The vet decline is unit-pinned by
 /// `vetted_closure_declines_owned_position_consume`.
 #[test]
-#[ignore = "BUG-04-165: closure capturing a niche-payload Project extract double-frees (orthogonal to the no-sink scan)"]
 fn mutation_in_closure_declined_clean() {
     assert_aot_success(
         include_str!("fixtures/borrowed_invoke_leak/mutation_in_closure_decline.ori"),

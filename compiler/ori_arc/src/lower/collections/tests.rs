@@ -2,7 +2,7 @@ use ori_ir::canon::{CanArena, CanExpr, CanNode, CanonResult};
 use ori_ir::{Name, Span, StringInterner, TypeId};
 use ori_types::{Idx, Pool};
 
-use crate::ir::{ArcInstr, ArcValue, CtorKind, LitValue};
+use crate::ir::{ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
 use crate::lower::ArcLoweringInput;
 
 /// Wrap a built arena into a single-root `CanonResult` and lower it.
@@ -300,6 +300,70 @@ fn lower_empty_tuple_as_unit_literal() {
             ..
         }]
     ));
+}
+
+#[test]
+fn list_index_retains_unwind_carrier_without_lexical_catch() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let list_ty = pool.list(Idx::INT);
+    let mut arena = CanArena::with_capacity(8);
+
+    let items: Vec<_> = [10, 20, 30]
+        .into_iter()
+        .map(|value| {
+            arena.push(CanNode::new(
+                CanExpr::Int(value),
+                Span::new(0, 1),
+                TypeId::from_raw(Idx::INT.raw()),
+            ))
+        })
+        .collect();
+    let item_range = arena.push_expr_list(&items);
+    let receiver = arena.push(CanNode::new(
+        CanExpr::List(item_range),
+        Span::new(0, 8),
+        TypeId::from_raw(list_ty.raw()),
+    ));
+    let index = arena.push(CanNode::new(
+        CanExpr::Int(-1),
+        Span::new(9, 11),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let root = arena.push(CanNode::new(
+        CanExpr::Index { receiver, index },
+        Span::new(0, 12),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let canon = CanonResult::new(arena, root);
+    let mut problems = Vec::new();
+
+    let (function, _) = super::super::super::lower_function_can(
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: root,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+
+    assert!(problems.is_empty());
+    let index_name = interner.intern("__index");
+    assert!(function.blocks.iter().any(|block| matches!(
+        block.terminator,
+        ArcTerminator::Invoke { func, .. } if func == index_name
+    )));
+    assert!(function
+        .blocks
+        .iter()
+        .any(|block| matches!(block.terminator, ArcTerminator::Resume)));
 }
 
 #[test]

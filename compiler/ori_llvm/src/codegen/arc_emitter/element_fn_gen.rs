@@ -51,8 +51,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Codegen SSOT for "does this type have a user `@<method>` impl + what is
     /// its ABI". Consulted by `user_drop_method` (`"drop"`) and the map/set
-    /// `key_hash` / `key_eq` thunk generators (`"hash"` / `"eq"` — user-Hashable
-    /// / user-Eq collection keys). Returns the `FunctionAbi` so callers read
+    /// hash/equality thunk generators. Returns the `FunctionAbi` so callers read
     /// per-param `passing` to thread self/operands by-value (`Direct`) vs
     /// by-pointer (`Indirect` / `Reference`). Manual `impl T: Trait` and
     /// `#derive(Trait)` both register in `method_functions`, so one lookup
@@ -62,6 +61,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         method_name: ori_ir::Name,
     ) -> Option<(FunctionId, crate::codegen::abi::FunctionAbi)> {
+        if self.ctx.executable_facts_bound {
+            return self.lookup_exact_method_target(ty, method_name).cloned();
+        }
         // A multi-instantiation generic-composite map/set key
         // dispatches the per-instantiation derived `hash`/`eq` keyed on the
         // materialized concrete Idx before the last-instantiation-wins type-name
@@ -74,6 +76,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let type_name = self.drop_type_name(ty)?;
         let (func_id, abi) = self.ctx.method_functions.get(&(type_name, method_name))?;
         Some((*func_id, abi.clone()))
+    }
+
+    /// Resolve the exact callable implementing `Eq` for a collection element.
+    ///
+    /// Source impls register the Spec method `equals`; generated derives use
+    /// [`ori_ir::DerivedTrait::Eq`]'s internal `eq` identity. Both identities
+    /// are canonical at their producer, and lookup remains receiver-qualified.
+    pub(super) fn user_eq_callable(
+        &self,
+        ty: Idx,
+    ) -> Option<(FunctionId, crate::codegen::abi::FunctionAbi)> {
+        let surface_name = self.interner.intern("equals");
+        if let Some(callable) = self.user_method(ty, surface_name) {
+            return Some(callable);
+        }
+
+        let derived_name = self.interner.intern(ori_ir::DerivedTrait::Eq.method_name());
+        self.user_method(ty, derived_name)
     }
 
     /// Does refcount-zero teardown of `ty` transitively run a user `@drop`

@@ -377,6 +377,7 @@ pub(super) fn build_derived_methods(
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             // Derived methods have no defaulted params → strict arity.
             optional_param_count: 0,
             span,

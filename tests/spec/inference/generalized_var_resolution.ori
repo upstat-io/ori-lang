@@ -104,7 +104,6 @@ use std.testing { assert_eq, assert }
 // Multi-param: const function with collection arguments
 // =============================================================================
 
-#skip("BUG-04-225: AOT ARC leak in monomorphized const-lambda returning a borrowed collection — aims-burden RC-emission domain (arc.md STOP), not the var-mapping recorder")
 @test_poly_const_collections tests @poly_const_collections () -> void = {
     let first = (a, b) -> a;
     let result1 = first(a: [1, 2], b: "ignored");

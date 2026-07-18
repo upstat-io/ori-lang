@@ -1,6 +1,7 @@
 //! Binding frozen call plans to generated ARC bodies.
 
-use ori_types::{DerivedCallPlan, Pool};
+use ori_repr::monomorphize::MonoTargetMaps;
+use ori_types::{DerivedCallPlan, MethodProducer, Pool};
 use oric::ir::Name;
 use rustc_hash::FxHashSet;
 
@@ -35,7 +36,7 @@ pub(super) fn bind_derived_call_plan(
                 fact.destination, selection.method_name,
             ));
         }
-        if fact.receiver_type != selection.receiver_type {
+        if !pool.representation_eq(fact.receiver_type, selection.receiver_type) {
             return Err(format!(
                 "method-call fact at {:?} records receiver {:?}, frozen plan selects {:?}",
                 fact.destination, fact.receiver_type, selection.receiver_type,
@@ -112,6 +113,66 @@ pub(super) fn bind_derived_call_plan(
         }
     }
     Ok(())
+}
+
+/// Rewrite frozen nested-derived calls through the producer-qualified mono map.
+///
+/// The emitted operand keeps its physical receiver type so executable
+/// provenance validation remains exact. The frozen plan separately carries the
+/// semantic generic receiver selected by type checking; resolving that pair
+/// here avoids a name fallback and avoids asking a representation body to
+/// reconstruct erased generic arguments later in batch preparation.
+pub(super) fn rewrite_frozen_derived_targets(
+    function: &mut ori_arc::ArcFunction,
+    plan: &DerivedCallPlan,
+    targets: &MonoTargetMaps,
+    pool: &Pool,
+) {
+    let mut updates = Vec::new();
+    for selection in &plan.calls {
+        if !matches!(selection.producer, MethodProducer::Derived(_)) {
+            continue;
+        }
+        let Some(target) =
+            targets.exact_method_target(&selection.producer, selection.receiver_type, pool)
+        else {
+            continue;
+        };
+        let Some(fact) = function.method_call_facts.iter().find(|fact| {
+            fact.derived_position == Some(selection.position)
+                && fact.producer.as_ref() == Some(&selection.producer)
+        }) else {
+            continue;
+        };
+        updates.push((fact.destination, target));
+    }
+
+    for (destination, target) in updates {
+        rewrite_call_target(function, destination, target);
+    }
+}
+
+fn rewrite_call_target(
+    function: &mut ori_arc::ArcFunction,
+    destination: ori_arc::ArcVarId,
+    target: Name,
+) {
+    for block in &mut function.blocks {
+        for instruction in &mut block.body {
+            if let ori_arc::ArcInstr::Apply { dst, func, .. } = instruction {
+                if *dst == destination {
+                    *func = target;
+                    return;
+                }
+            }
+        }
+        if let ori_arc::ArcTerminator::Invoke { dst, func, .. } = &mut block.terminator {
+            if *dst == destination {
+                *func = target;
+                return;
+            }
+        }
+    }
 }
 
 fn emitted_direct_calls(function: &ori_arc::ArcFunction) -> Vec<(ori_arc::ArcVarId, Name)> {

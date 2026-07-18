@@ -966,3 +966,33 @@ fn re_intern_non_ffi_named_has_no_cabi_kind() {
     let result = re_intern_type(&source, named, &mut target, &mut cache);
     assert_eq!(target.cabi_kind(result), None);
 }
+
+#[test]
+fn re_intern_named_carries_recursive_struct_resolution_on_fast_path() {
+    use ori_ir::StringInterner;
+    let interner = StringInterner::new();
+    let mut source = Pool::new();
+    let mut target = Pool::new();
+    let mut cache = FxHashMap::default();
+
+    let node_name = interner.intern("Node");
+    let next_name = interner.intern("next");
+    let source_named = source.named(node_name);
+    let source_next = source.option(source_named);
+    let source_struct = source.struct_type(node_name, &[(next_name, source_next)]);
+    source.set_resolution(source_named, source_struct);
+
+    // Seed the structurally identical wrapper to exercise the hash fast path
+    // used when a consumer pool already mentions an imported nominal type.
+    let target_named = target.named(node_name);
+    let result = re_intern_type(&source, source_named, &mut target, &mut cache);
+
+    assert_eq!(result, target_named);
+    let target_struct = target
+        .resolve(result)
+        .unwrap_or_else(|| panic!("re-interned Named type must retain its concrete body"));
+    assert_eq!(target.tag(target_struct), Tag::Struct);
+    let (field_name, field_type) = target.struct_field(target_struct, 0);
+    assert_eq!(field_name, next_name);
+    assert_eq!(target.option_inner(field_type), target_named);
+}

@@ -406,31 +406,45 @@ fn release_var_for_slot(
     block: usize,
     slot: PlanSlot,
 ) -> Result<ArcVarId, DeclineReason> {
-    // A borrowed function param is never a release subject (VF-1 DecOnBorrowed
-    // checks param vars); a same-class alias whose def reaches is identical.
-    let eligible = |var: ArcVarId| {
-        !ctx.func
+    // A caller-retained borrowed param is never a release subject. A borrowed
+    // ABI param whose class is Foreign is different: its contract supplied a
+    // distinct whole-value credit that the callee owns. That param may be the
+    // only class member dominating an early unwind edge; plan against it and
+    // let application materialize the verifier-safe entry alias.
+    let borrowed_credit_owned =
+        events.origin == Some(crate::aims::intraprocedural::ledger_events::ClassOrigin::Foreign);
+    let is_borrowed_param = |var: ArcVarId| {
+        ctx.func
             .params
             .iter()
             .any(|p| p.var == var && p.ownership == crate::Ownership::Borrowed)
-            && ctx
-                .defs
+    };
+    let resolve = |allow_borrowed_credit_param: bool| {
+        let eligible = |var: ArcVarId| {
+            ctx.defs
                 .get(&var)
                 .is_some_and(|&def| def_reaches_slot(ctx.func, ctx.dom, def, slot))
+                && (!is_borrowed_param(var)
+                    || (allow_borrowed_credit_param && borrowed_credit_owned))
+        };
+        events.per_block[block]
+            .iter()
+            .rev()
+            .filter_map(|ev| ev.var)
+            .find(|&v| eligible(v))
+            .or_else(|| {
+                events
+                    .per_block
+                    .iter()
+                    .flatten()
+                    .filter_map(|ev| ev.var)
+                    .find(|&v| eligible(v))
+            })
+            .or_else(|| ops.iter().map(|op| op.var).find(|&v| eligible(v)))
     };
-    events.per_block[block]
-        .iter()
-        .rev()
-        .filter_map(|ev| ev.var)
-        .find(|&v| eligible(v))
-        .or_else(|| {
-            events
-                .per_block
-                .iter()
-                .flatten()
-                .filter_map(|ev| ev.var)
-                .find(|&v| eligible(v))
-        })
-        .or_else(|| ops.iter().map(|op| op.var).find(|&v| eligible(v)))
+    // Prefer an existing verifier-safe alias. Fall back to the credited ABI
+    // parameter only when no such member dominates the release slot.
+    resolve(false)
+        .or_else(|| resolve(true))
         .ok_or(DeclineReason::UnresolvedOpVar)
 }

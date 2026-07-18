@@ -18,11 +18,6 @@
 //! lines, the `ori_llvm` emit-path ARC dump, and any downstream build error are
 //! deliberately excluded — they are not the oric driver surface under test).
 //!
-//! The `ori build` legs on this fixture currently exit non-zero (the
-//! generated `_ori_drop$<idx>` call on a scalar payload trips LLVM module
-//! verification); the driver block is emitted before that abort, so the pin
-//! captures driver output regardless of the build's exit status.
-//!
 //! Regenerate the goldens with `ORI_BLESS=1 cargo test -p oric --test
 //! dump_orchestrator_baseline`.
 
@@ -252,18 +247,23 @@ fn ori_dump_after_arc_pins_arc_ir_driver_block() {
     // `=== ARC IR (emit path, prepared) ===` block.
     let block = extract_block(&out, "=== ARC IR after lowering:", "=== END ARC IR ===");
 
-    // Load-bearing structure: the nested Construct chain + projection + dec.
+    // Load-bearing structure: nested scalar constructs and projections. A
+    // scalar-only aggregate must not acquire reference-count operations.
     assert!(
         block.matches("Construct Struct(Wrap)").count() >= 2,
         "ARC dump must show the nested `Construct Struct(Wrap)` chain:\n{block}"
     );
     assert!(
-        block.contains("Project") && block.contains("RcDec"),
-        "ARC dump must show the projection read and the RcDec placement:\n{block}"
+        block.matches("Project").count() >= 2,
+        "ARC dump must show the nested projection reads:\n{block}"
     );
     assert!(
-        block.contains("Wrap<Wrap<int>>"),
-        "ARC dump must carry the nested-generic aggregate type:\n{block}"
+        block.contains("Wrap<Wrap<int>> [Scalar]"),
+        "ARC dump must classify the nested-generic aggregate as scalar:\n{block}"
+    );
+    assert!(
+        !block.contains("RcInc") && !block.contains("RcDec"),
+        "ARC dump must not reference-count the scalar-only aggregate:\n{block}"
     );
 
     assert_golden("arc", &block);
@@ -275,19 +275,22 @@ fn ori_dump_after_llvm_pins_llvm_ir_driver_block() {
     let out = run_with_flag("build", "ORI_DUMP_AFTER_LLVM", Some(dir.path()));
     let block = extract_block(&out, "=== LLVM IR after codegen:", "=== END LLVM IR ===");
 
-    // Load-bearing structure: the demangled entry point + the generic-leaf drop
-    // glue the diagnostic surface exists to attribute.
+    // Load-bearing structure: the demangled entry point and scalar return.
     assert!(
         block.contains("@_ori_main"),
         "LLVM dump must carry the demangled entry point:\n{block}"
     );
     assert!(
-        block.contains("ori_rc_dec") && block.contains("_ori_drop$"),
-        "LLVM dump must carry the generic-leaf RC dec + drop glue:\n{block}"
+        block.contains("ret i64 7"),
+        "LLVM dump must carry the scalar result:\n{block}"
     );
     assert!(
-        block.contains("; RC--"),
-        "LLVM dump must carry the oric driver's RC annotation:\n{block}"
+        !block.contains("ori_rc_inc")
+            && !block.contains("ori_rc_dec")
+            && !block.contains("_ori_drop$")
+            && !block.contains("; RC++")
+            && !block.contains("; RC--"),
+        "LLVM dump must not carry RC operations or drop glue for a scalar-only aggregate:\n{block}"
     );
 
     assert_golden("llvm", &block);

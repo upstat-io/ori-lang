@@ -1,9 +1,8 @@
-// FileCheck test: chain merges two iterators whose element provenance may
-// differ — join over a chain gets the null (leak-safe) release fn even when
-// one side is map-produced.
+// FileCheck test: chain needs no LLVM-side ownership-provenance argument.
+// Runtime iterator state identifies and releases each dynamic yield.
 //
 // CHECK-LABEL: define void @_ori_main
-// CHECK: i64 24, ptr null, ptr %join.out
+// CHECK: ptr null, i64 24, ptr %join.out)
 
 @main () -> void = {
     let $left = ["eta-eta-eta-eta-eta-eta-eta-eta"]

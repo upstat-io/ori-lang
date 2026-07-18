@@ -89,6 +89,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     fn is_direct_call_nounwind(
         &self,
         callee: ori_ir::Name,
+        dst: ori_arc::ir::ArcVarId,
         args: &[ori_arc::ir::ArcVarId],
         func: &ori_arc::ArcFunction,
     ) -> bool {
@@ -111,7 +112,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     &self.codegen_ctx,
                     self.type_info,
                 ) {
-                    intercepted_is_nounwind(callee_name)
+                    let receiver_tag = args
+                        .first()
+                        .map(|arg| self.pool.tag(self.pool.resolve_fully(func.var_type(*arg))));
+                    let result_tag =
+                        Some(self.pool.tag(self.pool.resolve_fully(func.var_type(dst))));
+                    intercepted_is_nounwind(callee_name, receiver_tag, result_tag)
                 } else {
                     self.codegen_ctx.nounwind_functions.contains(&callee)
                 }
@@ -177,8 +183,11 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         func.blocks.iter().all(|block| {
             let term_ok = match &block.terminator {
                 ori_arc::ir::ArcTerminator::Invoke {
-                    func: callee, args, ..
-                } => self.is_direct_call_nounwind(*callee, args, func),
+                    dst,
+                    func: callee,
+                    args,
+                    ..
+                } => self.is_direct_call_nounwind(*callee, *dst, args, func),
                 // Indirect calls through closures cannot be statically
                 // resolved — conservatively assume they may unwind.
                 ori_arc::ir::ArcTerminator::InvokeIndirect { .. } => false,
@@ -186,8 +195,11 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             };
             let instrs_ok = block.body.iter().all(|instr| match instr {
                 ori_arc::ir::ArcInstr::Apply {
-                    func: callee, args, ..
-                } => self.is_direct_call_nounwind(*callee, args, func),
+                    dst,
+                    func: callee,
+                    args,
+                    ..
+                } => self.is_direct_call_nounwind(*callee, *dst, args, func),
                 // Indirect calls through closures/function pointers are
                 // conservatively treated as may-unwind — we cannot know
                 // the callee's unwind behavior at compile time.

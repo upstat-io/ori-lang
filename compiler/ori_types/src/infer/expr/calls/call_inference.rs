@@ -59,7 +59,7 @@ pub(crate) fn infer_call(
     }
 
     // Validate capability requirements
-    check_call_capabilities(engine, func_name_id, span);
+    let capability_providers = check_call_capabilities(engine, call_expr_id, func_name_id, span);
 
     // Check each provided argument
     for (i, (&arg_id, &param_ty)) in arg_ids.iter().zip(params.iter()).enumerate() {
@@ -80,7 +80,14 @@ pub(crate) fn infer_call(
 
     // Record monomorphization instance for generic function calls.
     // At this point type variables have been unified with concrete types.
-    maybe_record_mono_instance(engine, call_expr_id, func_name_id, &params, ret);
+    maybe_record_mono_instance(
+        engine,
+        call_expr_id,
+        func_name_id,
+        &params,
+        ret,
+        &capability_providers,
+    );
 
     resolve_return_projection(engine, func_name_id, &params, ret)
 }
@@ -147,7 +154,7 @@ pub(crate) fn infer_call_named(
     }
 
     // Validate capability requirements
-    check_call_capabilities(engine, func_name_id, span);
+    let capability_providers = check_call_capabilities(engine, call_expr_id, func_name_id, span);
 
     // Check each argument type by position
     for (i, (arg, &param_ty)) in call_args.iter().zip(params.iter()).enumerate() {
@@ -167,7 +174,14 @@ pub(crate) fn infer_call_named(
     }
 
     // Record monomorphization instance for generic function calls.
-    maybe_record_mono_instance(engine, call_expr_id, func_name_id, &params, ret);
+    maybe_record_mono_instance(
+        engine,
+        call_expr_id,
+        func_name_id,
+        &params,
+        ret,
+        &capability_providers,
+    );
 
     // Validate where-clause constraints after argument type-checking.
     // At this point, generic type variables have been unified with concrete types.

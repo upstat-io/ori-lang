@@ -4,7 +4,7 @@
 //! read from the list (queries) or produce a new list from immutable
 //! references (functional operations).
 
-use crate::io::ori_panic_cstr;
+use crate::io::panic_index_out_of_bounds;
 use crate::rc::{load_elem_dec_fn_const, ori_rc_alloc, store_elem_count, store_elem_dec_fn};
 use crate::slice_encoding::{is_slice_cap, slice_original_data};
 use crate::string::{deref_str, OriStr};
@@ -14,7 +14,7 @@ use super::{inc_copied_elements, write_list_output};
 
 /// Bounds-checked element access: copy `elem_size` bytes at `data[index]` to `out_ptr`.
 ///
-/// Panics if `index < 0 || index >= len` (via `ori_panic_cstr`, which unwinds).
+/// Panics if `index < 0 || index >= len`.
 #[no_mangle]
 pub extern "C-unwind" fn ori_list_get(
     data: *const u8,
@@ -24,7 +24,7 @@ pub extern "C-unwind" fn ori_list_get(
     out_ptr: *mut u8,
 ) {
     if index < 0 || index >= len {
-        ori_panic_cstr(c"index out of bounds".as_ptr());
+        panic_index_out_of_bounds(index, len);
     }
     let es = elem_size.max(1) as usize;
     let offset = index as usize * es;

@@ -144,8 +144,8 @@ pub fn wrong_function_args(expected: usize, got: usize) -> EvalError {
 
 /// Index out of bounds.
 #[cold]
-pub fn index_out_of_bounds(index: i64) -> EvalError {
-    EvalError::from_kind(EvalErrorKind::IndexOutOfBounds { index })
+pub fn index_out_of_bounds(index: i64, length: usize) -> EvalError {
+    EvalError::from_kind(EvalErrorKind::IndexOutOfBounds { index, length })
 }
 
 /// Key not found in map.
@@ -184,9 +184,10 @@ pub fn invalid_tuple_field(field: &str) -> EvalError {
 
 /// Tuple index out of bounds.
 #[cold]
-pub fn tuple_index_out_of_bounds(index: usize) -> EvalError {
+pub fn tuple_index_out_of_bounds(index: usize, length: usize) -> EvalError {
     EvalError::from_kind(EvalErrorKind::IndexOutOfBounds {
         index: i64::try_from(index).unwrap_or(i64::MAX),
+        length,
     })
 }
 

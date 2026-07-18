@@ -56,7 +56,7 @@ fn lower_source_groups(
         .map_err(ArcBatchLoweringFailure::CallableCensus)?;
     let mut groups = Vec::new();
     for seed in seeds {
-        if seed.signature.is_generic() {
+        if seed.signature.requires_specialization() {
             continue;
         }
         let mut context = crate::arc_lowering::ArcLoweringContext {
@@ -164,14 +164,17 @@ pub(super) fn lower_arc_batch(
         input.interner,
         input.pool,
     );
+    let mut lowering_context = crate::arc_lowering::ArcLoweringContext {
+        canon: input.canon,
+        interner: input.interner,
+        pool: input.pool,
+        problems: &mut arc_problems,
+    };
     let mono_groups = crate::realization::lower_mono_functions_for_analysis(
         &mono_functions,
         input.accepted_derives,
         input.derived_call_plans,
-        input.canon,
-        input.interner,
-        input.pool,
-        &mut arc_problems,
+        &mut lowering_context,
     );
     let mono_inventory = crate::realization::MonoFunctionInventory::try_new(
         mono_functions,

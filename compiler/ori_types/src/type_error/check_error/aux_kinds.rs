@@ -8,6 +8,36 @@
 use crate::type_error::{ContextKind, ExpectedOrigin};
 use crate::Idx;
 
+/// Why a fixed-list capacity expression cannot be evaluated as an integer.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum InvalidFixedListCapacityReason {
+    /// The expression or one of its declared consts has a non-integer type.
+    NonInteger,
+    /// The expression uses a form or operator not admitted in capacity types.
+    UnsupportedExpression,
+    /// Checked 64-bit integer arithmetic overflowed.
+    ArithmeticOverflow,
+    /// Division or modulo used a known-zero divisor.
+    DivisionByZero,
+    /// A concrete shift count was negative or at least 64.
+    InvalidShift,
+}
+
+impl InvalidFixedListCapacityReason {
+    /// User-facing cause text for the rejected expression.
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::NonInteger => "the expression resolves to a non-integer value",
+            Self::UnsupportedExpression => {
+                "this expression form is not allowed in a fixed-list capacity"
+            }
+            Self::ArithmeticOverflow => "the expression overflows 64-bit signed integer arithmetic",
+            Self::DivisionByZero => "division or modulo by zero is undefined",
+            Self::InvalidShift => "the shift count must be between 0 and 63",
+        }
+    }
+}
+
 /// Classifies the expression position where an unresolved type variable was
 /// observed — drives specialized E2005 diagnostic wording.
 ///

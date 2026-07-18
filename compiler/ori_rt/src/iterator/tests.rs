@@ -3,6 +3,7 @@ use std::ptr;
 
 use super::*;
 use crate::test_support::AbiOutput;
+use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
 
 fn read_i64_at<const N: usize>(bytes: &AbiOutput<N>, offset: usize) -> i64 {
     let Some(end) = offset.checked_add(size_of::<i64>()) else {
@@ -198,7 +199,7 @@ extern "C-unwind" fn double_i64(env: *mut u8, in_ptr: *const u8, out_ptr: *mut u
 fn map_doubles() {
     let data: [i64; 3] = [1, 2, 3];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
-    let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), 8, None);
+    let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), None, None, 8, None);
 
     let mut out: i64 = 0;
     assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
@@ -213,9 +214,83 @@ fn map_doubles() {
 }
 
 static MAPPED_OUTPUT_DEC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+static MAPPED_OUTPUT_INC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+static CALLBACK_ENV_INC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+static CALLBACK_ENV_DEC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
 extern "C" fn count_mapped_output_dec(_elem: *mut u8) {
     MAPPED_OUTPUT_DEC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+extern "C" fn count_mapped_output_inc(_elem: *mut u8) {
+    MAPPED_OUTPUT_INC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+extern "C" fn count_callback_env_inc(_env: *mut u8) {
+    CALLBACK_ENV_INC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+extern "C" fn count_callback_env_dec(_env: *mut u8) {
+    CALLBACK_ENV_DEC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+extern "C-unwind" fn add_copied_env_word(env: *mut u8, in_ptr: *const u8, out_ptr: *mut u8) {
+    // SAFETY: This test passes a copied two-word callback environment and
+    // aligned `i64` input/output storage.
+    unsafe {
+        let captured = env.cast::<[*mut u8; 2]>().read()[1].cast::<usize>();
+        let offset = captured.read() as i64;
+        out_ptr
+            .cast::<i64>()
+            .write(in_ptr.cast::<i64>().read() + offset);
+    }
+}
+
+#[test]
+fn mapped_iterator_owns_a_copied_callback_environment() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    CALLBACK_ENV_INC_COUNT.store(0, SeqCst);
+    CALLBACK_ENV_DEC_COUNT.store(0, SeqCst);
+
+    let mut captured = 7_usize;
+    let mut callback_env: [*mut u8; 2] =
+        [ptr::null_mut(), std::ptr::from_mut(&mut captured).cast()];
+    let source = ori_iter_from_range(0, 1, 1, false);
+    let mapped = ori_iter_map(
+        source,
+        add_copied_env_word,
+        callback_env.as_mut_ptr().cast(),
+        Some(count_callback_env_inc),
+        Some(count_callback_env_dec),
+        8,
+        None,
+    );
+    callback_env = [ptr::null_mut(); 2];
+
+    let mut out = 0_i64;
+    assert_eq!(ori_iter_next(mapped, (&raw mut out).cast(), 8), 1);
+    assert_eq!(out, 7, "lazy callback must read the owned environment copy");
+    assert_eq!(CALLBACK_ENV_INC_COUNT.load(SeqCst), 1);
+    assert_eq!(CALLBACK_ENV_DEC_COUNT.load(SeqCst), 0);
+
+    ori_iter_drop(mapped);
+    assert_eq!(CALLBACK_ENV_DEC_COUNT.load(SeqCst), 1);
+    assert_eq!(callback_env, [ptr::null_mut(); 2]);
+}
+
+fn mapped_range_with_counted_output(end: i64) -> *mut u8 {
+    let source = ori_iter_from_range(0, end, 1, false);
+    ori_iter_map(
+        source,
+        double_i64,
+        ptr::null_mut(),
+        None,
+        None,
+        8,
+        Some(count_mapped_output_dec),
+    )
 }
 
 extern "C-unwind" fn reject_all(_env: *mut u8, _elem_ptr: *const u8) -> bool {
@@ -234,16 +309,67 @@ fn nested_map_releases_each_consumed_intermediate() {
         source,
         double_i64,
         ptr::null_mut(),
+        None,
+        None,
         8,
         Some(count_mapped_output_dec),
     );
-    let outer = ori_iter_map(inner, double_i64, ptr::null_mut(), 8, None);
+    let outer = ori_iter_map(inner, double_i64, ptr::null_mut(), None, None, 8, None);
 
     let mut out = 0_i64;
     while ori_iter_next(outer, (&raw mut out).cast(), 8) != 0 {}
     ori_iter_drop(outer);
 
     assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 3);
+}
+
+#[test]
+fn count_releases_each_mapped_output_before_advancing() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    assert_eq!(ori_iter_count(mapped_range_with_counted_output(3), 8), 3);
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 3);
+}
+
+#[test]
+fn any_releases_each_mapped_output_including_the_match() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    assert_eq!(
+        ori_iter_any(
+            mapped_range_with_counted_output(3),
+            gt_3,
+            ptr::null_mut(),
+            8,
+        ),
+        1
+    );
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 3);
+}
+
+#[test]
+fn all_releases_the_short_circuiting_mapped_output() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    assert_eq!(
+        ori_iter_all(
+            mapped_range_with_counted_output(3),
+            gt_3,
+            ptr::null_mut(),
+            8,
+        ),
+        0
+    );
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 1);
 }
 
 #[test]
@@ -258,10 +384,12 @@ fn filter_releases_each_rejected_mapped_output() {
         source,
         double_i64,
         ptr::null_mut(),
+        None,
+        None,
         8,
         Some(count_mapped_output_dec),
     );
-    let filtered = ori_iter_filter(mapped, reject_all, ptr::null_mut(), 8);
+    let filtered = ori_iter_filter(mapped, reject_all, ptr::null_mut(), None, None, 8);
 
     let mut out = 0_i64;
     assert_eq!(ori_iter_next(filtered, (&raw mut out).cast(), 8), 0);
@@ -282,6 +410,8 @@ fn skip_releases_discarded_mapped_outputs_and_forwards_the_survivor() {
         source,
         double_i64,
         ptr::null_mut(),
+        None,
+        None,
         8,
         Some(count_mapped_output_dec),
     );
@@ -316,7 +446,7 @@ extern "C-unwind" fn is_even(env: *mut u8, elem_ptr: *const u8) -> bool {
 fn filter_even() {
     let data: [i64; 6] = [1, 2, 3, 4, 5, 6];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8, true);
-    let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8);
+    let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), None, None, 8);
 
     let mut out: i64 = 0;
     assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
@@ -361,7 +491,7 @@ fn count_range() {
 fn count_filtered() {
     let data: [i64; 6] = [1, 2, 3, 4, 5, 6];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8, true);
-    let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8);
+    let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), None, None, 8);
     assert_eq!(ori_iter_count(iter, 8), 3);
 }
 
@@ -394,8 +524,8 @@ fn collect_range() {
 fn map_filter_take_yields_first_three_doubled_values() {
     let data: [i64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 10, 0, 8, true);
-    let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), 8, None);
-    let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8);
+    let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), None, None, 8, None);
+    let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), None, None, 8);
     let iter = ori_iter_take(iter, 3);
 
     let mut out: i64 = 0;
@@ -462,7 +592,7 @@ fn find_found() {
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 5, 0, 8, true);
 
     let mut out = AbiOutput::<16>::default();
-    ori_iter_find(iter, gt_3, ptr::null_mut(), 8, out.as_mut_ptr());
+    ori_iter_find(iter, gt_3, ptr::null_mut(), 8, None, out.as_mut_ptr());
 
     let tag = read_i64_at(&out, 0);
     let payload = read_i64_at(&out, 8);
@@ -471,15 +601,62 @@ fn find_found() {
 }
 
 #[test]
+fn find_retains_output_then_releases_the_mapped_yield() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_INC_COUNT.store(0, SeqCst);
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let mut out = AbiOutput::<16>::default();
+    ori_iter_find(
+        mapped_range_with_counted_output(3),
+        gt_3,
+        ptr::null_mut(),
+        8,
+        Some(count_mapped_output_inc),
+        out.as_mut_ptr(),
+    );
+
+    assert_eq!(read_i64_at(&out, 0), OPTION_TAG_SOME);
+    assert_eq!(read_i64_at(&out, 8), 4);
+    assert_eq!(MAPPED_OUTPUT_INC_COUNT.load(SeqCst), 1);
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 3);
+}
+
+#[test]
 fn find_not_found() {
     let data: [i64; 3] = [1, 2, 3];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, true);
 
     let mut out = AbiOutput::<16>::default();
-    ori_iter_find(iter, gt_3, ptr::null_mut(), 8, out.as_mut_ptr());
+    ori_iter_find(iter, gt_3, ptr::null_mut(), 8, None, out.as_mut_ptr());
 
     let tag = read_i64_at(&out, 0);
     assert_eq!(tag, 1);
+}
+
+#[test]
+fn find_without_match_releases_all_mapped_yields_without_retaining() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_INC_COUNT.store(0, SeqCst);
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let mut out = AbiOutput::<16>::default();
+    ori_iter_find(
+        mapped_range_with_counted_output(2),
+        gt_3,
+        ptr::null_mut(),
+        8,
+        Some(count_mapped_output_inc),
+        out.as_mut_ptr(),
+    );
+
+    assert_eq!(read_i64_at(&out, 0), OPTION_TAG_NONE);
+    assert_eq!(MAPPED_OUTPUT_INC_COUNT.load(SeqCst), 0);
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 2);
 }
 
 extern "C-unwind" fn increment_counter(env: *mut u8, _elem_ptr: *const u8) {
@@ -498,6 +675,25 @@ fn for_each_counts() {
     let mut counter: i64 = 0;
     ori_iter_for_each(iter, increment_counter, (&raw mut counter).cast(), 8);
     assert_eq!(counter, 4);
+}
+
+#[test]
+fn for_each_releases_each_mapped_output_after_the_callback() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let mut counter = 0_i64;
+    ori_iter_for_each(
+        mapped_range_with_counted_output(3),
+        increment_counter,
+        (&raw mut counter).cast(),
+        8,
+    );
+
+    assert_eq!(counter, 3);
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 3);
 }
 
 #[test]
@@ -525,6 +721,30 @@ extern "C-unwind" fn sum_fold(
     }
 }
 
+extern "C-unwind" fn append_digit_fold(
+    env: *mut u8,
+    acc_ptr: *const u8,
+    elem_ptr: *const u8,
+    out_ptr: *mut u8,
+) {
+    let _ = env;
+    // SAFETY: The fold ABI supplies aligned live `i64` input and output storage.
+    unsafe {
+        let acc = acc_ptr.cast::<i64>().read();
+        let elem = elem_ptr.cast::<i64>().read();
+        out_ptr.cast::<i64>().write(acc * 10 + elem);
+    }
+}
+
+extern "C" fn i64_to_ori_str(_env: *mut u8, elem_ptr: *const u8, out_ptr: *mut u8) {
+    // SAFETY: The join conversion ABI supplies an aligned initialized `i64`.
+    let value = unsafe { elem_ptr.cast::<i64>().read() };
+    let rendered = value.to_string();
+    let output = crate::string::OriStr::from_owned(&rendered);
+    // SAFETY: The join conversion ABI supplies writable storage for one OriStr.
+    unsafe { out_ptr.cast::<crate::string::OriStr>().write(output) };
+}
+
 #[test]
 fn fold_sum() {
     let data: [i64; 4] = [1, 2, 3, 4];
@@ -542,6 +762,29 @@ fn fold_sum() {
         (&raw mut result).cast(),
     );
     assert_eq!(result, 10);
+}
+
+#[test]
+fn fold_releases_each_mapped_output_after_the_callback() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let init = 0_i64;
+    let mut result = 0_i64;
+    ori_iter_fold(
+        mapped_range_with_counted_output(3),
+        (&raw const init).cast(),
+        sum_fold,
+        ptr::null_mut(),
+        8,
+        8,
+        (&raw mut result).cast(),
+    );
+
+    assert_eq!(result, 6);
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 3);
 }
 
 #[test]
@@ -567,7 +810,7 @@ fn fold_with_filter() {
     // [1,2,3,4,5,6].filter(even).fold(0, +) = 2+4+6 = 12
     let data: [i64; 6] = [1, 2, 3, 4, 5, 6];
     let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8, true);
-    let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8);
+    let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), None, None, 8);
 
     let init: i64 = 0;
     let mut result: i64 = 0;
@@ -581,6 +824,135 @@ fn fold_with_filter() {
         (&raw mut result).cast(),
     );
     assert_eq!(result, 12);
+}
+
+#[test]
+fn last_uses_one_back_yield_and_transfers_its_mapped_output() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_INC_COUNT.store(0, SeqCst);
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let mut out = AbiOutput::<16>::default();
+    ori_iter_last(
+        mapped_range_with_counted_output(3),
+        8,
+        Some(count_mapped_output_inc),
+        out.as_mut_ptr(),
+    );
+
+    assert_eq!(read_i64_at(&out, 0), OPTION_TAG_SOME);
+    assert_eq!(read_i64_at(&out, 8), 4);
+    assert_eq!(MAPPED_OUTPUT_INC_COUNT.load(SeqCst), 1);
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 1);
+}
+
+#[test]
+fn rfind_searches_from_back_and_transfers_the_first_matching_yield() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_INC_COUNT.store(0, SeqCst);
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let mut out = AbiOutput::<16>::default();
+    ori_iter_rfind(
+        mapped_range_with_counted_output(3),
+        gt_3,
+        ptr::null_mut(),
+        8,
+        Some(count_mapped_output_inc),
+        out.as_mut_ptr(),
+    );
+
+    assert_eq!(read_i64_at(&out, 0), OPTION_TAG_SOME);
+    assert_eq!(read_i64_at(&out, 8), 4);
+    assert_eq!(MAPPED_OUTPUT_INC_COUNT.load(SeqCst), 1);
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 1);
+}
+
+#[test]
+fn rfind_without_match_releases_each_back_yield_without_retaining() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_INC_COUNT.store(0, SeqCst);
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let mut out = AbiOutput::<16>::default();
+    ori_iter_rfind(
+        mapped_range_with_counted_output(2),
+        gt_3,
+        ptr::null_mut(),
+        8,
+        Some(count_mapped_output_inc),
+        out.as_mut_ptr(),
+    );
+
+    assert_eq!(read_i64_at(&out, 0), OPTION_TAG_NONE);
+    assert_eq!(MAPPED_OUTPUT_INC_COUNT.load(SeqCst), 0);
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 2);
+}
+
+#[test]
+fn rfold_advances_from_back_and_releases_each_mapped_yield() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let init = 0_i64;
+    let mut result = 0_i64;
+    ori_iter_rfold(
+        mapped_range_with_counted_output(3),
+        (&raw const init).cast(),
+        append_digit_fold,
+        ptr::null_mut(),
+        8,
+        8,
+        (&raw mut result).cast(),
+    );
+
+    assert_eq!(result, 420);
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 3);
+}
+
+#[test]
+fn join_releases_mapped_inputs_through_iterator_state() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let separator = crate::string::OriStr::from_bytes(b",");
+    // SAFETY: OriStr is a raw-layout union; join accepts those three fields for
+    // both heap and SSO values and reconstructs the same bits.
+    let separator_fields = unsafe { separator.heap };
+    let mut out = AbiOutput::<24>::default();
+    ori_iter_join(
+        mapped_range_with_counted_output(3),
+        separator_fields.len,
+        separator_fields.cap,
+        separator_fields.data,
+        Some(i64_to_ori_str),
+        ptr::null_mut(),
+        8,
+        out.as_mut_ptr(),
+    );
+
+    // SAFETY: join initialized the complete, aligned OriStr output slot.
+    let result = unsafe { out.as_ptr().cast::<crate::string::OriStr>().read() };
+    assert_eq!(unsafe { result.as_str() }, "0,2,4");
+    assert_eq!(MAPPED_OUTPUT_DEC_COUNT.load(SeqCst), 3);
+    // SAFETY: Reading the heap view recovers the raw ABI fields even for SSO;
+    // ori_str_rc_dec recognizes the SSO flag and performs no release.
+    let result_fields = unsafe { result.heap };
+    crate::rc::ori_str_rc_dec(
+        result_fields.data,
+        result_fields.cap,
+        Some(crate::rc::ori_str_drop_buffer),
+    );
 }
 
 // Zip adapter
@@ -772,6 +1144,8 @@ fn collect_releases_iterator_and_partial_buffer_when_transform_panics() {
         source,
         panic_after_one_transform,
         std::ptr::from_mut(&mut calls).cast(),
+        None,
+        None,
         8,
         None,
     );
@@ -803,6 +1177,106 @@ extern "C" fn hash_i64_ptr(value: *const u8) -> i64 {
     unsafe { value.cast::<i64>().read() }
 }
 
+static COLLECT_TRANSFER_DEC_COUNT: std::sync::atomic::AtomicI64 =
+    std::sync::atomic::AtomicI64::new(0);
+
+extern "C" fn count_collect_transfer_dec(_element: *mut u8) {
+    COLLECT_TRANSFER_DEC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn owned_counted_i64_list(values: &[i64]) -> *mut u8 {
+    let byte_len = std::mem::size_of_val(values);
+    let data = crate::ori_rc_alloc(byte_len, 8);
+    assert!(!data.is_null());
+    unsafe {
+        ptr::copy_nonoverlapping(values.as_ptr().cast::<u8>(), data, byte_len);
+        crate::rc::store_elem_count(data, values.len() as i64);
+        crate::rc::store_elem_dec_fn(data, Some(count_collect_transfer_dec));
+    }
+    data
+}
+
+#[test]
+fn collect_list_transfers_direct_source_buffer_without_duplicate_teardown() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    let before = crate::ori_rc_live_count();
+    COLLECT_TRANSFER_DEC_COUNT.store(0, SeqCst);
+    let values = [10_i64, 20];
+    let source_data = owned_counted_i64_list(&values);
+    let iter = ori_iter_from_list(
+        source_data,
+        values.len() as i64,
+        values.len() as i64,
+        8,
+        true,
+    );
+    let mut out = AbiOutput::<24>::default();
+
+    ori_iter_collect(
+        iter,
+        8,
+        None,
+        Some(count_collect_transfer_dec),
+        out.as_mut_ptr(),
+    );
+
+    let result_data = read_pointer_at(&out, 16);
+    assert_eq!(
+        result_data, source_data,
+        "direct List collect must hand off its buffer"
+    );
+    assert_eq!(COLLECT_TRANSFER_DEC_COUNT.load(SeqCst), 0);
+
+    crate::ori_buffer_rc_dec(result_data, 2, 2, 8, Some(count_collect_transfer_dec));
+    assert_eq!(COLLECT_TRANSFER_DEC_COUNT.load(SeqCst), 2);
+    assert_eq!(crate::ori_rc_live_count(), before);
+}
+
+#[test]
+fn collect_set_moves_unique_source_elements_and_drops_duplicates_once() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    let before = crate::ori_rc_live_count();
+    COLLECT_TRANSFER_DEC_COUNT.store(0, SeqCst);
+    let values = [7_i64, 7, 9];
+    let source_data = owned_counted_i64_list(&values);
+    let iter = ori_iter_from_list(
+        source_data,
+        values.len() as i64,
+        values.len() as i64,
+        8,
+        true,
+    );
+    let mut out = AbiOutput::<24>::default();
+
+    ori_iter_collect_set(
+        iter,
+        8,
+        eq_i64_ptr,
+        hash_i64_ptr,
+        None,
+        Some(count_collect_transfer_dec),
+        out.as_mut_ptr(),
+    );
+
+    let len = read_i64_at(&out, 0);
+    let cap = read_i64_at(&out, 8);
+    let result_data = read_pointer_at(&out, 16);
+    assert_eq!(len, 2);
+    assert_eq!(
+        COLLECT_TRANSFER_DEC_COUNT.load(SeqCst),
+        1,
+        "only the discarded duplicate tears down during collection"
+    );
+
+    crate::ori_set_buffer_rc_dec(result_data, cap, len, 8, Some(count_collect_transfer_dec));
+    assert_eq!(COLLECT_TRANSFER_DEC_COUNT.load(SeqCst), 3);
+    assert_eq!(crate::ori_rc_live_count(), before);
+}
+
 #[test]
 fn collect_set_releases_iterator_and_partial_buffer_when_transform_panics() {
     let _g = crate::test_support::lock_rc();
@@ -814,6 +1288,8 @@ fn collect_set_releases_iterator_and_partial_buffer_when_transform_panics() {
         source,
         panic_after_one_transform,
         std::ptr::from_mut(&mut calls).cast(),
+        None,
+        None,
         8,
         None,
     );
@@ -843,6 +1319,72 @@ fn collect_set_releases_iterator_and_partial_buffer_when_transform_panics() {
         crate::ori_rc_live_count(),
         before,
         "panic cleanup must release the partial collect_set buffer"
+    );
+}
+
+#[test]
+fn rev_retains_buffer_masters_and_releases_each_source_yield() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_INC_COUNT.store(0, SeqCst);
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let reversed = ori_iter_rev(
+        mapped_range_with_counted_output(3),
+        8,
+        Some(count_mapped_output_inc),
+        Some(count_mapped_output_dec),
+    );
+    assert_eq!(ori_iter_count(reversed, 8), 3);
+
+    assert_eq!(MAPPED_OUTPUT_INC_COUNT.load(SeqCst), 3);
+    assert_eq!(
+        MAPPED_OUTPUT_DEC_COUNT.load(SeqCst),
+        6,
+        "three source yields and three retained reverse-buffer masters must release"
+    );
+}
+
+#[test]
+fn rev_unwind_releases_the_retained_prefix_and_consumed_source_yield() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    MAPPED_OUTPUT_INC_COUNT.store(0, SeqCst);
+    MAPPED_OUTPUT_DEC_COUNT.store(0, SeqCst);
+
+    let source = ori_iter_from_range(10, 12, 1, false);
+    let mut calls = 0_usize;
+    let mapped = ori_iter_map(
+        source,
+        panic_after_one_transform,
+        std::ptr::from_mut(&mut calls).cast(),
+        None,
+        None,
+        8,
+        Some(count_mapped_output_dec),
+    );
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ori_iter_rev(
+            mapped,
+            8,
+            Some(count_mapped_output_inc),
+            Some(count_mapped_output_dec),
+        )
+    }));
+
+    if let Ok(reversed) = result {
+        ori_iter_drop(reversed);
+        panic!("source callback panic must cross ori_iter_rev");
+    }
+    assert_eq!(calls, 1);
+    assert_eq!(MAPPED_OUTPUT_INC_COUNT.load(SeqCst), 1);
+    assert_eq!(
+        MAPPED_OUTPUT_DEC_COUNT.load(SeqCst),
+        2,
+        "the consumed mapped yield and retained reverse prefix must both release"
     );
 }
 

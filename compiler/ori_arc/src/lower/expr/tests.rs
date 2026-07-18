@@ -1,13 +1,43 @@
 use rustc_hash::FxHashMap;
 
-use ori_ir::canon::{CanArena, CanNamedExpr, CanNode, CanParam, CanonResult};
+use ori_ir::canon::{
+    CanArena, CanNamedExpr, CanNode, CanParam, CanonResult, GenericConstValue, MonoConstBinding,
+};
 use ori_ir::{FunctionExpKind, Name, Span, StringInterner, TypeId};
 use ori_types::Idx;
 use ori_types::Pool;
 
 use crate::ir::{ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
 
-use super::super::{lower_function_can, ArcLoweringInput};
+use super::super::{lower_function_can, ArcLoweringInput, ArcProblem};
+
+fn lower_single_expr_with_bindings(
+    canon: &CanonResult,
+    body: ori_ir::canon::CanId,
+    ty: Idx,
+    interner: &StringInterner,
+    const_bindings: Option<&[MonoConstBinding]>,
+) -> (crate::ir::ArcFunction, Vec<ArcProblem>) {
+    let pool = Pool::new();
+    let mut problems = Vec::new();
+    let name = interner.intern("test_function");
+    let (func, _lambdas) = lower_function_can(
+        ArcLoweringInput {
+            name,
+            params: &[],
+            return_type: ty,
+            body,
+            canon,
+            interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+    (func, problems)
+}
 
 /// Helper: create a lowerer with a single canonical expression body.
 fn lower_single_expr(
@@ -16,25 +46,7 @@ fn lower_single_expr(
     ty: Idx,
 ) -> crate::ir::ArcFunction {
     let interner = StringInterner::new();
-    let pool = Pool::new();
-
-    let mut problems = Vec::new();
-    let name = Name::from_raw(1);
-    let (func, _lambdas) = lower_function_can(
-        ArcLoweringInput {
-            name,
-            params: &[],
-            return_type: ty,
-            body,
-            canon,
-            interner: &interner,
-            pool: &pool,
-            type_subst: None,
-            const_bindings: None,
-            is_fbip: false,
-        },
-        &mut problems,
-    );
+    let (func, problems) = lower_single_expr_with_bindings(canon, body, ty, &interner, None);
     assert!(problems.is_empty(), "unexpected problems: {problems:?}");
     func
 }
@@ -115,6 +127,114 @@ fn lower_constant_pool_value() {
     } else {
         panic!("expected Let with constant value");
     }
+}
+
+#[test]
+fn lower_named_const_uses_exact_mono_binding() {
+    let interner = StringInterner::new();
+    let const_name = interner.intern("N");
+    let (_, canon) = make_canon(ori_ir::canon::CanExpr::Const(const_name), Idx::INT);
+    let bindings = [MonoConstBinding {
+        name: const_name,
+        value: GenericConstValue::Int(7),
+    }];
+
+    let (func, problems) =
+        lower_single_expr_with_bindings(&canon, canon.root, Idx::INT, &interner, Some(&bindings));
+
+    assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+    assert!(matches!(
+        &func.blocks[0].body[0],
+        ArcInstr::Let {
+            value: ArcValue::Literal(LitValue::Int(7)),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn lower_generic_const_ident_uses_exact_mono_binding() {
+    let interner = StringInterner::new();
+    let const_name = interner.intern("N");
+    let (_, canon) = make_canon(ori_ir::canon::CanExpr::Ident(const_name), Idx::INT);
+    let bindings = [MonoConstBinding {
+        name: const_name,
+        value: GenericConstValue::Int(7),
+    }];
+
+    let (func, problems) =
+        lower_single_expr_with_bindings(&canon, canon.root, Idx::INT, &interner, Some(&bindings));
+
+    assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+    assert!(matches!(
+        &func.blocks[0].body[0],
+        ArcInstr::Let {
+            value: ArcValue::Literal(LitValue::Int(7)),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn lexical_ident_shadows_same_named_mono_const_binding() {
+    let interner = StringInterner::new();
+    let name = interner.intern("N");
+    let (_, canon) = make_canon(ori_ir::canon::CanExpr::Ident(name), Idx::INT);
+    let bindings = [MonoConstBinding {
+        name,
+        value: GenericConstValue::Int(7),
+    }];
+    let pool = Pool::new();
+    let mut problems = Vec::new();
+    let (func, _lambdas) = lower_function_can(
+        ArcLoweringInput {
+            name: interner.intern("shadow"),
+            params: &[(name, Idx::INT)],
+            return_type: Idx::INT,
+            body: canon.root,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: Some(&bindings),
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+
+    assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+    assert!(matches!(
+        &func.blocks[0].body[0],
+        ArcInstr::Let {
+            value: ArcValue::Var(var),
+            ..
+        } if *var == func.params[0].var
+    ));
+}
+
+#[test]
+fn lower_unbound_named_const_reports_canon_invariant_violation() {
+    let interner = StringInterner::new();
+    let const_name = interner.intern("MISSING");
+    let (_, canon) = make_canon(ori_ir::canon::CanExpr::Const(const_name), Idx::INT);
+
+    let (func, problems) =
+        lower_single_expr_with_bindings(&canon, canon.root, Idx::INT, &interner, None);
+
+    assert!(matches!(
+        problems.as_slice(),
+        [ArcProblem::InternalError { message, span }]
+            if message.contains("MISSING")
+                && message.contains("without an exact monomorphization binding")
+                && *span == Span::new(0, 10)
+    ));
+    assert!(matches!(
+        &func.blocks[0].body[0],
+        ArcInstr::Let {
+            value: ArcValue::Literal(LitValue::Unit),
+            ..
+        }
+    ));
 }
 
 #[test]

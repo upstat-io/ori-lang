@@ -11,7 +11,7 @@ use crate::eval::Evaluator;
 use crate::ir::TestDef;
 
 use super::super::error_matching::{
-    format_actual, format_expected, format_pattern_problem, match_all_errors,
+    format_actual, format_const_problem, format_expected, format_pattern_problem, match_all_errors,
 };
 use super::super::result::{TestOutcome, TestResult};
 use super::TestRunner;
@@ -24,6 +24,136 @@ pub(super) struct SingleTestRun {
     /// evaluator inconsistent. The caller MUST rebuild the evaluator before
     /// running another test on it.
     pub(super) evaluator_poisoned: bool,
+}
+
+/// Errors and problems selected to match a `compile_fail` test's expectations
+/// against — span-local when the test's own span produced any, else every
+/// module-level error/problem.
+struct ErrorsToMatch<'a> {
+    type_errors: Vec<&'a ori_types::TypeCheckError>,
+    pattern_problems: Vec<&'a ori_ir::canon::PatternProblem>,
+    const_problems: Vec<&'a ori_ir::canon::ConstEvalProblem>,
+}
+
+/// Select span-filtered errors first for better isolation between tests in
+/// the same file; fall back to every module-level error/problem when the
+/// test's own span produced none (module-level errors, like a missing impl
+/// member, are not attributable to any single test's span).
+fn select_errors_to_match<'a>(
+    test: &TestDef,
+    type_result: &'a TypeCheckResult,
+    pattern_problems: &'a [ori_ir::canon::PatternProblem],
+    const_problems: &'a [ori_ir::canon::ConstEvalProblem],
+) -> ErrorsToMatch<'a> {
+    let test_type_errors: Vec<_> = type_result
+        .errors()
+        .iter()
+        .filter(|e| test.span.contains_span(e.span()))
+        .collect();
+    let test_pattern_problems: Vec<_> = pattern_problems
+        .iter()
+        .filter(|p| {
+            let span = match p {
+                ori_ir::canon::PatternProblem::NonExhaustive { match_span, .. } => *match_span,
+                ori_ir::canon::PatternProblem::RedundantArm { arm_span, .. } => *arm_span,
+            };
+            test.span.contains_span(span)
+        })
+        .collect();
+    let test_const_problems: Vec<_> = const_problems
+        .iter()
+        .filter(|problem| test.span.contains_span(problem.span))
+        .collect();
+    let use_all_module_errors = test_type_errors.is_empty()
+        && test_pattern_problems.is_empty()
+        && test_const_problems.is_empty();
+    if use_all_module_errors {
+        ErrorsToMatch {
+            type_errors: type_result.errors().iter().collect(),
+            pattern_problems: pattern_problems.iter().collect(),
+            const_problems: const_problems.iter().collect(),
+        }
+    } else {
+        ErrorsToMatch {
+            type_errors: test_type_errors,
+            pattern_problems: test_pattern_problems,
+            const_problems: test_const_problems,
+        }
+    }
+}
+
+/// Build the failure result for a `compile_fail` test whose expected errors
+/// never materialized (compilation succeeded).
+fn expected_failure_but_compilation_succeeded(
+    test: &TestDef,
+    interner: &crate::ir::StringInterner,
+    start: Instant,
+) -> TestResult {
+    let expected_strs: Vec<String> = test
+        .expected_errors
+        .iter()
+        .map(|e| format_expected(e, interner))
+        .collect();
+    let error_word = if test.expected_errors.len() == 1 {
+        "error"
+    } else {
+        "errors"
+    };
+    TestResult::failed(
+        test.name,
+        test.targets.clone(),
+        format!(
+            "expected compilation to fail with {} {error_word}, but compilation succeeded. Expected: {}",
+            test.expected_errors.len(),
+            expected_strs.join("; ")
+        ),
+        start.elapsed(),
+    )
+}
+
+/// Build the failure result for a `compile_fail` test whose actual errors
+/// did not match every expectation.
+fn unmatched_expectations_result(
+    test: &TestDef,
+    match_result: &crate::test::error_matching::MatchResult,
+    errors: &ErrorsToMatch<'_>,
+    source: &str,
+    pool: &Pool,
+    interner: &crate::ir::StringInterner,
+    start: Instant,
+) -> TestResult {
+    let unmatched: Vec<String> = match_result
+        .unmatched_expectations
+        .iter()
+        .map(|&i| format_expected(&test.expected_errors[i], interner))
+        .collect();
+    let mut actual: Vec<String> = errors
+        .type_errors
+        .iter()
+        .map(|e| format_actual(e, source, pool, interner))
+        .collect();
+    actual.extend(
+        errors
+            .pattern_problems
+            .iter()
+            .map(|p| format_pattern_problem(p, source)),
+    );
+    actual.extend(
+        errors
+            .const_problems
+            .iter()
+            .map(|problem| format_const_problem(problem, source, interner)),
+    );
+    TestResult::failed(
+        test.name,
+        test.targets.clone(),
+        format!(
+            "unmatched expectations: [{}]. Actual errors: [{}]",
+            unmatched.join(", "),
+            actual.join(", ")
+        ),
+        start.elapsed(),
+    )
 }
 
 impl TestRunner {
@@ -42,6 +172,7 @@ impl TestRunner {
         test: &TestDef,
         type_result: &TypeCheckResult,
         pattern_problems: &[ori_ir::canon::PatternProblem],
+        const_problems: &[ori_ir::canon::ConstEvalProblem],
         source: &str,
         interner: &crate::ir::StringInterner,
         pool: &Pool,
@@ -53,75 +184,18 @@ impl TestRunner {
 
         let start = Instant::now();
 
-        // Try span-filtered errors first for better isolation.
-        // This helps when multiple compile_fail tests exist in the same file,
-        // each should only see errors from their own body.
-        let test_type_errors: Vec<_> = type_result
-            .errors()
-            .iter()
-            .filter(|e| test.span.contains_span(e.span()))
-            .collect();
-
-        // Filter pattern problems by test span too.
-        let test_pattern_problems: Vec<_> = pattern_problems
-            .iter()
-            .filter(|p| {
-                let span = match p {
-                    ori_ir::canon::PatternProblem::NonExhaustive { match_span, .. } => *match_span,
-                    ori_ir::canon::PatternProblem::RedundantArm { arm_span, .. } => *arm_span,
-                };
-                test.span.contains_span(span)
-            })
-            .collect();
-
-        // If no errors within test span, use all module errors.
-        // This handles tests that check for module-level errors (like missing
-        // associated types in impl blocks) where the error is outside the test body.
-        let type_errors_to_match: Vec<&_> =
-            if test_type_errors.is_empty() && test_pattern_problems.is_empty() {
-                type_result.errors().iter().collect()
-            } else {
-                test_type_errors
-            };
-
-        let pattern_problems_to_match: Vec<&_> = if type_errors_to_match.len()
-            == type_result.errors().len()
-            && test_pattern_problems.is_empty()
+        let errors = select_errors_to_match(test, type_result, pattern_problems, const_problems);
+        if errors.type_errors.is_empty()
+            && errors.pattern_problems.is_empty()
+            && errors.const_problems.is_empty()
         {
-            // Fell back to all module errors — also use all pattern problems.
-            pattern_problems.iter().collect()
-        } else {
-            test_pattern_problems
-        };
-
-        // If no errors were produced but we expected some
-        if type_errors_to_match.is_empty() && pattern_problems_to_match.is_empty() {
-            let expected_strs: Vec<String> = test
-                .expected_errors
-                .iter()
-                .map(|e| format_expected(e, interner))
-                .collect();
-            let error_word = if test.expected_errors.len() == 1 {
-                "error"
-            } else {
-                "errors"
-            };
-            return TestResult::failed(
-                test.name,
-                test.targets.clone(),
-                format!(
-                    "expected compilation to fail with {} {error_word}, but compilation succeeded. Expected: {}",
-                    test.expected_errors.len(),
-                    expected_strs.join("; ")
-                ),
-                start.elapsed(),
-            );
+            return expected_failure_but_compilation_succeeded(test, interner, start);
         }
 
-        // Match actual errors (type + pattern) against expectations
         let match_result = match_all_errors(
-            &type_errors_to_match,
-            &pattern_problems_to_match,
+            &errors.type_errors,
+            &errors.pattern_problems,
+            &errors.const_problems,
             &test.expected_errors,
             source,
             interner,
@@ -129,35 +203,16 @@ impl TestRunner {
         );
 
         if match_result.all_matched() {
-            // All expectations matched - test passes
             TestResult::passed(test.name, test.targets.clone(), start.elapsed())
         } else {
-            // Some expectations were not matched
-            let unmatched: Vec<String> = match_result
-                .unmatched_expectations
-                .iter()
-                .map(|&i| format_expected(&test.expected_errors[i], interner))
-                .collect();
-
-            let mut actual: Vec<String> = type_errors_to_match
-                .iter()
-                .map(|e| format_actual(e, source, pool, interner))
-                .collect();
-            actual.extend(
-                pattern_problems_to_match
-                    .iter()
-                    .map(|p| format_pattern_problem(p, source)),
-            );
-
-            TestResult::failed(
-                test.name,
-                test.targets.clone(),
-                format!(
-                    "unmatched expectations: [{}]. Actual errors: [{}]",
-                    unmatched.join(", "),
-                    actual.join(", ")
-                ),
-                start.elapsed(),
+            unmatched_expectations_result(
+                test,
+                &match_result,
+                &errors,
+                source,
+                pool,
+                interner,
+                start,
             )
         }
     }

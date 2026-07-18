@@ -48,7 +48,7 @@ fn rc_remarks_survivor_fixture_emits_nonempty_stream() {
     }
     assert_eq!(
         stream.trim(),
-        r#"{"kind":"missed","pass":"aims-burden-elim","name":"rc-inc-not-elided","rc_op":"burden_inc","function":"main","debug_loc":null,"ssa_value":2,"exit_block":null,"cause":{"proof_failure":"burden_inc_kept_by_whole_var_disposition","lattice_dim":"locality","detail":"consumption=Affine locality=BlockLocal cardinality=Once"},"burden_net":null,"args":["def_kind=alias","var_repr=fat-value","span=494:497"],"cow_mode":null}"#,
+        r#"{"kind":"missed","pass":"aims-burden-elim","name":"rc-inc-not-elided","rc_op":"burden_inc","function":"main","debug_loc":null,"ssa_value":2,"exit_block":null,"cause":{"proof_failure":"burden_inc_kept_by_whole_var_disposition","lattice_dim":"locality","detail":"consumption=Linear locality=FunctionLocal cardinality=Once"},"burden_net":null,"args":["def_kind=alias","var_repr=fat-value","span=494:497"],"cow_mode":null}"#,
         "survivor-walk relocation changed the JSONL byte contract"
     );
 }

@@ -147,6 +147,20 @@ mod method_call_turbofish_tests {
         );
     }
 
+    #[test]
+    fn method_negative_const_turbofish_parses_with_type_args() {
+        let (it, output) = parse_ok(concat!(
+            "type Box = { n: int }\n",
+            "impl Box { @cap<$N: int> (self) -> int = N; }\n",
+            "@main () -> int = {\n    let $b = Box { n: 0 };\n    b.cap<-1>()\n}\n",
+        ));
+        let (_, argc) = find_method_call(&it, &output, "cap").expect("MethodCall for `cap`");
+        assert_eq!(
+            argc, 1,
+            "one negative const call-site arg recorded on the method call"
+        );
+    }
+
     // Negative pins: method/field then comparison stays comparison
 
     #[test]

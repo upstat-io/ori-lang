@@ -218,12 +218,12 @@ impl Interpreter<'_> {
         unwind: Option<Pc>,
         error: ExecutionError,
     ) -> Result<(), ExecutionError> {
+        self.pending_panic = Some(error);
         if let Some(target) = unwind {
-            self.pending_panic = Some(error);
             self.frames[frame].pc = target;
             Ok(())
         } else {
-            Err(error)
+            self.resume_panic(frame)
         }
     }
 

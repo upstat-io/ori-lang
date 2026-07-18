@@ -53,10 +53,13 @@ pub mod duration {
 
 /// Size constants for byte-based storage representation.
 ///
-/// Size values are stored as `u64` bytes (semantically non-negative).
+/// Size values use a `u64` carrier constrained to the non-negative `i64`
+/// range required by the language specification.
 /// Uses SI units (1000-based): 1kb = 1000 bytes, 1mb = 1,000,000 bytes, etc.
 /// For exact powers of 1024, use explicit byte counts: `1024b`, `1048576b`.
 pub mod size {
+    /// Largest byte count representable by Ori's non-negative signed `Size`.
+    pub const MAX_BYTES: u64 = i64::MAX as u64;
     /// Bytes per kilobyte (1000, SI units).
     pub const BYTES_PER_KB: u64 = 1000;
     /// Bytes per megabyte (1000^2 = 1,000,000, SI units).

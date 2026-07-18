@@ -306,32 +306,71 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         callee_args: &mut Vec<ValueId>,
     ) {
         let mut wrapper_param_index = env_param_index + 1;
-        for (residual_index, param) in input.remaining_params.iter().enumerate() {
-            if param.passing == ParamPassing::Void {
+        for (residual_index, source_param) in input.remaining_params.iter().enumerate() {
+            let target_param = &input.callee_abi.params[input.capture_types.len() + residual_index];
+            if source_param.passing == ParamPassing::Void {
+                debug_assert_eq!(target_param.passing, ParamPassing::Void);
                 continue;
             }
 
-            let user_value = self.builder.get_param(wrapper_func_id, wrapper_param_index);
-            if let Some(adapter) = input.frozen_adapter {
+            let incoming = self.builder.get_param(wrapper_func_id, wrapper_param_index);
+            let source_is_pointer = matches!(
+                source_param.passing,
+                ParamPassing::Indirect { .. } | ParamPassing::Reference
+            );
+            let target_is_pointer = matches!(
+                target_param.passing,
+                ParamPassing::Indirect { .. } | ParamPassing::Reference
+            );
+            let retain_plan = input.frozen_adapter.and_then(|adapter| {
                 let slot = &adapter.slots()[input.capture_types.len() + residual_index];
-                if let ClosureAdapterAction::Retain(plan) = slot.action {
-                    let retained = if matches!(
-                        param.passing,
-                        ParamPassing::Indirect { .. } | ParamPassing::Reference
-                    ) {
-                        let value_type = self.resolve_type(slot.ty);
-                        self.builder.load(
-                            value_type,
-                            user_value,
-                            &format!("arg.{residual_index}.inc"),
-                        )
+                match slot.action {
+                    ClosureAdapterAction::Retain(plan) => Some(plan),
+                    ClosureAdapterAction::Borrow | ClosureAdapterAction::Copy => None,
+                }
+            });
+            let needs_semantic_value = retain_plan.is_some()
+                || target_param.passing == ParamPassing::Direct
+                || (!source_is_pointer && target_is_pointer);
+            let semantic_value = needs_semantic_value.then(|| {
+                if source_is_pointer {
+                    let value_type = self.resolve_type(source_param.ty);
+                    self.builder
+                        .load(value_type, incoming, &format!("arg.{residual_index}.value"))
+                } else {
+                    incoming
+                }
+            });
+
+            if let Some(plan) = retain_plan {
+                self.emit_frozen_closure_retain_plan(
+                    semantic_value.expect("retain bridge requires a semantic value"),
+                    plan,
+                );
+            }
+
+            match target_param.passing {
+                ParamPassing::Direct => callee_args
+                    .push(semantic_value.expect("direct target requires a semantic value")),
+                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                    if source_is_pointer {
+                        callee_args.push(incoming);
                     } else {
-                        user_value
-                    };
-                    self.emit_frozen_closure_retain_plan(retained, plan);
+                        let value_type = self.resolve_type(source_param.ty);
+                        let slot = self
+                            .builder
+                            .alloca(value_type, &format!("arg.{residual_index}.bridge"));
+                        self.builder.store(
+                            semantic_value.expect("pointer target requires a semantic value"),
+                            slot,
+                        );
+                        callee_args.push(slot);
+                    }
+                }
+                ParamPassing::Void => {
+                    debug_assert_eq!(source_param.passing, ParamPassing::Void);
                 }
             }
-            callee_args.push(user_value);
             wrapper_param_index += 1;
         }
     }

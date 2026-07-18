@@ -47,7 +47,8 @@ impl Interpreter<'_> {
             Value::Function(f) => {
                 self.check_recursion_limit()?;
                 let self_name = self.self_name;
-                let mut call_env = self.prepare_call_env(f, args)?;
+                let (explicit_args, provider_args) = self.split_capability_args(f, args);
+                let mut call_env = self.prepare_call_env(f, explicit_args, provider_args)?;
                 bind_const_bindings(&mut call_env, const_bindings);
                 let mut call_interpreter = self.create_function_interpreter(
                     f.shared_arena(),
@@ -55,7 +56,7 @@ impl Interpreter<'_> {
                     self_name,
                     f.canon().cloned(),
                 );
-                bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
+                bind_parameters_with_defaults(&mut call_interpreter, f, explicit_args)?;
 
                 // Bind 'self' to the current function for recursive patterns
                 call_interpreter
@@ -76,7 +77,8 @@ impl Interpreter<'_> {
                 self.check_recursion_limit()?;
                 let self_name = self.self_name;
                 let f = &mf.func;
-                let mut call_env = self.prepare_call_env(f, args)?;
+                let (explicit_args, provider_args) = self.split_capability_args(f, args);
+                let mut call_env = self.prepare_call_env(f, explicit_args, provider_args)?;
                 bind_const_bindings(&mut call_env, const_bindings);
                 let mut call_interpreter = self.create_function_interpreter(
                     f.shared_arena(),
@@ -84,7 +86,7 @@ impl Interpreter<'_> {
                     self_name,
                     f.canon().cloned(),
                 );
-                bind_parameters_with_defaults(&mut call_interpreter, f, args)?;
+                bind_parameters_with_defaults(&mut call_interpreter, f, explicit_args)?;
 
                 // Bind 'self' to the MEMOIZED function so recursive calls also use the cache
                 call_interpreter
@@ -149,9 +151,10 @@ impl Interpreter<'_> {
     fn prepare_call_env(
         &self,
         f: &FunctionValue,
-        args: &[Value],
+        explicit_args: &[Value],
+        provider_args: &[Value],
     ) -> Result<Environment, ori_patterns::ControlAction> {
-        check_arg_count(f, args)?;
+        check_arg_count(f, explicit_args)?;
 
         let mut call_env = self.env.child();
         call_env.push_scope();
@@ -166,8 +169,42 @@ impl Interpreter<'_> {
                 call_env.define(*cap_name, cap_value, Mutability::Immutable);
             }
         }
+        for (cap_name, provider) in f
+            .capabilities()
+            .iter()
+            .copied()
+            .filter(|name| !self.is_marker_capability(*name))
+            .zip(provider_args)
+        {
+            call_env.define(cap_name, provider.clone(), Mutability::Immutable);
+        }
 
         Ok(call_env)
+    }
+
+    /// Split Canon's source-erased provider tail from explicit source
+    /// arguments. Canon fills defaults before appending providers, so the
+    /// hidden form has the exact unambiguous arity `params + value_caps`.
+    fn split_capability_args<'a>(
+        &self,
+        f: &FunctionValue,
+        args: &'a [Value],
+    ) -> (&'a [Value], &'a [Value]) {
+        let provider_count = f
+            .capabilities()
+            .iter()
+            .copied()
+            .filter(|name| !self.is_marker_capability(*name))
+            .count();
+        if provider_count > 0 && args.len() == f.params.len().saturating_add(provider_count) {
+            args.split_at(f.params.len())
+        } else {
+            (args, &[])
+        }
+    }
+
+    fn is_marker_capability(&self, name: ori_ir::Name) -> bool {
+        matches!(self.interner.lookup(name), "Suspend" | "Unsafe")
     }
 
     /// Call a function value with the given arguments.

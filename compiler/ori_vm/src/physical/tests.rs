@@ -11,6 +11,7 @@ use ori_repr::executable::{
 };
 use ori_repr::{NarrowingPolicy, ReprPlan};
 use ori_types::{Idx, Pool, TypeRegistry};
+use rustc_hash::FxHashMap;
 use std::mem::size_of;
 
 use crate::bytecode::{
@@ -598,6 +599,7 @@ fn main_function_id() -> FunctionId {
         roots: vec![main],
         cli_entry: Some(main),
         externals: Vec::new(),
+        method_targets: FxHashMap::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
         type_registry: TypeRegistry::new(),
@@ -641,6 +643,7 @@ fn minimal_arc_function(name: Name) -> ArcFunction {
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
         method_call_facts: Vec::new(),
+        operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
         class_ledger_emission: false,
     }

@@ -1,7 +1,7 @@
 //! Structural verification for compiled bytecode.
 
 use ori_ir::Name;
-use ori_repr::executable::CallableTarget;
+use ori_repr::executable::{CallableTarget, CompilerOperation, RuntimeCall};
 
 use crate::bytecode::{
     walk_register_operands, BytecodeFunction, BytecodeProgram, CallArgument, Constant,
@@ -481,12 +481,15 @@ impl<'a> Verifier<'a> {
                 })?
                 .params
                 .len(),
+            CallableTarget::Runtime(RuntimeCall::Compiler(CompilerOperation::CatchRecover)) => {
+                RuntimeCall::Compiler(CompilerOperation::CatchRecover).arity()
+            }
             CallableTarget::Runtime(
-                call @ (ori_repr::executable::RuntimeCall::RegisteredMethod(_)
-                | ori_repr::executable::RuntimeCall::RegistryMethod(_)
-                | ori_repr::executable::RuntimeCall::RegistryPrelude(_)
-                | ori_repr::executable::RuntimeCall::Protocol(_)
-                | ori_repr::executable::RuntimeCall::Compiler(_)),
+                call @ (RuntimeCall::RegisteredMethod(_)
+                | RuntimeCall::RegistryMethod(_)
+                | RuntimeCall::RegistryPrelude(_)
+                | RuntimeCall::Protocol(_)
+                | RuntimeCall::Compiler(_)),
             ) => {
                 return Err(VerifyError::UnsupportedRuntimeCall {
                     function: self.function.name,

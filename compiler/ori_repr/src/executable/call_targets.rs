@@ -268,7 +268,13 @@ fn resolve_callable(
     }
     let receiver = destination
         .and_then(|destination| caller.method_call_fact(destination))
-        .and_then(|fact| pool.builtin_type_tag(pool.resolve_fully(fact.receiver_type)));
+        .and_then(|fact| {
+            if pool.is_error_struct_receiver(fact.receiver_type) {
+                Some(ori_registry::TypeTag::Error)
+            } else {
+                pool.builtin_method_type_tag(fact.receiver_type)
+            }
+        });
     let runtime = symbols
         .try_lookup(callee)
         .and_then(|symbol| RuntimeCall::resolve(symbol, receiver))

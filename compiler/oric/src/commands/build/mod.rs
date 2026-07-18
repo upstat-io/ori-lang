@@ -8,6 +8,8 @@
 //! - **Multi-file** (`multi.rs`): dependency-graph-based compilation with LTO support
 
 #[cfg(feature = "llvm")]
+mod incremental_cache;
+#[cfg(feature = "llvm")]
 mod ir_capture;
 #[cfg(feature = "llvm")]
 mod multi;

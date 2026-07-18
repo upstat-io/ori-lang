@@ -28,16 +28,16 @@ fn imported_metadata_is_not_lowered_against_host_canon() {
         receiver_type_name: None,
     }];
     let mut problems = Vec::new();
+    let canon = CanonResult::empty();
+    let pool = Pool::new();
+    let mut context = crate::arc_lowering::ArcLoweringContext {
+        canon: &canon,
+        interner: &interner,
+        pool: &pool,
+        problems: &mut problems,
+    };
 
-    let groups = lower_mono_functions_for_analysis(
-        &monos,
-        &[],
-        &[],
-        &CanonResult::empty(),
-        &interner,
-        &Pool::new(),
-        &mut problems,
-    );
+    let groups = lower_mono_functions_for_analysis(&monos, &[], &[], &mut context);
 
     assert!(groups.is_empty());
     assert!(problems.is_empty());

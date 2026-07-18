@@ -55,14 +55,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Dec an intermediate `OriStr` value to prevent leaks in debug loops.
     ///
-    /// Extracts `{len, cap, data}` fields and calls `ori_str_rc_dec`.
-    /// SSO strings (cap encodes SSO flag) are no-ops in the runtime.
+    /// Extracts `{len, cap, data}` fields and calls `ori_str_rc_dec` with the
+    /// plain-buffer drop function. SSO strings are runtime no-ops; a null drop
+    /// function would decrement a heap intermediate to zero without freeing it.
     pub(super) fn dec_intermediate_str(&mut self, str_val: ValueId) {
         let data = self.builder.extract_value(str_val, 2, "dbg.dec.data");
         let cap = self.builder.extract_value(str_val, 1, "dbg.dec.cap");
         if let (Some(dp), Some(cp)) = (data, cap) {
-            let null_fn = self.builder.const_null_ptr();
-            self.call_str_rc_dec(dp, cp, null_fn);
+            let drop_fn = self.builder.runtime_fn("ori_str_drop_buffer");
+            let drop_fn_ptr = self.builder.get_function_ptr(drop_fn);
+            self.call_str_rc_dec(dp, cp, drop_fn_ptr);
         }
     }
 

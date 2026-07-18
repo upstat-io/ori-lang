@@ -285,6 +285,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             panic!("ori_map_literal_alloc must return a data pointer");
         };
         let cap = self.builder.load(i64_ty, out_cap, "map.cap");
+        if count == 0 {
+            let len = self.builder.const_i64(0);
+            return self
+                .builder
+                .build_struct(llvm_ty, &[len, cap, data_ptr], "map");
+        }
         let Some(eq) = self.get_or_create_eq_thunk(key_idx) else {
             panic!("type-checked map key must have an equality implementation");
         };

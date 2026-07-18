@@ -386,10 +386,7 @@ fn emit_field_format(
     method_name: Name,
     pool: &Pool,
 ) -> ArcVarId {
-    let result = if pool
-        .builtin_type_tag(pool.resolve_fully(field_type))
-        .is_some()
-    {
+    let result = if pool.builtin_method_type_tag(field_type).is_some() {
         builder.emit_apply(Idx::STR, method_name, vec![field], None, None)
     } else {
         builder.emit_invoke(Idx::STR, method_name, vec![field], None, None)

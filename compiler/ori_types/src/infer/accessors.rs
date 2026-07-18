@@ -113,6 +113,11 @@ impl<'pool> InferEngine<'pool> {
         self.const_types = Some(consts);
     }
 
+    /// Set concrete module-constant value evidence.
+    pub fn set_const_values(&mut self, consts: &'pool FxHashMap<Name, crate::ConstValue>) {
+        self.const_values = Some(consts);
+    }
+
     /// Mark body inference complete. Called at the end of body inference in
     /// each of the four body-check call paths (`check_function`, `check_test`,
     /// `check_impl_method`, `check_def_impl_method`) immediately before the
@@ -125,24 +130,50 @@ impl<'pool> InferEngine<'pool> {
 
     /// Look up a constant's type by name.
     ///
-    /// Checks module-level constants first, then method-level const generics
-    /// (Phase B-Residual-2 (a)). Method-level const generics shadow module-
-    /// level constants of the same name only inside their owning method body.
+    /// Checks the lexical const parameter before the module-level constant.
     pub fn const_type(&self, name: Name) -> Option<Idx> {
-        if let Some(ty) = self.const_types.and_then(|m| m.get(&name).copied()) {
+        if let Some(ty) = self.const_param_types.get(&name).copied() {
             return Some(ty);
         }
-        self.method_const_types.get(&name).copied()
+        self.const_types.and_then(|types| types.get(&name).copied())
     }
 
-    /// Bind a method-level const generic in scope for the body being checked.
+    /// Look up a module constant's declared type without const-parameter fallback.
+    pub fn module_const_type(&self, name: Name) -> Option<Idx> {
+        self.const_types.and_then(|types| types.get(&name).copied())
+    }
+
+    /// Look up a body-local const parameter's declared type.
+    pub fn const_param_type(&self, name: Name) -> Option<Idx> {
+        self.const_param_types.get(&name).copied()
+    }
+
+    /// Whether a runtime or local binding occupies this name in the visible
+    /// lexical environment. Capacity lookup uses this as a shadow barrier so
+    /// a hidden module constant cannot reappear through the module registry.
+    pub fn has_lexical_binding(&self, name: Name) -> bool {
+        self.env().lookup(name).is_some()
+    }
+
+    /// Look up concrete const evidence, honoring a local immutable binding
+    /// before the module-level constant of the same name.
+    pub fn const_value(&self, name: Name) -> Option<crate::ConstValue> {
+        if let Some(value) = self.env().lookup_const_value(name) {
+            return Some(value);
+        }
+        if self.const_param_types.contains_key(&name) || self.has_lexical_binding(name) {
+            return None;
+        }
+        self.const_values
+            .and_then(|values| values.get(&name).cloned())
+    }
+
+    /// Bind a const generic in scope for the body being checked.
     ///
-    /// Called by `check_impl_method` / `check_def_impl_method` at body-check
-    /// entry, mirroring the `param_env.bind` for identifier-position lookups.
-    /// This binding makes `$name` references inside the body's type-arg
-    /// positions (e.g., `to_fixed<$N>()`) resolve correctly.
-    pub fn bind_method_const(&mut self, name: Name, ty: Idx) {
-        self.method_const_types.insert(name, ty);
+    /// Mirrors the `TypeEnv` binding used for identifier-position lookup while
+    /// preserving the stronger fact that this name is a compile-time const.
+    pub fn bind_const_param(&mut self, name: Name, ty: Idx) {
+        self.const_param_types.insert(name, ty);
     }
 
     /// Register a trait-bound assumption on a method-level `RigidVar`.

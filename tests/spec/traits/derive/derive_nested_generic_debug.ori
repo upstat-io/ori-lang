@@ -21,7 +21,6 @@ use std.testing { assert }
 #[derive(Eq, Hashable, Debug)]
 type Wrap<T> = { inner: T }
 
-#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_nested_generic_debug tests @nested_debug () -> void = {
     let a = Wrap { inner: Wrap { inner: 7 } };
     assert(cond: a.debug() != "")

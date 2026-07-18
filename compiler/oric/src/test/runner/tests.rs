@@ -406,6 +406,31 @@ fn test_backend_skip_compile_fail_runs_on_interpreter() {
     );
 }
 
+#[test]
+fn compile_fail_matches_module_constant_e2058_before_regular_test_gating() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("const_compile_fail.ori");
+    std::fs::write(
+        &path,
+        r#"
+$unsupported = [1]
+
+#compile_fail(code: "E2058")
+@const_failure tests _ () -> void = ();
+"#,
+    )
+    .unwrap();
+
+    let summary = run_test_file(&path);
+
+    assert_eq!(
+        summary.passed, 1,
+        "results: {:?}, errors: {:?}",
+        summary.results, summary.errors
+    );
+    assert_eq!(summary.failed, 0, "errors: {:?}", summary.errors);
+}
+
 /// Pure-function pin on the mapping arm: `backend_skip_reason` returns the reason
 /// only for the named backend, `None` for the other.
 #[test]

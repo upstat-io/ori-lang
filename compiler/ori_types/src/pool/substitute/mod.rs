@@ -13,7 +13,8 @@ pub use body_type_map::{
     BodyTypeMapSink,
 };
 pub use extract::extract_var_from_types;
-pub(crate) use materialize::materialize_applied_body;
+pub use materialize::register_concrete_applied_resolutions;
+pub(crate) use materialize::{has_unproven_named_leaf, materialize_applied_body};
 pub use named_self::{substitute_named_in_pool, substitute_self_in_pool};
 
 use rustc_hash::FxHashMap;

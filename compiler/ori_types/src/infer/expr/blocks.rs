@@ -1,11 +1,15 @@
 //! Block and let inference.
 
-use ori_ir::{BindingPatternId, ExprArena, ExprId, ExprKind, Name, ParsedType, ParsedTypeId, Span};
+use ori_ir::{
+    BindingPattern, BindingPatternId, ExprArena, ExprId, ExprKind, Mutability, Name, ParsedType,
+    ParsedTypeId, Span,
+};
 
 use crate::type_error::TypeCheckError;
 use crate::{ConstGenericTerm, ConstValue, Expected, Idx};
 
 use super::super::InferEngine;
+use super::fixed_list_capacity::generic_const_value;
 use super::lambdas::maybe_generalize;
 use super::{
     bind_pattern, check_expr, infer_expr, infer_optional_or_unit, pattern_is_irrefutable,
@@ -86,7 +90,7 @@ fn infer_let_binding_impl(
     let final_ty = if ty_id.is_valid() {
         let parsed_ty = arena.get_parsed_type(ty_id);
         let expected_ty = resolve_and_check_parsed_type(engine, arena, parsed_ty, span);
-        let expected = fixed_list_literal_capacity(arena, parsed_ty).map_or_else(
+        let expected = fixed_list_const_capacity(engine, arena, parsed_ty).map_or_else(
             || Expected::from_annotation(expected_ty, binding_name.unwrap_or(Name::EMPTY), span),
             |capacity| {
                 Expected::from_fixed_list_annotation(
@@ -109,6 +113,12 @@ fn infer_let_binding_impl(
 
     rewrite_lambda_self_capture(engine, arena, init, binding_name, errors_before);
 
+    let const_binding = if engine.error_count() == errors_before {
+        immutable_const_binding(engine, arena, pat, init)
+    } else {
+        None
+    };
+
     engine.exit_rank_scope();
 
     if let Err(reason) = pattern_is_irrefutable(engine, pat, final_ty) {
@@ -116,24 +126,55 @@ fn infer_let_binding_impl(
         engine.push_error(err);
     }
     bind_pattern(engine, arena, pat, final_ty);
+    if let Some((name, value)) = const_binding {
+        let recorded = engine.env_mut().record_local_const_value(name, value);
+        debug_assert!(
+            recorded,
+            "immutable const evidence requires a local binding"
+        );
+    }
 
     final_ty
 }
 
-/// Preserve a direct fixed-list capacity literal as a value-domain constraint.
+/// Preserve a concrete fixed-list capacity as a value-domain constraint.
 ///
 /// The ordinary type representation erases fixed-list capacity to the list
 /// carrier. This side constraint prevents a call such as
-/// `let xs: [int, max 3] = value.first_n()` from losing `N = 3` before the
-/// shared method-monomorphization producer runs.
-fn fixed_list_literal_capacity(arena: &ExprArena, parsed: &ParsedType) -> Option<ConstGenericTerm> {
+/// `let xs: [int, max K] = value.first_n()` from losing `N = 3` before the
+/// shared method-monomorphization producer runs when `$K` is a compile-time
+/// integer binding.
+fn fixed_list_const_capacity(
+    engine: &InferEngine<'_>,
+    arena: &ExprArena,
+    parsed: &ParsedType,
+) -> Option<ConstGenericTerm> {
     let ParsedType::FixedList { capacity, .. } = parsed else {
         return None;
     };
-    match arena.get_expr(*capacity).kind {
-        ExprKind::Int(value) => Some(ConstGenericTerm::Value(ConstValue::Int(value))),
+    match generic_const_value(engine, arena, *capacity) {
+        Some(value @ ConstValue::Int(_)) => Some(ConstGenericTerm::Value(value)),
         _ => None,
     }
+}
+
+/// Recover a simple immutable local whose initializer is in the generic-const
+/// value domain. The ordinary type binding remains authoritative; this only
+/// publishes value evidence after inference accepted the initializer.
+fn immutable_const_binding(
+    engine: &InferEngine<'_>,
+    arena: &ExprArena,
+    pattern: &BindingPattern,
+    init: ExprId,
+) -> Option<(Name, ConstValue)> {
+    let BindingPattern::Name {
+        name,
+        mutable: Mutability::Immutable,
+    } = pattern
+    else {
+        return None;
+    };
+    generic_const_value(engine, arena, init).map(|value| (*name, value))
 }
 
 /// Rewrite a self-referencing lambda initializer's `UnknownIdent` error (for

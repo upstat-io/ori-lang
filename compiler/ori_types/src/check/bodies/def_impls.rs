@@ -172,6 +172,7 @@ fn infer_def_impl_body(
         assign_desugars: engine.take_assign_desugars(),
         module_alias_calls: engine.take_module_alias_calls(),
         iter_route_desugars: engine.take_iter_routes(),
+        capability_calls: engine.take_capability_calls(),
     }
 }
 
@@ -204,7 +205,7 @@ fn bind_def_impl_engine(
     def_impl_trait: Name,
 ) {
     for param in const_params {
-        engine.bind_method_const(param.name, param.const_type);
+        engine.bind_const_param(param.name, param.const_type);
     }
     for (rigid_idx, trait_names) in inline_bounds {
         for &trait_name in trait_names {

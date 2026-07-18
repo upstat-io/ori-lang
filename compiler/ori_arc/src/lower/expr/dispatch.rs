@@ -93,9 +93,8 @@ impl ArcLowerer<'_> {
             CanExpr::Constant(const_id) => self.lower_constant(const_id, ty, span),
 
             // Identifiers
-            CanExpr::Ident(name) | CanExpr::Const(name) | CanExpr::TypeRef(name) => {
-                self.lower_ident(name, ty, span)
-            }
+            CanExpr::Ident(name) | CanExpr::TypeRef(name) => self.lower_ident(name, ty, span),
+            CanExpr::Const(name) => self.lower_const_reference(name, ty, span),
             CanExpr::SelfRef => {
                 // In impl methods, `self` is a parameter — look it up in scope.
                 // In recurse() patterns, `self` means the enclosing function.

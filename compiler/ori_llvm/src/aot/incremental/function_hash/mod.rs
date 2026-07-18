@@ -148,7 +148,7 @@ pub fn extract_function_hashes_with_canon(
 
     for sig in function_sigs {
         // Skip generic functions — they vary per instantiation
-        if sig.is_generic() {
+        if sig.requires_specialization() {
             continue;
         }
 

@@ -156,6 +156,11 @@ pub(crate) struct BoundaryFacts {
     /// Per-param: the callee iter-consumes this argument (RL-2 inward
     /// transfer despite a Borrowed annotation).
     pub(crate) param_iter_consumes: Vec<bool>,
+    /// Per-param: a borrowed callee boundary still requires one independent
+    /// whole-value owner credit because the callee consumes the lineage at a
+    /// COW-taking edge. The caller retains its original borrowed-boundary
+    /// owner and funds the callee's distinct owner.
+    pub(crate) param_borrowed_cow_consumed: Vec<bool>,
     /// Per-param: the callee transfers this argument through its return
     /// (RL-34 passthrough — consume at call, credit at return, net 0).
     pub(crate) param_transfers_through_return: Vec<bool>,
@@ -177,6 +182,11 @@ impl BoundaryFacts {
     pub(crate) fn from_contract(contract: &MemoryContract) -> Self {
         Self {
             param_iter_consumes: contract.params.iter().map(|p| p.iter_consumes).collect(),
+            param_borrowed_cow_consumed: contract
+                .params
+                .iter()
+                .map(|p| p.borrowed_cow_consumed)
+                .collect(),
             param_transfers_through_return: contract
                 .params
                 .iter()
@@ -205,6 +215,21 @@ impl BoundaryFacts {
                 .get(position)
                 .copied()
                 .unwrap_or(false)
+    }
+
+    /// Whether a borrowed boundary retains the caller's owner while supplying
+    /// a distinct whole-value credit consumed inside the callee.
+    pub(super) fn borrowed_cow_consume_funding(&self, position: usize) -> bool {
+        self.param_borrowed_cow_consumed
+            .get(position)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// Whether a syntactically borrowed callee parameter arrives with a
+    /// whole-value credit supplied by the caller.
+    pub(super) fn incoming_whole_value_credit(&self, position: usize) -> bool {
+        self.iter_consume_transfer(position) || self.borrowed_cow_consume_funding(position)
     }
 }
 

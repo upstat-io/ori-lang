@@ -1,11 +1,9 @@
-// FileCheck test: a map-terminal chain over INT elements passes null in the
-// consumed-element release slot — the scalar-element exemption in
-// get_or_generate_elem_dec_fn dominates the map-terminal freshness verdict
-// (scalars carry no RC, so there is nothing to release). The join still runs
-// the int->str to_str trampoline; only the element-release slot is null.
+// FileCheck test: scalar map-terminal join uses the same provenance-free ABI.
+// Runtime state makes scalar release a no-op while join still runs the
+// int-to-str trampoline.
 //
 // CHECK-LABEL: define void @_ori_main
-// CHECK: i64 8, ptr null, ptr %join.out
+// CHECK: ptr null, i64 8, ptr %join.out)
 
 @main () -> void = {
     let $joined = [1, 2, 3]

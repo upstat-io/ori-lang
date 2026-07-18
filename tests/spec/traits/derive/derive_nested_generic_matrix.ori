@@ -10,7 +10,6 @@ type Wrap<T> = { inner: T }
 // a generic instantiation is a separate associated-function limitation, not part
 // of this matrix.
 
-#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_nested_int_eq tests @nested_int_eq () -> void = {
     let a = Wrap { inner: Wrap { inner: 7 } };
     let b = Wrap { inner: Wrap { inner: 7 } };
@@ -22,7 +21,6 @@ type Wrap<T> = { inner: T }
     Wrap { inner: Wrap { inner: 7 } } == Wrap { inner: Wrap { inner: 7 } }
 }
 
-#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_nested_int_hash tests @nested_int_hash () -> void = {
     let a = Wrap { inner: Wrap { inner: 7 } };
     let b = Wrap { inner: Wrap { inner: 7 } };
@@ -34,7 +32,6 @@ type Wrap<T> = { inner: T }
     Wrap { inner: Wrap { inner: 7 } }.hash() == Wrap { inner: Wrap { inner: 7 } }.hash()
 }
 
-#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_nested_int_compare tests @nested_int_compare () -> void = {
     let small = Wrap { inner: Wrap { inner: 1 } };
     let big = Wrap { inner: Wrap { inner: 2 } };

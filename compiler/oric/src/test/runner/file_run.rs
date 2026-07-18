@@ -16,6 +16,7 @@ use super::{Backend, OutputFormat, TestRunner, TestRunnerConfig};
 struct CompileFailContext<'a> {
     type_result: &'a ori_types::TypeCheckResult,
     pattern_problems: &'a [ori_ir::canon::PatternProblem],
+    const_problems: &'a [ori_ir::canon::ConstEvalProblem],
     source: &'a str,
     interner: &'a crate::ir::StringInterner,
     pool: &'a ori_types::Pool,
@@ -35,6 +36,39 @@ struct RegularRunContext<'a> {
 }
 
 impl TestRunner {
+    /// Read `path`, create a fresh per-file `CompilerDb` sharing `interner`, and
+    /// parse it. Returns `None` (with the failure already recorded on
+    /// `summary`) when the file cannot be read, fails to parse, or has no
+    /// tests — in every such case the caller returns `summary` immediately.
+    fn read_and_parse_file(
+        path: &Path,
+        interner: &crate::ir::SharedInterner,
+        summary: &mut FileSummary,
+    ) -> Option<(CompilerDb, SourceFile, ori_parse::ParseOutput)> {
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                summary.add_error(format!("Failed to read file: {e}"));
+                return None;
+            }
+        };
+        // Each file gets its own Salsa query cache, but all share the same
+        // interner so Name values are comparable across files.
+        let db = CompilerDb::with_interner(interner.clone());
+        let file = SourceFile::new(&db, path.to_path_buf(), content);
+        let parse_result = parsed(&db, file);
+        if parse_result.has_errors() {
+            for error in &parse_result.errors {
+                summary.add_error(format!("{}: {}", error.span(), error.message()));
+            }
+            return None;
+        }
+        if parse_result.module.tests.is_empty() {
+            return None;
+        }
+        Some((db, file, parse_result))
+    }
+
     /// Run all tests in a single file with a shared interner.
     ///
     /// This is the core implementation that creates a fresh `CompilerDb` per file
@@ -49,39 +83,15 @@ impl TestRunner {
     ) -> FileSummary {
         let mut summary = FileSummary::new(path.to_path_buf());
 
-        // Read and parse the file
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(e) => {
-                summary.add_error(format!("Failed to read file: {e}"));
-                return summary;
-            }
+        let Some((db, file, parse_result)) =
+            Self::read_and_parse_file(path, interner, &mut summary)
+        else {
+            return summary;
         };
-
-        // Create a fresh CompilerDb with the shared interner.
-        // Each file gets its own Salsa query cache, but all share the same interner
-        // so Name values are comparable across files.
-        let db = CompilerDb::with_interner(interner.clone());
-        let file = SourceFile::new(&db, path.to_path_buf(), content);
         // Retrieve source from SourceFile for error matching (borrows from Salsa).
         // No clone needed: all subsequent `db` usage is shared borrows, so the
         // `&String` returned by `file.text(&db)` remains valid.
         let source = file.text(&db);
-
-        // Parse the file
-        let parse_result = parsed(&db, file);
-        if parse_result.has_errors() {
-            for error in &parse_result.errors {
-                summary.add_error(format!("{}: {}", error.span(), error.message()));
-            }
-            return summary;
-        }
-
-        // Check if there are any tests
-        if parse_result.module.tests.is_empty() {
-            return summary;
-        }
-
         let interner = db.interner();
 
         // Type check via Salsa query — ensures PoolCache is populated and
@@ -143,6 +153,7 @@ impl TestRunner {
             &CompileFailContext {
                 type_result: &type_result,
                 pattern_problems: &shared_canon.problems,
+                const_problems: &shared_canon.const_problems,
                 source,
                 interner,
                 pool: &pool,
@@ -168,6 +179,15 @@ impl TestRunner {
             config,
             interner,
             &pool,
+        ) {
+            return summary;
+        }
+        if Self::record_blocked_constant_tests(
+            &mut summary,
+            &regular_tests,
+            &shared_canon.const_problems,
+            config,
+            interner,
         ) {
             return summary;
         }
@@ -211,6 +231,7 @@ impl TestRunner {
                 test,
                 context.type_result,
                 context.pattern_problems,
+                context.const_problems,
                 context.source,
                 context.interner,
                 context.pool,
@@ -262,6 +283,56 @@ impl TestRunner {
         }
         for error in errors {
             summary.add_error(error.format_with(pool, interner));
+        }
+        summary.llvm_compile_error = is_llvm;
+        true
+    }
+
+    fn record_blocked_constant_tests(
+        summary: &mut FileSummary,
+        tests: &[&TestDef],
+        problems: &[ori_ir::canon::ConstEvalProblem],
+        config: &TestRunnerConfig,
+        interner: &crate::ir::StringInterner,
+    ) -> bool {
+        if problems.is_empty() {
+            return false;
+        }
+
+        let is_llvm = matches!(config.backend, Backend::LLVM);
+        for test in tests
+            .iter()
+            .filter(|test| Self::test_passes_filter(test, config, interner))
+        {
+            let result = if is_llvm {
+                TestResult {
+                    name: test.name,
+                    targets: test.targets.clone(),
+                    outcome: TestOutcome::LlvmCompileFail(
+                        "blocked by constant evaluation errors in file".to_string(),
+                    ),
+                    duration: Duration::ZERO,
+                }
+            } else {
+                TestResult::failed(
+                    test.name,
+                    test.targets.clone(),
+                    "blocked by constant evaluation errors in file".to_string(),
+                    Duration::ZERO,
+                )
+            };
+            Self::protocol_result(&result, config, interner);
+            summary.add_result(result);
+        }
+
+        for problem in problems {
+            let diagnostic =
+                crate::problem::semantic::const_eval_problem_to_diagnostic(problem, interner);
+            summary.add_error(format!(
+                "error[{}]: {}",
+                diagnostic.code.as_str(),
+                diagnostic.message
+            ));
         }
         summary.llvm_compile_error = is_llvm;
         true

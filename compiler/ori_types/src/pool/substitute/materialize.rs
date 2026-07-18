@@ -16,6 +16,32 @@ use crate::{Idx, Pool, Tag};
 
 use super::substitute_named_in_pool;
 
+/// Register concrete composite bodies referenced by a finalized mono body map.
+///
+/// A body map records both the generic pool handle and its concrete
+/// substitution. Applied substitutions also need a concrete `Struct` or
+/// `Enum` resolution before layout and ownership analysis can consume them.
+/// This is the shared registration tail for eager, deferred, and realization-
+/// discovered monomorphization instances.
+#[expect(
+    clippy::implicit_hasher,
+    reason = "generic_type_params is consistently FxHashMap<Name, Vec<Name>> across the whole \
+              ori_types crate; generalizing would force BuildHasher plumbing through every \
+              caller for no measurable benefit."
+)]
+pub fn register_concrete_applied_resolutions(
+    pool: &mut Pool,
+    body_type_map: &[(Idx, Idx)],
+    generic_type_params: &FxHashMap<Name, Vec<Name>>,
+) {
+    for &(_, concrete) in body_type_map {
+        if pool.tag(concrete) == Tag::Applied {
+            let mut in_progress = FxHashSet::default();
+            materialize_applied_body(pool, concrete, generic_type_params, &mut in_progress);
+        }
+    }
+}
+
 /// Materialize the concrete `Struct`/`Enum` body for a fully-concrete
 /// `Applied(Generic, [concrete])`: substitute each field/payload
 /// `Tag::Named(param)` with the concrete arg, intern the concrete body, and
@@ -33,6 +59,10 @@ pub(crate) fn materialize_applied_body(
     if pool.tag(applied) != Tag::Applied {
         return;
     }
+    let name = pool.applied_name(applied);
+    let Some(params) = type_params.get(&name) else {
+        return;
+    };
     // Revisit an existing resolution as well. Some registration paths attach
     // a concrete `Applied` handle to its generic composite body before the
     // binder substitutions are known; that resolution is not a materialized
@@ -45,6 +75,20 @@ pub(crate) fn materialize_applied_body(
     // Only a still-generic arg AFTER resolution (a `BoundVar`/`RigidVar` param)
     // means this is not a concrete instantiation — leave it for instantiation.
     let raw_args = pool.applied_args(applied);
+    // `TypeFlags` cannot distinguish an unresolved `Named(T)` binder from a
+    // nominal named type: both carry `IS_NAMED` without a variable bit. Limit
+    // the collision check to THIS head's declared binders: a plan-wide union
+    // would make an unrelated `Named(T)` nominal non-materializable merely
+    // because some other generic declaration also uses the conventional `T`.
+    // A resolved `S<Named(A)>` remains ambiguous when `A` is S's own binder:
+    // pool interning gives the generic shell and `S<global A>` the same Idx,
+    // so attaching a resolution would corrupt the shell. Fail closed there.
+    if raw_args
+        .iter()
+        .any(|&arg| has_unproven_named_leaf(pool, arg, params))
+    {
+        return;
+    }
     // Materialize any nested-`Applied` arg FIRST (bottom-up) so its concrete body
     // is recorded before the concreteness guard below resolves it. The pool-wide
     // sweep visits indices in interning order; without this, visiting the OUTER
@@ -96,11 +140,6 @@ pub(crate) fn materialize_applied_body(
         return;
     }
 
-    let name = pool.applied_name(applied);
-    let Some(params) = type_params.get(&name) else {
-        in_progress.remove(&applied);
-        return;
-    };
     if params.len() != resolved_args.len() {
         in_progress.remove(&applied);
         return;
@@ -111,8 +150,14 @@ pub(crate) fn materialize_applied_body(
         .zip(resolved_args.iter().copied())
         .collect();
 
-    // Resolve the GENERIC body via the Applied→Named matching-args fallback.
-    let generic = pool.resolve_fully(applied);
+    // Always instantiate from the registered generic declaration. An inferred
+    // `Applied` carrier can retain an older concrete resolution after its
+    // linked arguments become more precise. Treating that stale specialization
+    // as the template nests the old payload into the new body and corrupts the
+    // carrier's representation. The nominal declaration is the stable source
+    // that still contains the named binders in every materialization pass.
+    let generic_owner = pool.named(name);
+    let generic = pool.resolve_fully(generic_owner);
     match pool.tag(generic) {
         Tag::Struct => {
             materialize_struct_resolution(
@@ -145,6 +190,105 @@ pub(crate) fn materialize_applied_body(
     }
 
     in_progress.remove(&applied);
+}
+
+/// Return whether `ty` contains a `Named`/`Alias` leaf that is not proven
+/// concrete. An unresolved leaf is a generic binder. A resolved `Named` whose
+/// spelling is one of the applied head's declared binders is ambiguous because
+/// pool interning erases lexical origin; fail closed rather than attach a
+/// concrete body to a generic shell. The walk is cycle-safe for registered
+/// recursive types.
+pub(crate) fn has_unproven_named_leaf(pool: &Pool, ty: Idx, head_params: &[Name]) -> bool {
+    let mut visiting = FxHashSet::default();
+    contains_unproven_named_leaf(pool, ty, head_params, &mut visiting)
+}
+
+fn contains_unproven_named_leaf(
+    pool: &Pool,
+    ty: Idx,
+    head_params: &[Name],
+    visiting: &mut FxHashSet<Idx>,
+) -> bool {
+    let current = pool.chase_var_links(ty);
+    if !pool.is_valid_idx(current) || !visiting.insert(current) {
+        return false;
+    }
+
+    let result = match pool.tag(current) {
+        Tag::Named if head_params.contains(&pool.named_name(current)) => true,
+        Tag::Named | Tag::Alias => match pool.resolve(current) {
+            Some(resolved) => contains_unproven_named_leaf(pool, resolved, head_params, visiting),
+            None => true,
+        },
+        Tag::Applied => pool
+            .applied_args(current)
+            .into_iter()
+            .any(|arg| contains_unproven_named_leaf(pool, arg, head_params, visiting)),
+        Tag::List
+        | Tag::Option
+        | Tag::Set
+        | Tag::Range
+        | Tag::Channel
+        | Tag::Iterator
+        | Tag::DoubleEndedIterator => contains_unproven_named_leaf(
+            pool,
+            Idx::from_raw(pool.data(current)),
+            head_params,
+            visiting,
+        ),
+        Tag::Map => {
+            contains_unproven_named_leaf(pool, pool.map_key(current), head_params, visiting)
+                || contains_unproven_named_leaf(
+                    pool,
+                    pool.map_value(current),
+                    head_params,
+                    visiting,
+                )
+        }
+        Tag::Result => {
+            contains_unproven_named_leaf(pool, pool.result_ok(current), head_params, visiting)
+                || contains_unproven_named_leaf(
+                    pool,
+                    pool.result_err(current),
+                    head_params,
+                    visiting,
+                )
+        }
+        Tag::Borrowed => {
+            contains_unproven_named_leaf(pool, pool.borrowed_inner(current), head_params, visiting)
+        }
+        Tag::Function => {
+            pool.function_params(current)
+                .into_iter()
+                .any(|param| contains_unproven_named_leaf(pool, param, head_params, visiting))
+                || contains_unproven_named_leaf(
+                    pool,
+                    pool.function_return(current),
+                    head_params,
+                    visiting,
+                )
+        }
+        Tag::Tuple => pool
+            .tuple_elems(current)
+            .into_iter()
+            .any(|element| contains_unproven_named_leaf(pool, element, head_params, visiting)),
+        Tag::Struct => pool
+            .struct_fields(current)
+            .into_iter()
+            .any(|(_, field)| contains_unproven_named_leaf(pool, field, head_params, visiting)),
+        Tag::Enum => pool.enum_variants(current).into_iter().any(|(_, fields)| {
+            fields
+                .into_iter()
+                .any(|field| contains_unproven_named_leaf(pool, field, head_params, visiting))
+        }),
+        Tag::Scheme => {
+            contains_unproven_named_leaf(pool, pool.scheme_body(current), head_params, visiting)
+        }
+        _ => false,
+    };
+
+    visiting.remove(&current);
+    result
 }
 
 /// Intern the concrete `Struct` body for `applied` (each field's

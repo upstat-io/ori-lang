@@ -1,10 +1,8 @@
-// FileCheck test: join over a map-terminal chain passes a non-null
-// consumed-element release fn — the elements are trampoline-produced fresh
-// strings the join call must free exactly once.
+// FileCheck test: join passes no generated ownership-provenance argument.
+// Runtime iterator state releases each mapped yield after copying its bytes.
 //
 // CHECK-LABEL: define void @_ori_main
-// CHECK: @ori_iter_join
-// CHECK-NOT: i64 24, ptr null, ptr %join.out
+// CHECK: ptr null, i64 24, ptr %join.out)
 
 @main () -> void = {
     let $mapped = ["alpha-alpha-alpha-alpha-alpha", "beta-beta-beta-beta-beta-beta"]

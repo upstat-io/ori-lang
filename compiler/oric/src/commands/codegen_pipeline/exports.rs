@@ -78,7 +78,7 @@ pub(super) fn project_callable_exports(
     let mangler = ori_llvm::aot::Mangler::new();
     let mut exports = Vec::new();
     for (function, signature) in parse.module.functions.iter().zip(signatures) {
-        if !function.visibility.is_public() || signature.is_generic() {
+        if !function.visibility.is_public() || signature.requires_specialization() {
             continue;
         }
         let function_id = program.function_id(function.name).ok_or_else(|| {

@@ -1,0 +1,25 @@
+// Imported capability callables retain their provider schema across pool
+// re-interning and close transitive targets from the provider type.
+
+use std.testing { assert_eq }
+use "../capability_provider_lib" {
+    imported_increment,
+    imported_forward,
+}
+
+type LocalCounter = { value: int }
+
+impl LocalCounter: ImportedCounter {
+    @increment (self) -> int = self.value + 1;
+}
+
+@test_imported_capability_provider tests _ () -> void = {
+    let first = LocalCounter { value: 10 };
+    let second = LocalCounter { value: 40 };
+    let result = with ImportedCounter = first in {
+        let direct = imported_increment();
+        let transitive = with ImportedCounter = second in imported_forward();
+        direct + transitive
+    };
+    assert_eq(actual: result, expected: 52)
+}

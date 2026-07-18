@@ -152,6 +152,30 @@ impl InferEngine<'_> {
         self.provided_capabilities = provided;
     }
 
+    /// Install the current function's retained value-capability parameters as
+    /// the outermost lexical provider frame.
+    pub fn set_capability_parameters(&mut self, params: &[crate::CapabilityParam]) {
+        self.capability_providers.clear();
+        for param in params {
+            let crate::CapabilityParam::Value {
+                capability,
+                provider_type,
+                provider_var_id,
+            } = *param
+            else {
+                continue;
+            };
+            self.capability_providers
+                .entry(capability)
+                .or_default()
+                .push(crate::CapabilityProvider {
+                    capability,
+                    provider_type,
+                    source: crate::CapabilityProviderSource::Parameter { provider_var_id },
+                });
+        }
+    }
+
     /// Check if a capability is available (declared or provided).
     pub fn has_capability(&self, cap: Name) -> bool {
         self.current_capabilities.contains(&cap) || self.provided_capabilities.contains(&cap)
@@ -189,5 +213,43 @@ impl InferEngine<'_> {
             self.provided_capabilities.remove(&cap);
         }
         result
+    }
+
+    /// Execute a closure under one exact provider value, preserving nested
+    /// shadowing for the same capability namespace.
+    pub fn with_capability_provider<T, F>(&mut self, provider: crate::CapabilityProvider, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let cap = provider.capability;
+        let was_present = self.provided_capabilities.insert(cap);
+        self.capability_providers
+            .entry(cap)
+            .or_default()
+            .push(provider);
+        let result = f(self);
+        let remove_stack = self
+            .capability_providers
+            .get_mut(&cap)
+            .is_some_and(|stack| {
+                stack.pop();
+                stack.is_empty()
+            });
+        if remove_stack {
+            self.capability_providers.remove(&cap);
+        }
+        if !was_present {
+            self.provided_capabilities.remove(&cap);
+        }
+        result
+    }
+
+    /// Innermost provider selected for a value capability.
+    #[must_use]
+    pub fn capability_provider(&self, cap: Name) -> Option<crate::CapabilityProvider> {
+        self.capability_providers
+            .get(&cap)
+            .and_then(|providers| providers.last())
+            .copied()
     }
 }

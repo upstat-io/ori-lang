@@ -537,14 +537,17 @@ pub(super) fn build_bound_var_map(
         let lambda_idx = num_captures + i;
         if lambda_idx < lambda_params.len() {
             let param_ty = lambda_params[lambda_idx].ty;
-            let resolved_concrete = pool.resolve_fully(*concrete_ty);
             if matches!(pool.tag(param_ty), Tag::BoundVar | Tag::Var) {
                 let var_id = pool.data(param_ty);
-                map.insert(var_id, resolved_concrete);
+                // The concrete function type is the callable-signature owner.
+                // Preserve its exact component identity: resolving a nominal
+                // type here replaces that identity with its layout body even
+                // though both denote the same structural type.
+                map.insert(var_id, *concrete_ty);
             } else if contains_var(pool, param_ty) || contains_bound_var(pool, param_ty) {
                 // Container type with nested vars (e.g., List<Var>, Option<Var>).
                 // Walk schema and concrete types in parallel to extract var mappings.
-                map_types_structural(pool, param_ty, resolved_concrete, map);
+                map_types_structural(pool, param_ty, *concrete_ty, map);
             }
         }
     }
@@ -555,7 +558,7 @@ pub(super) fn build_bound_var_map(
         lambda_return_type
     };
     if contains_bound_var(pool, schema_ret) {
-        map_types_structural(pool, schema_ret, pool.resolve_fully(concrete_ret), map);
+        map_types_structural(pool, schema_ret, concrete_ret, map);
     }
 }
 // Internal helpers

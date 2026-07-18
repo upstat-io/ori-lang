@@ -1,7 +1,8 @@
 use ori_arc::ir::{
-    ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, LitValue,
+    ArcBlock, ArcBlockId, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId, ArgOwnership,
+    LitValue,
 };
-use ori_arc::ArcFunction;
+use ori_arc::{ArcFunction, Ownership};
 use ori_ir::Name;
 use ori_types::Idx;
 
@@ -30,6 +31,109 @@ fn v(n: u32) -> ArcVarId {
 
 fn b(n: u32) -> ArcBlockId {
     ArcBlockId::new(n)
+}
+
+fn borrowed_param_func(body: Vec<ArcInstr>, terminator: ArcTerminator) -> ArcFunction {
+    ArcFunction {
+        name: Name::new(0, 0),
+        params: vec![ArcParam {
+            var: v(0),
+            ty: Idx::STR,
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: Idx::INT,
+        blocks: vec![ArcBlock {
+            id: b(0),
+            params: Vec::new(),
+            body,
+            terminator,
+        }],
+        entry: b(0),
+        var_types: vec![Idx::STR, Idx::INT],
+        var_reprs: Vec::new(),
+        spans: vec![Vec::new()],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn direct_apply_target_keeps_borrowed_parameter_pointer_only() {
+    let func = borrowed_param_func(
+        vec![ArcInstr::Apply {
+            dst: v(1),
+            ty: Idx::INT,
+            func: Name::new(0, 1),
+            args: vec![v(0)],
+            arg_ownership: vec![ArgOwnership::Borrowed],
+            mono_instance_id: None,
+        }],
+        ArcTerminator::Return { value: v(1) },
+    );
+
+    let pointer_only = super::compute_pointer_only_params(&func, |dst, _, _| dst == v(1));
+
+    assert!(pointer_only.contains(&v(0)));
+}
+
+#[test]
+fn runtime_apply_target_requires_borrowed_parameter_load() {
+    let func = borrowed_param_func(
+        vec![ArcInstr::Apply {
+            dst: v(1),
+            ty: Idx::INT,
+            func: Name::new(0, 1),
+            args: vec![v(0)],
+            arg_ownership: vec![ArgOwnership::Borrowed],
+            mono_instance_id: None,
+        }],
+        ArcTerminator::Return { value: v(1) },
+    );
+
+    let pointer_only = super::compute_pointer_only_params(&func, |_, _, _| false);
+
+    assert!(!pointer_only.contains(&v(0)));
+}
+
+#[test]
+fn direct_invoke_target_keeps_borrowed_parameter_pointer_only() {
+    let func = borrowed_param_func(
+        Vec::new(),
+        ArcTerminator::Invoke {
+            dst: v(1),
+            ty: Idx::INT,
+            func: Name::new(0, 1),
+            args: vec![v(0)],
+            arg_ownership: vec![ArgOwnership::Borrowed],
+            normal: b(1),
+            unwind: b(2),
+            mono_instance_id: None,
+        },
+    );
+
+    let pointer_only = super::compute_pointer_only_params(&func, |dst, _, _| dst == v(1));
+
+    assert!(pointer_only.contains(&v(0)));
+}
+
+#[test]
+fn runtime_invoke_target_requires_borrowed_parameter_load() {
+    let func = borrowed_param_func(
+        Vec::new(),
+        ArcTerminator::Invoke {
+            dst: v(1),
+            ty: Idx::INT,
+            func: Name::new(0, 1),
+            args: vec![v(0)],
+            arg_ownership: vec![ArgOwnership::Borrowed],
+            normal: b(1),
+            unwind: b(2),
+            mono_instance_id: None,
+        },
+    );
+
+    let pointer_only = super::compute_pointer_only_params(&func, |_, _, _| false);
+
+    assert!(!pointer_only.contains(&v(0)));
 }
 
 /// Single `Project` instruction records the field index for its source var.

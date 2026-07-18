@@ -47,6 +47,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ) {
         self.compile_impls_inner(
             impls,
+            &[],
             impl_sigs,
             canon,
             traits,
@@ -62,6 +63,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     pub fn compile_impls_from_artifact(
         &mut self,
         impls: &[ori_ir::ImplDef],
+        extensions: &[ori_ir::ExtendDef],
         impl_sigs: &[ImplSig],
         canon: &CanonResult,
         traits: &[TraitDef],
@@ -77,15 +79,18 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
         self.compile_impls_inner(
             impls,
+            extensions,
             impl_sigs,
             canon,
             traits,
             Some(emission_names),
             ImplCompilePhase::DeclareOnly,
         );
+        self.bind_executable_method_targets();
         self.bind_user_drop_targets();
         self.compile_impls_inner(
             impls,
+            extensions,
             impl_sigs,
             canon,
             traits,
@@ -97,6 +102,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     fn compile_impls_inner(
         &mut self,
         impls: &[ori_ir::ImplDef],
+        extensions: &[ori_ir::ExtendDef],
         impl_sigs: &[ImplSig],
         canon: &CanonResult,
         traits: &[TraitDef],
@@ -152,6 +158,31 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 &mut emission_name_iter,
                 phase,
             );
+        }
+
+        // Extension signatures follow parsed impl signatures in checker order.
+        // Match by exact owner/body identity so a forbidden no-self extension
+        // method (which has no ImplSig) cannot shift the positional stream.
+        for (extension_index, extension) in extensions.iter().enumerate() {
+            let owner_index = impls.len() + extension_index;
+            let type_name = extension.target_type_name;
+            let type_name_str = self.interner.lookup(type_name).to_owned();
+            for method in &extension.methods {
+                let expected_id = ori_types::ImplMethodId::new(owner_index, method.body);
+                if sig_iter.as_slice().first().map(|sig| sig.id) != Some(expected_id) {
+                    continue;
+                }
+                self.compile_impl_method_from_sig(
+                    &mut sig_iter,
+                    method.name,
+                    method.span,
+                    type_name,
+                    &type_name_str,
+                    canon,
+                    &mut emission_name_iter,
+                    phase,
+                );
+            }
         }
     }
 

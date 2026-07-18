@@ -91,6 +91,9 @@ impl TypeCheckError {
             | TypeErrorKind::InvalidReprAttribute { .. }
             | TypeErrorKind::ConditionalPartialMove { .. }
             | TypeErrorKind::UseAfterDropEarly { .. }
+            | TypeErrorKind::UndeclaredFixedListCapacityConst { .. }
+            | TypeErrorKind::NonPositiveFixedListCapacity { .. }
+            | TypeErrorKind::InvalidFixedListCapacityExpression { .. }
             | TypeErrorKind::DropPartialMove { .. }
             | TypeErrorKind::ValueDropConflict { .. }
             | TypeErrorKind::PreContractNotBool { .. }
@@ -139,6 +142,19 @@ impl TypeCheckError {
                 }
                 msg
             }
+            TypeErrorKind::UndeclaredFixedListCapacityConst { name } => {
+                let name = format_name(*name);
+                format!(
+                    "undeclared fixed-list capacity const `${name}`; declare it in `<${name}: int>` or use a declared const"
+                )
+            }
+            TypeErrorKind::NonPositiveFixedListCapacity { value } => format!(
+                "fixed-list capacity must be a positive compile-time integer; supplied {value}"
+            ),
+            TypeErrorKind::InvalidFixedListCapacityExpression { reason } => format!(
+                "fixed-list capacity must be an evaluable integer expression; {}; use a positive integer literal or an allowed expression over declared int consts",
+                reason.description()
+            ),
             TypeErrorKind::UnresolvedTrait { trait_name } => {
                 format!(
                     "unresolved trait `{}` — the trait is not registered (is the prelude available, or is the name a typo?)",

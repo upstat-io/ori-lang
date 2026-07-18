@@ -33,13 +33,13 @@ mod lower;
 mod patterns;
 mod validate;
 
-pub use lower::{lower, lower_module};
+pub use lower::{lower, lower_module, lower_module_with_constants};
 pub use validate::validate;
 
 pub use ori_ir::canon::{
     CanArena, CanBindingPattern, CanBindingPatternId, CanBindingPatternRange, CanExpr, CanField,
     CanFieldBinding, CanFieldBindingRange, CanFieldRange, CanId, CanMapEntry, CanMapEntryRange,
     CanNamedExpr, CanNamedExprRange, CanNode, CanParam, CanParamRange, CanRange, CanonResult,
-    ConstValue, ConstantId, ConstantPool, DecisionTreeId, DecisionTreePool, PatternProblem,
-    SharedCanonResult,
+    ConstEvalProblem, ConstEvalProblemKind, ConstValue, ConstantId, ConstantPool, DecisionTreeId,
+    DecisionTreePool, NamedConstValue, PatternProblem, SharedCanonResult,
 };

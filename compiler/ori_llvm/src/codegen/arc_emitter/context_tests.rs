@@ -4,19 +4,69 @@ use super::{
 
 #[test]
 fn intercepted_is_nounwind_defaults_true_for_unknown_methods() {
-    assert!(intercepted_is_nounwind("map"));
-    assert!(intercepted_is_nounwind("filter"));
-    assert!(intercepted_is_nounwind("len"));
-    assert!(intercepted_is_nounwind("is_empty"));
-    assert!(intercepted_is_nounwind(""));
+    assert!(intercepted_is_nounwind("map", None, None));
+    assert!(intercepted_is_nounwind("filter", None, None));
+    assert!(intercepted_is_nounwind("len", None, None));
+    assert!(intercepted_is_nounwind("is_empty", None, None));
+    assert!(intercepted_is_nounwind("", None, None));
 }
 
 #[test]
 fn intercepted_is_nounwind_rejects_may_unwind_methods() {
+    use ori_types::Tag;
+
     for &name in MAY_UNWIND_INTERCEPTED_METHODS {
+        let (receiver, result) = match name {
+            "__cast" => (Tag::Int, Some(Tag::Byte)),
+            "abs" | "byte" => (Tag::Int, Some(Tag::Int)),
+            "int" | "to_int" => (Tag::Float, Some(Tag::Int)),
+            "updated" | "__index" => (Tag::List, None),
+            "unwrap" | "expect" => (Tag::Option, None),
+            "unwrap_err" | "expect_err" => (Tag::Result, None),
+            "__iter_next" | "__collect_set" | "next" | "next_back" | "rev" | "collect"
+            | "count" | "any" | "all" | "find" | "for_each" | "fold" | "last" | "rfind"
+            | "rfold" | "join" => (Tag::Iterator, None),
+            _ => (Tag::Int, None),
+        };
         assert!(
-            !intercepted_is_nounwind(name),
+            !intercepted_is_nounwind(name, Some(receiver), result),
             "method {name:?} must be classified may-unwind"
+        );
+    }
+}
+
+#[test]
+fn checked_intercepts_remain_type_directed() {
+    use ori_types::Tag;
+
+    assert!(intercepted_is_nounwind(
+        "__cast",
+        Some(Tag::Int),
+        Some(Tag::Float)
+    ));
+    assert!(intercepted_is_nounwind(
+        "to_int",
+        Some(Tag::Int),
+        Some(Tag::Int)
+    ));
+    assert!(intercepted_is_nounwind(
+        "byte",
+        Some(Tag::Byte),
+        Some(Tag::Byte)
+    ));
+    assert!(intercepted_is_nounwind(
+        "abs",
+        Some(Tag::Float),
+        Some(Tag::Float)
+    ));
+}
+
+#[test]
+fn may_unwind_list_covers_checked_conversion_intercepts() {
+    for expected in ["__cast", "abs", "byte", "int", "to_int"] {
+        assert!(
+            MAY_UNWIND_INTERCEPTED_METHODS.contains(&expected),
+            "checked conversion intercept {expected:?} missing from may-unwind inventory"
         );
     }
 }
@@ -80,15 +130,18 @@ fn iterator_callback_emissions_keep_their_unwind_edges() {
     ] {
         assert!(intercepted_emission_invokes_unwind(
             method,
-            ori_types::Tag::Iterator
+            Some(ori_types::Tag::Iterator),
+            None,
         ));
         assert!(intercepted_emission_invokes_unwind(
             method,
-            ori_types::Tag::DoubleEndedIterator
+            Some(ori_types::Tag::DoubleEndedIterator),
+            None,
         ));
         assert!(!intercepted_emission_invokes_unwind(
             method,
-            ori_types::Tag::List
+            Some(ori_types::Tag::List),
+            None,
         ));
     }
 }

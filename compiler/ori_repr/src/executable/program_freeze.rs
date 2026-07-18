@@ -9,9 +9,9 @@ use rustc_hash::FxHashMap;
 
 use super::{
     call_targets, callable_facts, closure_adapters, drop_plan, effect_facts, external,
-    function_contracts, function_families, parameter_facts, return_facts, validation,
-    ExecutableDropPlan, ExecutableProgram, ExecutableProgramParts, FunctionId, RealizationError,
-    EXECUTABLE_PROGRAM_VERSION,
+    function_contracts, function_families, method_targets, parameter_facts, return_facts,
+    validation, ExecutableDropPlan, ExecutableProgram, ExecutableProgramParts, FunctionId,
+    RealizationError, EXECUTABLE_PROGRAM_VERSION,
 };
 
 pub(super) fn validate(
@@ -64,6 +64,14 @@ fn freeze_executable_program(
     let (external_functions, external_ids) =
         external::freeze_external_callables(parts.externals, &parts.pool)?;
     call_targets::validate_external_symbols(&external_functions, &parts.symbols, &function_ids)?;
+    let method_targets = method_targets::freeze_method_targets(
+        std::mem::take(&mut parts.method_targets),
+        &parts.pool,
+        &parts.symbols,
+        &function_ids,
+        &external_ids,
+        &function_families,
+    )?;
     let call_targets::ResolvedCallTargets {
         call_targets,
         direct_call_targets,
@@ -95,6 +103,7 @@ fn freeze_executable_program(
         cli_entry,
         external_functions,
         external_ids,
+        method_targets,
         user_drop_plan,
         repr_plan: parts.repr_plan,
         type_registry: parts.type_registry,

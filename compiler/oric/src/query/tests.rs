@@ -1257,3 +1257,247 @@ fn test_watch_loop_simulation() {
     );
     assert_eq!(find_fn(&db, &recovered, "main").return_type, Idx::INT);
 }
+
+fn canonical_root_int(
+    db: &CompilerDb,
+    canon: &ori_ir::canon::SharedCanonResult,
+    root_name: &str,
+) -> i64 {
+    let name = db.interner().intern(root_name);
+    let root = canon
+        .root_for(name)
+        .unwrap_or_else(|| panic!("missing canonical root '{root_name}'"));
+    let ori_ir::canon::CanExpr::Constant(constant) = *canon.arena.kind(root) else {
+        panic!(
+            "module/imported constant must be frozen, got {:?}",
+            canon.arena.kind(root)
+        )
+    };
+    let ori_ir::canon::ConstValue::Int(value) = *canon.constants.get(constant) else {
+        panic!("expected frozen int value")
+    };
+    value
+}
+
+#[test]
+fn imported_provider_dependency_chain_freezes_selected_value() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(&provider_path, "$base = 20;\npub $derived = $base + 10;\n")
+        .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $derived };\n@main () -> int = $derived;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let db = CompilerDb::new();
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let parsed = parsed(&db, consumer);
+    let type_result = typed(&db, consumer);
+    let pool = typed_pool(&db, consumer).unwrap_or_else(|| panic!("consumer pool"));
+    assert!(
+        !type_result.has_errors(),
+        "provider dependency fixture must type-check: {:?}",
+        type_result.errors()
+    );
+
+    let canon = canonicalize_cached(&db, consumer, &parsed, &type_result, &pool);
+    assert!(canon.const_problems.is_empty());
+    assert_eq!(canonical_root_int(&db, &canon, "main"), 30);
+}
+
+#[test]
+fn failed_provider_dependency_blocks_selected_dependent_constant() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(
+        &provider_path,
+        "$unsupported = [1];\npub $derived = $unsupported;\n",
+    )
+    .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $derived };\n@main () -> [int] = $derived;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let db = CompilerDb::new();
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let parsed = parsed(&db, consumer);
+    let type_result = typed(&db, consumer);
+    let pool = typed_pool(&db, consumer).unwrap_or_else(|| panic!("consumer pool"));
+    assert!(
+        !type_result.has_errors(),
+        "unsupported value domain is a Canon error, not a type error: {:?}",
+        type_result.errors()
+    );
+
+    let canon = canonicalize_cached(&db, consumer, &parsed, &type_result, &pool);
+
+    let derived = db.interner().intern("derived");
+    assert!(canon.const_problems.iter().any(|problem| {
+        problem.name == derived
+            && matches!(
+                problem.kind,
+                ori_ir::canon::ConstEvalProblemKind::ImportedValueUnavailable { .. }
+            )
+    }));
+}
+
+#[test]
+fn any_provider_constant_failure_blocks_other_selected_exports() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(&provider_path, "$unsupported = [1];\npub $answer = 30;\n")
+        .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $answer };\n@main () -> int = $answer;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let db = CompilerDb::new();
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let parsed = parsed(&db, consumer);
+    let type_result = typed(&db, consumer);
+    let pool = typed_pool(&db, consumer).unwrap_or_else(|| panic!("consumer pool"));
+    assert!(
+        !type_result.has_errors(),
+        "type errors: {:?}",
+        type_result.errors()
+    );
+
+    let canon = canonicalize_cached(&db, consumer, &parsed, &type_result, &pool);
+
+    let answer = db.interner().intern("answer");
+    assert!(canon.const_problems.iter().any(|problem| {
+        problem.name == answer
+            && matches!(
+                problem.kind,
+                ori_ir::canon::ConstEvalProblemKind::ImportedValueUnavailable { .. }
+            )
+    }));
+    assert!(
+        canon.constant_inputs.is_empty(),
+        "a broken provider module must export no selected constant artifacts"
+    );
+}
+
+#[test]
+fn untracked_module_canonicalization_never_reads_or_writes_path_cache() {
+    let db = CompilerDb::new();
+    let path = PathBuf::from("/virtual/untracked-provider.ori");
+    let parse_source = |source: &str| {
+        let tokens = crate::lex(source, db.interner());
+        crate::parser::parse(&tokens, db.interner())
+    };
+    let first_parse = parse_source("pub $answer = 30;\n");
+    let first = canonicalize_module(&db, &first_parse, &path, None)
+        .unwrap_or_else(|| panic!("first untracked module must canonicalize"));
+    let answer = db.interner().intern("answer");
+    assert_eq!(
+        first
+            .named_constants
+            .iter()
+            .find(|constant| constant.name == answer)
+            .map(|constant| &constant.value),
+        Some(&ori_ir::canon::ConstValue::Int(30))
+    );
+    assert!(db.canon_cache().get(&path).is_none());
+
+    let second_parse = parse_source("pub $answer = 31;\n");
+    let second = canonicalize_module(&db, &second_parse, &path, None)
+        .unwrap_or_else(|| panic!("second untracked module must canonicalize"));
+
+    assert_eq!(
+        second
+            .named_constants
+            .iter()
+            .find(|constant| constant.name == answer)
+            .map(|constant| &constant.value),
+        Some(&ori_ir::canon::ConstValue::Int(31)),
+        "path identity alone must not reuse an untracked Canon artifact"
+    );
+    assert!(
+        db.canon_cache().get(&path).is_none(),
+        "untracked canonicalization must not populate the session cache"
+    );
+}
+
+#[test]
+fn evaluated_preserves_actionable_constant_failure_snapshot() {
+    let db = CompilerDb::new();
+    let file = SourceFile::new(
+        &db,
+        PathBuf::from("/constant-eval-error.ori"),
+        "$unsupported = [1];\n@main () -> int = 0;\n".to_string(),
+    );
+
+    let result = evaluated(&db, file);
+
+    assert!(result.is_failure());
+    assert_eq!(result.const_problems.len(), 1);
+    assert!(result.eval_error.is_none());
+    let summary = result.error.as_deref().unwrap_or_default();
+    assert!(summary.contains("E2058"), "actual summary: {summary}");
+    assert!(
+        summary.contains("composite value"),
+        "the query boundary must preserve the actionable cause: {summary}"
+    );
+}
+
+#[test]
+fn value_only_provider_edit_invalidates_consumer_canon_cache() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(&provider_path, "pub $answer = 30;\n")
+        .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $answer };\n@main () -> int = $answer;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let mut db = CompilerDb::new();
+    let provider = db
+        .load_file(&provider_path)
+        .unwrap_or_else(|| panic!("load provider"));
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let consumer_parse = parsed(&db, consumer);
+    let consumer_types = typed(&db, consumer);
+    let consumer_pool = typed_pool(&db, consumer).unwrap_or_else(|| panic!("consumer pool"));
+    let first = canonicalize_cached(
+        &db,
+        consumer,
+        &consumer_parse,
+        &consumer_types,
+        &consumer_pool,
+    );
+    assert_eq!(canonical_root_int(&db, &first, "main"), 30);
+
+    // Same provider type, different evaluated value: Salsa may cut off the
+    // consumer type result, but the exact constant-input cache key must not.
+    provider
+        .set_text(&mut db)
+        .to("pub $answer = 31;\n".to_string());
+    let second_parse = parsed(&db, consumer);
+    let second_types = typed(&db, consumer);
+    let second_pool = typed_pool(&db, consumer).unwrap_or_else(|| panic!("consumer pool"));
+    let second = canonicalize_cached(&db, consumer, &second_parse, &second_types, &second_pool);
+
+    assert_eq!(canonical_root_int(&db, &second, "main"), 31);
+    assert_ne!(first.constant_inputs, second.constant_inputs);
+}

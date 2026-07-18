@@ -268,10 +268,11 @@ fn list_set(mut list: ListData, mut args: Vec<Value>) -> EvalResult {
 fn list_updated(mut list: ListData, mut args: Vec<Value>) -> EvalResult {
     require_args("updated", 2, args.len())?;
     let key = require_int_arg("updated", &args, 0)?;
+    let length = list.len();
     let ukey = usize::try_from(key)
         .ok()
-        .filter(|&i| i < list.len())
-        .ok_or_else(|| ori_patterns::index_out_of_bounds(key))?;
+        .filter(|&i| i < length)
+        .ok_or_else(|| ori_patterns::index_out_of_bounds(key, length))?;
     list.set(ukey, args.swap_remove(1));
     Ok(Value::List(list))
 }

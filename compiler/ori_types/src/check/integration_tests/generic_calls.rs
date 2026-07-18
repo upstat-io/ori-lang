@@ -214,6 +214,38 @@ fn inherent_method_on_generic_receiver_records_method_instance() {
 }
 
 #[test]
+fn generic_unary_operator_records_method_instance() {
+    let source =
+        include_str!("../fixtures/integration/generic_unary_operator_records_method_instance.ori");
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "generic unary operator should type-check: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("negate");
+    assert_eq!(
+        instances.len(),
+        1,
+        "Wrap<int>.negate should record one concrete method instance: {instances:?}"
+    );
+    let instance = instances[0];
+    let Some(wrap_int) = result.find_applied("Wrap", &[Idx::INT]) else {
+        panic!("fixture should materialize Wrap<int>")
+    };
+    assert_eq!(instance.receiver_type, Some(wrap_int));
+    assert_eq!(instance.impl_args, vec![crate::GenericArg::Type(Idx::INT)]);
+    assert!(instance.method_args.is_empty());
+    assert_eq!(instance.concrete_return_type, wrap_int);
+    assert!(!result.pool.flags(instance.concrete_return_type).has_vars());
+    assert!(matches!(
+        instance.method_producer,
+        Some(crate::MethodProducer::Impl(_))
+    ));
+}
+
+#[test]
 fn same_method_on_same_receiver_deduplicates() {
     let source =
         include_str!("../fixtures/integration/same_method_on_same_receiver_deduplicates.ori");

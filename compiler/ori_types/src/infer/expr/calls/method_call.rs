@@ -10,12 +10,14 @@ use super::super::super::InferEngine;
 use super::super::infer_expr;
 use super::closure_unify::unify_higher_order_constraints;
 use super::constraints::{check_method_inline_bounds, check_method_where_clauses};
-use super::impl_lookup::{lookup_impl_method, LookupOutcome};
+use super::impl_lookup::{lookup_impl_method, ImplMethodSig, LookupOutcome};
 use super::impl_signature::resolve_impl_signature;
 use super::method_diagnostics::{emit_into_not_implemented, emit_unknown_method};
 use super::method_receiver::{resolve_receiver_and_builtin, ReceiverDispatch};
 use super::module_alias_call;
-use super::monomorphization::maybe_record_method_mono_instance;
+use super::monomorphization::{
+    maybe_record_method_mono_instance, resolve_method_call_generic_args,
+};
 use support::{
     apply_receiver_type_args, callable_field_fn_ty, check_callable_field_positional,
     check_named_args, check_positional_args,
@@ -48,6 +50,91 @@ impl<'a> MethodCallSite<'a> {
             expected,
         }
     }
+}
+
+/// The builtin-dispatch call site fed to [`finish_builtin_return`] — the
+/// resolved builtin's return/receiver types, the caller's arg types/spans,
+/// and the call's span + outer expected type, bundled to keep the recording
+/// call under the workspace argument-count lint.
+#[derive(Clone, Copy)]
+struct BuiltinReturnSite<'a> {
+    method: Name,
+    ret_ty: Idx,
+    receiver_ty: Idx,
+    arg_types: &'a [Idx],
+    arg_spans: &'a [Span],
+    span: Span,
+    expected: Option<&'a Expected>,
+}
+
+/// Unify a builtin method's higher-order constraints against its resolved
+/// arg types, then (BD-2) propagate the call site's outer `expected` into the
+/// builtin's return type before returning it. Shared tail of the
+/// `ReceiverDispatch::Return` branch in both positional and named-arg method
+/// call inference.
+fn finish_builtin_return(engine: &mut InferEngine<'_>, site: BuiltinReturnSite<'_>) -> Idx {
+    let BuiltinReturnSite {
+        method,
+        ret_ty,
+        receiver_ty,
+        arg_types,
+        arg_spans,
+        span,
+        expected,
+    } = site;
+    unify_higher_order_constraints(
+        engine,
+        method,
+        ret_ty,
+        receiver_ty,
+        arg_types,
+        arg_spans,
+        span,
+    );
+    // BD-2: propagate outer expected into builtin ret_ty so a
+    // generic-return builtin (e.g. collect's default [T]) unifies
+    // with the LHS annotation at the call site.
+    if let Some(exp) = expected {
+        let _ = engine.check_type(ret_ty, exp, span);
+    }
+    ret_ty
+}
+
+/// After BD-2 propagation + arg-checking for a resolved impl-method call,
+/// enforce the method's where-clauses and inline generic bounds, then record
+/// a receiver-bearing `MonoInstance` for an inherent generic-impl method.
+/// Shared tail of the resolved-signature branch in both positional and
+/// named-arg method call inference; inert for every other dispatch kind.
+fn finish_resolved_method_call(
+    engine: &mut InferEngine<'_>,
+    call_expr_id: ExprId,
+    method: Name,
+    resolved: Idx,
+    sig: &ImplMethodSig,
+    const_bindings: &[crate::MonoConstBinding],
+    span: Span,
+) {
+    check_method_where_clauses(
+        engine,
+        &sig.where_clause_metadata,
+        &sig.instantiation_subst,
+        span,
+    );
+    check_method_inline_bounds(
+        engine,
+        &sig.generic_param_metadata,
+        &sig.scheme_var_ids,
+        &sig.instantiation_subst,
+        span,
+    );
+    maybe_record_method_mono_instance(
+        engine,
+        Some(call_expr_id),
+        method,
+        resolved,
+        sig,
+        const_bindings,
+    );
 }
 
 /// Infer the type of a method call expression: `receiver.method(args)`.
@@ -108,22 +195,18 @@ pub(in crate::infer::expr) fn infer_method_call(
                     .iter()
                     .map(|&arg_id| arena.get_expr(arg_id).span)
                     .collect();
-                unify_higher_order_constraints(
+                return finish_builtin_return(
                     engine,
-                    method,
-                    ret_ty,
-                    receiver_ty,
-                    &arg_types,
-                    &arg_spans,
-                    span,
+                    BuiltinReturnSite {
+                        method,
+                        ret_ty,
+                        receiver_ty,
+                        arg_types: &arg_types,
+                        arg_spans: &arg_spans,
+                        span,
+                        expected,
+                    },
                 );
-                // BD-2: propagate outer expected into builtin ret_ty so a
-                // generic-return builtin (e.g. collect's default [T]) unifies
-                // with the LHS annotation at the call site.
-                if let Some(exp) = expected {
-                    let _ = engine.check_type(ret_ty, exp, span);
-                }
-                return ret_ty;
             }
             ReceiverDispatch::Continue { resolved } => {
                 apply_receiver_type_args(engine, arena, resolved, receiver, span)
@@ -136,34 +219,24 @@ pub(in crate::infer::expr) fn infer_method_call(
     // must surface a diagnostic, not silently poison via `Idx::ERROR`.
     let was_not_found = matches!(outcome, LookupOutcome::NotFound);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, arg_ids.len(), span) {
+        let const_bindings =
+            resolve_method_call_generic_args(engine, arena, call_expr_id, &sig, expected, span);
         // INVARIANT: constrain generic returns from the outer expectation before arguments.
         if let Some(exp) = expected {
             let _ = engine.check_type(sig.ret, exp, span);
         }
         let ret_ty = check_positional_args(engine, arena, arg_ids, &sig, span);
-        check_method_where_clauses(
-            engine,
-            &sig.where_clause_metadata,
-            &sig.instantiation_subst,
-            span,
-        );
-        check_method_inline_bounds(
-            engine,
-            &sig.generic_param_metadata,
-            &sig.scheme_var_ids,
-            &sig.instantiation_subst,
-            span,
-        );
         // Record a receiver-bearing MonoInstance for an inherent generic-impl
         // method (`Box<int>.unwrap()`). Runs AFTER arg-checking so the method's
         // instantiation vars are unified; inert for every other dispatch kind.
-        maybe_record_method_mono_instance(
+        finish_resolved_method_call(
             engine,
-            Some(call_expr_id),
+            call_expr_id,
             method,
             resolved,
             &sig,
-            expected,
+            &const_bindings,
+            span,
         );
         return ret_ty;
     }
@@ -240,21 +313,19 @@ pub(in crate::infer::expr) fn infer_method_call_named(
                     .iter()
                     .map(|arg| arena.get_expr(arg.value).span)
                     .collect();
-                unify_higher_order_constraints(
-                    engine,
-                    method,
-                    ret_ty,
-                    receiver_ty,
-                    &arg_types,
-                    &arg_spans,
-                    span,
-                );
-                // BD-2: propagate outer expected into builtin ret_ty
                 // (mirrors infer_method_call positional path).
-                if let Some(exp) = expected {
-                    let _ = engine.check_type(ret_ty, exp, span);
-                }
-                return ret_ty;
+                return finish_builtin_return(
+                    engine,
+                    BuiltinReturnSite {
+                        method,
+                        ret_ty,
+                        receiver_ty,
+                        arg_types: &arg_types,
+                        arg_spans: &arg_spans,
+                        span,
+                        expected,
+                    },
+                );
             }
             ReceiverDispatch::Continue { resolved } => {
                 apply_receiver_type_args(engine, arena, resolved, receiver, span)
@@ -265,33 +336,23 @@ pub(in crate::infer::expr) fn infer_method_call_named(
     let outcome = lookup_impl_method(engine, resolved, method);
     let was_not_found = matches!(outcome, LookupOutcome::NotFound);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, call_args.len(), span) {
+        let const_bindings =
+            resolve_method_call_generic_args(engine, arena, call_expr_id, &sig, expected, span);
         // BD-2: propagate outer expected into sig.ret BEFORE arg-checking.
         if let Some(exp) = expected {
             let _ = engine.check_type(sig.ret, exp, span);
         }
         check_named_args(engine, arena, args, &sig, span);
-        check_method_where_clauses(
-            engine,
-            &sig.where_clause_metadata,
-            &sig.instantiation_subst,
-            span,
-        );
-        check_method_inline_bounds(
-            engine,
-            &sig.generic_param_metadata,
-            &sig.scheme_var_ids,
-            &sig.instantiation_subst,
-            span,
-        );
         // Mirror the positional path: record a receiver-bearing MonoInstance for
         // an inherent generic-impl method after named-arg checking.
-        maybe_record_method_mono_instance(
+        finish_resolved_method_call(
             engine,
-            Some(call_expr_id),
+            call_expr_id,
             method,
             resolved,
             &sig,
-            expected,
+            &const_bindings,
+            span,
         );
         return sig.ret;
     }

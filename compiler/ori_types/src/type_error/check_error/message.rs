@@ -82,6 +82,9 @@ impl TypeCheckError {
             | TypeErrorKind::InvalidReprAttribute { .. }
             | TypeErrorKind::ConditionalPartialMove { .. }
             | TypeErrorKind::UseAfterDropEarly { .. }
+            | TypeErrorKind::UndeclaredFixedListCapacityConst { .. }
+            | TypeErrorKind::NonPositiveFixedListCapacity { .. }
+            | TypeErrorKind::InvalidFixedListCapacityExpression { .. }
             | TypeErrorKind::DropPartialMove { .. }
             | TypeErrorKind::ValueDropConflict { .. }
             | TypeErrorKind::PreContractNotBool { .. }
@@ -125,6 +128,17 @@ impl TypeCheckError {
                 // the full message (e.g., "unknown identifier `foo`").
                 "unknown identifier".to_string()
             }
+            TypeErrorKind::UndeclaredFixedListCapacityConst { .. } => {
+                "undeclared fixed-list capacity const; declare it in the generic parameter list or use a declared const"
+                    .to_string()
+            }
+            TypeErrorKind::NonPositiveFixedListCapacity { value } => format!(
+                "fixed-list capacity must be a positive compile-time integer; supplied {value}"
+            ),
+            TypeErrorKind::InvalidFixedListCapacityExpression { reason } => format!(
+                "fixed-list capacity must be an evaluable integer expression; {}",
+                reason.description()
+            ),
             TypeErrorKind::UnresolvedTrait { .. } => {
                 // trait_name is an interned ID; a caller with interner access
                 // renders the full "unresolved trait `Drop`" form.
@@ -595,6 +609,12 @@ impl TypeCheckError {
 
             // E2054: Use of a binding after `drop_early` consumed it
             TypeErrorKind::UseAfterDropEarly { .. } => ErrorCode::E2054,
+            // E2056: Undeclared const in a fixed-list capacity
+            TypeErrorKind::UndeclaredFixedListCapacityConst { .. } => ErrorCode::E2056,
+            // E2057: Fixed-list capacity is zero or negative
+            TypeErrorKind::NonPositiveFixedListCapacity { .. } => ErrorCode::E2057,
+            // E2059: Fixed-list capacity cannot be evaluated as an integer
+            TypeErrorKind::InvalidFixedListCapacityExpression { .. } => ErrorCode::E2059,
             // E2049: Value + Drop mutual exclusion
             TypeErrorKind::ValueDropConflict { .. } => ErrorCode::E2049,
 

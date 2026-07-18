@@ -2,7 +2,7 @@ use ori_arc::MemoryContract;
 use ori_ir::{DerivedImplId, DerivedTrait, Name, Span, StringInterner};
 use ori_types::{
     AcceptedDerivedImpl, ConcreteMethodMono, ConstValue, FunctionSig, GenericArg, Idx,
-    ImplMethodId, ImplSig, MethodProducer, MonoConstBinding, MonoInstance, Pool,
+    ImplMethodId, ImplSig, MethodProducer, MonoConstBinding, MonoInstance, Pool, VarState,
 };
 use rustc_hash::FxHashMap;
 
@@ -33,6 +33,7 @@ fn make_generic_sig(interner: &StringInterner) -> FunctionSig {
         param_types: vec![Idx::from_raw(100)], // generic T placeholder
         return_type: Idx::from_raw(100),
         capabilities: vec![],
+        capability_params: vec![],
         is_public: true,
         is_test: false,
         is_main: false,
@@ -641,6 +642,7 @@ fn make_method_sig(interner: &StringInterner, method_name: Name, self_ty: Idx) -
         param_types: vec![self_ty],
         return_type: Idx::INT,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: true,
         is_test: false,
         is_main: false,
@@ -773,6 +775,7 @@ fn collect_resolves_no_self_assoc_fn_by_owning_receiver_shell() {
         param_types: vec![bv], // value param `T`, NOT the receiver
         return_type: box_generic,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: true,
         is_test: false,
         is_main: false,
@@ -905,6 +908,80 @@ fn collect_resolves_generic_derived_signature_with_stable_origin_and_instance_id
 }
 
 #[test]
+fn collect_projects_only_derived_self_and_identity_return_to_physical_receiver() {
+    let interner = make_interner();
+    let mut pool = Pool::new();
+    let owner_name = interner.intern("ProjectedOwner");
+    let other_name = interner.intern("SameShapeOther");
+    let type_param_name = interner.intern("T");
+    let method_name = interner.intern("copy_from");
+    let trait_name = interner.intern("Clone");
+    let self_name = interner.intern("self");
+    let other_param_name = interner.intern("other");
+    let field_name = interner.intern("value");
+
+    let type_param = pool.named(type_param_name);
+    let generic_owner = pool.applied(owner_name, &[type_param]);
+    let generic_other = pool.applied(other_name, &[type_param]);
+    let concrete_owner = pool.applied(owner_name, &[Idx::INT]);
+    let concrete_other = pool.applied(other_name, &[Idx::INT]);
+    let physical_owner = pool.struct_type(owner_name, &[(field_name, Idx::INT)]);
+    pool.set_resolution(concrete_owner, physical_owner);
+    pool.set_resolution(concrete_other, physical_owner);
+    assert_ne!(concrete_owner, concrete_other);
+    assert!(pool.structural_eq(concrete_owner, concrete_other));
+
+    let mut signature = FunctionSig::synthetic(
+        method_name,
+        vec![self_name, other_param_name],
+        vec![generic_owner, generic_other],
+        generic_owner,
+    );
+    signature.type_params = vec![type_param_name];
+    signature.type_param_bounds = vec![vec![trait_name]];
+    signature.generic_param_mapping = vec![None];
+    signature.populate_hashes(&pool);
+
+    let derived_id = DerivedImplId::new(8);
+    let accepted = AcceptedDerivedImpl {
+        id: derived_id,
+        owner_name,
+        owner_type: generic_owner,
+        trait_type: pool.named(trait_name),
+        trait_kind: DerivedTrait::Clone,
+        method_name,
+        signature,
+        span: Span::DUMMY,
+    };
+    let instance = MonoInstance::new_method(
+        method_name,
+        MethodProducer::Derived(derived_id),
+        vec![GenericArg::Type(Idx::INT)],
+        vec![],
+        ConcreteMethodMono {
+            receiver_type: concrete_owner,
+            param_types: vec![concrete_other],
+            return_type: concrete_owner,
+            body_type_map: vec![(type_param, Idx::INT)],
+        },
+    );
+
+    let mono_fns =
+        collect_mono_functions(&[instance], &[], &[], &[accepted], &[], &interner, &pool);
+
+    assert_eq!(mono_fns.len(), 1);
+    assert_eq!(
+        mono_fns[0].sig.param_types,
+        vec![physical_owner, concrete_other],
+        "only the actual self slot may project to the physical receiver"
+    );
+    assert_eq!(
+        mono_fns[0].sig.return_type, physical_owner,
+        "an exact identity return must use the same physical receiver as self"
+    );
+}
+
+#[test]
 fn collect_skips_method_when_no_shell_matches() {
     // A method instance whose receiver shell matches no registered impl_sig
     // misses cleanly (silent skip), never mis-dispatches to a same-named
@@ -981,4 +1058,58 @@ fn mangle_method_distinct_per_receiver_instantiation() {
     assert_eq!(interner.lookup(m_int), "unwrap$m$3_int$im$");
     assert_eq!(interner.lookup(m_str), "unwrap$m$3_str$im$");
     assert_ne!(m_int, m_str);
+}
+
+#[test]
+fn mangle_method_preserves_nested_nominal_receiver_identity() {
+    let interner = make_interner();
+    let mut pool = Pool::new();
+    let debug = interner.intern("debug");
+    let wrap = interner.intern("Wrap");
+    let value = interner.intern("value");
+    let inner = pool.applied(wrap, &[Idx::BOOL]);
+    let inner_body = pool.struct_type(wrap, &[(value, Idx::BOOL)]);
+    pool.set_resolution(inner, inner_body);
+    let outer = pool.applied(wrap, &[inner]);
+    let outer_body = pool.struct_type(wrap, &[(value, inner)]);
+    pool.set_resolution(outer, outer_body);
+
+    let inner_name = mangle_mono_name(debug, &[], &[], &[], Some(inner), &interner, &pool);
+    let outer_name = mangle_mono_name(debug, &[], &[], &[], Some(outer), &interner, &pool);
+
+    assert_eq!(interner.lookup(inner_name), "debug$m$10_AWrap_bool$im$");
+    assert_eq!(
+        interner.lookup(outer_name),
+        "debug$m$16_AWrap_AWrap_bool$im$"
+    );
+    assert_ne!(inner_name, outer_name);
+}
+
+#[test]
+fn mangle_method_preserves_linked_nested_nominal_receiver_identity() {
+    let interner = make_interner();
+    let mut pool = Pool::new();
+    let debug = interner.intern("debug");
+    let wrap = interner.intern("Wrap");
+    let value = interner.intern("value");
+    let inner = pool.applied(wrap, &[Idx::BOOL]);
+    let inner_body = pool.struct_type(wrap, &[(value, Idx::BOOL)]);
+    pool.set_resolution(inner, inner_body);
+    let outer = pool.applied(wrap, &[inner]);
+    let outer_body = pool.struct_type(wrap, &[(value, inner)]);
+    pool.set_resolution(outer, outer_body);
+    let inner_var = pool.fresh_var();
+    let outer_var = pool.fresh_var();
+    *pool.var_state_mut(pool.data(inner_var)) = VarState::Link { target: inner };
+    *pool.var_state_mut(pool.data(outer_var)) = VarState::Link { target: outer };
+
+    let inner_name = mangle_mono_name(debug, &[], &[], &[], Some(inner_var), &interner, &pool);
+    let outer_name = mangle_mono_name(debug, &[], &[], &[], Some(outer_var), &interner, &pool);
+
+    assert_eq!(interner.lookup(inner_name), "debug$m$10_AWrap_bool$im$");
+    assert_eq!(
+        interner.lookup(outer_name),
+        "debug$m$16_AWrap_AWrap_bool$im$"
+    );
+    assert_ne!(inner_name, outer_name);
 }

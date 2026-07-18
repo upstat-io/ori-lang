@@ -14,6 +14,7 @@
 //! - Flat structures for cache locality
 
 mod check;
+mod const_eval;
 mod flags;
 mod idx;
 mod infer;
@@ -37,6 +38,7 @@ pub use check::{
     check_module, check_module_with_imports, check_module_with_pool, check_module_with_registries,
     ModuleChecker,
 };
+pub use const_eval::GenericConstExpr;
 pub use flags::{TypeCategory, TypeFlags};
 pub use idx::Idx;
 pub use infer::{check_expr, infer_expr, resolve_parsed_type, ExprIndex, InferEngine, TypeEnv};
@@ -49,21 +51,23 @@ pub use operator::{
 };
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
-    imported_method_producer, imported_method_signature_hash, AcceptedDerivedImpl, AssignDesugar,
-    ConcreteMethodMono, ConstGenericTerm, ConstParamInfo, ConstValue, DeferredMonoCall,
-    DeferredVarBinding, DerivedCallPlan, DerivedCallPosition, DerivedCallSelection,
-    DerivedDirectCallSelection, EffectClass, ExportedTypeMetadata, FnWhereClause, FormatSpecTypes,
-    FunctionSig, GenericArg, ImplMethodId, ImplMethodRole, ImplSig, ImportedImplSig,
-    IterMethodRoute, MethodProducer, MonoConstBinding, MonoInstance, MonoInstanceId,
-    RegistryMethodIdentity, RegistryPreludeIdentity, TypeCheckResult, TypedModule,
+    imported_method_producer, imported_method_signature_hash, is_marker_capability,
+    AcceptedDerivedImpl, AssignDesugar, CapabilityCallSite, CapabilityParam, CapabilityProvider,
+    CapabilityProviderSource, ConcreteMethodMono, ConstGenericTerm, ConstParamInfo, ConstValue,
+    DeferredMonoCall, DeferredMonoCaller, DeferredVarBinding, DerivedCallPlan, DerivedCallPosition,
+    DerivedCallSelection, DerivedDirectCallSelection, EffectClass, ExportedTypeMetadata,
+    FnWhereClause, FormatSpecTypes, FunctionSig, GenericArg, ImplMethodId, ImplMethodRole, ImplSig,
+    ImportedImplSig, IterMethodRoute, MethodProducer, MonoConstBinding, MonoInstance,
+    MonoInstanceId, RegistryMethodIdentity, RegistryPreludeIdentity, TypeCheckResult, TypedModule,
     IMPORTED_METHOD_PRODUCER_SCHEMA, REGISTRY_PRODUCER_SCHEMA,
 };
 pub use pool::{
-    build_impl_mono_body_type_map, build_mono_body_type_map, collect_public_collection_types,
-    extend_var_subst_with_roots, extract_var_from_types, re_intern_sig,
-    re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
-    substitute_in_pool, walk_collection_types, BodyTypeMapSink, EnumVariant, GeneralizedVarState,
-    Pool, TypeDescriptor, UnboundVarState, VarState, VariantDescriptor, DEFAULT_RANK,
+    build_finalized_body_type_map, build_impl_mono_body_type_map, build_mono_body_type_map,
+    collect_public_collection_types, extend_var_subst_with_roots, extract_var_from_types,
+    re_intern_sig, re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
+    register_concrete_applied_resolutions, substitute_in_pool, walk_collection_types,
+    BodyTypeMapSink, EnumVariant, GeneralizedVarState, Pool, TypeDescriptor, UnboundVarState,
+    VarState, VariantDescriptor, DEFAULT_RANK,
 };
 pub use provenance::{
     ConsumerEdge, GenericLeafDivergence, MonoEdge, ProvenanceDag, ResolutionEdge, StructureEdge,
@@ -104,8 +108,9 @@ pub use triviality::{classify_triviality, Triviality};
 pub use type_error::{
     diff_types, edit_distance, find_closest_field, suggest_field_typo, AmbiguousTypeSite,
     ArityMismatchKind, ContextKind, ErrorContext, Expected, ExpectedOrigin, ImportErrorKind,
-    NonCollectingLoopKind, OrBindingMismatchReason, SequenceKind, Severity, TypeCheckError,
-    TypeCheckWarning, TypeCheckWarningKind, TypeErrorKind, TypeProblem, VoidLoopKind,
+    InvalidFixedListCapacityReason, NonCollectingLoopKind, OrBindingMismatchReason, SequenceKind,
+    Severity, TypeCheckError, TypeCheckWarning, TypeCheckWarningKind, TypeErrorKind, TypeProblem,
+    VoidLoopKind,
 };
 pub use unify::{ArityKind, Rank, UnifyContext, UnifyEngine, UnifyError};
 pub use value_category::ValueCategory;

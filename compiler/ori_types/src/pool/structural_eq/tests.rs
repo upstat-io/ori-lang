@@ -21,7 +21,7 @@
 //! distinct-`Idx` integration behavior is pinned end-to-end by the spec corpus
 //! and the AOT generic fixtures.
 
-use crate::{Idx, Pool, Tag};
+use crate::{EnumVariant, Idx, Pool, Tag};
 
 /// The load-bearing cure pin: two `[int]` interned to DISTINCT `Idx` (the
 /// merged-mono-pool artifact, reproduced via `intern_distinct_for_test`) MUST
@@ -170,4 +170,29 @@ fn structurally_distinct_types_do_not_match() {
         !p.structural_eq(Idx::INT, list_int),
         "int must NOT match list<int>"
     );
+}
+
+#[test]
+fn representation_equality_distinguishes_enum_payloads() {
+    let mut pool = Pool::new();
+    let enum_name = ori_ir::Name::from_raw(201);
+    let variant_name = ori_ir::Name::from_raw(202);
+    let enum_int = pool.enum_type(
+        enum_name,
+        &[EnumVariant {
+            name: variant_name,
+            field_types: vec![Idx::INT],
+        }],
+    );
+    let enum_string = pool.enum_type(
+        enum_name,
+        &[EnumVariant {
+            name: variant_name,
+            field_types: vec![Idx::STR],
+        }],
+    );
+
+    assert!(pool.structural_eq(enum_int, enum_string));
+    assert!(pool.representation_eq(enum_int, enum_int));
+    assert!(!pool.representation_eq(enum_int, enum_string));
 }

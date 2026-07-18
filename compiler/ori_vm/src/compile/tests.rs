@@ -9,11 +9,12 @@ use ori_arc::{
 use ori_ir::{BinaryOp, Name, SharedInterner};
 use ori_registry::RuntimeOperator;
 use ori_repr::executable::{
-    ExecutableProgram, ExecutableProgramParts, ExternalCallable, ExternalUnwind,
-    FunctionFamilyTopology, EXECUTABLE_PROGRAM_VERSION,
+    CallableTarget, CompilerOperation, ExecutableProgram, ExecutableProgramParts, ExternalCallable,
+    ExternalUnwind, FunctionFamilyTopology, RuntimeCall, EXECUTABLE_PROGRAM_VERSION,
 };
 use ori_repr::{NarrowingPolicy, ReprPlan};
 use ori_types::{Idx, Pool, TypeRegistry};
+use rustc_hash::FxHashMap;
 
 use crate::bytecode::{
     BytecodeProgram, CallArgument, Op, Register, VmClosureAdapterAction, VmRetainPlanId,
@@ -249,6 +250,8 @@ fn borrowed_list_closure_argument_receives_exact_entry_credit() {
             .unwrap_or_else(|error| panic!("borrowed-list closure should execute: {error}")),
         ExitValue::List(vec![ExitValue::Int(7)]),
     );
+    assert_eq!(report.metrics.exit_live_heap_objects, 0);
+    assert_eq!(report.metrics.exit_value_arena_entries, 0);
 }
 
 #[test]
@@ -294,6 +297,84 @@ fn verifier_rejects_runtime_identity_without_an_execution_projection() {
             operator: RuntimeOperator::StringConcat,
         } if found == function && found_pc == pc
     ));
+}
+
+#[test]
+fn bytecode_compilation_admits_only_catch_recover_compiler_operation() {
+    let bytecode = compile(&catch_recover_executable())
+        .unwrap_or_else(|error| panic!("catch recovery should compile for the VM: {error}"));
+    assert!(bytecode.functions[0].ops.iter().any(|operation| matches!(
+        operation,
+        Op::Call {
+            callee: CallableTarget::Runtime(RuntimeCall::Compiler(CompilerOperation::CatchRecover)),
+            ..
+        }
+    )));
+
+    let executable = unsupported_compiler_operation_executable();
+    let function = executable.functions()[0].name;
+    assert!(matches!(
+        compile(&executable),
+        Err(CompileError::UnsupportedRuntimeCall {
+            function: found,
+            call: RuntimeCall::Compiler(CompilerOperation::InjectTrace),
+        }) if found == function
+    ));
+}
+
+#[test]
+fn verifier_rejects_catch_recover_with_an_argument() {
+    let mut bytecode = compile(&catch_recover_executable())
+        .unwrap_or_else(|error| panic!("catch recovery should compile for the VM: {error}"));
+    let (function, pc, arguments, target) = bytecode.functions[0]
+        .ops
+        .iter()
+        .enumerate()
+        .find_map(|(pc, operation)| match operation {
+            Op::Call {
+                callee:
+                    target @ CallableTarget::Runtime(RuntimeCall::Compiler(
+                        CompilerOperation::CatchRecover,
+                    )),
+                args,
+                ..
+            } => Some((bytecode.functions[0].name, pc, *args, *target)),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("catch recovery bytecode should contain its runtime call"));
+    bytecode.call_arguments[arguments.index()] = vec![CallArgument::new(
+        Register::from_arc(ArcVarId::new(0)),
+        ArgOwnership::Borrowed,
+    )]
+    .into_boxed_slice();
+
+    assert!(matches!(
+        must_fail(verify(bytecode)),
+        VerifyError::CallArity {
+            function: found,
+            pc: found_pc,
+            target: found_target,
+            expected: 0,
+            actual: 1,
+        } if found == function && found_pc == pc && found_target == target
+    ));
+}
+
+#[test]
+fn catch_recover_without_pending_panic_fails_through_verified_dispatch() {
+    let bytecode = compile(&catch_recover_executable())
+        .unwrap_or_else(|error| panic!("catch recovery should compile for the VM: {error}"));
+    let verified = verify(bytecode)
+        .unwrap_or_else(|error| panic!("catch recovery bytecode should verify: {error}"));
+
+    let report = execute_report(&verified, ExecutionConfig::default());
+
+    assert!(matches!(
+        report.result,
+        Err(crate::ExecutionError::CatchRecoverWithoutPanic)
+    ));
+    assert_eq!(report.metrics.exit_live_heap_objects, 0);
+    assert_eq!(report.metrics.exit_value_arena_entries, 0);
 }
 
 #[test]
@@ -577,6 +658,7 @@ fn compile_result_for_value(
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
         method_call_facts,
+        operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
         class_ledger_emission: false,
     };
@@ -614,6 +696,7 @@ fn compile_result_for_value(
         roots: vec![main],
         cli_entry: Some(main),
         externals: Vec::new(),
+        method_targets: FxHashMap::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
         type_registry: TypeRegistry::new(),
@@ -902,6 +985,7 @@ fn close_test_artifact(
         roots: vec![root],
         cli_entry,
         externals,
+        method_targets: FxHashMap::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
         type_registry,
@@ -926,6 +1010,85 @@ fn minimal_unit_function(name: Name, body: Vec<ArcInstr>) -> ArcFunction {
         var_types: vec![Idx::UNIT],
         ..ArcFunction::default()
     }
+}
+
+fn catch_recover_executable() -> ExecutableProgram {
+    let symbols = SharedInterner::new();
+    let main = symbols.intern("main");
+    let recover = symbols.intern("ori_catch_recover");
+    let function = ArcFunction {
+        name: main,
+        params: Vec::new(),
+        return_type: Idx::STR,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![ArcInstr::Apply {
+                dst: ArcVarId::new(0),
+                ty: Idx::STR,
+                func: recover,
+                args: Vec::new(),
+                arg_ownership: Vec::new(),
+                mono_instance_id: None,
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::STR],
+        ..ArcFunction::default()
+    };
+    close_test_executable(
+        symbols,
+        Pool::new(),
+        vec![function],
+        vec![FunctionFamilyTopology::new(main, Vec::new())],
+        main,
+    )
+}
+
+fn unsupported_compiler_operation_executable() -> ExecutableProgram {
+    let symbols = SharedInterner::new();
+    let main = symbols.intern("main");
+    let inject_trace = symbols.intern("__ori_inject_trace");
+    let function = ArcFunction {
+        name: main,
+        params: Vec::new(),
+        return_type: Idx::UNIT,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::Let {
+                    dst: ArcVarId::new(0),
+                    ty: Idx::UNIT,
+                    value: ArcValue::Literal(LitValue::Unit),
+                },
+                ArcInstr::Apply {
+                    dst: ArcVarId::new(1),
+                    ty: Idx::UNIT,
+                    func: inject_trace,
+                    args: vec![ArcVarId::new(0)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(1),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::UNIT, Idx::UNIT],
+        ..ArcFunction::default()
+    };
+    close_test_executable(
+        symbols,
+        Pool::new(),
+        vec![function],
+        vec![FunctionFamilyTopology::new(main, Vec::new())],
+        main,
+    )
 }
 
 fn list_concat_executable() -> ExecutableProgram {
@@ -982,6 +1145,7 @@ fn list_concat_executable() -> ExecutableProgram {
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
         method_call_facts: Vec::new(),
+        operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
         class_ledger_emission: false,
     };
@@ -1023,6 +1187,7 @@ fn list_concat_executable() -> ExecutableProgram {
         roots: vec![main],
         cli_entry: Some(main),
         externals: Vec::new(),
+        method_targets: FxHashMap::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
         type_registry,

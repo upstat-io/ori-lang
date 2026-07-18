@@ -110,8 +110,6 @@ fn emit_enum_payload_eq<'a>(
 
     let (cases, variant_bbs) = build_enum_eq_cases(fc, variants, tag_self, func_id);
 
-    fc.builder_mut().switch(tag_self, false_bb, &cases);
-
     if all_single_slot {
         // Fast path: extractvalue chains — no alloca+store+GEP.
         let self_payload = fc
@@ -123,6 +121,8 @@ fn emit_enum_payload_eq<'a>(
             .builder_mut()
             .extract_value(other_val, 1, "eq.other.payload")
             .expect("other should be struct");
+
+        fc.builder_mut().switch(tag_self, false_bb, &cases);
 
         for (tag_idx, variant) in variants.iter().enumerate() {
             fc.builder_mut().position_at_end(variant_bbs[tag_idx]);
@@ -192,6 +192,8 @@ fn emit_enum_payload_eq<'a>(
             setup,
             variants,
             field_op,
+            tag_self,
+            &cases,
             &variant_bbs,
             true_bb,
             false_bb,
@@ -225,6 +227,8 @@ fn emit_multiword_payload_eq<'a>(
     setup: &DeriveSetup,
     variants: &[VariantDef],
     field_op: FieldOp,
+    tag_self: ValueId,
+    cases: &[(ValueId, BlockId)],
     variant_bbs: &[BlockId],
     true_bb: BlockId,
     false_bb: BlockId,
@@ -245,6 +249,8 @@ fn emit_multiword_payload_eq<'a>(
     let other_payload =
         fc.builder_mut()
             .struct_gep(enum_ty_id, other_alloca, 1, "eq.other.payload");
+
+    fc.builder_mut().switch(tag_self, false_bb, cases);
 
     let i64_ty = fc.builder_mut().i64_type();
     for (tag_idx, variant) in variants.iter().enumerate() {

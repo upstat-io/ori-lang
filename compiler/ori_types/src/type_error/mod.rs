@@ -33,8 +33,9 @@ mod suggest;
 mod warning;
 
 pub use check_error::{
-    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, ImportErrorKind, NonCollectingLoopKind,
-    OrBindingMismatchReason, TypeCheckError, TypeErrorKind, VoidLoopKind,
+    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, ImportErrorKind,
+    InvalidFixedListCapacityReason, NonCollectingLoopKind, OrBindingMismatchReason, TypeCheckError,
+    TypeErrorKind, VoidLoopKind,
 };
 pub use context::ContextKind;
 pub use diff::{diff_types, edit_distance, find_closest_field, suggest_field_typo};

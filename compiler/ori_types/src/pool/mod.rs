@@ -23,6 +23,7 @@ use rustc_hash::FxHashMap;
 use crate::{Idx, Item, Rank, TypeFlags};
 
 pub use prelude::*;
+pub use substitute::register_concrete_applied_resolutions;
 
 /// Deduplicated type storage addressed by [`Idx`].
 /// Parallel metadata supports constant-time equality and property queries.

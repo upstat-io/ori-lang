@@ -8,6 +8,78 @@ use crate::execute::tests::{verified_aggregate_program, verified_constant_string
 use crate::{ExecutionConfig, ExecutionError, ValueKind, VerifiedProgram};
 
 #[test]
+fn catch_recover_pending_panic_returns_one_managed_message() {
+    let program = verified_constant_string_program("unused");
+    let mut interpreter = started(&program, ExecutionConfig::default());
+    interpreter.pending_panic = Some(ExecutionError::Panic {
+        message: "caught message".to_owned(),
+    });
+
+    let recovered = must_succeed(interpreter.catch_recover());
+
+    assert!(interpreter.pending_panic.is_none());
+    assert!(matches!(
+        &must_succeed(interpreter.heap.get(recovered)).object,
+        HeapObject::String(message) if message == "caught message"
+    ));
+    assert!(matches!(
+        must_fail(interpreter.catch_recover()),
+        ExecutionError::CatchRecoverWithoutPanic
+    ));
+    must_succeed(interpreter.release_owned_value(recovered));
+    assert_eq!(interpreter.heap.metrics().live_objects, 0);
+}
+
+#[test]
+fn catch_recover_without_pending_panic_fails_closed() {
+    let program = verified_constant_string_program("unused");
+    let mut interpreter = started(&program, ExecutionConfig::default());
+
+    assert!(matches!(
+        must_fail(interpreter.catch_recover()),
+        ExecutionError::CatchRecoverWithoutPanic
+    ));
+    assert_eq!(interpreter.heap.metrics().live_objects, 0);
+}
+
+#[test]
+fn catch_recover_non_panic_error_is_rethrown_without_allocation() {
+    let program = verified_constant_string_program("unused");
+    let mut interpreter = started(&program, ExecutionConfig::default());
+    interpreter.pending_panic = Some(ExecutionError::StepLimit { limit: 17 });
+
+    assert!(matches!(
+        must_fail(interpreter.catch_recover()),
+        ExecutionError::StepLimit { limit: 17 }
+    ));
+    assert!(interpreter.pending_panic.is_none());
+    assert_eq!(interpreter.heap.metrics().cumulative_allocations, 0);
+}
+
+#[test]
+fn print_formats_lowered_primitive_and_string_values_and_rejects_unit() {
+    let program = verified_constant_string_program("text");
+    let mut interpreter = started(&program, ExecutionConfig::default());
+    let values = [
+        VmValue::int(-7),
+        VmValue::float(2.5_f64.to_bits()),
+        VmValue::bool(true),
+        must_succeed(VmValue::constant_string(0)),
+    ];
+    for value in values {
+        assert_eq!(must_succeed(interpreter.print(value)), VmValue::UNIT);
+    }
+    assert_eq!(interpreter.output, b"-7\n2.5\ntrue\ntext\n");
+
+    assert!(matches!(
+        must_fail(interpreter.print(VmValue::UNIT)),
+        ExecutionError::UnsupportedPrimitive { operation: "print" }
+    ));
+    assert_eq!(interpreter.output, b"-7\n2.5\ntrue\ntext\n");
+    assert_eq!(interpreter.heap.metrics().live_objects, 0);
+}
+
+#[test]
 fn shared_list_push_quota_failure_preserves_owner_children_and_continuation() {
     let program = verified_aggregate_program();
     let config = ExecutionConfig {

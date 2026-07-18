@@ -6,7 +6,6 @@ use std.testing { assert }
 #[derive(Debug, Printable, Default)]
 type Wrap<T> = { inner: T }
 
-#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_nested_bool_hash tests @nested_bool_hash () -> void = {
     let a = Wrap { inner: Wrap { inner: true } };
     let b = Wrap { inner: Wrap { inner: true } };
@@ -16,7 +15,6 @@ type Wrap<T> = { inner: T }
     Wrap { inner: Wrap { inner: true } }.hash() == Wrap { inner: Wrap { inner: true } }.hash()
 }
 
-#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_nested_bool_clone tests @nested_bool_clone () -> void = {
     let a = Wrap { inner: Wrap { inner: true } };
     assert(cond: a.clone() == a)
@@ -26,7 +24,6 @@ type Wrap<T> = { inner: T }
     a.clone() == a
 }
 
-#skip(backend: "llvm", reason: "BUG-04-234: inner-only nested-generic derive mono-instance starve on LLVM backend")
 @test_nested_bool_debug tests @nested_bool_debug () -> void = {
     assert(cond: Wrap { inner: Wrap { inner: true } }.debug() != "")
 }

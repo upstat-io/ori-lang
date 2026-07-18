@@ -1,0 +1,15 @@
+let $MODULE_BASE = 2;
+let $MODULE_CAPACITY = $MODULE_BASE * 2;
+
+@method_capacity<$N: int> (items: [int]) -> void = {
+    let by_parameter: [int, max N] = items;
+    let by_symbolic_arithmetic: [int, max N * 2] = items;
+}
+
+@declared_capacities (items: [int]) -> void = {
+    let by_literal: [int, max 1] = items;
+    let by_literal_arithmetic: [int, max 1 + 1] = items;
+    let by_module_const: [int, max MODULE_CAPACITY] = items;
+    let $LOCAL_CAPACITY = 2;
+    let by_local_const: [int, max LOCAL_CAPACITY] = items;
+}

@@ -37,10 +37,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             };
 
             // Skip generic functions
-            if sig.is_generic() {
+            if sig.requires_specialization() {
                 trace!(
                     name = %self.interner.lookup(func.name),
-                    "skipping generic function declaration"
+                    "skipping source-template function declaration"
                 );
                 continue;
             }

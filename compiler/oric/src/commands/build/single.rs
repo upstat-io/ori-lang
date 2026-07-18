@@ -7,8 +7,9 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use super::{
-    build_optimization_config, configure_target, determine_output_path, link_and_finish,
-    BuildOptions, EmitType,
+    build_optimization_config, configure_target, determine_output_path,
+    incremental_cache::{CacheMiss, CacheProbe},
+    link_and_finish, BuildOptions, EmitType,
 };
 
 /// Build a single Ori source file (no imports).
@@ -21,7 +22,6 @@ pub(super) fn build_file_single(
     use ori_llvm::aot::ObjectEmitter;
     use ori_llvm::inkwell::context::Context;
     use oric::{CompilerDb, SourceFile};
-    use tempfile::TempDir;
 
     use crate::commands::build::build_imported_mono_state;
     use crate::commands::compile_common::{check_source, compile_to_llvm_with_imported_monos};
@@ -49,6 +49,27 @@ pub(super) fn build_file_single(
     if options.verbose {
         eprintln!("  Target: {}", target.triple());
         eprintln!("  Optimization: {:?}", options.opt_level);
+    }
+
+    let opt_config = build_optimization_config(options);
+    let output_path = determine_output_path(path, options);
+    let mut cache_miss = None;
+    let reused = prepare_incremental_build(
+        &IncrementalBuildInput {
+            db: &db,
+            parse_result: &parse_result,
+            source_path: Path::new(path),
+            source: file.text(&db),
+            options,
+            target: &target,
+            output_path: &output_path,
+            opt_config: &opt_config,
+            start,
+        },
+        &mut cache_miss,
+    );
+    if reused {
+        return;
     }
 
     // Why: imported generic instances (stdlib or relative imports) need mono
@@ -84,9 +105,6 @@ pub(super) fn build_file_single(
         });
     }
 
-    let opt_config = build_optimization_config(options);
-    let output_path = determine_output_path(path, options);
-
     if let Some(emit_type) = options.emit {
         handle_emit_type(
             &llvm_module,
@@ -100,46 +118,131 @@ pub(super) fn build_file_single(
         return;
     }
 
-    // Why: tempfile gives a unique directory, avoiding races in parallel builds.
-    let temp_dir = match TempDir::new() {
-        Ok(dir) => dir,
-        Err(e) => {
-            report_codegen_error(CodegenProblem::EmissionFailed {
-                format: "object".into(),
-                path: String::new(),
-                message: format!("failed to create temp directory: {e}"),
-            });
-        }
-    };
-    let module_name = Path::new(path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("module");
-    let obj_path = temp_dir.path().join(format!("{module_name}.o"));
+    emit_object_and_link(ObjectLinkInput {
+        source_path: path,
+        llvm_module: &llvm_module,
+        emitter: &emitter,
+        output_path: &output_path,
+        target: &target,
+        options,
+        opt_config: &opt_config,
+        cache_miss,
+        start,
+    });
+}
 
-    if options.verbose {
-        eprintln!("  Emitting object to {}", obj_path.display());
+struct IncrementalBuildInput<'a> {
+    db: &'a oric::CompilerDb,
+    parse_result: &'a crate::parser::ParseOutput,
+    source_path: &'a Path,
+    source: &'a str,
+    options: &'a BuildOptions,
+    target: &'a ori_llvm::aot::TargetConfig,
+    output_path: &'a Path,
+    opt_config: &'a ori_llvm::aot::OptimizationConfig,
+    start: std::time::Instant,
+}
+
+fn prepare_incremental_build(
+    input: &IncrementalBuildInput<'_>,
+    cache_miss: &mut Option<CacheMiss>,
+) -> bool {
+    let probe = super::incremental_cache::probe(
+        input.db,
+        input.parse_result,
+        input.source_path,
+        input.source,
+        input.options,
+        input.target,
+    );
+    match probe {
+        CacheProbe::Hit(object) => {
+            if input.options.verbose {
+                eprintln!("  incremental cache: hit");
+            }
+            link_and_finish(
+                vec![object],
+                input.output_path,
+                input.target,
+                input.options,
+                &input.opt_config.sanitizer,
+                input.start,
+            );
+            true
+        }
+        CacheProbe::Miss(miss) => {
+            if input.options.verbose {
+                eprintln!("  incremental cache: miss");
+            }
+            *cache_miss = Some(miss);
+            false
+        }
+        CacheProbe::Bypass(bypass) => {
+            bypass.report(input.options.verbose);
+            false
+        }
+    }
+}
+
+struct ObjectLinkInput<'module, 'context> {
+    source_path: &'module str,
+    llvm_module: &'module ori_llvm::inkwell::module::Module<'context>,
+    emitter: &'module ori_llvm::aot::ObjectEmitter,
+    output_path: &'module Path,
+    target: &'module ori_llvm::aot::TargetConfig,
+    options: &'module BuildOptions,
+    opt_config: &'module ori_llvm::aot::OptimizationConfig,
+    cache_miss: Option<CacheMiss>,
+    start: std::time::Instant,
+}
+
+fn emit_object_and_link(input: ObjectLinkInput<'_, '_>) {
+    use crate::problem::codegen::{report_codegen_error, CodegenProblem};
+
+    let temp_dir = tempfile::TempDir::new().unwrap_or_else(|error| {
+        report_codegen_error(CodegenProblem::EmissionFailed {
+            format: "object".into(),
+            path: String::new(),
+            message: format!("failed to create temp directory: {error}"),
+        })
+    });
+    let module_name = Path::new(input.source_path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("module");
+    let object_path = temp_dir.path().join(format!("{module_name}.o"));
+    if input.options.verbose {
+        eprintln!("  Emitting object to {}", object_path.display());
     }
 
-    let hooks = super::ir_capture::build_hooks(path);
-    if let Err(e) = emitter.verify_optimize_emit(
-        &llvm_module,
-        &opt_config,
-        &obj_path,
+    let hooks = super::ir_capture::build_hooks(input.source_path);
+    if let Err(error) = input.emitter.verify_optimize_emit(
+        input.llvm_module,
+        input.opt_config,
+        &object_path,
         ori_llvm::aot::OutputFormat::Object,
         hooks,
     ) {
-        report_codegen_error(e);
+        report_codegen_error(error);
+    }
+    if let Some(cache_miss) = input.cache_miss {
+        if let Err(error) = cache_miss.publish(&object_path) {
+            eprintln!(
+                "warning: incremental cache: bypass ({error}; set XDG_CACHE_HOME to a \
+                 writable directory or fix its permissions); linking the newly emitted object"
+            );
+        }
     }
 
-    // INVARIANT: temp_dir stays alive until linking completes (cleaned on drop).
+    // INVARIANT: publication is best-effort; this build links its private
+    // object while temp_dir keeps that object alive through the link.
     link_and_finish(
-        vec![obj_path],
-        &output_path,
-        &target,
-        options,
-        &opt_config.sanitizer,
-        start,
+        vec![object_path],
+        input.output_path,
+        input.target,
+        input.options,
+        &input.opt_config.sanitizer,
+        input.start,
     );
 }
 

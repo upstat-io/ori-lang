@@ -240,6 +240,57 @@ fn unconditional_emitter_produces_plan() {
     assert!(!analysis.plan.classes.is_empty());
 }
 
+/// A borrowed user-call boundary whose callee consumes a COW owner needs two
+/// simultaneous credits: the caller retains its original owner across the
+/// call, while a separately funded owner transfers into the callee. The
+/// class ledger must place that funding before the invoke and release the
+/// retained owner on both normal and unwind continuations.
+#[test]
+fn borrowed_cow_consumed_invoke_funds_callee_and_releases_retained_owner() {
+    let func = func_with_blocks(
+        2,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![construct(0, vec![])],
+                invoke(1, vec![(0, ArgOwnership::Borrowed)], 1, 2),
+            ),
+            block(1, vec![], vec![], ret(1)),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    let mut callee_contract = MemoryContract::conservative(1);
+    callee_contract.params[0].access = crate::aims::lattice::AccessClass::Borrowed;
+    callee_contract.params[0].borrowed_cow_consumed = true;
+    let contracts = FxHashMap::from_iter([(Name::from_raw(7), callee_contract)]);
+    let registry = ori_types::TypeRegistry::default();
+    let analysis =
+        analyze_from_state_map(&func, &state_map, &contracts, &registry, &test_interner());
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let class = class_rep(&mut partition, 0);
+    let ops = ops_for(&analysis, class);
+
+    assert_eq!(
+        ops.iter()
+            .filter(|op| op.kind == PlannedOpKind::Inc)
+            .collect::<Vec<_>>(),
+        vec![&inc(PlanSlot::BeforeTerminator { block: 0 }, 0)],
+        "the borrowed boundary must fund exactly one callee owner: {ops:?}"
+    );
+    assert!(
+        ops.contains(&dec(PlanSlot::BlockFront { block: 1 }, 0)),
+        "the retained caller owner must release on the normal edge: {ops:?}"
+    );
+    assert!(
+        ops.contains(&dec(PlanSlot::BlockFront { block: 2 }, 0)),
+        "the retained caller owner must release on the unwind edge: {ops:?}"
+    );
+    assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
+}
+
 // Straight-line shapes
 
 /// A fresh Construct returned is a move: birth consumed by the transfer —
@@ -3249,6 +3300,121 @@ fn extract_then_return_from_call_result_container_funds_at_extraction() {
     );
 }
 
+/// A registered constructless call-result container already owns each named
+/// field. Moving one field out transfers that credit through the extraction;
+/// it must not manufacture the funding increment used by an unregistered
+/// container whose field ownership is unknown.
+#[test]
+fn registered_call_result_field_move_transfers_container_credit() {
+    use crate::lower::test_utils::registered_struct_with_two_owned_str_fields;
+
+    let struct_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_two_owned_str_fields(&mut registry, "Pair", struct_idx);
+
+    let mut func = func_with_blocks(
+        2,
+        vec![
+            block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![ArcInstr::Project {
+                    dst: v(1),
+                    ty: Idx::STR,
+                    value: v(0),
+                    field: 0,
+                }],
+                ret(1),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.var_types[0] = struct_idx;
+    func.var_types[1] = Idx::STR;
+    let state_map = AimsStateMap::new(&func);
+    let (analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "registered constructless field move must cure via decomposition"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+
+    let container = class_rep(&mut partition, 0);
+    assert!(
+        ops_for(&analysis, container).iter().any(|op| matches!(
+            &op.kind,
+            PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![0]
+        )),
+        "the container release skips the transferred field"
+    );
+
+    let view = class_rep(&mut partition, 1);
+    assert!(
+        ops_for(&analysis, view).is_empty(),
+        "the extraction transfers the container-held credit without an increment"
+    );
+}
+
+/// The constructless container contributes one field credit per path, not one
+/// per projection. Two sequential moves therefore retain exactly one real
+/// increment for the second transferred reference.
+#[test]
+fn registered_call_result_two_field_moves_keep_one_duplication_increment() {
+    use crate::lower::test_utils::registered_struct_with_two_owned_str_fields;
+
+    let struct_idx = ty(64);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_two_owned_str_fields(&mut registry, "Pair", struct_idx);
+
+    let mut func = func_with_blocks(
+        4,
+        vec![
+            block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                    ArcInstr::Project {
+                        dst: v(2),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 0,
+                    },
+                    apply(3, vec![(1, ArgOwnership::Owned), (2, ArgOwnership::Owned)]),
+                ],
+                ret(3),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.var_types[0] = struct_idx;
+    func.var_types[1] = Idx::STR;
+    func.var_types[2] = Idx::STR;
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(3));
+    let (analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
+
+    assert!(!analysis.field_view_hazard);
+    assert!(analysis.readiness.all_classes_clean);
+    let view = class_rep(&mut partition, 1);
+    assert_eq!(
+        ops_for(&analysis, view)
+            .iter()
+            .filter(|op| op.kind == PlannedOpKind::Inc)
+            .count(),
+        1,
+        "one inherited field credit funds the first move; the duplicate still increments"
+    );
+}
+
 /// Same shape as `extract_then_move_out_decomposes_container_release`, but
 /// Run `attempt_replacement` with a container whose registered owned-field
 /// surface includes field zero. The computed `DecPartial(skip=[0])` clears
@@ -4174,6 +4340,81 @@ fn release_never_names_borrowed_param_var() {
         }
     }
     assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
+}
+
+/// A borrowed parameter whose contract carries an incoming whole-value credit
+/// may need cleanup on an unwind edge before the body creates its first alias.
+/// Replacement must materialize an entry alias for that owned credit: the
+/// release cannot name the borrowed ABI parameter directly, and a later alias
+/// does not dominate the early unwind block.
+#[test]
+fn replacement_materializes_entry_alias_for_credited_borrowed_param_unwind_cleanup() {
+    let mut func = func_with_blocks(
+        4,
+        vec![
+            block(0, vec![], vec![], invoke(1, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: ty(0),
+                        value: ArcValue::Var(v(0)),
+                    },
+                    is_shared(3, 2),
+                ],
+                ret(3),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Borrowed,
+    }];
+    let mut own_contract = MemoryContract::conservative(1);
+    own_contract.params[0].access = crate::aims::lattice::AccessClass::Borrowed;
+    own_contract.params[0].iter_consumes = true;
+    let contracts = FxHashMap::from_iter([(func.name, own_contract)]);
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    state_map.set_permanent_scalar(v(3));
+
+    let outcome = attempt_replacement(
+        &mut func,
+        &state_map,
+        &contracts,
+        &ori_types::TypeRegistry::default(),
+        &test_interner(),
+        true,
+    );
+
+    assert_eq!(outcome.mode, EmissionMode::Replaced);
+    let ArcInstr::Let {
+        dst: entry_alias,
+        value: ArcValue::Var(source),
+        ..
+    } = func.blocks[0]
+        .body
+        .first()
+        .unwrap_or_else(|| panic!("credited borrowed param gets an entry alias"))
+    else {
+        panic!("entry instruction is not the credited-param alias")
+    };
+    assert_eq!(*source, v(0));
+    assert_ne!(*entry_alias, v(0));
+    assert!(func.blocks[2]
+        .body
+        .iter()
+        .any(|instr| { matches!(instr, ArcInstr::BurdenDec { var } if var == entry_alias) }));
+    assert!(func.blocks.iter().all(|block| {
+        block
+            .body
+            .iter()
+            .all(|instr| !matches!(instr, ArcInstr::BurdenDec { var } if *var == v(0)))
+    }));
 }
 
 /// A loop-carried rebuild: the container is re-Constructed each iteration

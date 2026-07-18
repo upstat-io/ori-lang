@@ -105,6 +105,16 @@ impl<'a> TypeErrorRenderer<'a> {
                 )
             }
             TypeErrorKind::UnknownIdent { .. } => "not found in this scope".to_string(),
+            TypeErrorKind::UndeclaredFixedListCapacityConst { name } => format!(
+                "`${}` is not declared as a capacity const",
+                self.format_name(*name)
+            ),
+            TypeErrorKind::NonPositiveFixedListCapacity { value } => {
+                format!("capacity {value} is not positive")
+            }
+            TypeErrorKind::InvalidFixedListCapacityExpression { .. } => {
+                "capacity is not an evaluable integer expression".to_string()
+            }
             TypeErrorKind::UnresolvedTrait { trait_name } => {
                 format!("trait `{}` not registered", self.format_name(*trait_name))
             }

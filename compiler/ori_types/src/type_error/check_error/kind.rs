@@ -10,8 +10,8 @@ use crate::type_error::TypeProblem;
 use crate::{Idx, ObjectSafetyViolation};
 
 pub use super::aux_kinds::{
-    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, NonCollectingLoopKind,
-    OrBindingMismatchReason, VoidLoopKind,
+    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, InvalidFixedListCapacityReason,
+    NonCollectingLoopKind, OrBindingMismatchReason, VoidLoopKind,
 };
 
 /// What kind of type error occurred.
@@ -390,6 +390,24 @@ pub enum TypeErrorKind {
     UseAfterDropEarly {
         /// The consumed binding name (e.g., `x` in `drop_early(value: x)`).
         binding: Name,
+    },
+
+    /// A fixed-list capacity references a const that is not declared (E2056).
+    UndeclaredFixedListCapacityConst {
+        /// The unresolved capacity name.
+        name: Name,
+    },
+
+    /// A concrete fixed-list capacity is zero or negative (E2057).
+    NonPositiveFixedListCapacity {
+        /// The rejected capacity value.
+        value: i64,
+    },
+
+    /// A fixed-list capacity is not an evaluable integer expression (E2059).
+    InvalidFixedListCapacityExpression {
+        /// The reason compile-time integer evaluation failed.
+        reason: InvalidFixedListCapacityReason,
     },
 
     /// Pre-condition contract type must be bool (E2044).

@@ -18,6 +18,7 @@
 use inkwell::intrinsics::Intrinsic;
 use inkwell::types::IntType;
 use inkwell::values::{BasicValueEnum, FunctionValue, IntValue};
+use inkwell::IntPredicate;
 
 use super::IrBuilder;
 use crate::codegen::value_id::ValueId;
@@ -62,34 +63,46 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
     /// flag, and branches to a panic block on overflow. LLVM constant-folds
     /// the branch away when both operands are compile-time constants.
     pub fn checked_add(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.emit_checked_binop(
-            "llvm.sadd.with.overflow",
-            lhs,
-            rhs,
-            name,
-            "integer overflow on addition",
-        )
+        self.checked_add_msg(lhs, rhs, name, "integer overflow in addition")
+    }
+
+    /// Build checked integer addition with a caller-supplied overflow panic
+    /// message.
+    pub fn checked_add_msg(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        name: &str,
+        panic_msg: &'static str,
+    ) -> ValueId {
+        self.emit_checked_binop("llvm.sadd.with.overflow", lhs, rhs, name, panic_msg)
     }
 
     /// Build checked integer subtraction: panics on overflow.
     pub fn checked_sub(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.emit_checked_binop(
-            "llvm.ssub.with.overflow",
-            lhs,
-            rhs,
-            name,
-            "integer overflow on subtraction",
-        )
+        self.checked_sub_msg(lhs, rhs, name, "integer overflow in subtraction")
+    }
+
+    /// Build checked integer subtraction with a caller-supplied overflow panic
+    /// message.
+    pub fn checked_sub_msg(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        name: &str,
+        panic_msg: &'static str,
+    ) -> ValueId {
+        self.emit_checked_binop("llvm.ssub.with.overflow", lhs, rhs, name, panic_msg)
     }
 
     /// Build checked integer multiplication: panics on overflow.
     pub fn checked_mul(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.checked_mul_msg(lhs, rhs, name, "integer overflow on multiplication")
+        self.checked_mul_msg(lhs, rhs, name, "integer overflow in multiplication")
     }
 
     /// Build checked integer multiplication with a caller-supplied overflow
     /// panic message. `checked_mul` is the canonical
-    /// `"integer overflow on multiplication"` form; unit factories supply the
+    /// `"integer overflow in multiplication"` form; unit factories supply the
     /// interpreter's `"integer overflow in <duration|size> factory conversion"`
     /// for dual-execution parity.
     pub fn checked_mul_msg(
@@ -97,7 +110,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         lhs: ValueId,
         rhs: ValueId,
         name: &str,
-        panic_msg: &str,
+        panic_msg: &'static str,
     ) -> ValueId {
         self.emit_checked_binop("llvm.smul.with.overflow", lhs, rhs, name, panic_msg)
     }
@@ -108,14 +121,76 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
     /// `x`'s own width (int/Duration/Size are i64; byte is i8). The only
     /// overflowing case is `-MIN` (result doesn't fit in that width).
     pub fn checked_neg(&mut self, val: ValueId, name: &str) -> ValueId {
+        self.checked_neg_msg(val, name, "integer overflow in negation")
+    }
+
+    /// Build checked integer negation with a caller-supplied overflow panic
+    /// message.
+    pub fn checked_neg_msg(
+        &mut self,
+        val: ValueId,
+        name: &str,
+        panic_msg: &'static str,
+    ) -> ValueId {
         let zero = self.const_int_matching(val, 0);
-        self.emit_checked_binop(
-            "llvm.ssub.with.overflow",
-            zero,
-            val,
-            name,
-            "integer overflow on negation",
-        )
+        self.emit_checked_binop("llvm.ssub.with.overflow", zero, val, name, panic_msg)
+    }
+
+    /// Panic when `lhs < rhs` under signed comparison, then continue in a
+    /// fresh block. Used to enforce Size's non-negative subtraction invariant
+    /// before emitting the arithmetic instruction.
+    pub fn panic_if_signed_less_than(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        name: &str,
+        panic_msg: &'static str,
+    ) {
+        self.emit_panic_if_int_compare(lhs, rhs, IntPredicate::SLT, name, panic_msg);
+    }
+
+    /// Panic when `value < 0`, then continue in a fresh block. Used for Size
+    /// multiplication and division by an integer scalar.
+    pub fn panic_if_negative(&mut self, value: ValueId, name: &str, panic_msg: &'static str) {
+        let zero = self.const_int_matching(value, 0);
+        self.emit_panic_if_int_compare(value, zero, IntPredicate::SLT, name, panic_msg);
+    }
+
+    fn emit_panic_if_int_compare(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        predicate: IntPredicate,
+        name: &str,
+        panic_msg: &'static str,
+    ) {
+        let Some((lhs_int, rhs_int, _)) =
+            self.validate_checked_int_operands(lhs, rhs, name, "checked guard")
+        else {
+            return;
+        };
+
+        let should_panic = self
+            .builder
+            .build_int_compare(predicate, lhs_int, rhs_int, &format!("{name}.invalid"))
+            .expect("checked guard comparison");
+        let func_id = self.current_function.expect("no current function");
+        let func_llvm = self.arena.get_function(func_id);
+        let panic_bb = self
+            .scx
+            .llcx
+            .append_basic_block(func_llvm, &format!("{name}.panic"));
+        let continue_bb = self
+            .scx
+            .llcx
+            .append_basic_block(func_llvm, &format!("{name}.ok"));
+        self.builder
+            .build_conditional_branch(should_panic, panic_bb, continue_bb)
+            .expect("checked guard branch");
+
+        self.emit_panic_block(panic_bb, panic_msg, &format!("{name}.msg"));
+        self.builder.position_at_end(continue_bb);
+        self.current_block = Some(self.arena.push_block(continue_bb));
     }
 
     /// Validate both operands are ints of matching width, returning the
@@ -232,11 +307,16 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         lhs: ValueId,
         rhs: ValueId,
         name: &str,
-        panic_msg: &str,
+        panic_msg: &'static str,
     ) -> ValueId {
         // CSE cache lookup: normalize operands so identical constants
         // match regardless of which ValueId they were assigned.
-        let cache_key = (intrinsic_name, self.cse_operand(lhs), self.cse_operand(rhs));
+        let cache_key = (
+            intrinsic_name,
+            panic_msg,
+            self.cse_operand(lhs),
+            self.cse_operand(rhs),
+        );
         if let Some(&cached) = self.cse_cache.get(&cache_key) {
             return cached;
         }

@@ -227,6 +227,9 @@ pub(super) fn execution_error_kind(error: &ori_vm::ExecutionError) -> ExecutionE
         }
         ori_vm::ExecutionError::Panic { .. } => ExecutionErrorKind::Panic,
         ori_vm::ExecutionError::ResumeWithoutPanic => ExecutionErrorKind::ResumeWithoutPanic,
+        ori_vm::ExecutionError::CatchRecoverWithoutPanic => {
+            ExecutionErrorKind::CatchRecoverWithoutPanic
+        }
         ori_vm::ExecutionError::ReachedUnreachable => ExecutionErrorKind::ReachedUnreachable,
         ori_vm::ExecutionError::UnsupportedConstructor { .. } => {
             ExecutionErrorKind::UnsupportedConstructor

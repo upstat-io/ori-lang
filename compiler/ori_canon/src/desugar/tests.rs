@@ -55,6 +55,7 @@ fn desugar_call_named_source_order_fallback() {
 
     let pool = ori_types::Pool::new();
     let result = lower(&arena, &type_result, &pool, root, &interner);
+    assert!(result.mono_dispatch_map_can.is_empty());
     match result.arena.kind(result.root) {
         CanExpr::Call { args, .. } => {
             let arg_list = result.arena.get_expr_list(*args);
@@ -65,6 +66,52 @@ fn desugar_call_named_source_order_fallback() {
         }
         other => panic!("expected Call, got {other:?}"),
     }
+}
+
+#[test]
+fn desugar_call_named_preserves_mono_dispatch_identity() {
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+    let func_name = interner.intern("generic_pair");
+    let actual_name = interner.intern("actual");
+    let expected_name = interner.intern("expected");
+    let func = arena.alloc_expr(Expr::new(ExprKind::Ident(func_name), Span::new(0, 12)));
+    let actual = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(21, 22)));
+    let expected = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::new(34, 35)));
+    let args = arena.alloc_call_args([
+        CallArg {
+            name: Some(actual_name),
+            value: actual,
+            is_spread: false,
+            span: Span::new(13, 22),
+        },
+        CallArg {
+            name: Some(expected_name),
+            value: expected,
+            is_spread: false,
+            span: Span::new(24, 35),
+        },
+    ]);
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::CallNamed { func, args },
+        Span::new(0, 36),
+    ));
+    let dispatch = ori_ir::canon::MonoInstanceId::new(7);
+    let mut typed = TypedModule::new();
+    for ty in [Idx::INT, Idx::INT, Idx::INT, Idx::UNIT] {
+        typed.expr_types.push(ty);
+    }
+    typed.mono_dispatch_map.insert(root, dispatch);
+    let type_result = TypeCheckResult::ok(typed);
+
+    let pool = ori_types::Pool::new();
+    let result = lower(&arena, &type_result, &pool, root, &interner);
+
+    assert_eq!(
+        result.mono_dispatch_map_can,
+        vec![(result.root, dispatch)],
+        "named calls must retain type checker's exact mono dispatch identity"
+    );
 }
 
 #[test]

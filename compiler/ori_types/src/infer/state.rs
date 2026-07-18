@@ -1,7 +1,7 @@
 //! Per-body state storage helpers on [`InferEngine`].
 //!
 //! Expression-type storage, pattern-resolution records, monomorphization
-//! instance tracking, and `current_function` metadata. All these helpers
+//! instance tracking, and deferred-caller metadata. All these helpers
 //! either push into an internal `Vec` / `FxHashMap` or extract (via
 //! `std::mem::take`) for the body-pass caller.
 
@@ -84,6 +84,16 @@ impl InferEngine<'_> {
     /// Take mono instances, leaving an empty vector.
     pub fn take_mono_instances(&mut self) -> Vec<crate::MonoInstance> {
         std::mem::take(&mut self.mono_instances)
+    }
+
+    /// Record the exact ordered provider selection for one free call.
+    pub fn record_capability_call(&mut self, key: ExprId, call: crate::CapabilityCallSite) {
+        self.capability_call_sites.push((key, call));
+    }
+
+    /// Take capability call-site selections, leaving an empty vector.
+    pub fn take_capability_calls(&mut self) -> Vec<(ExprId, crate::CapabilityCallSite)> {
+        std::mem::take(&mut self.capability_call_sites)
     }
 
     // Assignment-Target Desugar Recording
@@ -179,13 +189,20 @@ impl InferEngine<'_> {
         std::mem::take(&mut self.composed_burdens)
     }
 
-    /// Set the current function being type-checked.
-    pub fn set_current_function(&mut self, name: Option<Name>) {
-        self.current_function = name;
+    /// Set the exact body that owns deferred generic calls and its type-binder
+    /// roots in declaration order.
+    pub fn set_deferred_mono_caller(
+        &mut self,
+        caller: crate::DeferredMonoCaller,
+        binder_roots: Vec<Idx>,
+    ) {
+        self.deferred_mono_caller = Some((caller, binder_roots));
     }
 
-    /// Get the current function being type-checked.
-    pub fn current_function(&self) -> Option<Name> {
-        self.current_function
+    /// Get the current deferred-call owner and its ordered type-binder roots.
+    pub fn deferred_mono_caller(&self) -> Option<(crate::DeferredMonoCaller, &[Idx])> {
+        self.deferred_mono_caller
+            .as_ref()
+            .map(|(caller, roots)| (*caller, roots.as_slice()))
     }
 }

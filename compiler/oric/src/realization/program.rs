@@ -15,11 +15,14 @@ use ori_types::{FunctionSig, Idx, Pool, TypeCheckResult, TypeRegistry};
 use rustc_hash::FxHashMap;
 
 use super::{
-    compute_module_repr_plan, extend_mono_method_targets, lower_impl_methods_for_analysis,
+    close_generic_mono_targets, compute_module_repr_plan, extend_mono_method_targets,
+    generic_type_param_map, lower_impl_methods_for_analysis,
     lower_non_generic_derived_methods_for_analysis, ArcFunctionGroup, CallableCensusBuilder,
-    CallableCensusError, ImplMethodAnalysis, LoweredArcBatch, ModuleReprInput,
+    CallableCensusError, GenericMonoClosureInput, ImplMethodAnalysis, LoweredArcBatch,
+    ModuleReprInput,
 };
-use error_mapping::{arc_lowering_error, map_arc_batch_error};
+use crate::realization::arc_batch::MethodTargetMap;
+use error_mapping::{arc_lowering_error, map_arc_batch_error, map_generic_mono_closure_error};
 pub(crate) use impl_targets::rewrite_impl_targets;
 
 /// Explicit inputs to backend-neutral local-module realization.
@@ -101,6 +104,12 @@ pub enum ProgramRealizationError {
         /// Structured resolution failures.
         errors: Vec<ori_arc::OperatorCallResolutionError>,
     },
+    /// The pre-AIMS generic callable census could not reach a closed inventory.
+    #[error("generic target census failed: {message}")]
+    GenericMonoClosure {
+        /// Exact closure failure retained without erasing its actionable context.
+        message: String,
+    },
     /// Two lowering sources claimed the same parent callable identity.
     #[error(
         "ARC batch contains duplicate parent callable `{parent}` because multiple lowering sources claimed one executable body. Run with `ORI_LOG=oric::realization::arc_batch=debug` and report this compiler error"
@@ -165,9 +174,21 @@ pub enum ProgramRealizationError {
 }
 
 /// Realize one checked module into the closed artifact executable backends consume.
-pub fn realize_local_program(
-    mut input: ProgramRealizationInput<'_>,
-) -> Result<ExecutableProgram, ProgramRealizationError> {
+/// One-shot lowered assembly of every module-local callable group before the
+/// generic-mono fixed point closes over it.
+struct LoweredCallableAssembly {
+    groups: Vec<ArcFunctionGroup>,
+    mono_functions: Vec<ori_repr::monomorphize::MonoFunction>,
+    impl_targets: MethodTargetMap,
+    typed_user_drop_bindings: Vec<UserDropBinding>,
+    function_sigs: Vec<FunctionSig>,
+}
+
+/// Lower impl methods, derived methods, and top-level functions into one
+/// combined callable-group set, merging their method-target dispositions.
+fn lower_all_callable_groups(
+    input: &ProgramRealizationInput<'_>,
+) -> Result<LoweredCallableAssembly, ProgramRealizationError> {
     let interner = &*input.symbols;
     let function_sigs = crate::typeck::build_function_sigs(input.parse, input.types);
     let mono_functions = ori_repr::monomorphize::collect_mono_functions(
@@ -216,14 +237,53 @@ pub fn realize_local_program(
     }
     extend_mono_method_targets(&mut impl_targets, &mono_functions, interner, &input.pool)
         .map_err(arc_lowering_error)?;
-    let mut batch =
-        LoweredArcBatch::try_from_groups(groups, interner).map_err(map_arc_batch_error)?;
-    for group in impl_groups {
-        batch.insert(group, interner).map_err(map_arc_batch_error)?;
-    }
-    for group in derived.groups {
-        batch.insert(group, interner).map_err(map_arc_batch_error)?;
-    }
+    let mut groups = groups;
+    groups.extend(impl_groups);
+    groups.extend(derived.groups);
+    CallableCensusBuilder::new(interner).close_builtin_targets(&mut groups, &input.pool)?;
+    Ok(LoweredCallableAssembly {
+        groups,
+        mono_functions,
+        impl_targets,
+        typed_user_drop_bindings,
+        function_sigs,
+    })
+}
+
+pub fn realize_local_program(
+    mut input: ProgramRealizationInput<'_>,
+) -> Result<ExecutableProgram, ProgramRealizationError> {
+    let interner = &*input.symbols;
+    let LoweredCallableAssembly {
+        groups,
+        mono_functions,
+        mut impl_targets,
+        typed_user_drop_bindings,
+        function_sigs,
+    } = lower_all_callable_groups(&input)?;
+    let local_generic_type_params = generic_type_param_map(&input.types.typed.types);
+    let closed = close_generic_mono_targets(GenericMonoClosureInput {
+        groups,
+        mono_functions,
+        mono_instances: &input.types.typed.mono_instances,
+        function_sigs: &function_sigs,
+        local_generic_type_params: &local_generic_type_params,
+        impl_sigs: &input.types.typed.impl_sigs,
+        accepted_derives: &input.types.typed.accepted_derives,
+        derived_call_plans: &input.types.typed.derived_call_plans,
+        import_sigs: &[],
+        imported_generic_templates: &[],
+        re_interned_canons: &[],
+        canon: input.canon,
+        interner,
+        pool: &mut input.pool,
+    })
+    .map_err(map_generic_mono_closure_error)?;
+    let groups = closed.groups;
+    let mono_functions = closed.mono_functions;
+    extend_mono_method_targets(&mut impl_targets, &mono_functions, interner, &input.pool)
+        .map_err(arc_lowering_error)?;
+    let batch = LoweredArcBatch::try_from_groups(groups, interner).map_err(map_arc_batch_error)?;
     let prepared = batch
         .prepare(&mono_functions, &impl_targets, &mut input.pool, interner)
         .map_err(map_arc_batch_error)?;
@@ -275,7 +335,7 @@ pub(crate) fn realize_arc_program(
         type_registry,
         verify_arc,
     } = input;
-    let (mut functions, function_families) = prepared.into_executable_parts();
+    let (mut functions, function_families, method_targets) = prepared.into_executable_parts();
 
     // External ownership/effect policy is producer-owned. Reject any stale,
     // incomplete, or signature-mismatched transport record before its
@@ -319,6 +379,7 @@ pub(crate) fn realize_arc_program(
         roots,
         cli_entry,
         externals,
+        method_targets,
         user_drop_bindings,
         repr_plan,
         type_registry,
@@ -398,7 +459,7 @@ fn lower_top_level_functions(
     for seed in source_seeds {
         let function = seed.function;
         let signature = seed.signature;
-        if signature.is_generic() {
+        if signature.requires_specialization() {
             continue;
         }
         let mut context = crate::arc_lowering::ArcLoweringContext {
@@ -416,14 +477,17 @@ fn lower_top_level_functions(
         );
         groups.push(lowered.into());
     }
+    let mut mono_context = crate::arc_lowering::ArcLoweringContext {
+        canon,
+        interner,
+        pool,
+        problems: &mut problems,
+    };
     groups.extend(super::lower_mono_functions_for_analysis(
         monos.functions,
         monos.accepted_derives,
         monos.derived_call_plans,
-        canon,
-        interner,
-        pool,
-        &mut problems,
+        &mut mono_context,
     ));
     if problems.is_empty() {
         Ok(groups)

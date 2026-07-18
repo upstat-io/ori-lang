@@ -116,6 +116,7 @@ pub fn re_intern_type_with_var_remap(
         let hash = source.hash(idx);
         if let Some(local_idx) = target.lookup_by_hash(hash) {
             cache.insert(idx, local_idx);
+            carry_nominal_resolution(source, idx, tag, target, local_idx, cache, var_remap);
             return local_idx;
         }
     }
@@ -177,6 +178,20 @@ pub fn re_intern_sig_with_var_remap(
     }
     result.return_type =
         re_intern_type_with_var_remap(source, result.return_type, target, cache, var_remap);
+    for capability in &mut result.capability_params {
+        let crate::CapabilityParam::Value {
+            provider_type,
+            provider_var_id,
+            ..
+        } = capability
+        else {
+            continue;
+        };
+        *provider_type =
+            re_intern_type_with_var_remap(source, *provider_type, target, cache, var_remap);
+        *provider_var_id =
+            get_or_allocate_var_id(*provider_var_id, source, target, cache, var_remap);
+    }
 
     // Rewrite scheme_var_ids through var_remap. Every binder in scheme_var_ids
     // MUST resolve to a destination-local id. If the binder wasn't encountered
@@ -296,16 +311,14 @@ fn re_intern_by_tag(
         Tag::Named => {
             let name = source.named_name(idx);
             let new_named = target.named(name);
+            // Publish the wrapper before rebuilding its concrete body. A
+            // recursive body can refer back to this same Named identity.
+            cache.insert(idx, new_named);
+            carry_nominal_resolution(source, idx, Tag::Named, target, new_named, cache, var_remap);
             // Carry the FFI C-ABI kind side table (keyed by the Named Idx) — re-
-            // interning the Named structure alone drops it; its paired resolution
-            // to a pre-interned primitive carries free (primitive Idx is pool-stable).
+            // interning the Named structure alone drops it.
             if let Some(kind) = source.cabi_kind(idx) {
                 target.set_cabi_kind(new_named, kind);
-                if let Some(resolved) = source.resolve(idx) {
-                    if resolved.is_primitive() {
-                        target.set_resolution(new_named, resolved);
-                    }
-                }
             }
             new_named
         }
@@ -394,17 +407,49 @@ fn re_intern_applied(
         .map(|a| re_intern_type_with_var_remap(source, a, target, cache, var_remap))
         .collect();
     let target_applied = target.applied(name, &args);
+    // Publish the wrapper before rebuilding its concrete body so recursive
+    // generic composites terminate through the session cache.
+    cache.insert(idx, target_applied);
     // A materialized generic-composite `Applied` carries its concrete
     // `Struct`/`Enum` body in the source pool's `resolutions` map. Re-interning the
     // `Applied` alone drops that resolution, so the AOT codegen pool (which migrates
     // into a fresh pool, unlike the JIT path) loses the concrete layout and emits a
     // generic-placeholder struct + malformed `ori_rc_dec`. Carry the resolution.
-    if let Some(concrete) = source.resolve(idx) {
-        let target_concrete =
-            re_intern_type_with_var_remap(source, concrete, target, cache, var_remap);
-        target.set_resolution(target_applied, target_concrete);
-    }
+    carry_nominal_resolution(
+        source,
+        idx,
+        Tag::Applied,
+        target,
+        target_applied,
+        cache,
+        var_remap,
+    );
     target_applied
+}
+
+/// Rebuild the concrete body paired with a Named/Applied wrapper.
+///
+/// Pool resolutions are part of a nominal type's usable identity: ARC and
+/// representation consumers resolve wrappers to their concrete fields and
+/// variants. The source wrapper must already be present in `cache` before this
+/// helper runs so recursive definitions terminate at the target wrapper.
+fn carry_nominal_resolution(
+    source: &Pool,
+    source_idx: Idx,
+    source_tag: Tag,
+    target: &mut Pool,
+    target_idx: Idx,
+    cache: &mut FxHashMap<Idx, Idx>,
+    var_remap: &mut FxHashMap<u32, u32>,
+) {
+    if !matches!(source_tag, Tag::Named | Tag::Applied) {
+        return;
+    }
+    let Some(concrete) = source.resolve(source_idx) else {
+        return;
+    };
+    let target_concrete = re_intern_type_with_var_remap(source, concrete, target, cache, var_remap);
+    target.set_resolution(target_idx, target_concrete);
 }
 
 /// Re-intern a struct type (name + typed fields).

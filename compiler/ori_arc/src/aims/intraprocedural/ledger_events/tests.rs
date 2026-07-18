@@ -149,15 +149,20 @@ fn boundary_facts_project_the_contract() {
     let mut contract = MemoryContract::conservative(2);
     contract.params[0].iter_consumes = true;
     contract.params[1].transfers_through_return = true;
+    contract.params[1].borrowed_cow_consumed = true;
     contract.return_info.returns_sharing_view = true;
     contract.return_info.preserves_freshness = false;
 
     let facts = BoundaryFacts::from_contract(&contract);
     assert_eq!(facts.param_iter_consumes, vec![true, false]);
+    assert_eq!(facts.param_borrowed_cow_consumed, vec![false, true]);
     assert_eq!(facts.param_transfers_through_return, vec![false, true]);
     assert!(facts.returns_sharing_view);
     assert!(!facts.returns_owned_fresh);
     assert!(facts.iter_consume_transfer(0));
+    assert!(facts.borrowed_cow_consume_funding(1));
+    assert!(facts.incoming_whole_value_credit(0));
+    assert!(facts.incoming_whole_value_credit(1));
     assert!(!facts.iter_consume_transfer(1));
     assert!(!facts.iter_consume_transfer(9));
 }
@@ -640,6 +645,46 @@ fn iter_consume_fact_overrides_borrowed_to_consume() {
     );
 }
 
+/// A borrowed-COW-consuming user boundary retains the caller's original
+/// owner and transfers a separately funded owner to the callee. The ordered
+/// CONSUME+READ pair is the class-ledger shape that plans the funding inc and
+/// the caller's post-call release.
+#[test]
+fn borrowed_cow_consumed_boundary_books_transfer_and_retained_owner() {
+    let callee = Name::from_raw(10);
+    let func = one_block_func(
+        2,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::Apply {
+                dst: v(1),
+                ty: ty(1),
+                func: callee,
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            },
+        ],
+        ArcTerminator::Return { value: v(1) },
+    );
+    let mut facts = no_facts();
+    facts.insert(
+        callee,
+        BoundaryFacts {
+            param_borrowed_cow_consumed: vec![true],
+            ..BoundaryFacts::default()
+        },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &facts);
+
+    let arg = rep(&mut partition, 0);
+    assert_eq!(
+        derive_ledger(arg, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Consume, LedgerEvent::Read,]
+    );
+}
+
 /// An RL-34 passthrough (Direct alias contract) credits the result class:
 /// consume at the call, credit at the return — net 0 on ONE class.
 #[test]
@@ -706,6 +751,7 @@ fn sharing_view_producer_credits_the_result() {
         callee,
         BoundaryFacts {
             param_iter_consumes: vec![false],
+            param_borrowed_cow_consumed: vec![false],
             param_transfers_through_return: vec![false],
             param_cardinality_absent: vec![false],
             returns_sharing_view: true,
@@ -1573,6 +1619,94 @@ fn borrowed_iter_consuming_param_births_foreign() {
     );
 }
 
+/// Borrowed-COW consumption also arrives with a caller-funded whole-value
+/// owner. The callee must classify it FOREIGN so its internal owned handoff
+/// transfers that credit instead of minting a second one.
+#[test]
+fn borrowed_cow_consuming_param_births_foreign() {
+    let mut func = one_block_func(1, vec![], ArcTerminator::Return { value: v(0) });
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Borrowed,
+    }];
+    let mut facts = no_facts();
+    facts.insert(
+        func.name,
+        BoundaryFacts {
+            param_borrowed_cow_consumed: vec![true],
+            ..BoundaryFacts::default()
+        },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &facts);
+
+    let param = rep(&mut partition, 0);
+    assert_eq!(
+        classification.class_origins.get(&param),
+        Some(&ClassOrigin::Foreign),
+        "a borrowed-COW-consuming param owns its caller-funded reference"
+    );
+}
+
+/// A borrowed-COW-consuming param's alias is not a borrowed-root iterator
+/// receiver: its caller-funded owner transfers into the iterator.
+#[test]
+fn funded_borrowed_rooted_iter_arg_classifies_consume() {
+    let interner = test_interner();
+    let iter_name = interner.intern("iter");
+    let mut func = func_with_blocks(
+        3,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![ArcInstr::Let {
+                    dst: v(1),
+                    ty: ty(0),
+                    value: ArcValue::Var(v(0)),
+                }],
+                ArcTerminator::Invoke {
+                    dst: v(2),
+                    ty: ty(1),
+                    func: iter_name,
+                    args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            ),
+            block(1, vec![], vec![], ArcTerminator::Return { value: v(2) }),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.params = vec![ArcParam {
+        var: v(0),
+        ty: ty(0),
+        ownership: Ownership::Borrowed,
+    }];
+    let mut facts = no_facts();
+    facts.insert(
+        func.name,
+        BoundaryFacts {
+            param_borrowed_cow_consumed: vec![true],
+            ..BoundaryFacts::default()
+        },
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let classification = classify_function(&func, &state_map, &mut partition, &facts, &interner);
+
+    let param_class = rep(&mut partition, 0);
+    assert_eq!(
+        derive_ledger(param_class, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Consume],
+        "the funded borrowed root transfers its incoming credit into @iter"
+    );
+}
+
 /// The same borrowed param WITHOUT the iter-consume contract fact stays
 /// BORROWED-origin (the caller retains ownership; reads are free).
 #[test]
@@ -1764,6 +1898,7 @@ fn absent_owned_param_books_no_events() {
         func.name,
         BoundaryFacts {
             param_iter_consumes: vec![false],
+            param_borrowed_cow_consumed: vec![false],
             param_transfers_through_return: vec![false],
             param_cardinality_absent: vec![true],
             returns_sharing_view: false,
@@ -1794,6 +1929,7 @@ fn absent_owned_param_books_no_events() {
         func.name,
         BoundaryFacts {
             param_iter_consumes: vec![false],
+            param_borrowed_cow_consumed: vec![false],
             param_transfers_through_return: vec![false],
             param_cardinality_absent: vec![false],
             returns_sharing_view: false,

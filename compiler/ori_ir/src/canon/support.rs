@@ -1,10 +1,10 @@
 //! Supporting value and diagnostic types for canonical IR.
 //!
 //! [`CanMapEntry`] / [`CanField`] are the entry/field element types referenced by
-//! `CanExpr` collection variants. [`ConstValue`] is the compile-time-folded value
-//! stored in a constant pool. [`PatternProblem`] is the exhaustiveness/usefulness
-//! diagnostic produced after decision-tree compilation. None is the `CanExpr` enum
-//! itself; they are co-located by reference from canonicalization output.
+//! `CanExpr` collection variants. [`ConstValue`] and [`NamedConstValue`] carry
+//! compile-time values, while [`ConstEvalProblem`] and [`PatternProblem`] report
+//! canonicalization failures. None is the `CanExpr` enum itself; they are
+//! co-located by reference from canonicalization output.
 
 use std::hash::{Hash, Hasher};
 
@@ -65,6 +65,45 @@ impl Hash for ConstValue {
             }
         }
     }
+}
+
+/// One evaluated module-level constant, keyed by its source-level `$name`.
+///
+/// Imported modules expose these values to consumers. The carrier contains a
+/// value rather than an initializer expression so downstream canonicalization
+/// never executes provider-owned computation in the consumer.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct NamedConstValue {
+    pub name: Name,
+    pub value: ConstValue,
+}
+
+/// Why a module constant could not be frozen during canonicalization.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub enum ConstEvalProblemKind {
+    /// Two or more module constants depend on one another.
+    CircularDependency { dependency: Name },
+    /// A named reference was unavailable while evaluating an initializer.
+    UnresolvedReference { reference: Name },
+    /// Constant arithmetic attempted division or remainder by zero.
+    DivisionByZero,
+    /// Constant integer/duration/size arithmetic exceeded its value domain.
+    Overflow,
+    /// The initializer uses a form outside the currently representable
+    /// [`ConstValue`] domain.
+    UnsupportedExpression { form: &'static str },
+    /// A selected provider constant did not produce an evaluated artifact.
+    ImportedValueUnavailable { module: String },
+}
+
+/// A structured constant-evaluation problem produced by canonicalization.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct ConstEvalProblem {
+    /// Constant whose initializer or imported artifact failed.
+    pub name: Name,
+    /// Consumer-visible source span for the failure.
+    pub span: Span,
+    pub kind: ConstEvalProblemKind,
 }
 
 /// A pattern-related problem detected during canonicalization.

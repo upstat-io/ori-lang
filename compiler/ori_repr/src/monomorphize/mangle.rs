@@ -7,6 +7,33 @@
 use ori_ir::{Name, StringInterner, IMPL_METHOD_SEPARATOR, MONO_SEPARATOR};
 use ori_types::{ConstValue, GenericArg, Idx, Pool, Tag};
 
+/// Mangle one exact checker-issued instance, including its ordered
+/// capability-provider type identity.
+#[must_use]
+pub fn mangle_mono_instance_name(
+    instance: &ori_types::MonoInstance,
+    interner: &StringInterner,
+    pool: &Pool,
+) -> Name {
+    let mut top_level_args = instance.generic_args.clone();
+    top_level_args.extend(
+        instance
+            .capability_args
+            .iter()
+            .copied()
+            .map(GenericArg::Type),
+    );
+    mangle_mono_name(
+        instance.fn_name,
+        &top_level_args,
+        &instance.impl_args,
+        &instance.method_args,
+        instance.receiver_type,
+        interner,
+        pool,
+    )
+}
+
 /// Compute the mangled name for a monomorphized function.
 ///
 /// Each generic argument is encoded with a length prefix (`<bytes>_<payload>`)
@@ -135,7 +162,12 @@ fn encode_args_length_prefixed(
     reason = "type encoding dispatch over all Tag variants for name mangling"
 )]
 fn encode_type(ty: Idx, pool: &Pool, interner: &StringInterner, out: &mut String) {
-    let resolved = pool.resolve_fully(ty);
+    let semantic = pool.method_receiver_key(ty);
+    let resolved = if pool.tag(semantic) == Tag::Applied {
+        semantic
+    } else {
+        pool.resolve_fully(ty)
+    };
     let tag = pool.tag(resolved);
 
     match tag {

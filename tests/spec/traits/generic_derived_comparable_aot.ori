@@ -1,0 +1,11 @@
+use std.testing { assert }
+
+#derive(Eq, Comparable)
+type Pair<T> = { left: T, right: T };
+
+@pair_int_less () -> bool =
+    Pair { left: 1, right: 2 } < Pair { left: 1, right: 3 };
+
+@test_pair_int_less tests @pair_int_less () -> void = {
+    assert(cond: pair_int_less())
+}

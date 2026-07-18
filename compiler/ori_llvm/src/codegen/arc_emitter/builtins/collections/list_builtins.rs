@@ -320,6 +320,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let sext_tramp_fn_id = self.generate_sext_widening_trampoline(narrowed_width);
                 let sext_tramp_ptr = self.builder.get_function_ptr(sext_tramp_fn_id);
                 let null_env = self.builder.const_null_ptr();
+                let null_env_inc = self.builder.const_null_ptr();
+                let null_env_dec = self.builder.const_null_ptr();
                 let null_output_dec = self.builder.const_null_ptr();
 
                 let map_fn_id = self.builder.runtime_fn("ori_iter_map");
@@ -329,6 +331,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         list_iter,
                         sext_tramp_ptr,
                         null_env,
+                        null_env_inc,
+                        null_env_dec,
                         elem_size_val,
                         null_output_dec,
                     ],

@@ -36,6 +36,18 @@ use std.testing { assert_eq, assert_panics }
     for x in 0..12 by step yield x
 }
 
+@discarded_empty_map_loop_body () -> int = {
+    for i in 0..1 do {};
+
+    7
+}
+
+@discarded_nonempty_map_loop_body () -> int = {
+    for i in 0..1 do {"key": i};
+
+    7
+}
+
 // Empty range (exclusive): 0..0 produces zero iterations.
 @test_empty_exclusive tests @empty_exclusive () -> void = {
     let r = for x in 0..0 yield x;
@@ -107,4 +119,14 @@ use std.testing { assert_eq, assert_panics }
     let r = for x in 0..12 by step yield x;
 
     assert_eq(actual: r, expected: [0, 3, 6, 9])
+}
+
+// Regression: a discarded empty map has no entries that need Eq or Hash callbacks.
+@test_discarded_empty_map_loop_body tests @discarded_empty_map_loop_body () -> void = {
+    assert_eq(actual: discarded_empty_map_loop_body(), expected: 7)
+}
+
+// Counterexample: a non-empty discarded map still inserts through typed callbacks.
+@test_discarded_nonempty_map_loop_body tests @discarded_nonempty_map_loop_body () -> void = {
+    assert_eq(actual: discarded_nonempty_map_loop_body(), expected: 7)
 }

@@ -2,7 +2,7 @@
 
 use rustc_hash::FxHashMap;
 
-use ori_ir::{Name, Span};
+use ori_ir::{ExprId, Name, Span};
 
 use super::super::super::InferEngine;
 use super::traits::type_satisfies_trait;
@@ -23,13 +23,31 @@ struct PreparedCheck {
 /// Emits `E2014 MissingCapability` for each missing capability.
 pub(super) fn check_call_capabilities(
     engine: &mut InferEngine<'_>,
+    call_expr_id: ExprId,
     func_name: Option<Name>,
     span: Span,
-) {
-    let Some(name) = func_name else { return };
-    let Some(sig) = engine.get_signature(name) else {
-        return;
+) -> Vec<crate::CapabilityProvider> {
+    let Some(name) = func_name else {
+        return Vec::new();
     };
+    let Some(sig) = engine.get_signature(name).cloned() else {
+        return Vec::new();
+    };
+
+    check_signature_capabilities(engine, call_expr_id, name, &sig, span)
+}
+
+/// Validate and freeze providers against an already-resolved signature.
+/// Module-alias calls use this entry point because their exported signature
+/// lives in the alias namespace rather than the ordinary function map.
+pub(super) fn check_signature_capabilities(
+    engine: &mut InferEngine<'_>,
+    call_expr_id: ExprId,
+    callee: Name,
+    sig: &crate::FunctionSig,
+    span: Span,
+) -> Vec<crate::CapabilityProvider> {
+    let capability_params = sig.capability_params.clone();
 
     // Collect missing capabilities during immutable borrow
     let missing: Vec<Name> = sig
@@ -40,7 +58,31 @@ pub(super) fn check_call_capabilities(
         .collect();
 
     if missing.is_empty() {
-        return;
+        let mut providers = Vec::new();
+        for param in capability_params {
+            let crate::CapabilityParam::Value { capability, .. } = param else {
+                continue;
+            };
+            let Some(mut provider) = engine.capability_provider(capability) else {
+                let available = engine.available_capabilities();
+                engine.push_error(TypeCheckError::missing_capability(
+                    span, capability, &available,
+                ));
+                return Vec::new();
+            };
+            provider.provider_type = engine.resolve(provider.provider_type);
+            providers.push(provider);
+        }
+        if !providers.is_empty() {
+            engine.record_capability_call(
+                call_expr_id,
+                crate::CapabilityCallSite {
+                    callee,
+                    providers: providers.clone(),
+                },
+            );
+        }
+        return providers;
     }
 
     // Push errors in a separate mutable pass
@@ -49,6 +91,7 @@ pub(super) fn check_call_capabilities(
         tracing::debug!(?cap, "missing capability at call site");
         engine.push_error(TypeCheckError::missing_capability(span, cap, &available));
     }
+    Vec::new()
 }
 
 /// Validate where-clause constraints for a generic function call.

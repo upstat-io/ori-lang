@@ -1,0 +1,6 @@
+let $CYCLE_LEFT = $CYCLE_RIGHT;
+let $CYCLE_RIGHT = $CYCLE_LEFT;
+
+@cyclic_module_capacity (items: [int]) -> void = {
+    let bounded: [int, max CYCLE_LEFT] = items;
+}

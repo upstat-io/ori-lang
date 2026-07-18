@@ -250,8 +250,8 @@ fn param_contract_for(
         // COW-mutated parameters are excluded.
         borrowed_read_only: facts.borrowed_read_only.contains(&i),
         // RL-1 + RL-2 borrowed-COW-consume-at-death fact — the caller's
-        // owned-call-arg duplication-inc admission funds one reference per
-        // call site (`compute_genuine_dup_call_arg_aliases`).
+        // class-ledger boundary classification funds one distinct reference
+        // per call site.
         borrowed_cow_consumed: facts.borrowed_cow_consumed.contains(&i),
         // MUTATOR-only refinement (excludes the builtin `iter`) — the
         // borrowed-`Invoke` lineage gate (c3) declines on it.

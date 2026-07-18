@@ -22,7 +22,6 @@ use std.testing { assert_eq }
     }
 }
 
-#skip("BUG-04-277: JIT test-worker SIGSEGV — any [T]-returning match consumed via .len() chained inline crashes the LLVM test-worker; unrelated to Traceable dispatch, reproduces with a plain [int]")
 @test_entries_list tests @entries_via_match () -> void = {
     assert_eq(
         actual: entries_via_match().len(),

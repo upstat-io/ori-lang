@@ -171,6 +171,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         self.aims_contracts.clear();
         self.codegen_ctx.closure_adapters.clear();
         self.codegen_ctx.user_drop_functions.clear();
+        self.codegen_ctx.exact_method_functions.clear();
         self.codegen_ctx.executable_call_targets.clear();
         self.codegen_ctx.executable_function_names = program
             .functions()
@@ -229,6 +230,49 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         }
         self.codegen_ctx.retain_plans = program.retain_plans().clone();
         self.codegen_ctx.executable_facts_bound = true;
+    }
+
+    /// Bind the artifact's exact receiver-qualified method census to declared LLVM callables.
+    ///
+    /// Ordinary ARC calls already carry a frozen per-register target. Compound
+    /// builtin emission can synthesize a nested method call after ARC closure,
+    /// so it consults this equally frozen semantic table instead of rebuilding
+    /// dispatch from source declarations or legacy derive codegen.
+    pub fn bind_executable_method_targets(&mut self) {
+        self.codegen_ctx.exact_method_functions.clear();
+        let Some(program) = self.executable_program else {
+            return;
+        };
+
+        for (receiver, method, target) in program.method_targets() {
+            let target_name = match target {
+                ori_repr::executable::CallableTarget::Function(function) => {
+                    program.function(function).name
+                }
+                ori_repr::executable::CallableTarget::External(function) => {
+                    program.external_function(function).name()
+                }
+                ori_repr::executable::CallableTarget::Runtime(operation) => {
+                    self.builder.record_codegen_error_with_msg(format!(
+                        "closed executable method target for receiver {receiver:?} and `{}` resolved to runtime operation {operation:?}; rerun with ORI_VERIFY_ARC=1 and report this compiler bug",
+                        self.interner.lookup(method),
+                    ));
+                    continue;
+                }
+            };
+            let Some((function, abi)) = self.codegen_ctx.functions.get(&target_name).cloned()
+            else {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "closed executable method target `{}` for receiver {receiver:?} projects to undeclared callable `{}`; rerun with ORI_VERIFY_ARC=1 and report this compiler bug",
+                    self.interner.lookup(method),
+                    self.interner.lookup(target_name),
+                ));
+                continue;
+            };
+            self.codegen_ctx
+                .exact_method_functions
+                .insert((receiver, method), (function, abi));
+        }
     }
 
     /// Bind each artifact user-drop operation to its declared physical callable.

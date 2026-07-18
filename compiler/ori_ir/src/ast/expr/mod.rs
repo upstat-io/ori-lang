@@ -170,8 +170,7 @@ pub enum ExprKind {
     /// Call-site type arguments (`receiver.method<T>(args)`) are NOT inlined here
     /// — they are rare, so storing them on the hot node would bloat every
     /// expression. They live in the arena `method_call_type_args` side-table keyed
-    /// by this expression's `ExprId` (parser-recorded; the method-generic
-    /// instantiation consumer is not yet wired).
+    /// by this expression's `ExprId` and are consumed by method-generic inference.
     MethodCall {
         receiver: ExprId,
         method: Name,

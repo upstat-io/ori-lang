@@ -3556,6 +3556,32 @@ type Doc = { content: str }
 }
 
 #[test]
+fn probe_derived_clone_subset_move_releases_unread_heap_field() {
+    // A call-produced derived-Clone result is a constructless positional
+    // aggregate. Moving one heap field out must skip that field at the
+    // container release while still releasing the unread heap sibling.
+    let src = r#"
+#derive(Clone)
+type Pair = { kept: str, unread: str }
+
+@clone_kept () -> str = {
+    let original = Pair {
+        kept: "kept heap field ".concat(other: "abcdefghijklmnopqrstuvwxyz"),
+        unread: "unread heap field ".concat(other: "zyxwvutsrqponmlkjihgfedcba"),
+    };
+    let copy = original.clone();
+    copy.kept
+}
+
+@main () -> int = {
+    let kept = clone_kept();
+    if kept.starts_with(prefix: "kept heap field ") then 0 else 1
+}
+"#;
+    assert_burden_path_self_sufficient(src, "derived_clone_subset_move");
+}
+
+#[test]
 fn probe_config_projected_fields_compared_keep_negative() {
     // POSITIVE PIN (the multi-borrow-view-alias surplus cure): a `Config {
     // settings, name }` whose fields are borrow-read through DISTINCT whole-var

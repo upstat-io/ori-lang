@@ -112,9 +112,6 @@ impl Widget {
 "#;
 
 #[test]
-#[ignore = "BUG-04-228: non-Self-return no-receiver associated dispatch — \
-            return-type-keyed lookup cannot resolve a non-Self return; distinct \
-            root cause + cure surface from the owning-type registration gap"]
 fn test_assoc_only_impl_non_self_return_resolves_and_runs() {
     assert_cell_output(
         ASSOC_ONLY_NON_SELF_RETURN_SRC,

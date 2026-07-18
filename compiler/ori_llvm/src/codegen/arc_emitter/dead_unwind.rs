@@ -36,15 +36,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(super) fn intercept_routes_unwind(
         &self,
         callee: ori_ir::Name,
+        dst: ArcVarId,
         args: &[ArcVarId],
         func: &ArcFunction,
     ) -> bool {
-        let Some(&first_arg) = args.first() else {
-            return false;
-        };
-        let receiver_ty = self.pool.resolve_fully(func.var_type(first_arg));
+        let receiver_tag = args.first().map(|first_arg| {
+            let receiver_ty = self.pool.resolve_fully(func.var_type(*first_arg));
+            self.pool.tag(receiver_ty)
+        });
+        let result_ty = self.pool.resolve_fully(func.var_type(dst));
         let method = self.interner.lookup(callee);
-        super::context::intercepted_emission_invokes_unwind(method, self.pool.tag(receiver_ty))
+        super::context::intercepted_emission_invokes_unwind(
+            method,
+            receiver_tag,
+            Some(self.pool.tag(result_ty)),
+        )
     }
 
     pub(super) fn detect_dead_unwind_blocks(&self, func: &ArcFunction) -> DeadUnwindResult {
@@ -54,6 +60,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         for block in &func.blocks {
             match &block.terminator {
                 ArcTerminator::Invoke {
+                    dst,
                     unwind,
                     func: callee,
                     args,
@@ -72,7 +79,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     // (per `intercepted_emission_invokes_unwind`).
                     let intercept_routes_unwind = intercepted
                         && has_cleanup
-                        && self.intercept_routes_unwind(*callee, args, func);
+                        && self.intercept_routes_unwind(*callee, *dst, args, func);
                     if has_cleanup && (!callee_uses_call || intercept_routes_unwind) {
                         live.insert(unwind.index());
                     }

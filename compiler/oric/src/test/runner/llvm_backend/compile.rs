@@ -44,7 +44,7 @@ pub(super) fn compile_and_run(
         interner,
     } = file;
     let imports::PreparedImports {
-        resolved,
+        modules,
         type_results,
         pool: mut merged_pool,
         canons,
@@ -52,14 +52,27 @@ pub(super) fn compile_and_run(
         signatures: imported_signatures,
         renamed_functions,
         mono_functions,
-    } = imports::prepare(db, path, parse, typed, pool, interner);
+        generic_templates,
+        target_maps,
+        root_targets,
+    } = imports::prepare(db, path, parse, typed, pool, interner).map_err(|error| {
+        let message = format!("LLVM JIT import closure failed: {error}");
+        CompilationFailure {
+            summary: message.clone(),
+            test_result: message,
+        }
+    })?;
     let imported_functions = imports::for_codegen(
-        &resolved,
+        &modules,
         &function_refs,
         &renamed_functions,
         &imported_signatures,
         &canons,
     );
+    let imported_function_modules = function_refs
+        .iter()
+        .map(|reference| reference.module_index)
+        .collect::<Vec<_>>();
     let function_sigs = crate::typeck::build_function_sigs(parse, typed);
     let type_metadata = type_results
         .iter()
@@ -80,9 +93,17 @@ pub(super) fn compile_and_run(
         pool: &mut merged_pool,
         imported_functions: &imported_functions,
         imported_mono_fns: &mono_functions,
+        imported_generic_templates: &generic_templates,
         re_interned_canons: &canons,
+        imported_function_modules: &imported_function_modules,
+        imported_target_maps: &target_maps,
+        root_import_targets: &root_targets,
         import_sigs: &[],
     })?;
+    let imported_functions = imported_functions
+        .into_iter()
+        .filter(|imported| lowering.reachable_imports.contains(&imported.function.name))
+        .collect::<Vec<_>>();
     let evaluator = OwnedLLVMEvaluator::new();
     let compiled = compile_program(
         &evaluator,
@@ -182,6 +203,7 @@ fn compile_program_inner<'llvm>(
         mono_functions,
         user_drop_bindings: typed_user_drop_bindings,
         impl_emission_names,
+        reachable_imports: _,
     } = lowering;
     let mut type_registry = ori_types::TypeRegistry::from_typed_exports(
         typed.typed.types.clone(),

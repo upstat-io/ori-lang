@@ -14,15 +14,53 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
     /// (2) `lhs == MIN && rhs == -1` (MIN at the operand's own width) →
     /// panic "integer overflow in division". Both cases are UB in LLVM's `sdiv`.
     pub fn checked_div(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.emit_checked_div_rem(lhs, rhs, name, true)
+        self.checked_div_msg(
+            lhs,
+            rhs,
+            name,
+            "division by zero",
+            "integer overflow in division",
+        )
+    }
+
+    /// Build checked integer division with caller-supplied zero and overflow
+    /// panic messages.
+    pub fn checked_div_msg(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        name: &str,
+        zero_msg: &'static str,
+        overflow_msg: &'static str,
+    ) -> ValueId {
+        self.emit_checked_div_rem(lhs, rhs, name, true, zero_msg, overflow_msg)
     }
 
     /// Build checked integer remainder: panics on division by zero.
     ///
-    /// Checks: `rhs == 0` → panic "remainder by zero".
+    /// Checks: `rhs == 0` → panic "modulo by zero".
     /// No overflow check needed: `i64::MIN % -1 == 0` is well-defined.
     pub fn checked_rem(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.emit_checked_div_rem(lhs, rhs, name, false)
+        self.checked_rem_msg(lhs, rhs, name, "modulo by zero")
+    }
+
+    /// Build checked integer remainder with a caller-supplied zero panic
+    /// message.
+    pub fn checked_rem_msg(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        name: &str,
+        zero_msg: &'static str,
+    ) -> ValueId {
+        self.emit_checked_div_rem(
+            lhs,
+            rhs,
+            name,
+            false,
+            zero_msg,
+            "integer overflow in remainder",
+        )
     }
 
     /// Emit the `rhs == 0` check: branch to `panic_zero_bb` on zero, else
@@ -35,7 +73,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         name: &str,
         panic_zero_bb: BasicBlock<'ctx>,
         after_zero_bb: BasicBlock<'ctx>,
-        is_div: bool,
+        zero_msg: &'static str,
     ) {
         let zero = op_ty.const_zero();
         let is_zero = self
@@ -51,11 +89,6 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .build_conditional_branch(is_zero, panic_zero_bb, after_zero_bb)
             .expect("zero check branch");
 
-        let zero_msg = if is_div {
-            "division by zero"
-        } else {
-            "remainder by zero"
-        };
         self.emit_panic_block(panic_zero_bb, zero_msg, &format!("{name}.dz_msg"));
     }
 
@@ -70,6 +103,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         name: &str,
         after_zero_bb: BasicBlock<'ctx>,
         continue_bb: BasicBlock<'ctx>,
+        overflow_msg: &'static str,
     ) {
         let func_id = self.current_function.expect("no current function");
         let func_llvm = self.arena.get_function(func_id);
@@ -111,11 +145,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .build_conditional_branch(is_ovf, panic_ovf_bb, continue_bb)
             .expect("overflow branch");
 
-        self.emit_panic_block(
-            panic_ovf_bb,
-            "integer overflow in division",
-            &format!("{name}.ovf_msg"),
-        );
+        self.emit_panic_block(panic_ovf_bb, overflow_msg, &format!("{name}.ovf_msg"));
     }
 
     /// Position at `continue_bb` and emit the `sdiv`/`srem` instruction.
@@ -154,6 +184,8 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         rhs: ValueId,
         name: &str,
         is_div: bool,
+        zero_msg: &'static str,
+        overflow_msg: &'static str,
     ) -> ValueId {
         let Some((lhs_int, rhs_int, op_ty)) =
             self.validate_checked_int_operands(lhs, rhs, name, "checked div/rem")
@@ -182,10 +214,18 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             continue_bb
         };
 
-        self.emit_div_rem_zero_check(rhs_int, op_ty, name, panic_zero_bb, after_zero_bb, is_div);
+        self.emit_div_rem_zero_check(rhs_int, op_ty, name, panic_zero_bb, after_zero_bb, zero_msg);
 
         if is_div {
-            self.emit_div_overflow_guard(lhs_int, rhs_int, op_ty, name, after_zero_bb, continue_bb);
+            self.emit_div_overflow_guard(
+                lhs_int,
+                rhs_int,
+                op_ty,
+                name,
+                after_zero_bb,
+                continue_bb,
+                overflow_msg,
+            );
         }
 
         self.emit_div_rem_result(continue_bb, lhs_int, rhs_int, name, is_div)

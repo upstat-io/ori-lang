@@ -12,6 +12,29 @@ use super::apply::closed_target_projection_message;
 use super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Resolve one receiver-qualified method through the closed artifact census.
+    pub(super) fn lookup_exact_method_target(
+        &self,
+        receiver: Idx,
+        method: Name,
+    ) -> Option<&(FunctionId, FunctionAbi)> {
+        let semantic = self.pool.method_receiver_key(receiver);
+        if let Some(target) = self.ctx.exact_method_functions.get(&(semantic, method)) {
+            return Some(target);
+        }
+        let resolved = self.pool.resolve_fully(receiver);
+        let target = self
+            .ctx
+            .exact_method_functions
+            .get(&(resolved, method))
+            .or_else(|| {
+                self.ctx
+                    .exact_method_functions
+                    .get(&(self.pool.method_receiver_key(resolved), method))
+            });
+        target
+    }
+
     /// Whether a closed call site is allowed to use spelling-based runtime projection.
     ///
     /// Once executable facts are bound, only a `CallableTarget::Runtime` may
@@ -114,6 +137,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<&(FunctionId, FunctionAbi)> {
         let &first_arg = args.first()?;
         let receiver_ty = func.var_type(first_arg);
+        if self.ctx.executable_facts_bound {
+            return self.lookup_exact_method_target(receiver_ty, name);
+        }
         // A generic-composite receiver resolves to its materialized
         // concrete body; prefer the per-instantiation derived method keyed on
         // that Idx before the type-name-keyed map.
@@ -139,6 +165,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         func: &ArcFunction,
     ) -> Option<&(FunctionId, FunctionAbi)> {
         let return_ty = func.var_type(dst);
+        if self.ctx.executable_facts_bound {
+            return self.lookup_exact_method_target(return_ty, name);
+        }
         // A generic-composite return type (e.g. `Default` on
         // `P3Pair<int,str>`) resolves to its materialized concrete body; prefer
         // the per-instantiation derived method keyed on that Idx before the

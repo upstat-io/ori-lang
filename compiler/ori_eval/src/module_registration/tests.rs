@@ -31,6 +31,37 @@ fn test_register_module_functions() {
 }
 
 #[test]
+fn registered_functions_bind_the_complete_same_module_namespace() {
+    let (result, interner) = parse_source(
+        r"
+        @private_leaf (x: int) -> int = x + 1;
+        @private_mid (x: int) -> int = private_leaf(x: x);
+        pub @exported (x: int) -> int = private_mid(x: x);
+    ",
+    );
+    let mut env = Environment::new();
+    register_module_functions(&result.module, &result.arena, &mut env, None);
+    let exported = interner.intern("exported");
+    let private_leaf = interner.intern("private_leaf");
+    let private_mid = interner.intern("private_mid");
+    let Some(Value::Function(function)) = env.lookup(exported) else {
+        panic!("missing exported function");
+    };
+    let mut call_env = Environment::new();
+
+    crate::exec::call::bind_captures(&mut call_env, &function);
+
+    assert!(matches!(
+        call_env.lookup(private_leaf),
+        Some(Value::Function(_))
+    ));
+    assert!(matches!(
+        call_env.lookup(private_mid),
+        Some(Value::Function(_))
+    ));
+}
+
+#[test]
 fn test_register_variant_constructors() {
     let (result, interner) = parse_source(
         r"

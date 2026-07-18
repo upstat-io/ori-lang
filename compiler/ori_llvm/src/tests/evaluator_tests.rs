@@ -102,6 +102,7 @@ fn empty_executable(symbols: &SharedInterner) -> ExecutableProgram {
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
         method_call_facts: Vec::new(),
+        operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
         class_ledger_emission: false,
     };
@@ -133,6 +134,7 @@ fn empty_executable(symbols: &SharedInterner) -> ExecutableProgram {
         roots: vec![main],
         cli_entry: None,
         externals: Vec::new(),
+        method_targets: Default::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
         type_registry: TypeRegistry::new(),

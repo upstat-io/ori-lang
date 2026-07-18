@@ -205,6 +205,88 @@ mod map_receiver_lambda_param {
     }
 }
 
+// `zip` has a structurally computed return (`Iterator<(T, U)>` or
+// `List<(T, U)>`) whose right element starts fresh. The other argument is the
+// sole source of `U`; leaving those shapes disconnected makes a bound zip
+// result fail validation with E2005 even when a later consumer returns a
+// concrete type.
+mod zip_other_element {
+    use super::super::closure_unify::unify_higher_order_constraints;
+    use crate::infer::expr::methods::resolve_builtin_method;
+    use crate::{Idx, Pool, Tag};
+    use ori_ir::{Span, StringInterner};
+
+    fn resolve_zip_right_element(receiver: &Receiver, other: &Other) -> (Idx, Tag) {
+        let interner = StringInterner::new();
+        let mut pool = Pool::new();
+        let mut engine = crate::InferEngine::new(&mut pool);
+        engine.set_interner(&interner);
+
+        let (receiver_ty, receiver_tag) = match receiver {
+            Receiver::IteratorInt => (engine.pool_mut().iterator(Idx::INT), Tag::Iterator),
+            Receiver::ListInt => (engine.pool_mut().list(Idx::INT), Tag::List),
+        };
+        let other_ty = match other {
+            Other::IteratorStr => engine.pool_mut().iterator(Idx::STR),
+            Other::ListStr => engine.pool_mut().list(Idx::STR),
+            Other::NonCollection => Idx::BOOL,
+        };
+        let ret_ty = resolve_builtin_method(&mut engine, receiver_ty, receiver_tag, "zip")
+            .unwrap_or_else(|| unreachable!("zip is registered for this receiver"));
+        let method = engine
+            .intern_name("zip")
+            .unwrap_or_else(|| unreachable!("interner attached above"));
+
+        unify_higher_order_constraints(
+            &mut engine,
+            method,
+            ret_ty,
+            receiver_ty,
+            &[other_ty],
+            &[Span::new(0, 0)],
+            Span::new(0, 0),
+        );
+
+        let result_pair = if engine.pool().tag(ret_ty).is_iterator() {
+            engine.pool().iterator_elem(ret_ty)
+        } else {
+            engine.pool().list_elem(ret_ty)
+        };
+        let right = engine.pool().tuple_elem(result_pair, 1);
+        let resolved = engine.resolve(right);
+        (resolved, engine.pool().tag(resolved))
+    }
+
+    enum Receiver {
+        IteratorInt,
+        ListInt,
+    }
+
+    enum Other {
+        IteratorStr,
+        ListStr,
+        NonCollection,
+    }
+
+    #[test]
+    fn iterator_zip_binds_fresh_right_element_from_other_iterator() {
+        let (resolved, _) = resolve_zip_right_element(&Receiver::IteratorInt, &Other::IteratorStr);
+        assert_eq!(resolved, Idx::STR);
+    }
+
+    #[test]
+    fn list_zip_binds_fresh_right_element_from_other_list() {
+        let (resolved, _) = resolve_zip_right_element(&Receiver::ListInt, &Other::ListStr);
+        assert_eq!(resolved, Idx::STR);
+    }
+
+    #[test]
+    fn zip_does_not_bind_right_element_from_non_collection_argument() {
+        let (_, tag) = resolve_zip_right_element(&Receiver::IteratorInt, &Other::NonCollection);
+        assert_eq!(tag, Tag::Var);
+    }
+}
+
 // fold/rfold receiver-tag parity via the shared `receiver_element_type`
 // SSOT. The `fold`/`rfold` arm binds the closure's SECOND param (the element)
 // to the receiver element. These cells pin the `Tag::Map` ((K, V) tuple) +

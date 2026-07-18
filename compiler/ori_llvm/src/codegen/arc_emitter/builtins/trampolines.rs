@@ -9,7 +9,9 @@ pub(super) const REGISTERED: &[super::BuiltinRegistration] = &[];
 use ori_ir::{CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
 use ori_types::Idx;
 
-use crate::codegen::abi::abi_size;
+use crate::codegen::abi::{
+    compute_closure_param_passing, compute_return_passing, ParamPassing, ReturnPassing,
+};
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 use super::super::ArcIrEmitter;
@@ -38,7 +40,7 @@ struct TrampolineBody {
     ori_fn: ValueId,
     ori_env: ValueId,
     elem_llvm_ty: LLVMTypeId,
-    elem_is_indirect: bool,
+    elem_passing: ParamPassing,
 }
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
@@ -75,6 +77,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let name = format!("_ori_tramp_{tramp_id}");
         let saved_position = self.builder.save_position();
         let saved_function = self.builder.current_function();
+        let saved_emitter_function = self.current_function;
         let ptr_ty = self.builder.ptr_type();
         let i8_ty = self.builder.i8_type();
         let func_id = self.declare_trampoline(&name, kind, ptr_ty, i8_ty);
@@ -82,9 +85,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let entry = self.builder.append_block(func_id, "entry");
         self.builder.position_at_end(entry);
         self.builder.set_current_function(func_id);
+        self.current_function = func_id;
         let (ori_fn, ori_env) = self.unpack_trampoline_closure(func_id, ptr_ty);
         let elem_llvm_ty = self.resolve_type(elem_ty);
-        let elem_is_indirect = abi_size(elem_ty, self.type_info, self.repr_plan) > 16;
+        let elem_passing =
+            compute_closure_param_passing(elem_ty, self.type_info, self.repr_plan, self.classifier);
         let body = TrampolineBody {
             func_id,
             ptr_ty,
@@ -92,17 +97,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ori_fn,
             ori_env,
             elem_llvm_ty,
-            elem_is_indirect,
+            elem_passing,
         };
 
         match kind {
             TrampolineKind::Map => self.emit_map_trampoline(&body, elem_ty, result_ty),
             TrampolineKind::Predicate => self.emit_predicate_trampoline(&body),
-            TrampolineKind::ForEach => self.emit_for_each_trampoline(&body),
+            TrampolineKind::ForEach => self.emit_for_each_trampoline(&body, result_ty),
             TrampolineKind::Fold => self.emit_fold_trampoline(&body, elem_ty, result_ty),
         }
 
         self.verify_trampoline(func_id, &name);
+        self.current_function = saved_emitter_function;
         self.builder.restore_position(saved_position);
         if let Some(function) = saved_function {
             self.builder.set_current_function(function);
@@ -162,42 +168,71 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         (ori_fn, ori_env)
     }
 
+    fn append_trampoline_argument(
+        &mut self,
+        body: &TrampolineBody,
+        passing: ParamPassing,
+        source_ptr: ValueId,
+        llvm_ty: LLVMTypeId,
+        label: &str,
+        param_types: &mut Vec<LLVMTypeId>,
+        args: &mut Vec<ValueId>,
+    ) {
+        match passing {
+            ParamPassing::Direct => {
+                param_types.push(llvm_ty);
+                args.push(self.builder.load(llvm_ty, source_ptr, label));
+            }
+            ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                param_types.push(body.ptr_ty);
+                args.push(source_ptr);
+            }
+            ParamPassing::Void => {}
+        }
+    }
+
     fn emit_map_trampoline(&mut self, body: &TrampolineBody, elem_ty: Idx, result_ty: Option<Idx>) {
         let input_ptr = self.builder.get_param(body.func_id, 1);
         let output_ptr = self.builder.get_param(body.func_id, 2);
         let result_idx = result_ty.unwrap_or(elem_ty);
         let result_llvm_ty = result_ty.map_or(body.elem_llvm_ty, |ty| self.resolve_type(ty));
-        let result_is_indirect = abi_size(result_idx, self.type_info, self.repr_plan) > 16;
-        let elem_arg_ty = if body.elem_is_indirect {
-            body.ptr_ty
-        } else {
-            body.elem_llvm_ty
-        };
-        let elem_arg = if body.elem_is_indirect {
-            input_ptr
-        } else {
-            self.builder
-                .load(body.elem_llvm_ty, input_ptr, "tramp.elem")
-        };
+        let mut param_types = vec![body.ptr_ty];
+        let mut args = vec![body.ori_env];
+        self.append_trampoline_argument(
+            body,
+            body.elem_passing,
+            input_ptr,
+            body.elem_llvm_ty,
+            "tramp.elem",
+            &mut param_types,
+            &mut args,
+        );
 
-        if result_is_indirect {
-            self.builder.call_indirect_with_sret(
-                result_llvm_ty,
-                &[body.ptr_ty, elem_arg_ty],
-                body.ori_fn,
-                output_ptr,
-                &[body.ori_env, elem_arg],
-            );
-        } else {
-            let result = self.builder.call_indirect(
-                result_llvm_ty,
-                &[body.ptr_ty, elem_arg_ty],
-                body.ori_fn,
-                &[body.ori_env, elem_arg],
-                "tramp.result",
-            );
-            if let Some(value) = result {
-                self.builder.store(value, output_ptr);
+        match compute_return_passing(result_idx, self.type_info, self.repr_plan) {
+            ReturnPassing::Direct => {
+                let result = self.builder.call_indirect(
+                    result_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    &args,
+                    "tramp.result",
+                );
+                if let Some(value) = result {
+                    self.builder.store(value, output_ptr);
+                }
+            }
+            ReturnPassing::Sret { .. } => {
+                self.builder.call_indirect_with_sret(
+                    result_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    output_ptr,
+                    &args,
+                );
+            }
+            ReturnPassing::Void => {
+                self.builder
+                    .call_indirect_void(&param_types, body.ori_fn, &args);
             }
         }
         self.builder.ret_void();
@@ -206,24 +241,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     fn emit_predicate_trampoline(&mut self, body: &TrampolineBody) {
         let elem_ptr = self.builder.get_param(body.func_id, 1);
         let bool_ty = self.builder.bool_type();
-        let result = if body.elem_is_indirect {
-            self.builder.call_indirect(
-                bool_ty,
-                &[body.ptr_ty, body.ptr_ty],
-                body.ori_fn,
-                &[body.ori_env, elem_ptr],
-                "tramp.pred",
-            )
-        } else {
-            let elem = self.builder.load(body.elem_llvm_ty, elem_ptr, "tramp.elem");
-            self.builder.call_indirect(
-                bool_ty,
-                &[body.ptr_ty, body.elem_llvm_ty],
-                body.ori_fn,
-                &[body.ori_env, elem],
-                "tramp.pred",
-            )
-        };
+        let mut param_types = vec![body.ptr_ty];
+        let mut args = vec![body.ori_env];
+        self.append_trampoline_argument(
+            body,
+            body.elem_passing,
+            elem_ptr,
+            body.elem_llvm_ty,
+            "tramp.elem",
+            &mut param_types,
+            &mut args,
+        );
+        let result =
+            self.builder
+                .call_indirect(bool_ty, &param_types, body.ori_fn, &args, "tramp.pred");
 
         if let Some(predicate) = result {
             let result_i8 = self.builder.zext(predicate, body.i8_ty, "tramp.pred.i8");
@@ -235,24 +266,51 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    fn emit_for_each_trampoline(&mut self, body: &TrampolineBody) {
+    fn emit_for_each_trampoline(&mut self, body: &TrampolineBody, result_ty: Option<Idx>) {
         let elem_ptr = self.builder.get_param(body.func_id, 1);
-        if body.elem_is_indirect {
-            self.builder.call_indirect_void(
-                &[body.ptr_ty, body.ptr_ty],
-                body.ori_fn,
-                &[body.ori_env, elem_ptr],
-            );
-        } else {
-            let elem = self.builder.load(body.elem_llvm_ty, elem_ptr, "tramp.elem");
-            let unit_ty = self.builder.i64_type();
-            self.builder.call_indirect(
-                unit_ty,
-                &[body.ptr_ty, body.elem_llvm_ty],
-                body.ori_fn,
-                &[body.ori_env, elem],
-                "tramp.foreach",
-            );
+        let mut param_types = vec![body.ptr_ty];
+        let mut args = vec![body.ori_env];
+        self.append_trampoline_argument(
+            body,
+            body.elem_passing,
+            elem_ptr,
+            body.elem_llvm_ty,
+            "tramp.elem",
+            &mut param_types,
+            &mut args,
+        );
+        let result_idx = result_ty.unwrap_or(Idx::UNIT);
+        let result_llvm_ty = self.resolve_type(result_idx);
+        match compute_return_passing(result_idx, self.type_info, self.repr_plan) {
+            ReturnPassing::Direct => {
+                if let Some(result) = self.builder.call_indirect(
+                    result_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    &args,
+                    "tramp.foreach",
+                ) {
+                    self.dec_value_rc(result, result_idx);
+                }
+            }
+            ReturnPassing::Sret { .. } => {
+                let result = self.builder.alloca(result_llvm_ty, "tramp.foreach.sret");
+                self.builder.call_indirect_with_sret(
+                    result_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    result,
+                    &args,
+                );
+                let value = self
+                    .builder
+                    .load(result_llvm_ty, result, "tramp.foreach.result");
+                self.dec_value_rc(value, result_idx);
+            }
+            ReturnPassing::Void => {
+                self.builder
+                    .call_indirect_void(&param_types, body.ori_fn, &args);
+            }
         }
         self.builder.ret_void();
     }
@@ -268,46 +326,54 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let output_ptr = self.builder.get_param(body.func_id, 3);
         let acc_idx = result_ty.unwrap_or(elem_ty);
         let acc_llvm_ty = result_ty.map_or(body.elem_llvm_ty, |ty| self.resolve_type(ty));
-        let acc_is_indirect = abi_size(acc_idx, self.type_info, self.repr_plan) > 16;
-        let acc_arg = if acc_is_indirect {
-            acc_ptr
-        } else {
-            self.builder.load(acc_llvm_ty, acc_ptr, "tramp.acc")
-        };
-        let elem_arg = if body.elem_is_indirect {
-            elem_ptr
-        } else {
-            self.builder.load(body.elem_llvm_ty, elem_ptr, "tramp.elem")
-        };
-        let acc_arg_ty = if acc_is_indirect {
-            body.ptr_ty
-        } else {
-            acc_llvm_ty
-        };
-        let elem_arg_ty = if body.elem_is_indirect {
-            body.ptr_ty
-        } else {
-            body.elem_llvm_ty
-        };
+        let acc_passing =
+            compute_closure_param_passing(acc_idx, self.type_info, self.repr_plan, self.classifier);
+        let mut param_types = vec![body.ptr_ty];
+        let mut args = vec![body.ori_env];
+        self.append_trampoline_argument(
+            body,
+            acc_passing,
+            acc_ptr,
+            acc_llvm_ty,
+            "tramp.acc",
+            &mut param_types,
+            &mut args,
+        );
+        self.append_trampoline_argument(
+            body,
+            body.elem_passing,
+            elem_ptr,
+            body.elem_llvm_ty,
+            "tramp.elem",
+            &mut param_types,
+            &mut args,
+        );
 
-        if acc_is_indirect {
-            self.builder.call_indirect_with_sret(
-                acc_llvm_ty,
-                &[body.ptr_ty, acc_arg_ty, elem_arg_ty],
-                body.ori_fn,
-                output_ptr,
-                &[body.ori_env, acc_arg, elem_arg],
-            );
-        } else {
-            let result = self.builder.call_indirect(
-                acc_llvm_ty,
-                &[body.ptr_ty, acc_arg_ty, elem_arg_ty],
-                body.ori_fn,
-                &[body.ori_env, acc_arg, elem_arg],
-                "tramp.fold",
-            );
-            if let Some(value) = result {
-                self.builder.store(value, output_ptr);
+        match compute_return_passing(acc_idx, self.type_info, self.repr_plan) {
+            ReturnPassing::Direct => {
+                let result = self.builder.call_indirect(
+                    acc_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    &args,
+                    "tramp.fold",
+                );
+                if let Some(value) = result {
+                    self.builder.store(value, output_ptr);
+                }
+            }
+            ReturnPassing::Sret { .. } => {
+                self.builder.call_indirect_with_sret(
+                    acc_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    output_ptr,
+                    &args,
+                );
+            }
+            ReturnPassing::Void => {
+                self.builder
+                    .call_indirect_void(&param_types, body.ori_fn, &args);
             }
         }
         self.builder.ret_void();

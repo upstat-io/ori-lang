@@ -143,6 +143,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Map, result_ty);
 
+        // The runtime stores this callback for lazy advancement. Retain the
+        // copied closure pair so its captured environment outlives the call
+        // that constructs the adapter.
+        let closure_env_inc_fn = self.get_or_generate_elem_inc_fn(closure_ty);
+        let closure_env_dec_fn = self.get_or_generate_elem_dec_fn(closure_ty);
+
         // Use canonical element size — narrowing confined to list boundary.
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
@@ -158,6 +164,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 iter_ptr,
                 tramp_fn,
                 closure_env,
+                closure_env_inc_fn,
+                closure_env_dec_fn,
                 elem_size_val,
                 output_dec_fn,
             ],
@@ -169,8 +177,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         iter_ptr: ValueId,
         arg_vals: &[ValueId],
-        _args: &[ArcVarId],
-        _arc_func: &ArcFunction,
+        args: &[ArcVarId],
+        arc_func: &ArcFunction,
         elem_ty: Idx,
     ) -> Option<ValueId> {
         if arg_vals.len() < 2 {
@@ -180,6 +188,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
+        let closure_ty = arc_func.var_type(args[1]);
+        let closure_env_inc_fn = self.get_or_generate_elem_inc_fn(closure_ty);
+        let closure_env_dec_fn = self.get_or_generate_elem_dec_fn(closure_ty);
 
         // Use canonical element size — narrowing confined to list boundary.
         let elem_size = self.element_store_size(elem_ty);
@@ -188,7 +199,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_iter_filter");
         self.emit_rt_call(
             func_id,
-            &[iter_ptr, tramp_fn, closure_env, elem_size_val],
+            &[
+                iter_ptr,
+                tramp_fn,
+                closure_env,
+                closure_env_inc_fn,
+                closure_env_dec_fn,
+                elem_size_val,
+            ],
             "iter.filter",
         )
     }

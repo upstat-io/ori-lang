@@ -11,6 +11,7 @@
 pub mod aims;
 mod block_merge;
 pub mod borrow;
+mod builtin_body;
 pub(crate) mod classify;
 mod closure_abi;
 pub mod decision_tree;
@@ -53,6 +54,7 @@ pub use borrow::{
     borrowing_builtin_names, extract_callees, infer_borrow_fixed_point, infer_borrow_single,
     infer_borrows_scc, BuiltinOwnershipSets,
 };
+pub use builtin_body::build_builtin_error_constructor;
 pub use classify::{ArcClassification, ArcClassifier};
 pub use closure_abi::{
     freeze_closure_adapter_plans, freeze_function_callable_facts, ClosureAbiError,
@@ -86,7 +88,8 @@ pub use ir::validate::{
 pub use ir::{
     compute_var_reprs, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,
     ArcValue, ArcVarId, ArgOwnership, CtorKind, DirectCallFact, LitValue, MethodCallFact,
-    MethodCallForm, PrimOp, RcAtomicity, RcStrategy, ValueRepr, VariableMetadataState,
+    MethodCallForm, OperatorCallFact, PrimOp, RcAtomicity, RcStrategy, ValueRepr,
+    VariableMetadataState,
 };
 pub use lambda_specialization::{
     first_unresolved_bound_var, specialize_polymorphic_lambdas, type_contains_bound_var,

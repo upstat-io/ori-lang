@@ -1,10 +1,10 @@
 //! Default-method inheritance and impl validation.
 
-use ori_ir::{ExprId, Name, Span};
+use ori_ir::{Name, Span};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::methods::build_impl_method;
-use crate::{Idx, ImplMethodDef, ModuleChecker, TypeCheckError};
+use crate::{Idx, ImplMethodDef, ModuleChecker, TraitMethodDef, TypeCheckError};
 
 /// Type-resolution inputs shared while registering one impl's methods.
 pub(super) struct ImplBuildContext<'a> {
@@ -100,33 +100,37 @@ pub(super) fn inherit_default_methods(
     // Borrow dance: scope the immutable trait_registry borrow to extract the
     // needed data, then use checker mutably for build_impl_method.
     if let Some(t_idx) = trait_idx {
-        let transitive_defaults: Vec<(Name, Idx, ExprId, Span)> = {
+        let transitive_defaults: Vec<TraitMethodDef> = {
             let reg = checker.trait_registry();
             reg.collected_methods(t_idx)
                 .into_iter()
                 .filter_map(|(name, _owner, def)| {
-                    let body = def.default_body?;
-                    if !def.has_default {
-                        return None;
-                    }
-                    Some((name, def.signature, body, def.span))
+                    def.default_body?;
+                    def.has_default.then(|| {
+                        debug_assert_eq!(name, def.name);
+                        def.clone()
+                    })
                 })
                 .collect()
         };
 
-        for (name, signature, body, span) in transitive_defaults {
-            methods.entry(name).or_insert(ImplMethodDef {
-                name,
-                signature,
-                has_self: true,
+        for def in transitive_defaults {
+            let Some(body) = def.default_body else {
+                continue;
+            };
+            methods.entry(def.name).or_insert(ImplMethodDef {
+                name: def.name,
+                signature: def.signature,
+                has_self: def.has_self,
                 body,
-                scheme_var_ids: Vec::new(),
-                generic_param_metadata: Vec::new(),
-                where_clause_metadata: Vec::new(),
+                scheme_var_ids: def.scheme_var_ids,
+                generic_param_metadata: def.generic_param_metadata,
+                where_clause_metadata: def.where_clause_metadata,
+                fixed_list_capacity_constraints: def.fixed_list_capacity_constraints,
                 // Inherited trait-default method copy: strict arity (trait
                 // default-param carry-through is a follow-up per R3-F3).
                 optional_param_count: 0,
-                span,
+                span: def.span,
             });
         }
     }

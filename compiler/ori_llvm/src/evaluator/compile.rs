@@ -204,23 +204,19 @@ impl super::OwnedLLVMEvaluator {
         let artifact_remainder = fc.declare_artifact_remainder(&deferred_artifact_parents);
 
         // Compile impl methods
-        if !module.impls.is_empty() {
+        if !module.impls.is_empty() || !module.extends.is_empty() {
             debug!("compiling impl methods");
             fc.compile_impls_from_artifact(
                 &module.impls,
+                &module.extends,
                 impl_sigs,
                 canon,
                 &module.traits,
                 impl_emission_names,
             );
         }
+        fc.bind_executable_method_targets();
         fc.bind_user_drop_targets();
-
-        // Compile derived trait methods
-        if module.types.iter().any(|t| !t.derives.is_empty()) {
-            debug!("compiling derived trait methods");
-            fc.compile_derives(module, user_types);
-        }
 
         // Prepare bodies (ARC pipeline), compute nounwind set, emit LLVM IR
         debug!("preparing function bodies (phase 2a, ARC pipeline)");

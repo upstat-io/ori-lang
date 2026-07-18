@@ -377,3 +377,29 @@ fn build_records_returns_err_on_broken_pipeline() {
          partial/unsound AIMS state"
     );
 }
+
+#[test]
+fn build_records_rejects_const_errors_before_aims_lowering() {
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!(
+        "ori_emit_aims_state_const_err_{}.ori",
+        std::process::id()
+    ));
+    std::fs::write(&path, "$unsupported = [1];\n@valid () -> int = 0;\n")
+        .unwrap_or_else(|e| panic!("write fixture: {e}"));
+
+    let Some(path_str) = path.to_str() else {
+        panic!("temp fixture path is not valid utf8");
+    };
+    let result = super::build_records(path_str);
+    let _ = std::fs::remove_file(&path);
+
+    let Err(error) = result else {
+        panic!("E2058 must stop AIMS state emission");
+    };
+    assert!(error.contains("E2058"), "actual error: {error}");
+    assert!(
+        error.contains("composite value"),
+        "the actionable constant-evaluation cause must survive: {error}"
+    );
+}

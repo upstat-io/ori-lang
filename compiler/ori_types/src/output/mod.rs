@@ -20,8 +20,8 @@ mod typed_module;
 
 pub use derived::AcceptedDerivedImpl;
 pub use mono::{
-    ConcreteMethodMono, ConstGenericTerm, ConstValue, DeferredMonoCall, DeferredVarBinding,
-    GenericArg, MonoConstBinding, MonoInstance, MonoInstanceId,
+    ConcreteMethodMono, ConstGenericTerm, ConstValue, DeferredMonoCall, DeferredMonoCaller,
+    DeferredVarBinding, GenericArg, MonoConstBinding, MonoInstance, MonoInstanceId,
 };
 pub use producer::{
     imported_method_producer, imported_method_signature_hash, DerivedCallPlan, DerivedCallPosition,
@@ -29,10 +29,13 @@ pub use producer::{
     RegistryPreludeIdentity, IMPORTED_METHOD_PRODUCER_SCHEMA, REGISTRY_PRODUCER_SCHEMA,
 };
 pub use result::TypeCheckResult;
-pub use sig::{ConstParamInfo, EffectClass, FnWhereClause, FunctionSig};
+pub use sig::{
+    is_marker_capability, CapabilityParam, ConstParamInfo, EffectClass, FnWhereClause, FunctionSig,
+};
 pub use typed_module::{
-    AssignDesugar, ExportedTypeMetadata, FormatSpecTypes, ImplMethodId, ImplMethodRole, ImplSig,
-    ImportedImplSig, IterMethodRoute, TypedModule,
+    AssignDesugar, CapabilityCallSite, CapabilityProvider, CapabilityProviderSource,
+    ExportedTypeMetadata, FormatSpecTypes, ImplMethodId, ImplMethodRole, ImplSig, ImportedImplSig,
+    IterMethodRoute, TypedModule,
 };
 
 // Keep these test-only names in the module namespace because the tests import

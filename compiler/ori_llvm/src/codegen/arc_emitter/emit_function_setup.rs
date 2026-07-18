@@ -29,12 +29,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // by adding 1 to the starting index.
         let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
         let sret_offset = u32::from(has_sret);
-        // Register sret pointer for sret forwarding optimization.
-        // When the function returns a large struct via sret, the first parameter
-        // is the caller-allocated return slot. We can forward this directly to
-        // inner call_with_sret calls to avoid intermediate alloca+load+store.
+        // Register the sret pointer and its pointee type for forwarding.
+        // The pointer is compatible only with nested calls returning the same
+        // LLVM type; a differently shaped aggregate needs a separate slot.
         if has_sret {
-            self.current_sret_ptr = Some(self.builder.get_param(self.current_function, 0));
+            let return_ty = self.resolve_type(abi.return_abi.ty);
+            self.current_sret = Some((self.builder.get_param(self.current_function, 0), return_ty));
         }
         let phantom_env_offset = u32::from(self.ctx.non_capturing_lambdas.contains(&func.name));
         let needs_loads = abi.params.iter().any(|p| {

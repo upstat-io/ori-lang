@@ -141,8 +141,8 @@ The following table lists all conditions that cause a runtime panic. Each condit
 | Shift count negative | [14.3](14-expressions.md) | "negative shift count" |
 | Shift count ≥ bit width | [14.3](14-expressions.md) | "shift count exceeds bit width" |
 | `1 << 63` (shift overflow) | [14.3](14-expressions.md) | "shift overflow" |
-| List index out of bounds | [14.1.2](14-expressions.md) | "index out of bounds: N, length M" |
-| String index out of bounds | [14.1.2](14-expressions.md) | "index out of bounds" |
+| List index out of bounds | [14.1.2](14-expressions.md) | "index out of bounds: index N, length M; use 0 <= index < length (Spec: Clause 14.1.2)" |
+| String index out of bounds | [14.1.2](14-expressions.md) | "index out of bounds: index N, length M; use 0 <= index < length (Spec: Clause 14.1.2)" |
 | `as` conversion out of range | [14.1.5](14-expressions.md) | "conversion out of range" |
 | `unwrap()` on `None` | [9](09-properties-of-types.md) | "unwrap called on None" |
 | `unwrap()` on `Err` | [9](09-properties-of-types.md) | "unwrap called on Err" |

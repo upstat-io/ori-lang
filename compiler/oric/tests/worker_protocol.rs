@@ -2,9 +2,8 @@
 //!
 //! Spawns the actual `ori` binary against temp `.ori` fixtures (the unit pins
 //! in `src/test/runner/subprocess/tests.rs` use `sh -c` fake workers). Pins:
-//! the tokenized green plan/start/result/done roundtrip, the token-refusal
-//! exit, the runtime-crash shape (start flushed, no result, no done), and the
-//! parent-side run classifying that crash.
+//! the tokenized green and failing plan/start/result/done roundtrips, the
+//! token-refusal exit, and parent-side accounting for a normal test failure.
 #![cfg(feature = "llvm")]
 
 use std::path::{Path, PathBuf};
@@ -26,11 +25,8 @@ const GREEN_FIXTURE: &str = r"
 }
 ";
 
-/// Fixture whose single test dies at runtime under the LLVM JIT: the
-/// division-by-zero panic cannot unwind through JIT frames, so the runtime
-/// aborts the worker process (SIGABRT-class exit 134) — the deterministic
-/// crash shape per-file subprocess isolation exists to contain.
-const CRASHING_FIXTURE: &str = r"
+/// Fixture whose single test reports a recoverable runtime failure.
+const FAILING_FIXTURE: &str = r"
 @double (x: int) -> int = x * 2;
 
 @double_then_divides_by_zero tests @double () -> void = {
@@ -74,13 +70,6 @@ fn assert_has_line_starting(stdout: &str, prefix: &str) {
     );
 }
 
-fn assert_no_line_starting(stdout: &str, prefix: &str) {
-    assert!(
-        stdout.lines().all(|line| !line.starts_with(prefix)),
-        "worker stdout must NOT carry a line starting with {prefix:?}:\n{stdout}"
-    );
-}
-
 #[test]
 fn test_real_worker_green_fixture_roundtrips_plan_start_result_done() {
     let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -102,36 +91,35 @@ fn test_real_worker_green_fixture_roundtrips_plan_start_result_done() {
 }
 
 #[test]
-fn test_real_worker_runtime_crash_flushes_start_but_no_result_or_done() {
+fn test_real_worker_runtime_failure_reports_result_and_done() {
     let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
-    let fixture = write_fixture(&dir, "crashes.ori", CRASHING_FIXTURE);
+    let fixture = write_fixture(&dir, "fails.ori", FAILING_FIXTURE);
 
     let output = run_to_output(&mut worker_command(&fixture));
     assert!(
-        !output.status.success(),
-        "a runtime crash in JIT'd test code must kill the worker abnormally"
+        output.status.success(),
+        "a completed worker must exit 0 after reporting the test failure: {:?}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
     );
 
-    // The crash-attribution anchor: plan + start were flushed before death;
-    // no result and no done ever appear for the crashed test.
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert_has_line_starting(&stdout, &protocol_line("plan double_then_divides_by_zero"));
     assert_has_line_starting(&stdout, &protocol_line("start double_then_divides_by_zero"));
-    assert_no_line_starting(
+    assert_has_line_starting(
         &stdout,
-        &protocol_line("result double_then_divides_by_zero"),
+        &protocol_line("result double_then_divides_by_zero fail "),
     );
-    assert_no_line_starting(&stdout, &protocol_line("done"));
+    assert_has_line_starting(&stdout, &protocol_line("done"));
 }
 
 #[test]
-fn test_real_parent_run_classifies_worker_crash_and_fails_the_test() {
+fn test_real_parent_run_reports_worker_test_failure() {
     let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
-    let fixture = write_fixture(&dir, "crashes.ori", CRASHING_FIXTURE);
+    let fixture = write_fixture(&dir, "fails.ori", FAILING_FIXTURE);
 
-    // Full end-to-end: the parent runner spawns the REAL worker (no
-    // --__worker here), classifies the abnormal exit, and counts the
-    // in-flight test FAILED in the human summary.
+    // Full end-to-end: the parent runner spawns the real worker (no
+    // `--__worker` here) and counts its reported test failure.
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ori"));
     cmd.arg("test").arg("--backend=llvm").arg(&fixture);
     let output = run_to_output(&mut cmd);
@@ -139,21 +127,21 @@ fn test_real_parent_run_classifies_worker_crash_and_fails_the_test() {
     assert_eq!(
         output.status.code(),
         Some(1),
-        "a crashed test must fail the parent run\nstdout: {}",
+        "a failing test must fail the parent run\nstdout: {}",
         String::from_utf8_lossy(&output.stdout)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("FAIL: double_then_divides_by_zero"),
-        "the in-flight test must surface FAILED: {stdout}"
+        stdout.contains("FAIL: double_then_divides_by_zero - division by zero"),
+        "the worker-reported failure must preserve its diagnostic: {stdout}"
     );
     assert!(
-        stdout.contains("SIGABRT-class abort"),
-        "the failure detail must classify the worker death: {stdout}"
+        !stdout.contains("SIGABRT-class abort"),
+        "a normal test failure must not be classified as a worker crash: {stdout}"
     );
     assert!(
         stdout.contains("1 failed"),
-        "the summary must count the crashed test: {stdout}"
+        "the summary must count the failing test: {stdout}"
     );
 }
 

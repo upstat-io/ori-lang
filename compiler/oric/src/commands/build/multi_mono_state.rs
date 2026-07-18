@@ -39,6 +39,9 @@ pub(crate) struct ImportedMonoState {
     /// `MonoInstance` list. Empty when the host has no imported generic
     /// instantiations.
     pub(crate) imported_mono_fns: Vec<crate::commands::ImportedMonoFn>,
+    /// Re-interned generic signatures and exact source-body coordinates,
+    /// including implicit prelude functions with no eager mono demand.
+    pub(crate) imported_generic_templates: Vec<crate::realization::ImportedGenericTemplate>,
 }
 
 impl ImportedMonoState {
@@ -47,6 +50,7 @@ impl ImportedMonoState {
     pub(crate) fn surfaces(&self) -> crate::commands::ImportedSurfaces<'_> {
         crate::commands::ImportedSurfaces {
             imported_mono_fns: &self.imported_mono_fns,
+            generic_templates: &self.imported_generic_templates,
             re_interned_canons: &self.re_interned_canons,
         }
     }
@@ -96,13 +100,23 @@ fn type_check_and_canonicalize_imports(
             ));
             continue;
         };
-        let imp_canon = oric::query::canonicalize_cached_by_path(
-            db,
-            &imp_module.module_path,
-            &imp_module.parse_output,
-            &imp_tc,
-            &imp_pool,
-        );
+        let imp_canon = if imp_module.source_file.is_some() {
+            oric::query::canonicalize_cached_by_path(
+                db,
+                &imp_module.module_path,
+                &imp_module.parse_output,
+                &imp_tc,
+                &imp_pool,
+            )
+        } else {
+            oric::query::canonicalize_uncached_by_path(
+                db,
+                &imp_module.module_path,
+                &imp_module.parse_output,
+                &imp_tc,
+                &imp_pool,
+            )
+        };
         imported_type_results.push(imp_tc);
         imported_pools.push(imp_pool);
         imported_canon_results.push(imp_canon);
@@ -130,7 +144,7 @@ fn re_intern_public_function_sigs(
                 .typed
                 .functions
                 .iter()
-                .filter(|signature| signature.is_public && !signature.is_generic())
+                .filter(|signature| signature.is_public && !signature.requires_specialization())
                 .map(|signature| {
                     let re_interned = ori_types::re_intern_sig_with_var_remap(
                         signature,
@@ -177,6 +191,28 @@ fn collect_imported_impl_templates(
 
 type ImportedGenericSigs = FxHashMap<ori_ir::Name, (ori_types::FunctionSig, usize, ori_ir::Name)>;
 
+fn retain_generic_templates(
+    signatures: &ImportedGenericSigs,
+    imported_type_results: &[ori_types::TypeCheckResult],
+) -> Vec<crate::realization::ImportedGenericTemplate> {
+    let mut templates: Vec<_> = signatures
+        .iter()
+        .map(|(&local_name, (signature, module_index, source_name))| {
+            crate::realization::ImportedGenericTemplate {
+                local_name,
+                signature: signature.clone(),
+                module_index: *module_index,
+                source_name: *source_name,
+                generic_type_params: crate::realization::generic_type_param_map(
+                    &imported_type_results[*module_index].typed.types,
+                ),
+            }
+        })
+        .collect();
+    templates.sort_by_key(|template| template.local_name.raw());
+    templates
+}
+
 fn re_intern_generic_function_sigs(
     resolved_imports: &crate::imports::ResolvedImports,
     imported_type_results: &[ori_types::TypeCheckResult],
@@ -198,7 +234,7 @@ fn re_intern_generic_function_sigs(
         else {
             continue;
         };
-        if !signature.is_generic() {
+        if !signature.requires_specialization() {
             continue;
         }
         let module_index = func_ref.module_index;
@@ -270,6 +306,7 @@ pub(crate) fn build_imported_mono_state(
             re_interned_function_sigs: Vec::new(),
             re_interned_canons: Vec::new(),
             imported_mono_fns: Vec::new(),
+            imported_generic_templates: Vec::new(),
         };
     }
 
@@ -335,12 +372,15 @@ pub(crate) fn build_imported_mono_state(
         &mut merged_pool,
         interner,
     );
+    let imported_generic_templates =
+        retain_generic_templates(&imported_generic_sigs, &imported_type_results);
 
     ImportedMonoState {
         merged_pool,
         re_interned_function_sigs,
         re_interned_canons,
         imported_mono_fns,
+        imported_generic_templates,
     }
 }
 
@@ -381,3 +421,7 @@ fn re_intern_imported_canons(
         })
         .collect()
 }
+
+#[cfg(test)]
+#[path = "multi_mono_state_tests.rs"]
+mod tests;

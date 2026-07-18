@@ -94,7 +94,7 @@ pub(crate) fn type_check_with_imports_and_pool(
         interner,
         |checker| {
             register_builtins(interner, checker);
-            register_resolved_imports(db, &resolved, checker, interner);
+            register_resolved_imports(db, &resolved, current_file, checker, interner);
         },
     )
 }
@@ -240,34 +240,37 @@ fn register_imported_impl_templates(
 /// Consumes a `ResolvedImports` produced by the unified import pipeline.
 /// Uses `resolved.imported_functions` directly — each entry already tracks the
 /// local name, original name, source module, and whether it's a module alias.
-fn register_resolved_imports(
+/// Register every public prelude function and trait, propagating any
+/// circular-import errors surfaced while type-checking the prelude itself.
+fn register_prelude(
     db: &dyn Db,
     resolved: &imports::ResolvedImports,
     checker: &mut ori_types::ModuleChecker<'_>,
-    interner: &StringInterner,
 ) {
-    // 1a. Register prelude functions (all public)
-    if let Some(ref prelude) = resolved.prelude {
-        // Why: prelude signatures use the cached hash-first resolution path.
-        let prelude_tcr = prelude.source_file.map(|sf| typed_or_poison(db, sf));
-        propagate_circular_import_errors(checker, prelude_tcr.iter());
+    let Some(ref prelude) = resolved.prelude else {
+        return;
+    };
+    // Why: prelude signatures use the cached hash-first resolution path.
+    let prelude_tcr = prelude.source_file.map(|sf| typed_or_poison(db, sf));
+    propagate_circular_import_errors(checker, prelude_tcr.iter());
 
-        for func in &prelude.parse_output.module.functions {
-            if func.visibility.is_public() {
-                let imported_sig = prelude_tcr
-                    .as_ref()
-                    .and_then(|r| r.typed.functions.iter().find(|s| s.name == func.name));
-                checker.register_imported_function(func, &prelude.parse_output.arena, imported_sig);
-            }
+    for func in &prelude.parse_output.module.functions {
+        if func.visibility.is_public() {
+            let imported_sig = prelude_tcr
+                .as_ref()
+                .and_then(|r| r.typed.functions.iter().find(|s| s.name == func.name));
+            checker.register_imported_function(func, &prelude.parse_output.arena, imported_sig);
         }
     }
+    checker.register_imported_traits(&prelude.parse_output.module, &prelude.parse_output.arena);
+}
 
-    // 1b. Register prelude traits (all public)
-    if let Some(ref prelude) = resolved.prelude {
-        checker.register_imported_traits(&prelude.parse_output.module, &prelude.parse_output.arena);
-    }
-
-    // INVARIANT: import resolution supplies every error span.
+/// Push every resolved-import error onto the checker, guarding the
+/// invariant that `resolve_imports` always attaches a span.
+fn push_import_errors(
+    resolved: &imports::ResolvedImports,
+    checker: &mut ori_types::ModuleChecker<'_>,
+) {
     for error in &resolved.errors {
         debug_assert!(
             error.span.is_some(),
@@ -286,46 +289,73 @@ fn register_resolved_imports(
             error.kind,
         ));
     }
+}
 
-    // Why: cache one type-check result per module for signature resolution.
+/// Type-check every imported module once (caching the result for signature
+/// resolution) and collect each module's frozen pool alongside it.
+fn collect_module_results_and_pools(
+    db: &dyn Db,
+    resolved: &imports::ResolvedImports,
+    checker: &mut ori_types::ModuleChecker<'_>,
+) -> (
+    Vec<Option<TypeCheckResult>>,
+    Vec<Option<std::sync::Arc<ori_types::Pool>>>,
+) {
     let module_results: Vec<Option<TypeCheckResult>> = resolved
         .modules
         .iter()
         .map(|m| m.source_file.map(|sf| typed_or_poison(db, sf)))
         .collect();
     propagate_circular_import_errors(checker, module_results.iter().flatten());
+    let module_pools: Vec<Option<std::sync::Arc<ori_types::Pool>>> = resolved
+        .modules
+        .iter()
+        .map(|module| {
+            module
+                .source_file
+                .and_then(|source_file| crate::query::typed_pool(db, source_file))
+        })
+        .collect();
+    (module_results, module_pools)
+}
 
-    // Imported impl selection is consumer-owned. Register the complete direct
-    // import graph before local registration and derive closure run.
-    register_imported_impl_templates(resolved, checker);
+/// Collect imported type metadata and collection surfaces for transitive
+/// forwarding, from the prelude plus every imported module's results.
+fn register_imported_metadata(
+    db: &dyn Db,
+    resolved: &imports::ResolvedImports,
+    module_results: &[Option<TypeCheckResult>],
+    checker: &mut ori_types::ModuleChecker<'_>,
+) {
+    let prelude_result = resolved
+        .prelude
+        .as_ref()
+        .and_then(|p| p.source_file.map(|sf| typed_or_poison(db, sf)));
+    propagate_circular_import_errors(checker, prelude_result.iter());
 
-    // 3a. Collect imported metadata for transitive forwarding.
-    // Both type metadata and collection surfaces flow through the same sources.
-    {
-        let prelude_result = resolved
-            .prelude
-            .as_ref()
-            .and_then(|p| p.source_file.map(|sf| typed_or_poison(db, sf)));
-        propagate_circular_import_errors(checker, prelude_result.iter());
+    let imported_metadata = collect_metadata_from_results(prelude_result.as_ref(), module_results);
+    let imported_surfaces = collect_surfaces_from_results(prelude_result.as_ref(), module_results);
 
-        let imported_metadata =
-            collect_metadata_from_results(prelude_result.as_ref(), &module_results);
-        let imported_surfaces =
-            collect_surfaces_from_results(prelude_result.as_ref(), &module_results);
-
-        if !imported_metadata.is_empty() {
-            checker.set_imported_type_metadata(imported_metadata);
-        }
-        if !imported_surfaces.is_empty() {
-            checker.set_imported_collection_surfaces(imported_surfaces);
-        }
+    if !imported_metadata.is_empty() {
+        checker.set_imported_type_metadata(imported_metadata);
     }
+    if !imported_surfaces.is_empty() {
+        checker.set_imported_collection_surfaces(imported_surfaces);
+    }
+}
 
+/// Register every explicitly-imported function (or whole-module alias)
+/// against its resolved source module and cached signature.
+fn register_imported_functions(
+    resolved: &imports::ResolvedImports,
+    module_results: &[Option<TypeCheckResult>],
+    checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &StringInterner,
+) {
     for func_ref in &resolved.imported_functions {
         let module = &resolved.modules[func_ref.module_index];
         let imported_parsed = &module.parse_output;
 
-        // Module alias imports: register the entire module under an alias name
         if func_ref.is_module_alias {
             checker.register_module_alias(
                 func_ref.local_name,
@@ -335,7 +365,6 @@ fn register_resolved_imports(
             continue;
         }
 
-        // Find the function by its original name in the source module
         let Some(func) = imported_parsed
             .module
             .functions
@@ -346,7 +375,6 @@ fn register_resolved_imports(
             continue;
         };
 
-        // Look up the imported signature from the type check result
         let imported_sig = module_results[func_ref.module_index]
             .as_ref()
             .and_then(|r| {
@@ -367,6 +395,129 @@ fn register_resolved_imports(
             );
         }
     }
+}
+
+fn register_resolved_imports(
+    db: &dyn Db,
+    resolved: &imports::ResolvedImports,
+    current_file: &Path,
+    checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &StringInterner,
+) {
+    register_prelude(db, resolved, checker);
+    push_import_errors(resolved, checker);
+
+    let (module_results, module_pools) = collect_module_results_and_pools(db, resolved, checker);
+
+    // Imported impl selection is consumer-owned. Register the complete direct
+    // import graph before local registration and derive closure run.
+    register_imported_impl_templates(resolved, checker);
+
+    register_imported_metadata(db, resolved, &module_results, checker);
+
+    register_imported_constants(
+        resolved,
+        current_file,
+        &module_results,
+        &module_pools,
+        checker,
+        interner,
+    );
+
+    register_imported_functions(resolved, &module_results, checker, interner);
+}
+
+/// Register selected constant types in the consumer pool.
+///
+/// The provider owns inference of its initializer. The import boundary only
+/// transfers that already-resolved type into the consumer pool, mirroring the
+/// cross-pool signature handling for imported functions without moving
+/// constant-value evaluation into `ori_types`.
+fn register_imported_constants(
+    resolved: &imports::ResolvedImports,
+    current_file: &Path,
+    module_results: &[Option<TypeCheckResult>],
+    module_pools: &[Option<std::sync::Arc<ori_types::Pool>>],
+    checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &StringInterner,
+) {
+    for constant_ref in &resolved.imported_constants {
+        let module = &resolved.modules[constant_ref.module_index];
+        let imported_module = &module.parse_output.module;
+        let Some(constant) = imported_module
+            .consts
+            .iter()
+            .find(|constant| constant.name == constant_ref.original_name)
+        else {
+            report_missing_constant(checker, interner, constant_ref, &module.module_path);
+            continue;
+        };
+
+        let parent_test_access = imports::is_test_module(current_file)
+            && imports::is_parent_module_import(current_file, &module.module_path);
+        if !constant.visibility.is_public() && !parent_test_access {
+            let name = interner.lookup(constant_ref.original_name);
+            checker.push_error(ori_types::TypeCheckError::import_error(
+                format!(
+                    "constant '${name}' is private in module '{}'; add `pub` to the constant definition before importing it",
+                    module.module_path.display()
+                ),
+                constant_ref.span,
+                ori_types::ImportErrorKind::PrivateAccess,
+            ));
+            continue;
+        }
+
+        let Some(source_result) = module_results[constant_ref.module_index].as_ref() else {
+            continue;
+        };
+        let Some(source_pool) = module_pools[constant_ref.module_index].as_deref() else {
+            checker.push_error(ori_types::TypeCheckError::import_error(
+                format!(
+                    "cannot import constant '${}': the provider type pool is unavailable; check the provider module for type errors",
+                    interner.lookup(constant_ref.original_name)
+                ),
+                constant_ref.span,
+                ori_types::ImportErrorKind::ItemNotFound,
+            ));
+            continue;
+        };
+        let Some(source_ty) = source_result.typed.expr_type(constant.value.index()) else {
+            checker.push_error(ori_types::TypeCheckError::import_error(
+                format!(
+                    "cannot import constant '${}': its initializer has no resolved type; fix errors in '{}' first",
+                    interner.lookup(constant_ref.original_name),
+                    module.module_path.display()
+                ),
+                constant_ref.span,
+                ori_types::ImportErrorKind::ItemNotFound,
+            ));
+            continue;
+        };
+
+        let mut cache = rustc_hash::FxHashMap::default();
+        let consumer_ty =
+            ori_types::re_intern_type(source_pool, source_ty, checker.pool_mut(), &mut cache);
+        checker.register_const_type(constant_ref.local_name, consumer_ty);
+    }
+}
+
+#[cold]
+fn report_missing_constant(
+    checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &StringInterner,
+    constant_ref: &imports::ImportedConstantRef,
+    module_path: &Path,
+) {
+    let name = interner.lookup(constant_ref.original_name);
+    checker.push_error(ori_types::TypeCheckError::import_error(
+        format!(
+            "constant '${name}' not found in module '{}'; export that constant or correct the name in the `use` list",
+            module_path.display()
+        ),
+        constant_ref.span,
+        ori_types::ImportErrorKind::ItemNotFound,
+    ));
 }
 
 /// Report a missing imported function to the type checker.

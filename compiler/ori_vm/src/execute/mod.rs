@@ -280,7 +280,14 @@ impl<'a> Interpreter<'a> {
                 returned = value;
             }
         }
-        self.materialize(returned)
+        let exit_value = self.materialize(returned)?;
+        self.release_owned_value(returned)?;
+        if self.value_arena.metrics().live_entries > 0 {
+            let max_entries = self.config.max_value_arena_entries;
+            self.value_arena
+                .collect(self.heap.value_roots(), max_entries)?;
+        }
+        Ok(exit_value)
     }
 
     fn frame_owned_bytes(&self) -> (usize, usize, usize) {

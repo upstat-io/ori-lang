@@ -9,6 +9,7 @@ mod cast_target;
 mod collections;
 mod expr;
 mod format_names;
+mod named_constants;
 mod patterns;
 mod roots;
 mod sequences;
@@ -17,7 +18,8 @@ use format_names::FormatDesugarNames;
 
 use ori_ir::ast::items::Module;
 use ori_ir::canon::{
-    CanArena, CanExpr, CanId, CanNode, CanonResult, ConstantPool, DecisionTreePool, MonoInstanceId,
+    CanArena, CanExpr, CanId, CanNode, CanonResult, ConstEvalProblem, ConstValue, ConstantPool,
+    DecisionTreePool, MonoInstanceId, NamedConstValue,
 };
 use ori_ir::{ExprArena, ExprId, Name, Span, TypeId};
 use ori_types::{Idx, Tag, TypeCheckResult, TypedModule};
@@ -94,6 +96,22 @@ pub fn lower_module(
     pool: &ori_types::Pool,
     interner: &ori_ir::StringInterner,
 ) -> CanonResult {
+    lower_module_with_constants(module, src, type_result, pool, interner, &[])
+}
+
+/// Lower a complete module with already-evaluated selected imports.
+///
+/// Imported values seed the module constant environment. Local declarations
+/// are then evaluated in dependency order and shadow same-named imports before
+/// any executable root is lowered.
+pub fn lower_module_with_constants(
+    module: &Module,
+    src: &ExprArena,
+    type_result: &TypeCheckResult,
+    pool: &ori_types::Pool,
+    interner: &ori_ir::StringInterner,
+    imported_constants: &[NamedConstValue],
+) -> CanonResult {
     debug!(
         functions = module.functions.len(),
         tests = module.tests.len(),
@@ -103,6 +121,8 @@ pub fn lower_module(
     );
 
     let mut lowerer = Lowerer::new(src, &type_result.typed, pool, interner);
+    let named_constants =
+        named_constants::lower_named_constants(&mut lowerer, module, imported_constants);
     let mut roots = roots::lower_function_roots(&mut lowerer, module);
     roots::lower_test_roots(&mut lowerer, module, &mut roots);
 
@@ -130,6 +150,8 @@ pub fn lower_module(
     let mut result = lowerer.finish(root);
     result.roots = roots;
     result.method_roots = method_roots;
+    result.named_constants = named_constants;
+    result.constant_inputs = imported_constants.to_vec();
 
     debug!(
         canon_nodes = result.arena.len(),
@@ -171,6 +193,10 @@ pub(crate) struct Lowerer<'a> {
     pub(super) decision_trees: DecisionTreePool,
     /// Pattern problems accumulated during exhaustiveness checking.
     pub(crate) problems: Vec<ori_ir::canon::PatternProblem>,
+    /// Evaluated imported and local module constants available while lowering.
+    pub(crate) named_constants: rustc_hash::FxHashMap<Name, ConstValue>,
+    /// Constant-evaluation failures accumulated before executable roots.
+    pub(crate) const_problems: Vec<ConstEvalProblem>,
     /// Pre-sort `(CanId, MonoInstanceId)` pairs accumulated during lowering.
     /// Each entry corresponds to a generic call site whose AST `ExprId` was
     /// resolved to a specific `MonoInstanceId` by the type checker (carried
@@ -250,6 +276,8 @@ impl<'a> Lowerer<'a> {
             constants: ConstantPool::new(),
             decision_trees: DecisionTreePool::new(),
             problems: Vec::new(),
+            named_constants: rustc_hash::FxHashMap::default(),
+            const_problems: Vec::new(),
             mono_dispatch_map_can: Vec::new(),
             index_temp_overrides: rustc_hash::FxHashMap::default(),
             name_to_str: interner.intern("to_str"),
@@ -283,6 +311,9 @@ impl<'a> Lowerer<'a> {
             roots: Vec::new(),
             method_roots: Vec::new(),
             problems: self.problems,
+            named_constants: Vec::new(),
+            constant_inputs: Vec::new(),
+            const_problems: self.const_problems,
             mono_dispatch_map_can,
             mono_const_bindings,
         }

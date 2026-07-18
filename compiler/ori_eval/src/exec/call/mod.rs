@@ -75,6 +75,9 @@ pub fn bind_captures_iter<'a>(
 /// Bind captured variables from a `FunctionValue` to an environment.
 pub fn bind_captures(env: &mut Environment, func: &FunctionValue) {
     bind_captures_iter(env, func.captures());
+    for (name, value) in func.module_function_bindings() {
+        env.define(name, value, Mutability::Immutable);
+    }
 }
 
 /// Evaluate a call to a `FunctionVal` (built-in function).

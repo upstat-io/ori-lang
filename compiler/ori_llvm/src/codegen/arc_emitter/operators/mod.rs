@@ -28,11 +28,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         lhs: ValueId,
         rhs: ValueId,
         lhs_ty: Idx,
+        rhs_ty: Idx,
+        result_ty: Idx,
         strategy: OpStrategy,
         arc_func: &ori_arc::ir::ArcFunction,
     ) -> ValueId {
         match strategy {
-            OpStrategy::SignedInteger => self.emit_int_binary_op(op, lhs, rhs),
+            OpStrategy::SignedInteger => {
+                self.emit_int_binary_op(op, lhs, rhs, lhs_ty, rhs_ty, result_ty)
+            }
             OpStrategy::FloatingPoint => self.emit_float_binary_op(op, lhs, rhs),
             OpStrategy::UnsignedComparison => self.emit_unsigned_binary_op(op, lhs, rhs),
             OpStrategy::BooleanLogic => self.emit_bool_binary_op(op, lhs, rhs),
@@ -74,14 +78,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         op: UnaryOp,
         operand: ValueId,
-        _operand_ty: Idx,
+        operand_ty: Idx,
         strategy: OpStrategy,
     ) -> ValueId {
         match strategy {
             OpStrategy::SignedInteger
             | OpStrategy::BooleanLogic
             | OpStrategy::UnsignedComparison => match op {
-                UnaryOp::Neg => self.builder.checked_neg(operand, "neg"),
+                UnaryOp::Neg => {
+                    let overflow_msg = match self.type_info.get(operand_ty) {
+                        TypeInfo::Duration => "integer overflow in duration negation",
+                        _ => "integer overflow in negation",
+                    };
+                    self.builder.checked_neg_msg(operand, "neg", overflow_msg)
+                }
                 UnaryOp::Not => self.builder.not(operand, "not"),
                 UnaryOp::BitNot => {
                     let all_ones = self.builder.const_i64(-1);

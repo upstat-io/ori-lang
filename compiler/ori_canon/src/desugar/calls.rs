@@ -18,6 +18,7 @@ impl Lowerer<'_> {
     /// arguments are kept in source order.
     pub(crate) fn desugar_call_named(
         &mut self,
+        call_expr_id: ExprId,
         func: ExprId,
         args: CallArgRange,
         span: Span,
@@ -35,16 +36,19 @@ impl Lowerer<'_> {
         let params = self.resolve_func_params(func_kind);
 
         let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
+        let lowered_args = self.append_capability_args(call_expr_id, lowered_args, span);
         let args_range = self.arena.push_expr_list(&lowered_args);
 
-        self.push(
+        let can_id = self.push(
             CanExpr::Call {
                 func: lowered_func,
                 args: args_range,
             },
             span,
             ty,
-        )
+        );
+        self.record_mono_dispatch_if_present(call_expr_id, can_id);
+        can_id
     }
 
     // MethodCallNamed → MethodCall

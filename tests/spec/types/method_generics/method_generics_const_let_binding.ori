@@ -19,7 +19,6 @@ impl<T> Vec<T> {
     @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
 }
 
-#skip("BUG-02-023: $-let binding driving const-arg inference — awaits Phase E0.2 ParsedType::ConstExpr resolution")
 @test_const_let_binding tests _ () -> void = {
     let $K = 5;
     let v = Vec { items: [11, 22, 33, 44, 55, 66, 77] };

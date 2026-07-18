@@ -138,15 +138,18 @@ pub struct IrBuilder<'scx, 'ctx> {
     global_strings: FxHashMap<String, ValueId>,
     /// CSE cache for checked arithmetic intrinsics.
     ///
-    /// Maps `(intrinsic_name, lhs, rhs)` to the already-computed result
-    /// `ValueId`. Operands are normalized via [`checked_ops::CseOperand`]
-    /// so that identical constants match regardless of `ValueId`.
+    /// Maps `(intrinsic_name, panic_message, lhs, rhs)` to the already-computed
+    /// result `ValueId`. The panic message is semantic: Duration and Size use
+    /// the same LLVM intrinsics as int but have distinct specified diagnostics.
+    /// Operands are normalized via [`checked_ops::CseOperand`] so that
+    /// identical constants match regardless of `ValueId`.
     /// Scoped per ARC block — cleared at each ARC-block-boundary
     /// transition via [`Self::clear_cse_cache`]. NOT cleared by internal
     /// `position_at_end` calls within `emit_checked_binop` (which creates
     /// panic/continue blocks as part of a single logical operation).
     cse_cache: FxHashMap<
         (
+            &'static str,
             &'static str,
             checked_ops::CseOperand,
             checked_ops::CseOperand,

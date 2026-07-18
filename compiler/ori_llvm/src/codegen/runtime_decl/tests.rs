@@ -66,10 +66,16 @@ fn iter_map_declaration_includes_output_release_thunk() {
     builder.runtime_fn("ori_iter_map");
 
     let map = scx.llmod.get_function("ori_iter_map").unwrap();
-    assert_eq!(map.count_params(), 5);
+    assert_eq!(map.count_params(), 7);
+    for hook_index in [3, 4] {
+        assert!(
+            matches!(map.get_nth_param(hook_index), Some(param) if param.is_pointer_value()),
+            "ori_iter_map's callback-environment hooks must be pointers"
+        );
+    }
     assert!(
-        matches!(map.get_nth_param(4), Some(param) if param.is_pointer_value()),
-        "ori_iter_map's fifth ABI slot must carry the output release thunk"
+        matches!(map.get_nth_param(6), Some(param) if param.is_pointer_value()),
+        "ori_iter_map's seventh ABI slot must carry the output release thunk"
     );
 }
 
@@ -89,14 +95,27 @@ fn iterator_callback_abi_is_stable_on_non_host_targets() {
         scx.llmod.set_data_layout(&target_data.get_data_layout());
         let mut builder = IrBuilder::new(&scx);
 
-        for name in ["ori_iter_map", "ori_iter_collect", "ori_iter_collect_set"] {
+        for name in [
+            "ori_iter_map",
+            "ori_iter_filter",
+            "ori_iter_collect",
+            "ori_iter_collect_set",
+            "ori_iter_find",
+            "ori_iter_last",
+            "ori_iter_rfind",
+            "ori_iter_join",
+        ] {
             builder.runtime_fn(name);
         }
 
         let ir = scx.llmod.print_to_string().to_string();
         assert!(
-            ir.contains("declare ptr @ori_iter_map(ptr, ptr, ptr, i64, ptr)"),
-            "{triple} must preserve the map output-release-thunk slot:\n{ir}"
+            ir.contains("declare ptr @ori_iter_map(ptr, ptr, ptr, ptr, ptr, i64, ptr)"),
+            "{triple} must preserve map callback ownership and output cleanup:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare ptr @ori_iter_filter(ptr, ptr, ptr, ptr, ptr, i64)"),
+            "{triple} must preserve filter callback-environment ownership:\n{ir}"
         );
         assert!(
             ir.contains("declare void @ori_iter_collect(ptr, i64, ptr, ptr, ptr)"),
@@ -105,6 +124,22 @@ fn iterator_callback_abi_is_stable_on_non_host_targets() {
         assert!(
             ir.contains("declare void @ori_iter_collect_set(ptr, i64, ptr, ptr, ptr, ptr, ptr)"),
             "{triple} must preserve the set-collect element-release-thunk slot:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_find(ptr, ptr, ptr, i64, ptr, ptr)"),
+            "{triple} must preserve find's retain-before-output ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_last(ptr, i64, ptr, ptr)"),
+            "{triple} must preserve last's retain-before-output ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_rfind(ptr, ptr, ptr, i64, ptr, ptr)"),
+            "{triple} must preserve rfind's retain-before-output ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_join(ptr, i64, i64, ptr, ptr, ptr, i64, ptr)"),
+            "{triple} join ABI must leave yield provenance inside IterState:\n{ir}"
         );
         assert!(
             scx.llmod.verify().is_ok(),

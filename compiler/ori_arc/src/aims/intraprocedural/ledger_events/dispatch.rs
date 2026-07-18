@@ -365,6 +365,8 @@ impl Classifier<'_> {
                 continue;
             }
             let iter_consume = facts.is_some_and(|f| f.iter_consume_transfer(position));
+            let borrowed_cow_funding =
+                facts.is_some_and(|f| f.borrowed_cow_consume_funding(position));
             let owned = arg_ownership
                 .get(position)
                 .map_or(default_owned, |o| *o == ArgOwnership::Owned);
@@ -379,6 +381,14 @@ impl Classifier<'_> {
             }
             if iter_consume || owned {
                 self.consume(stream, arg);
+            } else if borrowed_cow_funding {
+                // The borrowed call boundary retains the caller's original
+                // owner but supplies a second credit consumed by the callee.
+                // CONSUME followed by same-site READ exposes both facts to the
+                // class ledger: the surviving demand makes it place one inc,
+                // and the retained owner is released after the call.
+                self.consume(stream, arg);
+                self.read(stream, arg);
             } else {
                 self.read(stream, arg);
             }

@@ -482,6 +482,25 @@ pub struct MethodCallFact {
     pub derived_position: Option<DerivedCallPosition>,
 }
 
+/// Source operator call awaiting one exact implementation target.
+///
+/// User-defined operators lower as ordinary may-unwind calls so their cleanup
+/// and `catch(expr:)` edges exist while lexical catch context is available.
+/// Realization consumes this fact before AIMS to replace the surface method
+/// name with the exact implementation identity selected for `receiver_type`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub struct OperatorCallFact {
+    /// Result register defined by the unresolved operator call.
+    pub destination: ArcVarId,
+    /// Stable source receiver whose realized type selects the implementation.
+    pub receiver: ArcVarId,
+    /// Source operation whose trait method owns the call.
+    pub operation: PrimOp,
+    /// Source span restored onto a builtin or projected result instruction.
+    pub span: Option<Span>,
+}
+
 /// Exact producer provenance for a compiler-generated direct free call.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
@@ -675,6 +694,12 @@ pub struct ArcFunction {
     /// stream before selecting any physical backend.
     #[cfg_attr(feature = "cache", serde(default))]
     pub method_call_facts: Vec<MethodCallFact>,
+    /// User-defined operator calls awaiting exact target closure.
+    ///
+    /// Lowering-owned and consumed transactionally during pre-AIMS batch
+    /// preparation. A closed executable must never retain an entry.
+    #[cfg_attr(feature = "cache", serde(default))]
+    pub operator_call_facts: Vec<OperatorCallFact>,
     /// Exact compiler-generated free-call producer facts.
     #[cfg_attr(feature = "cache", serde(default))]
     pub direct_call_facts: Vec<DirectCallFact>,

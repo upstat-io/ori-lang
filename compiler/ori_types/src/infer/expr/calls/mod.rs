@@ -65,7 +65,34 @@ pub(crate) fn resolve_operator_method(
         method,
         receiver_ty,
         &sig,
+        &[],
+    );
+    Some(sig.ret)
+}
+
+/// Resolve one user-defined unary operator through the ordinary impl-method
+/// path and publish any concrete generic-method demand it selects.
+pub(crate) fn resolve_unary_operator_method(
+    engine: &mut super::super::InferEngine<'_>,
+    receiver_ty: Idx,
+    method: Name,
+    span: Span,
+) -> Option<Idx> {
+    let outcome = impl_lookup::lookup_impl_method(engine, receiver_ty, method);
+    let Ok(sig) = impl_signature::resolve_impl_signature(engine, outcome, method, 0, span)? else {
+        return Some(Idx::ERROR);
+    };
+    if !sig.params.is_empty() {
+        return Some(Idx::ERROR);
+    }
+
+    monomorphization::maybe_record_method_mono_instance(
+        engine,
         None,
+        method,
+        receiver_ty,
+        &sig,
+        &[],
     );
     Some(sig.ret)
 }

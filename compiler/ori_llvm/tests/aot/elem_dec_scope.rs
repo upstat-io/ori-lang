@@ -77,11 +77,9 @@ fn test_str_list_method_collect() {
     );
 }
 
-// Trampoline ABI for fat-pointer types — regression guards for the sret/indirect
-// calling convention fix. Prior to this fix, the Map trampoline loaded 24-byte
-// str values by-value and called the closure as if it used direct return, but
-// the closure actually uses sret + indirect param ABI for types > 16 bytes.
-// Semantic pin: would crash with SIGSEGV if trampoline reverts to by-value ABI.
+// Trampoline ABI for fat-pointer types: explicit closure arguments use the
+// uniform borrowed convention (`Reference` for managed str), while results use
+// sret. A by-value argument or direct-return call crashes with SIGSEGV.
 
 #[test]
 fn test_trampoline_map_str_identity() {
@@ -110,16 +108,22 @@ fn test_trampoline_fold_str() {
 // ForEach trampoline with fat-pointer elements — semantic pin for the
 // TrampolineKind::ForEach indirect-call path. Prior tests cover Map, Predicate,
 // and Fold; this covers the remaining ForEach branch where the closure accepts
-// an indirect parameter and returns void.
-// Semantic pin: would crash with SIGSEGV if ForEach trampoline reverts to
-// by-value ABI for types > 16 bytes.
+// a borrowed `Reference` parameter and returns void. A by-value call crashes
+// with SIGSEGV.
 
 #[test]
-#[ignore = "BUG-02-065: for_each result-binding misclassified ReturnTag::Fresh -> E2005 unresolved type variable"]
 fn test_trampoline_for_each_str() {
     assert_aot_success(
         include_str!("fixtures/elem_dec_scope/trampoline_for_each_str.ori"),
         "trampoline_for_each_str",
+    );
+}
+
+#[test]
+fn test_trampoline_for_each_releases_str_result() {
+    assert_aot_success(
+        include_str!("fixtures/elem_dec_scope/trampoline_for_each_str_result.ori"),
+        "trampoline_for_each_str_result",
     );
 }
 

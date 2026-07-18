@@ -104,6 +104,9 @@ pub(super) fn unify_higher_order_constraints(
                 }
             }
         }
+        "zip" => {
+            unify_zip_other_element(engine, ret_ty, arg_types);
+        }
         // Result closure-methods (Result-only method names). The Result-family
         // helper guards on Tag::Result; a Tag::Error poison receiver adds no
         // constraint (the error type stays poison, never destructured).
@@ -121,6 +124,48 @@ pub(super) fn unify_higher_order_constraints(
         }
         _ => {}
     }
+}
+
+/// Bind the fresh right-hand element in a computed `zip` return to the element
+/// of its `other` argument.
+///
+/// `Iterator<T>.zip(Iterator<U>)` returns `Iterator<(T, U)>`; `List<T>.zip([U])`
+/// returns `[(T, U)]`. The registry correctly marks these returns `Fresh`
+/// because `U` comes from an argument, while computed-return resolution builds
+/// the outer container and tuple. This step connects the remaining fresh tuple
+/// slot to that argument. Only List and Iterator shapes participate so this
+/// constraint cannot make unrelated collection-like arguments type-check.
+fn unify_zip_other_element(engine: &mut InferEngine<'_>, ret_ty: Idx, arg_types: &[Idx]) {
+    let Some(&other_ty) = arg_types.first() else {
+        return;
+    };
+
+    let resolved_ret = engine.resolve(ret_ty);
+    let result_elem = if engine.pool().tag(resolved_ret).is_iterator() {
+        engine.pool().iterator_elem(resolved_ret)
+    } else if engine.pool().tag(resolved_ret) == Tag::List {
+        engine.pool().list_elem(resolved_ret)
+    } else {
+        return;
+    };
+    let resolved_pair = engine.resolve(result_elem);
+    if engine.pool().tag(resolved_pair) != Tag::Tuple
+        || engine.pool().tuple_elem_count(resolved_pair) != 2
+    {
+        return;
+    }
+
+    let resolved_other = engine.resolve(other_ty);
+    let other_elem = if engine.pool().tag(resolved_other).is_iterator() {
+        engine.pool().iterator_elem(resolved_other)
+    } else if engine.pool().tag(resolved_other) == Tag::List {
+        engine.pool().list_elem(resolved_other)
+    } else {
+        return;
+    };
+
+    let right_elem = engine.pool().tuple_elem(resolved_pair, 1);
+    let _ = engine.unify().unify(right_elem, other_elem);
 }
 
 /// Unify a Result closure-method's closure against the receiver Ok/Err slots and

@@ -45,6 +45,12 @@ pub struct FunctionValue {
     ///
     /// No `RwLock` needed since captures are immutable after creation.
     captures: Arc<FxHashMap<Name, Value>>,
+    /// Immutable templates for functions owned by the same lexical module.
+    ///
+    /// Templates deliberately exclude runtime `Value`s, so the shared table
+    /// cannot form an `Arc` cycle. Calls materialize sibling function values
+    /// with this function's lexical captures on demand.
+    module_scope: Option<Arc<FxHashMap<Name, ModuleFunctionTemplate>>>,
     /// Arena for expression resolution (needed for `create_function_interpreter`).
     arena: SharedArena,
     /// Canonical IR for this function's body.
@@ -75,6 +81,7 @@ impl FunctionValue {
             params,
             can_body: CanId::INVALID,
             captures: Arc::new(captures),
+            module_scope: None,
             arena,
             canon: None,
             can_defaults: Vec::new(),
@@ -99,6 +106,7 @@ impl FunctionValue {
             params,
             can_body: CanId::INVALID,
             captures: Arc::new(captures),
+            module_scope: None,
             arena,
             canon: None,
             can_defaults: Vec::new(),
@@ -137,6 +145,7 @@ impl FunctionValue {
             params,
             can_body: CanId::INVALID,
             captures,
+            module_scope: None,
             arena,
             canon: None,
             can_defaults: Vec::new(),
@@ -152,6 +161,40 @@ impl FunctionValue {
     /// Iterate over all captures.
     pub fn captures(&self) -> impl Iterator<Item = (&Name, &Value)> {
         self.captures.iter()
+    }
+
+    /// Attach one immutable same-module function namespace to every function.
+    ///
+    /// This closes private sibling calls without recursively embedding function
+    /// values inside their own capture maps.
+    pub fn attach_module_scope(functions: &mut FxHashMap<Name, FunctionValue>) {
+        let scope = Arc::new(
+            functions
+                .iter()
+                .map(|(&name, function)| (name, ModuleFunctionTemplate::from(function)))
+                .collect(),
+        );
+        for function in functions.values_mut() {
+            function.module_scope = Some(Arc::clone(&scope));
+        }
+    }
+
+    /// Materialize same-module function bindings for a fresh call environment.
+    pub fn module_function_bindings(&self) -> Vec<(Name, Value)> {
+        let Some(scope) = &self.module_scope else {
+            return Vec::new();
+        };
+        scope
+            .iter()
+            .map(|(&name, template)| {
+                (
+                    name,
+                    Value::Function(
+                        template.materialize(Arc::clone(&self.captures), Arc::clone(scope)),
+                    ),
+                )
+            })
+            .collect()
     }
 
     /// Check if this function has any captures.
@@ -221,7 +264,53 @@ impl fmt::Debug for FunctionValue {
             .field("params", &self.params)
             .field("can_body", &self.can_body)
             .field("captures", &format!("{} bindings", self.captures.len()))
+            .field(
+                "module_functions",
+                &self.module_scope.as_ref().map_or(0, |scope| scope.len()),
+            )
             .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone)]
+struct ModuleFunctionTemplate {
+    params: Vec<Name>,
+    can_body: CanId,
+    arena: SharedArena,
+    canon: Option<SharedCanonResult>,
+    can_defaults: Vec<Option<CanId>>,
+    capabilities: Vec<Name>,
+}
+
+impl From<&FunctionValue> for ModuleFunctionTemplate {
+    fn from(function: &FunctionValue) -> Self {
+        Self {
+            params: function.params.clone(),
+            can_body: function.can_body,
+            arena: function.arena.clone(),
+            canon: function.canon.clone(),
+            can_defaults: function.can_defaults.clone(),
+            capabilities: function.capabilities.clone(),
+        }
+    }
+}
+
+impl ModuleFunctionTemplate {
+    fn materialize(
+        &self,
+        captures: Arc<FxHashMap<Name, Value>>,
+        module_scope: Arc<FxHashMap<Name, ModuleFunctionTemplate>>,
+    ) -> FunctionValue {
+        FunctionValue {
+            params: self.params.clone(),
+            can_body: self.can_body,
+            captures,
+            module_scope: Some(module_scope),
+            arena: self.arena.clone(),
+            canon: self.canon.clone(),
+            can_defaults: self.can_defaults.clone(),
+            capabilities: self.capabilities.clone(),
+        }
     }
 }
 

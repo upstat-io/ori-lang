@@ -57,6 +57,7 @@ pub enum EvalErrorKind {
     },
     IndexOutOfBounds {
         index: i64,
+        length: usize,
     },
     KeyNotFound {
         key: String,
@@ -194,7 +195,10 @@ impl fmt::Display for EvalErrorKind {
             Self::UndefinedMethod { method, type_name } => {
                 write!(f, "no method '{method}' on type {type_name}")
             }
-            Self::IndexOutOfBounds { index } => write!(f, "index {index} out of bounds"),
+            Self::IndexOutOfBounds { index, length } => write!(
+                f,
+                "index out of bounds: index {index}, length {length}; use 0 <= index < length (Spec: Clause 14.1.2)"
+            ),
             Self::KeyNotFound { key } => write!(f, "key not found: {key}"),
             Self::ImmutableBinding { name } => {
                 write!(f, "cannot assign to immutable variable: {name}")

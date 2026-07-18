@@ -262,3 +262,137 @@ fn collect_metadata_empty_modules() {
     let metadata = collect_metadata_from_results(None, &results);
     assert!(metadata.is_empty());
 }
+
+#[test]
+fn selected_public_constant_is_typed_in_the_consumer_pool() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(&provider_path, "pub $answer = 30;\n")
+        .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $answer };\npub @answer_value () -> int = $answer;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let db = CompilerDb::new();
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let result = crate::query::typed(&db, consumer);
+
+    assert!(
+        !result.has_errors(),
+        "selected public constant must retain its provider-inferred type: {:?}",
+        result
+            .errors()
+            .iter()
+            .map(ori_types::TypeCheckError::message)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn missing_selected_constant_reports_constant_not_function() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(&provider_path, "pub $present = 30;\n")
+        .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $missing };\n@main () -> int = $missing;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let db = CompilerDb::new();
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let result = crate::query::typed(&db, consumer);
+    let messages = result
+        .errors()
+        .iter()
+        .map(ori_types::TypeCheckError::message)
+        .collect::<Vec<_>>();
+
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("constant '$missing' not found")),
+        "missing selected constant must not be misreported as a function: {messages:?}"
+    );
+    assert!(messages
+        .iter()
+        .all(|message| !message.contains("function 'missing'")));
+}
+
+#[test]
+fn private_selected_constant_requires_public_visibility() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(&provider_path, "$secret = 30;\n")
+        .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $secret };\n@main () -> int = $secret;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let db = CompilerDb::new();
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let result = crate::query::typed(&db, consumer);
+    let private = result.errors().iter().find(|error| {
+        matches!(
+            error.kind,
+            TypeErrorKind::ImportError {
+                kind: ori_ir::ImportErrorKind::PrivateAccess,
+                ..
+            }
+        )
+    });
+
+    assert!(private.is_some(), "private constant import must fail");
+    assert!(
+        private
+            .map(ori_types::TypeCheckError::message)
+            .is_some_and(|message| message.contains("add `pub`")),
+        "visibility error must name the fix"
+    );
+}
+
+#[test]
+fn parent_test_module_may_import_private_constant() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let test_dir = dir.path().join("_test");
+    std::fs::create_dir(&test_dir).unwrap_or_else(|e| panic!("create _test: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = test_dir.join("provider.test.ori");
+    std::fs::write(&provider_path, "$secret = 30;\n")
+        .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"../provider\" { $secret };\n@test_private tests _ () -> void = { let x: int = $secret; };\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let db = CompilerDb::new();
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let result = crate::query::typed(&db, consumer);
+
+    assert!(
+        !result.has_errors(),
+        "parent test-module visibility exception must include constants: {:?}",
+        result
+            .errors()
+            .iter()
+            .map(ori_types::TypeCheckError::message)
+            .collect::<Vec<_>>()
+    );
+}

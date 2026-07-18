@@ -82,6 +82,8 @@ pub(crate) struct ArcIrBuilder {
     pub(super) catch_scoped_checked_ops: Vec<(ArcVarId, ArcBlockId)>,
     /// Exact owner/form facts for direct method calls, keyed by result register.
     pub(super) method_call_facts: Vec<MethodCallFact>,
+    /// User-defined operator calls awaiting exact pre-AIMS target closure.
+    pub(super) operator_call_facts: Vec<crate::ir::OperatorCallFact>,
 }
 
 impl Default for ArcIrBuilder {
@@ -103,6 +105,7 @@ impl ArcIrBuilder {
             reassign_deaths: Vec::new(),
             catch_scoped_checked_ops: Vec::new(),
             method_call_facts: Vec::new(),
+            operator_call_facts: Vec::new(),
         }
     }
 
@@ -206,6 +209,29 @@ impl ArcIrBuilder {
             form,
             producer: None,
             derived_position: None,
+        });
+    }
+
+    /// Preserve one source operator's receiver and operation until realization
+    /// closes its exact callable identity.
+    pub fn note_operator_call(
+        &mut self,
+        destination: ArcVarId,
+        receiver: ArcVarId,
+        operation: crate::ir::PrimOp,
+        span: Option<ori_ir::Span>,
+    ) {
+        assert!(
+            self.operator_call_facts
+                .iter()
+                .all(|fact| fact.destination != destination),
+            "an operator call result may carry only one resolution fact"
+        );
+        self.operator_call_facts.push(crate::ir::OperatorCallFact {
+            destination,
+            receiver,
+            operation,
+            span,
         });
     }
 
@@ -477,6 +503,7 @@ impl ArcIrBuilder {
             reassign_deaths: self.reassign_deaths,
             catch_scoped_checked_ops: self.catch_scoped_checked_ops,
             method_call_facts: self.method_call_facts,
+            operator_call_facts: self.operator_call_facts,
             direct_call_facts: Vec::new(),
             class_ledger_emission: false,
         }

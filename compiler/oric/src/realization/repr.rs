@@ -19,7 +19,7 @@ use ori_ir::canon::CanonResult;
 use ori_ir::ReprAttrKind;
 use ori_repr::monomorphize::MonoFunction;
 
-use ori_types::{Idx, ImplMethodId, ImplSig, Pool, Tag, TypeCheckResult, Visibility};
+use ori_types::{Idx, ImplMethodId, ImplSig, Pool, TypeCheckResult, Visibility};
 use oric::ir::{Name, StringInterner};
 use oric::parser::ParseOutput;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -57,6 +57,8 @@ struct ReceiverDispatch {
     inherent: FxHashSet<(Idx, Name)>,
     ambiguous_trait: FxHashSet<(Idx, Name)>,
     ambiguous_inherent: FxHashSet<(Idx, Name)>,
+    extension: FxHashSet<(Idx, Name)>,
+    ambiguous_extension: FxHashSet<(Idx, Name)>,
 }
 
 impl ReceiverDispatch {
@@ -94,6 +96,35 @@ impl ReceiverDispatch {
             self.targets.remove(&key);
             self.ambiguous_trait.insert(key);
         }
+    }
+
+    /// Record the final extension tier after all inherent and trait providers
+    /// have been seen. A higher-tier target always wins; multiple extensions
+    /// remove the target so realization fails closed exactly like type lookup.
+    fn record_extension(
+        &mut self,
+        recv_key_idx: Option<Idx>,
+        method_name: Name,
+        qualified_name: Name,
+    ) {
+        let Some(idx) = recv_key_idx else {
+            return;
+        };
+        let key = (idx, method_name);
+        if self.inherent.contains(&key)
+            || self.ambiguous_inherent.contains(&key)
+            || self.ambiguous_trait.contains(&key)
+            || (self.targets.contains_key(&key) && !self.extension.contains(&key))
+            || self.ambiguous_extension.contains(&key)
+        {
+            return;
+        }
+        if !self.extension.insert(key) {
+            self.targets.remove(&key);
+            self.ambiguous_extension.insert(key);
+            return;
+        }
+        self.targets.insert(key, qualified_name);
     }
 }
 
@@ -140,22 +171,25 @@ impl std::fmt::Debug for DerivedMethodAnalysis {
 ///
 /// Newtypes retain their nominal `Named` or concrete `Applied` carrier because
 /// transparent representation resolution is not semantic method identity.
-/// Every other receiver keeps the existing fully-resolved key so nominal
-/// structs/enums and concrete generic instantiations meet at one target.
+/// Concrete generic composites likewise retain their `Applied` carrier so
+/// distinct instantiations cannot collapse through one representation body;
+/// non-generic aliases continue to meet their resolved nominal target.
 pub(crate) fn method_receiver_key(pool: &Pool, receiver: Idx) -> Idx {
-    if !pool.is_valid_idx(receiver) {
-        return receiver;
+    pool.method_receiver_key(receiver)
+}
+
+fn insert_mono_method_target(
+    targets: &mut FxHashMap<(Idx, Name), Name>,
+    key: (Idx, Name),
+    target: Name,
+) -> Result<(), Name> {
+    if let Some(existing) = targets.insert(key, target) {
+        if existing != target {
+            targets.insert(key, existing);
+            return Err(existing);
+        }
     }
-    let is_newtype = match pool.tag(receiver) {
-        Tag::Named => pool.is_newtype_ctor(pool.named_name(receiver)),
-        Tag::Applied => pool.is_newtype_ctor(pool.applied_name(receiver)),
-        _ => false,
-    };
-    if is_newtype {
-        receiver
-    } else {
-        pool.resolve_fully(receiver)
-    }
+    Ok(())
 }
 
 /// Register exact concrete receiver targets for every monomorphized method.
@@ -188,23 +222,35 @@ pub(crate) fn extend_mono_method_targets(
             });
             continue;
         }
-        let key = (
-            method_receiver_key(pool, receiver),
-            mono.identity.original_name(),
-        );
-        if let Some(existing) = targets.insert(key, mono.mangled_name) {
-            if existing != mono.mangled_name {
-                targets.insert(key, existing);
-                problems.push(ori_arc::ArcProblem::InternalError {
-                    message: format!(
-                        "concrete receiver method {} has conflicting realized targets {} and {}",
-                        interner.lookup(mono.identity.original_name()),
-                        interner.lookup(existing),
-                        interner.lookup(mono.mangled_name),
-                    ),
-                    span: ori_ir::Span::DUMMY,
-                });
+        let method = mono.identity.original_name();
+        let semantic_receiver = method_receiver_key(pool, receiver);
+        let semantic_key = (semantic_receiver, method);
+        let conflict = if let Err(existing) =
+            insert_mono_method_target(targets, semantic_key, mono.mangled_name)
+        {
+            Err(existing)
+        } else {
+            let representation_receiver = pool.method_receiver_type(receiver);
+            if representation_receiver == semantic_receiver {
+                Ok(())
+            } else {
+                insert_mono_method_target(
+                    targets,
+                    (representation_receiver, method),
+                    mono.mangled_name,
+                )
             }
+        };
+        if let Err(existing) = conflict {
+            problems.push(ori_arc::ArcProblem::InternalError {
+                message: format!(
+                    "concrete receiver method {} has conflicting realized targets {} and {}",
+                    interner.lookup(method),
+                    interner.lookup(existing),
+                    interner.lookup(mono.mangled_name),
+                ),
+                span: ori_ir::Span::DUMMY,
+            });
         }
     }
 

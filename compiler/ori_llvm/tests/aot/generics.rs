@@ -887,7 +887,6 @@ fn test_iter_then_return_str_elements_survive_iter_consume() {
 /// Capability handlers lower to standard Return terminators; the
 /// param-return-alias rule applies uniformly.
 #[test]
-#[ignore = "BUG-04-208: cross-function capability provision unimplemented; typeck E2014 rejects main calling uses-Suspend callee; can't reach BUG-04-090's compiled-counter projection until BUG-04-208 lands"]
 fn test_edge_capability_handler_returns_param_uniformly() {
     assert_aot_success(
         include_str!("fixtures/generics/edge_capability_handler_returns_param.ori"),

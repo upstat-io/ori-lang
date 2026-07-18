@@ -16,10 +16,12 @@ mod method;
 pub(crate) use applied::register_concrete_applied_resolutions;
 pub(crate) use burden::{compose_builtin_burdens_for_resolved_types, compose_for_idx};
 pub use burden::{compose_burden_for_idx, register_resolved_collection_burdens};
-pub(in crate::infer::expr::calls) use method::maybe_record_method_mono_instance;
+pub(in crate::infer::expr::calls) use method::{
+    maybe_record_method_mono_instance, resolve_method_call_generic_args,
+};
 
 use applied::resolve_applied_type;
-use deferred::record_deferred_mono_call;
+use deferred::{record_deferred_mono_call, DeferredCallSite};
 
 /// Record a monomorphization instance if the callee is a generic function.
 ///
@@ -36,31 +38,245 @@ use deferred::record_deferred_mono_call;
 /// `check::exports::resolve_deferred_mono_calls` publishes the entry once
 /// the deferred call resolves to a concrete `MonoInstance`. Both paths therefore land in the same pre-dedup buffer and
 /// flow through the same dedup-remap pipeline downstream.
+/// The callee's generic shape plus its resolved capability-provider
+/// substitution, extracted under an immutable signature borrow by
+/// [`resolve_sig_and_capabilities`].
+struct SigAndCapabilities {
+    is_generic: bool,
+    scheme_var_ids: Vec<u32>,
+    generic_param_mapping: Vec<Option<usize>>,
+    param_types: Vec<Idx>,
+    sig_return_type: Idx,
+    capability_args: Vec<Idx>,
+    capability_var_ids: Vec<u32>,
+    capability_subst: FxHashMap<u32, Idx>,
+    has_unresolved_capability_vars: bool,
+}
+
+/// Extract the callee's generic-shape signature data plus its capability
+/// providers' concrete substitution, under an immutable signature borrow.
+///
+/// Returns `None` when there is nothing to record: no registered signature,
+/// a non-generic signature with no capabilities, a provider-count mismatch
+/// against the declared capability params, or a provider naming the wrong
+/// capability at its declared position.
+fn resolve_sig_and_capabilities(
+    engine: &mut InferEngine<'_>,
+    fn_name: Name,
+    capability_providers: &[crate::CapabilityProvider],
+) -> Option<SigAndCapabilities> {
+    // Extract sig data in an immutable borrow scope.
+    let (
+        is_generic,
+        scheme_var_ids,
+        generic_param_mapping,
+        param_types,
+        sig_return_type,
+        capability_params,
+    ) = {
+        let sig = engine.get_signature(fn_name)?;
+        let capability_params: Vec<_> = sig
+            .capability_params
+            .iter()
+            .copied()
+            .filter_map(|param| match param {
+                crate::CapabilityParam::Value {
+                    capability,
+                    provider_type,
+                    provider_var_id,
+                } => Some((capability, provider_type, provider_var_id)),
+                crate::CapabilityParam::Marker { .. } => None,
+            })
+            .collect();
+        if !sig.is_generic() && capability_params.is_empty() {
+            return None;
+        }
+        (
+            sig.is_generic(),
+            sig.scheme_var_ids.clone(),
+            sig.generic_param_mapping.clone(),
+            sig.param_types.clone(),
+            sig.return_type,
+            capability_params,
+        )
+    };
+
+    if capability_params.len() != capability_providers.len() {
+        return None;
+    }
+    let mut capability_args = Vec::with_capacity(capability_params.len());
+    let mut capability_var_ids = Vec::with_capacity(capability_params.len());
+    let mut capability_subst = FxHashMap::default();
+    let mut has_unresolved_capability_vars = false;
+    for ((capability, _schema, provider_var_id), provider) in
+        capability_params.iter().zip(capability_providers)
+    {
+        if provider.capability != *capability {
+            return None;
+        }
+        let concrete = engine.resolve(provider.provider_type);
+        if !engine.pool().flags(concrete).is_recordable() {
+            // A provider forwarded through an unspecialized source template is
+            // resolved against the concrete caller instance by the deferred
+            // path. Capability-only templates have no ordinary generic caller
+            // instance and remain discoverable by the fixed-point ARC census.
+            has_unresolved_capability_vars = true;
+        }
+        capability_args.push(concrete);
+        capability_var_ids.push(*provider_var_id);
+        capability_subst.insert(*provider_var_id, concrete);
+    }
+
+    Some(SigAndCapabilities {
+        is_generic,
+        scheme_var_ids,
+        generic_param_mapping,
+        param_types,
+        sig_return_type,
+        capability_args,
+        capability_var_ids,
+        capability_subst,
+        has_unresolved_capability_vars,
+    })
+}
+
+/// Trace the resolved call-site arg types alongside the callee's declared
+/// signature shape, at the point `maybe_record_mono_instance` decides how to
+/// route the call (top-level vs. deferred vs. concrete generic).
+fn trace_extraction_inputs(
+    engine: &mut InferEngine<'_>,
+    fn_name: Name,
+    params: &[Idx],
+    param_types: &[Idx],
+    scheme_var_ids: &[u32],
+    generic_param_mapping: &[Option<usize>],
+) {
+    let resolved_args: Vec<Idx> = params.iter().map(|&p| engine.resolve(p)).collect();
+    let name_str = engine.lookup_name(fn_name).map(str::to_string);
+    let pool = engine.pool();
+    tracing::debug!(
+        name = ?name_str,
+        sig_params = ?param_types.iter().map(|&p| (pool.tag(p), pool.flags(p))).collect::<Vec<_>>(),
+        actual_args = ?resolved_args.iter().map(|&p| (pool.tag(p), pool.flags(p))).collect::<Vec<_>>(),
+        scheme_vars = ?scheme_var_ids,
+        gpm = ?generic_param_mapping,
+        "maybe_record_mono_instance: extraction inputs"
+    );
+}
+
+/// Trace the resolved generic var substitution map at the point
+/// `maybe_record_mono_instance` decides between the deferred (still-unresolved)
+/// and concrete-generic recording paths.
+fn trace_routing_decision(
+    engine: &mut InferEngine<'_>,
+    fn_name: Name,
+    var_subst: &FxHashMap<u32, Idx>,
+    scheme_len: usize,
+    has_unresolved_vars: bool,
+) {
+    tracing::debug!(
+        ?fn_name,
+        var_subst_len = var_subst.len(),
+        scheme_len,
+        has_unresolved_vars,
+        subst = ?var_subst.iter().map(|(k, v)| (*k, engine.pool().tag(*v), engine.pool().flags(*v))).collect::<Vec<_>>(),
+        "maybe_record_mono_instance: routing decision"
+    );
+}
+
+/// The non-generic top-level call site fed to
+/// [`record_non_generic_top_level`] — a plain function's (possibly
+/// capability-bearing) signature shape plus its resolved capability-provider
+/// substitution, bundled to keep the recording call under the workspace
+/// argument-count lint.
+struct NonGenericTopLevelSite<'a> {
+    fn_name: Name,
+    capability_args: Vec<Idx>,
+    capability_var_ids: &'a [u32],
+    capability_subst: FxHashMap<u32, Idx>,
+    param_types: &'a [Idx],
+    sig_return_type: Idx,
+    has_unresolved_capability_vars: bool,
+}
+
+/// Record the non-generic top-level path (a plain function whose only
+/// recordable shape comes from capability providers, not generic type
+/// params). Inert when a capability provider is still unresolved — the
+/// deferred path picks it up once the caller's own instance concretizes it.
+fn record_non_generic_top_level(
+    engine: &mut InferEngine<'_>,
+    call_expr_id: ExprId,
+    site: NonGenericTopLevelSite<'_>,
+) {
+    let NonGenericTopLevelSite {
+        fn_name,
+        capability_args,
+        capability_var_ids,
+        mut capability_subst,
+        param_types,
+        sig_return_type,
+        has_unresolved_capability_vars,
+    } = site;
+    if has_unresolved_capability_vars {
+        return;
+    }
+    crate::pool::substitute::extend_var_subst_with_roots(
+        engine.pool(),
+        capability_var_ids,
+        &mut capability_subst,
+    );
+    record_top_level_mono_instance(
+        engine,
+        call_expr_id,
+        &capability_subst,
+        TopLevelMonoSite {
+            fn_name,
+            generic_args: Vec::new(),
+            capability_args,
+            param_types,
+            return_type: sig_return_type,
+        },
+    );
+}
+
+/// Poison gate: a scheme var resolved to `Idx::ERROR` (type-error poison)
+/// clears the var/infer gate upstream (`has_any_var_or_infer` excludes
+/// `HAS_ERROR`) yet must never be monomorphized — minting it produces a
+/// phantom instance whose body codegens method invokes on the poison
+/// receiver (AOT missing-mono).
+fn all_scheme_vars_recordable(
+    engine: &mut InferEngine<'_>,
+    var_subst: &FxHashMap<u32, Idx>,
+) -> bool {
+    var_subst
+        .values()
+        .all(|&idx| engine.pool().flags(idx).is_recordable())
+}
+
 pub(super) fn maybe_record_mono_instance(
     engine: &mut InferEngine<'_>,
     call_expr_id: ExprId,
     func_name: Option<Name>,
     params: &[Idx],
     inst_return_type: Idx,
+    capability_providers: &[crate::CapabilityProvider],
 ) {
     let Some(fn_name) = func_name else {
         return;
     };
-
-    // Extract sig data in an immutable borrow scope.
-    let (scheme_var_ids, generic_param_mapping, param_types, sig_return_type) = {
-        let Some(sig) = engine.get_signature(fn_name) else {
-            return;
-        };
-        if !sig.is_generic() || sig.scheme_var_ids.is_empty() {
-            return;
-        }
-        (
-            sig.scheme_var_ids.clone(),
-            sig.generic_param_mapping.clone(),
-            sig.param_types.clone(),
-            sig.return_type,
-        )
+    let Some(SigAndCapabilities {
+        is_generic,
+        scheme_var_ids,
+        generic_param_mapping,
+        param_types,
+        sig_return_type,
+        capability_args,
+        capability_var_ids,
+        capability_subst,
+        has_unresolved_capability_vars,
+    }) = resolve_sig_and_capabilities(engine, fn_name, capability_providers)
+    else {
+        return;
     };
 
     // Hoist the return-projection BEFORE recording: a generic free function
@@ -76,94 +292,67 @@ pub(super) fn maybe_record_mono_instance(
         sig_return_type,
     );
 
-    {
-        let resolved_args: Vec<Idx> = params.iter().map(|&p| engine.resolve(p)).collect();
-        let name_str = engine.lookup_name(fn_name).map(str::to_string);
-        let pool = engine.pool();
-        tracing::debug!(
-            name = ?name_str,
-            sig_params = ?param_types.iter().map(|&p| (pool.tag(p), pool.flags(p))).collect::<Vec<_>>(),
-            actual_args = ?resolved_args.iter().map(|&p| (pool.tag(p), pool.flags(p))).collect::<Vec<_>>(),
-            scheme_vars = ?scheme_var_ids,
-            gpm = ?generic_param_mapping,
-            "maybe_record_mono_instance: extraction inputs"
-        );
-    }
-
-    // Build the var_id -> resolved_type substitution map.
-    let (mut var_subst, generic_args, has_unresolved_vars) = build_mono_var_subst(
+    trace_extraction_inputs(
         engine,
+        fn_name,
+        params,
+        &param_types,
         &scheme_var_ids,
         &generic_param_mapping,
-        &param_types,
-        params,
-        return_type,
-        inst_return_type,
     );
 
-    tracing::debug!(
-        ?fn_name,
-        var_subst_len = var_subst.len(),
-        scheme_len = scheme_var_ids.len(),
-        has_unresolved_vars,
-        subst = ?var_subst.iter().map(|(k, v)| (*k, engine.pool().tag(*v), engine.pool().flags(*v))).collect::<Vec<_>>(),
-        "maybe_record_mono_instance: routing decision"
-    );
-
-    // All type params must be mapped (even if some are still variables).
-    if var_subst.len() != scheme_var_ids.len() {
-        return;
-    }
-
-    // Deferred case: some type params are still variables (generic calling generic).
-    if has_unresolved_vars {
-        record_deferred_mono_call(
+    if !is_generic {
+        record_non_generic_top_level(
             engine,
             call_expr_id,
-            fn_name,
-            &scheme_var_ids,
-            &var_subst,
-            param_types,
-            return_type,
+            NonGenericTopLevelSite {
+                fn_name,
+                capability_args,
+                capability_var_ids: &capability_var_ids,
+                capability_subst,
+                param_types: &param_types,
+                sig_return_type,
+                has_unresolved_capability_vars,
+            },
         );
         return;
     }
 
-    // Poison gate: a scheme var resolved to Idx::ERROR (type-error poison) clears
-    // the var/infer gate above (has_any_var_or_infer excludes HAS_ERROR) yet must
-    // never be monomorphized — minting it produces a phantom instance whose body
-    // codegens method invokes on the poison receiver (AOT missing-mono).
-    if !var_subst
-        .values()
-        .all(|&idx| engine.pool().flags(idx).is_recordable())
-    {
+    let Some(ResolvedGenericCall {
+        var_subst,
+        generic_args,
+    }) = resolve_generic_var_subst(
+        engine,
+        call_expr_id,
+        GenericCallSite {
+            fn_name,
+            scheme_var_ids: &scheme_var_ids,
+            generic_param_mapping: &generic_param_mapping,
+            param_types: &param_types,
+            params,
+            return_type,
+            inst_return_type,
+            capability_var_ids: &capability_var_ids,
+            capability_subst,
+            has_unresolved_capability_vars,
+        },
+    )
+    else {
         return;
-    }
-
-    // Extend var_subst with root var_ids of equivalence classes so
-    // substitute_in_pool can handle root vars from inner instantiations.
-    // Threads the declared scheme_var_ids (the cloned Vec from the
-    // sig-lookup block above) explicitly, rather than recovering the
-    // list from var_subst's keys. The helper's contract is "extend for
-    // THESE declared scheme vars" — canonical scheme-var scoping shared
-    // with the deferred-resolve site in
-    // check::exports::resolve_deferred_mono_calls and the JIT imported-mono
-    // site in oric::test::runner::imported_mono.
-    crate::pool::substitute::extend_var_subst_with_roots(
-        engine.pool(),
-        &scheme_var_ids,
-        &mut var_subst,
-    );
+    };
 
     // Concrete case: all type params resolved -- build + register the instance.
     record_top_level_mono_instance(
         engine,
         call_expr_id,
-        fn_name,
-        generic_args,
         &var_subst,
-        &param_types,
-        return_type,
+        TopLevelMonoSite {
+            fn_name,
+            generic_args,
+            capability_args,
+            param_types: &param_types,
+            return_type,
+        },
     );
 
     // Burden composition for generic-builtin instances runs once per body at
@@ -175,6 +364,135 @@ pub(super) fn maybe_record_mono_instance(
     // from emitting indirect dispatch on each burden walk.
 }
 
+/// The generic-calling-generic routing inputs bundled for
+/// [`resolve_generic_var_subst`] — everything needed to build the var
+/// substitution, decide defer-vs-record, and extend with equivalence-class
+/// roots, kept under the workspace argument-count lint.
+struct GenericCallSite<'a> {
+    fn_name: Name,
+    scheme_var_ids: &'a [u32],
+    generic_param_mapping: &'a [Option<usize>],
+    param_types: &'a [Idx],
+    params: &'a [Idx],
+    return_type: Idx,
+    inst_return_type: Idx,
+    capability_var_ids: &'a [u32],
+    capability_subst: FxHashMap<u32, Idx>,
+    has_unresolved_capability_vars: bool,
+}
+
+/// The resolved generic-call substitution and its concrete generic arguments,
+/// ready for [`record_top_level_mono_instance`].
+struct ResolvedGenericCall {
+    var_subst: FxHashMap<u32, Idx>,
+    generic_args: Vec<GenericArg>,
+}
+
+/// Build the generic `var_id` -> `resolved_type` substitution for a concrete
+/// generic call, routing thru the deferred (generic-calling-generic) path
+/// and the not-yet-recordable path inline. Returns `None` when the call has
+/// already been fully handled by one of those two paths — the caller
+/// returns immediately in that case.
+fn resolve_generic_var_subst(
+    engine: &mut InferEngine<'_>,
+    call_expr_id: ExprId,
+    site: GenericCallSite<'_>,
+) -> Option<ResolvedGenericCall> {
+    let GenericCallSite {
+        fn_name,
+        scheme_var_ids,
+        generic_param_mapping,
+        param_types,
+        params,
+        return_type,
+        inst_return_type,
+        capability_var_ids,
+        capability_subst,
+        has_unresolved_capability_vars,
+    } = site;
+
+    // Build the ordinary generic var_id -> resolved_type substitution map.
+    let (mut var_subst, generic_args, has_unresolved_vars) = build_mono_var_subst(
+        engine,
+        scheme_var_ids,
+        generic_param_mapping,
+        param_types,
+        params,
+        return_type,
+        inst_return_type,
+    );
+
+    trace_routing_decision(
+        engine,
+        fn_name,
+        &var_subst,
+        scheme_var_ids.len(),
+        has_unresolved_vars,
+    );
+
+    // All type params must be mapped (even if some are still variables).
+    if var_subst.len() != scheme_var_ids.len() {
+        return None;
+    }
+
+    // Deferred case: some type params are still variables (generic calling generic).
+    if has_unresolved_vars || has_unresolved_capability_vars {
+        var_subst.extend(capability_subst);
+        record_deferred_mono_call(
+            engine,
+            call_expr_id,
+            &var_subst,
+            DeferredCallSite {
+                callee: fn_name,
+                callee_scheme_var_ids: scheme_var_ids,
+                capability_var_ids,
+                callee_param_types: param_types.to_vec(),
+                callee_return_type: return_type,
+            },
+        );
+        return None;
+    }
+
+    var_subst.extend(capability_subst);
+
+    if !all_scheme_vars_recordable(engine, &var_subst) {
+        return None;
+    }
+
+    // Extend var_subst with root var_ids of equivalence classes so
+    // substitute_in_pool can handle root vars from inner instantiations.
+    // Threads the declared scheme_var_ids explicitly, rather than
+    // recovering the list from var_subst's keys. The helper's contract is
+    // "extend for THESE declared scheme vars" — canonical scheme-var
+    // scoping shared with the deferred-resolve site in
+    // check::exports::resolve_deferred_mono_calls and the JIT imported-mono
+    // site in oric::test::runner::imported_mono.
+    let mut retained_var_ids = scheme_var_ids.to_vec();
+    retained_var_ids.extend(capability_var_ids);
+    crate::pool::substitute::extend_var_subst_with_roots(
+        engine.pool(),
+        &retained_var_ids,
+        &mut var_subst,
+    );
+
+    Some(ResolvedGenericCall {
+        var_subst,
+        generic_args,
+    })
+}
+
+/// The concrete top-level call site fed to [`record_top_level_mono_instance`] —
+/// callee identity plus its concrete generic/capability arguments and
+/// signature shape, bundled to keep the recording call under the workspace
+/// argument-count lint.
+struct TopLevelMonoSite<'a> {
+    fn_name: Name,
+    generic_args: Vec<GenericArg>,
+    capability_args: Vec<Idx>,
+    param_types: &'a [Idx],
+    return_type: Idx,
+}
+
 /// Build the concrete top-level `MonoInstance` and publish its dispatch entry,
 /// once `maybe_record_mono_instance`'s routing gates have proven every scheme
 /// var resolved + recordable and `var_subst` extended with equivalence-class
@@ -183,12 +501,16 @@ pub(super) fn maybe_record_mono_instance(
 fn record_top_level_mono_instance(
     engine: &mut InferEngine<'_>,
     call_expr_id: ExprId,
-    fn_name: Name,
-    generic_args: Vec<GenericArg>,
     var_subst: &FxHashMap<u32, Idx>,
-    param_types: &[Idx],
-    return_type: Idx,
+    site: TopLevelMonoSite<'_>,
 ) {
+    let TopLevelMonoSite {
+        fn_name,
+        generic_args,
+        capability_args,
+        param_types,
+        return_type,
+    } = site;
     // Collect generic-composite type params before taking pool_mut(), so
     // register_concrete_applied_resolutions can build Named->Idx substitutions
     // for struct fields and enum payloads (which use Named tags, not Var tags).
@@ -218,9 +540,10 @@ fn record_top_level_mono_instance(
     }
     resolve_applied_type(pool, concrete_return_type, &generic_type_params);
 
-    let instance = MonoInstance::new_top_level(
+    let instance = MonoInstance::new_top_level_with_capabilities(
         fn_name,
         generic_args,
+        capability_args,
         concrete_param_types,
         concrete_return_type,
         body_type_map,
@@ -343,14 +666,12 @@ fn build_mono_var_subst(
             continue;
         };
 
-        // A resolved type that still carries an unbound inference var — a bare
-        // `Tag::Var` OR a composite (`[Var]`, `Option<Var>`) with the `HAS_VAR`
-        // flag propagated up — is TRANSIENT, not poison (`HAS_ERROR` is the
-        // poison signal, gated separately below). It resolves to its concrete
-        // root later in the same body pass, so route it to the deferred path
-        // rather than dropping it at the poison gate (AOT missing-mono).
+        // A resolved type that still carries any variable or inference form —
+        // including an impl body's rigid variable — is transient, not poison.
+        // The producer-qualified caller instance resolves it later, so route
+        // it to the deferred path rather than dropping it at this gate.
         let flags = engine.pool().flags(concrete);
-        if flags.has_vars() && !flags.has_errors() {
+        if flags.has_any_var_or_infer() && !flags.has_errors() {
             has_unresolved_vars = true;
         }
 

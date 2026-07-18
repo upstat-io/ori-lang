@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicPtr, Ordering};
 thread_local! {
     static PANIC_OCCURRED: RefCell<bool> = const { RefCell::new(false) };
     static PANIC_MESSAGE: RefCell<Option<String>> = const { RefCell::new(None) };
+    static PANIC_NEEDS_DEFAULT_REPORT: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Check if a panic occurred (for test assertions).
@@ -30,6 +31,7 @@ pub fn get_panic_message() -> Option<String> {
 pub fn reset_panic_state() {
     PANIC_OCCURRED.with(|p| *p.borrow_mut() = false);
     PANIC_MESSAGE.with(|m| *m.borrow_mut() = None);
+    PANIC_NEEDS_DEFAULT_REPORT.with(|needs_report| needs_report.set(false));
 }
 
 /// Set panic state without terminating (for tests only).
@@ -42,6 +44,7 @@ pub fn reset_panic_state() {
 pub fn set_panic_state_for_test(msg: &str) {
     PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
     PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.to_string()));
+    PANIC_NEEDS_DEFAULT_REPORT.with(|needs_report| needs_report.set(true));
 }
 
 /// Store a panic message in thread-local state.
@@ -50,11 +53,33 @@ pub fn set_panic_state_for_test(msg: &str) {
 pub(super) fn store_panic(msg: &str) {
     PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
     PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.to_string()));
+    PANIC_NEEDS_DEFAULT_REPORT.with(|needs_report| needs_report.set(true));
+}
+
+/// Record that the registered user panic handler supplied the panic report.
+/// The exception still unwinds normally; only the runtime's default report is
+/// suppressed if it ultimately reaches an uncaught process/test boundary.
+pub(super) fn mark_panic_reported_by_handler() {
+    PANIC_NEEDS_DEFAULT_REPORT.with(|needs_report| needs_report.set(false));
+}
+
+/// Return the message that the runtime should print at an uncaught boundary.
+/// Caught panics consume their state through [`take_panic_message`], while a
+/// user panic handler clears the default-report bit without consuming the
+/// message needed by the unwind boundary.
+pub(super) fn default_report_message() -> Option<String> {
+    let needs_report = PANIC_NEEDS_DEFAULT_REPORT.with(Cell::get);
+    if needs_report {
+        get_panic_message()
+    } else {
+        None
+    }
 }
 
 /// Clear panic message and return it (for `catch(expr:)` recovery).
 pub(super) fn take_panic_message() -> Option<String> {
     PANIC_OCCURRED.with(|p| *p.borrow_mut() = false);
+    PANIC_NEEDS_DEFAULT_REPORT.with(|needs_report| needs_report.set(false));
     PANIC_MESSAGE.with(|m| m.borrow_mut().take())
 }
 
@@ -133,3 +158,6 @@ pub extern "C" fn ori_register_panic_handler(handler: *const ()) {
     }
     ORI_PANIC_TRAMPOLINE.store(handler as *mut (), Ordering::Relaxed);
 }
+
+#[cfg(test)]
+mod tests;

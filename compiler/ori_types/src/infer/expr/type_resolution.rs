@@ -6,6 +6,7 @@ use crate::check::ObjectSafetyChecker;
 use crate::{Idx, ObjectSafetyViolation, Tag, TypeCheckError};
 
 use super::super::InferEngine;
+use super::fixed_list_capacity::validate_fixed_list_capacities;
 
 /// Resolve a `ParsedType` from the AST into a pool `Idx`, recursing for
 /// compound types (functions, containers, etc.). `Named` resolves via
@@ -299,6 +300,7 @@ pub(crate) fn resolve_and_check_parsed_type(
     parsed: &ParsedType,
     span: Span,
 ) -> Idx {
+    validate_fixed_list_capacities(engine, arena, parsed);
     crate::check::check_parsed_type_object_safety(engine, parsed, span, arena);
     let resolved = resolve_parsed_type(engine, arena, parsed);
     check_map_key_hashable(engine, resolved, span);

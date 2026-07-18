@@ -248,6 +248,26 @@ pub fn compute_param_passing_with_ownership(
     compute_param_passing(ty, store, repr_plan)
 }
 
+/// Project the uniform borrowed convention for one explicit closure argument.
+///
+/// A closure value is target-independent: indirect callers retain ownership of
+/// every explicit argument, and the generated closure wrapper adapts that
+/// borrowed physical ABI to the concrete target ABI.
+pub fn compute_closure_param_passing(
+    ty: Idx,
+    store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
+    classifier: &dyn ArcClassification,
+) -> ParamPassing {
+    compute_param_passing_with_ownership(
+        ty,
+        store,
+        repr_plan,
+        Ownership::Borrowed,
+        classifier.arc_class(ty),
+    )
+}
+
 /// Assemble one physical ABI from a semantic parameter and return shape.
 ///
 /// Frontend signatures, closed artifact functions, and lambdas adapt their

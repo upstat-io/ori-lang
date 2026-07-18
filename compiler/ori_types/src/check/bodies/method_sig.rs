@@ -57,6 +57,7 @@ pub(super) fn build_method_sig(
         param_types,
         return_type,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -173,6 +174,17 @@ fn allocate_rigid_vars_for_names(
         map.insert(name, rigid_idx);
     }
     map
+}
+
+/// Allocate an impl-like rigid-binder map for a caller-supplied declaration
+/// order. Extension targets may introduce their binders through the target
+/// itself (`extend [T]`) rather than a `GenericParamRange`, so they cannot use
+/// `allocate_rigid_var_map` directly.
+pub(crate) fn allocate_rigid_var_map_for_names(
+    checker: &mut ModuleChecker<'_>,
+    names: &[Name],
+) -> FxHashMap<Name, Idx> {
+    allocate_rigid_vars_for_names(checker, names)
 }
 
 /// Allocate the impl-level `RigidVar` substitution map (non-const binders only)

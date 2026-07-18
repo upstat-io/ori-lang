@@ -16,6 +16,45 @@ mod deferred_mono;
 
 use deferred_mono::{try_resolve_deferred_call, var_subst_from_body_type_map, CallerContext};
 
+/// Recover the exact locally checked body identity represented by a concrete
+/// mono instance. Generated, registry, prelude, and imported method producers
+/// have no local source body whose deferred records they may own.
+fn deferred_caller_for_instance(
+    instance: &crate::MonoInstance,
+) -> Option<crate::DeferredMonoCaller> {
+    match (&instance.method_producer, instance.receiver_type) {
+        (None, None) => Some(crate::DeferredMonoCaller::TopLevel(instance.fn_name)),
+        (Some(crate::MethodProducer::Impl(id)), Some(_)) => {
+            Some(crate::DeferredMonoCaller::ImplMethod {
+                name: instance.fn_name,
+                id: *id,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Type-only realized binder arguments in the same order used by impl-body
+/// inference: impl binders first, then method binders. Const arguments are a
+/// separate identity axis and must not shift `CallerSchemeVar` positions.
+fn deferred_caller_type_args(instance: &crate::MonoInstance) -> Vec<crate::GenericArg> {
+    let args = if instance.method_producer.is_some() {
+        instance
+            .impl_args
+            .iter()
+            .chain(&instance.method_args)
+            .collect::<Vec<_>>()
+    } else {
+        instance.generic_args.iter().collect::<Vec<_>>()
+    };
+    args.into_iter()
+        .filter_map(|arg| match arg {
+            crate::GenericArg::Type(idx) => Some(crate::GenericArg::Type(*idx)),
+            crate::GenericArg::Const(_) => None,
+        })
+        .collect()
+}
+
 /// Generate portable type descriptors for all types in public function signatures.
 ///
 /// Iterates public functions, collecting descriptors for every param type and
@@ -142,9 +181,9 @@ pub(super) fn resolve_deferred_mono_calls(
 
     use crate::GenericArg;
 
-    let mut seen: FxHashSet<(Name, Vec<GenericArg>)> = mono_instances
+    let mut seen: FxHashSet<(Name, Vec<GenericArg>, Vec<crate::Idx>)> = mono_instances
         .iter()
-        .map(|m| (m.fn_name, m.generic_args.clone()))
+        .map(|m| (m.fn_name, m.generic_args.clone(), m.capability_args.clone()))
         .collect();
 
     tracing::debug!(
@@ -172,7 +211,7 @@ pub(super) fn resolve_deferred_mono_calls(
             mono_dispatch_pre_dedup,
             &mut seen,
             &CallerContext {
-                name: deferred.caller,
+                id: deferred.caller,
                 generic_args: &[],
                 body_type_map: &[],
             },
@@ -183,22 +222,25 @@ pub(super) fn resolve_deferred_mono_calls(
     // Fixed-point worklist: process all instances including newly discovered ones.
     let mut i = 0;
     while i < mono_instances.len() {
-        let caller_name = mono_instances[i].fn_name;
-        let caller_generic_args = mono_instances[i].generic_args.clone();
+        let Some(caller_id) = deferred_caller_for_instance(&mono_instances[i]) else {
+            i += 1;
+            continue;
+        };
+        let caller_generic_args = deferred_caller_type_args(&mono_instances[i]);
         // The caller instance's `body_type_map` carries the per-instantiation
         // rigid->concrete bindings (`U -> int`) the deferred resolver needs to
         // mint a return-type-determined nested generic call whose `DeferredType`
         // binding holds the caller's own rigid type param.
         let caller_body_type_map = mono_instances[i].body_type_map.clone();
 
-        for deferred in deferred_calls.iter().filter(|d| d.caller == caller_name) {
+        for deferred in deferred_calls.iter().filter(|d| d.caller == caller_id) {
             try_resolve_deferred_call(
                 pool,
                 mono_instances,
                 mono_dispatch_pre_dedup,
                 &mut seen,
                 &CallerContext {
-                    name: caller_name,
+                    id: caller_id,
                     generic_args: &caller_generic_args,
                     body_type_map: &caller_body_type_map,
                 },

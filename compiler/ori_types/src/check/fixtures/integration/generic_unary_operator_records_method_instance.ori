@@ -1,0 +1,23 @@
+trait Neg {
+    type Output;
+
+    @negate (self) -> Self.Output;
+}
+
+type Wrap<T> = { value: T };
+
+@negate_wrap (value: Wrap<int>) -> Wrap<int> = -value;
+
+@main () -> int = {
+    let value: Wrap<int> = Wrap { value: 1 };
+    let negated = negate_wrap(value: value);
+    if negated.value == 1 then 0 else 1
+};
+
+impl<T> Wrap<T>: Neg {
+    type Output = Wrap<T>;
+
+    @negate (self) -> Wrap<T> = self;
+}
+
+@test_negate_wrap tests @negate_wrap () -> void = ();

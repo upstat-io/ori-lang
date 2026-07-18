@@ -128,3 +128,25 @@ fn compiler_protocols_close_with_typed_identities() {
         assert_eq!(call.arity(), arity, "{symbol}");
     }
 }
+
+#[test]
+fn primitive_print_symbols_share_one_closed_semantic_identity() {
+    let symbols = [
+        "ori_print",
+        "ori_print_int",
+        "ori_print_float",
+        "ori_print_bool",
+    ];
+    let mut visited = 0;
+    for symbol in symbols {
+        assert_eq!(
+            RuntimeCall::resolve(symbol, None),
+            Some(RuntimeCall::Print),
+            "{symbol}"
+        );
+        visited += 1;
+    }
+    assert_eq!(visited, symbols.len());
+
+    assert_eq!(RuntimeCall::resolve("ori_print_char", None), None);
+}

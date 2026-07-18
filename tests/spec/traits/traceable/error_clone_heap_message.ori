@@ -17,7 +17,6 @@ use std.testing { assert_eq }
     copy.message
 }
 
-#skip("BUG-04-279: #derive(Clone) leaks 1 allocation under LLVM for a 2+-heap-field struct when only a subset of the cloned struct's fields is read afterward — unrelated to Traceable dispatch, reproduces with a plain user struct")
 @test_cloned_message tests @cloned_message () -> void = {
     assert_eq(
         actual: cloned_message(),

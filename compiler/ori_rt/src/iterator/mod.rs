@@ -26,7 +26,7 @@ pub use sources::{
     ori_iter_from_str, ori_iter_repeat, ori_range_contains, ori_range_len,
 };
 
-pub(crate) use state::{ElemBuf, FoldFn, ForEachFn, IterState, PredicateFn};
+pub(crate) use state::{ElemBuf, ElemIncFn, FoldFn, ForEachFn, IterState, PredicateFn};
 
 /// Take ownership of an opaque iterator handle at an ABI ownership boundary.
 ///

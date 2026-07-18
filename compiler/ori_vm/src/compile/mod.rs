@@ -9,7 +9,9 @@ mod tests;
 use ori_arc::{ArcBlockId, ArcFunction, ArcVarId, ArgOwnership};
 use ori_ir::Name;
 use ori_repr::{
-    executable::{CallableTarget, ExecutableProgram, IteratorSource, RuntimeCall},
+    executable::{
+        CallableTarget, CompilerOperation, ExecutableProgram, IteratorSource, RuntimeCall,
+    },
     BuiltinType,
 };
 
@@ -357,7 +359,8 @@ fn validate_vm_call_target(
             | RuntimeCall::StringLowercase
             | RuntimeCall::StringSplit
             | RuntimeCall::Print
-            | RuntimeCall::Panic,
+            | RuntimeCall::Panic
+            | RuntimeCall::Compiler(CompilerOperation::CatchRecover),
         )
         | CallableTarget::Function(_) => Ok(target),
         CallableTarget::Runtime(

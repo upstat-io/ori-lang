@@ -203,11 +203,14 @@ fn test_err_result_int_err() {
 
 #[test]
 fn test_catch_panic_returns_err() {
-    // Suppress stderr (ori_panic prints the panic message before unwinding).
-    let (exit_code, _stdout, _stderr) = compile_and_run_capture(include_str!(
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_panic_returns_err.ori"
     ));
     assert_eq!(exit_code, 0, "catch should produce Err on panic");
+    assert!(
+        stderr.is_empty(),
+        "a caught panic must not emit an uncaught-panic diagnostic:\n{stderr}"
+    );
 }
 
 #[test]
@@ -236,18 +239,26 @@ fn test_catch_simple_expression() {
 
 #[test]
 fn test_catch_panic_explicit() {
-    let (exit_code, _stdout, _stderr) = compile_and_run_capture(include_str!(
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_panic_explicit.ori"
     ));
     assert_eq!(exit_code, 0, "catch should capture explicit panic");
+    assert!(
+        stderr.is_empty(),
+        "an explicitly caught panic must remain silent:\n{stderr}"
+    );
 }
 
 #[test]
 fn test_catch_multiple_independent() {
-    let (exit_code, _stdout, _stderr) = compile_and_run_capture(include_str!(
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
         "fixtures/error_handling/catch_multiple_independent.ori"
     ));
     assert_eq!(exit_code, 0, "independent catches should work");
+    assert!(
+        stderr.is_empty(),
+        "independently caught panics must not leak diagnostics:\n{stderr}"
+    );
 }
 
 #[test]
@@ -821,4 +832,14 @@ fn test_catch_then_uncaught_div_same_fn_aborts() {
         "fixtures/error_handling/catch_then_uncaught_div_same_fn.ori"
     ));
     assert_panic_exit(exit_code, "catch_then_uncaught_div_same_fn_aborts", &stderr);
+}
+
+/// Regression: an aggregate-returning match may call a differently shaped
+/// aggregate-returning function before its result is consumed inline.
+#[test]
+fn inline_aggregate_match_return_aot_stays_valid() {
+    assert_aot_success(
+        include_str!("fixtures/error_handling/inline_aggregate_match_return.ori"),
+        "inline_aggregate_match_return_aot_stays_valid",
+    );
 }

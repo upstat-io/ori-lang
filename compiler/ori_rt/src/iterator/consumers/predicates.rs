@@ -2,8 +2,8 @@
 
 use std::ptr;
 
-use super::super::state::assert_elem_size;
-use super::super::{ElemBuf, ForEachFn, PredicateFn};
+use super::super::state::{assert_elem_size, YieldGuard};
+use super::super::{ElemBuf, ElemIncFn, ForEachFn, PredicateFn};
 use super::take_iter;
 use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
 
@@ -24,6 +24,7 @@ pub extern "C-unwind" fn ori_iter_count(iter: *mut u8, elem_size: i64) -> i64 {
     let mut discard = ElemBuf::new();
 
     while unsafe { state.next(discard.as_mut_ptr(), elem_size) } {
+        let _yield = YieldGuard::new(&mut state, discard.as_mut_ptr());
         count += 1;
     }
 
@@ -56,6 +57,7 @@ pub extern "C-unwind" fn ori_iter_any(
         if !unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
             break false;
         }
+        let _yield = YieldGuard::new(&mut state, elem_buf.as_mut_ptr());
         if (pred_fn)(pred_env, elem_buf.as_ptr()) {
             break true;
         }
@@ -90,6 +92,7 @@ pub extern "C-unwind" fn ori_iter_all(
         if !unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
             break true;
         }
+        let _yield = YieldGuard::new(&mut state, elem_buf.as_mut_ptr());
         if !(pred_fn)(pred_env, elem_buf.as_ptr()) {
             break false;
         }
@@ -112,6 +115,7 @@ pub extern "C-unwind" fn ori_iter_find(
     pred_fn: PredicateFn,
     pred_env: *mut u8,
     elem_size: i64,
+    elem_inc_fn: Option<ElemIncFn>,
     out_ptr: *mut u8,
 ) {
     assert_elem_size(elem_size, "ori_iter_find");
@@ -136,10 +140,14 @@ pub extern "C-unwind" fn ori_iter_find(
         if !unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
             break false;
         }
+        let _yield = YieldGuard::new(&mut state, elem_buf.as_mut_ptr());
         if (pred_fn)(pred_env, elem_buf.as_ptr()) {
             // Copy found element to payload slot
             unsafe {
                 ptr::copy_nonoverlapping(elem_buf.as_ptr(), payload_ptr, elem_size as usize);
+            }
+            if let Some(inc) = elem_inc_fn {
+                inc(payload_ptr);
             }
             break true;
         }
@@ -177,6 +185,7 @@ pub extern "C-unwind" fn ori_iter_for_each(
     let mut elem_buf = ElemBuf::new();
 
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
+        let _yield = YieldGuard::new(&mut state, elem_buf.as_mut_ptr());
         (each_fn)(each_env, elem_buf.as_ptr());
     }
 }

@@ -3,7 +3,7 @@
 use ori_ir::{ExprArena, GenericParamRange, Name, ParsedType, WhereClause};
 use rustc_hash::FxHashMap;
 
-use crate::{GenericParamMeta, Idx, ModuleChecker, WhereConstraint};
+use crate::{GenericConstExpr, GenericParamMeta, Idx, ModuleChecker, WhereConstraint};
 
 use super::resolve_type_with_method_generics_from;
 
@@ -161,7 +161,9 @@ pub(crate) fn build_method_generic_metadata_from(
             bounds,
             default_type,
             const_type,
-            const_default_value: None,
+            const_default_value: parameter
+                .default_value
+                .and_then(|expr| GenericConstExpr::from_arena(arena, expr).ok()),
             projection_bounds: Vec::new(),
         });
     }

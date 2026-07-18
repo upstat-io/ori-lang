@@ -286,3 +286,39 @@ fn module_candidates_resolve_for_correct_ori_stdlib_layout() {
         "correct ORI_STDLIB layout must resolve the module; got {candidates:?}"
     );
 }
+
+#[test]
+fn selected_constant_uses_a_constant_carrier_only() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(&provider_path, "pub $answer = 30;\n")
+        .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $answer };\n@main () -> int = $answer;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let db = CompilerDb::new();
+    let consumer_file = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let parsed = crate::query::parsed(&db, consumer_file);
+    assert!(
+        !parsed.has_errors(),
+        "constant import fixture must parse: {:?}",
+        parsed.errors
+    );
+
+    let resolved = resolve_imports(&db, &parsed, &consumer_path);
+    assert!(
+        resolved.imported_functions.is_empty(),
+        "a selected `$` item must never enter the function import carrier"
+    );
+    assert_eq!(resolved.imported_constants.len(), 1);
+    let imported = resolved.imported_constants[0];
+    assert_eq!(db.interner().lookup(imported.local_name), "answer");
+    assert_eq!(imported.local_name, imported.original_name);
+    assert_eq!(imported.module_index, 0);
+}

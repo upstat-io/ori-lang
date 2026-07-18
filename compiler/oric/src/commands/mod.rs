@@ -110,6 +110,22 @@ impl FrontendResult {
     }
 }
 
+/// Emit every Canon-owned module-constant failure through the stable E2058
+/// renderer. Returns whether the caller must stop before a consumer phase.
+fn emit_const_eval_problems(
+    problems: &[ori_ir::canon::ConstEvalProblem],
+    interner: &oric::ir::StringInterner,
+    emitter: &mut dyn DiagnosticEmitter,
+) -> bool {
+    let diagnostics =
+        oric::problem::semantic::const_eval_problems_to_diagnostics(problems, interner);
+    if diagnostics.is_empty() {
+        return false;
+    }
+    emitter.emit_all(&diagnostics);
+    true
+}
+
 /// Emits all frontend diagnostics and returns the cached pipeline state.
 ///
 /// Returns `None` only when type checking fails to cache its [`Pool`].
@@ -254,6 +270,9 @@ pub(super) fn run_post_frontend_checks(
         for problem in &shared_canon.problems {
             let diag = pattern_problem_to_diagnostic(problem, db.interner());
             emitter.emit(&diag);
+            has_errors = true;
+        }
+        if emit_const_eval_problems(&shared_canon.const_problems, db.interner(), emitter) {
             has_errors = true;
         }
     }

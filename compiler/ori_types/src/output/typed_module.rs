@@ -8,7 +8,10 @@ mod impl_methods;
 mod sidecars;
 
 pub use impl_methods::{ImplMethodId, ImplMethodRole, ImplSig, ImportedImplSig};
-pub use sidecars::{AssignDesugar, ExportedTypeMetadata, FormatSpecTypes, IterMethodRoute};
+pub use sidecars::{
+    AssignDesugar, CapabilityCallSite, CapabilityProvider, CapabilityProviderSource,
+    ExportedTypeMetadata, FormatSpecTypes, IterMethodRoute,
+};
 
 use ori_ir::{ExprId, Name, PatternKey, PatternResolution, SparseSideTable};
 
@@ -149,6 +152,14 @@ pub struct TypedModule {
     /// callee is instantiated with concrete arguments at the call site.
     pub mono_dispatch_map: SparseSideTable<ExprId, MonoInstanceId>,
 
+    /// Ordered provider selections for capability-bearing free calls.
+    ///
+    /// Canon consumes this sidecar to append source-erased implicit provider
+    /// arguments. The call's matching `mono_dispatch_map` entry selects code
+    /// specialized by provider type, while this table preserves the lexical
+    /// provider value passed by that particular call site.
+    pub capability_call_map: SparseSideTable<ExprId, CapabilityCallSite>,
+
     /// Type-directed desugar plans for `ExprKind::AssignTarget` chains.
     ///
     /// Each entry maps the AST `ExprId` of an `AssignTarget` node to its
@@ -272,6 +283,7 @@ impl TypedModule {
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
             mono_dispatch_map: SparseSideTable::new(),
+            capability_call_map: SparseSideTable::new(),
             assign_desugar_map: SparseSideTable::new(),
             module_alias_call_map: SparseSideTable::new(),
             iter_route_map: SparseSideTable::new(),
@@ -347,6 +359,12 @@ impl TypedModule {
     /// the intermediate adapter type that must be collected.
     pub fn resolve_iter_route(&self, key: ExprId) -> Option<IterMethodRoute> {
         self.iter_route_map.get(key).copied()
+    }
+
+    /// Resolve the frozen capability-provider selection for one source call.
+    #[must_use]
+    pub fn resolve_capability_call(&self, key: ExprId) -> Option<&CapabilityCallSite> {
+        self.capability_call_map.get(key)
     }
 
     /// Look up the qualified imported-function `Name` a module-alias qualified

@@ -491,6 +491,9 @@ pub enum ExecutionError {
     /// Execution reached ARC resume without modeled panic state.
     #[error("resumed without a pending VM panic")]
     ResumeWithoutPanic,
+    /// Catch recovery executed without a pending panic to consume.
+    #[error("catch recovery executed without a pending VM panic")]
+    CatchRecoverWithoutPanic,
     /// Execution reached an unreachable instruction.
     #[error("executed unreachable bytecode")]
     ReachedUnreachable,

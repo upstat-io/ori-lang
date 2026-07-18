@@ -314,7 +314,6 @@ impl Logged: Drop {
 
 /// Set element type with `@drop` — element @drop fires on set teardown.
 #[test]
-#[ignore = "BUG-05-006: Set<T> element @drop teardown segfaults (set-buffer hash-table runtime layout) — orthogonal to @drop emission"]
 fn drop_set_element_type_runs_user_drop_on_teardown() {
     let source = r#"
 type Logged = { tag: str }
@@ -345,11 +344,9 @@ impl Logged: Hashable {
 
 // A `@drop`-typed value created inside a `for ... do` body drops at each loop
 // iteration's scope exit.
-// BUG-05-006 matrix — `.iter().collect()` result + element ownership.
-// Gated burden probe (`ORI_DISABLE_PREDICATE_STACK_RC=1`) is the
-// RC/AOT verdict surface; the leak reproduces on both default + gated paths.
-// These pins FAIL on the unfixed code (collect result mis-classified non-fresh
-// -> dead-value cleanup leak; collect copies elements -> source re-drops).
+// BUG-05-006 regression matrix — `.iter().collect()` result + element
+// ownership. The gated burden probe (`ORI_DISABLE_PREDICATE_STACK_RC=1`) is the
+// RC/AOT verdict surface for both cleanup admission and transfer accounting.
 
 const BUG_05_006_GATED: &[(&str, &str)] = &[
     ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
@@ -360,7 +357,6 @@ const BUG_05_006_GATED: &[(&str, &str)] = &[
 /// EXACTLY ONCE (set teardown), not twice (source-list + set). Pre-fix: `drop`
 /// prints twice (collect copies the element; source buffer re-drops its copy).
 #[test]
-#[ignore = "BUG-05-006: collect copies elements + source re-drops -> @drop fires 2x on AOT (correct: 1x)"]
 fn drop_set_collect_element_drops_exactly_once_when_used() {
     let source = r#"
 type Logged = { tag: str }
@@ -391,7 +387,6 @@ impl Logged: Hashable { @hash (self) -> int = self.tag.length(); }
 /// `ori_iter_collect` result is mis-classified non-fresh -> no scope-exit dec
 /// -> exit 2 (leak). Post-fix: exit 0, `@drop` once.
 #[test]
-#[ignore = "BUG-05-006: unused .iter().collect() result (list family) not admitted -> buffer leak (exit 2)"]
 fn drop_list_collect_unused_result_is_freed() {
     let source = r#"
 type Logged = { tag: str }
@@ -418,7 +413,6 @@ impl Logged: Drop { @drop (self) -> void = print(msg: `drop-elem-{self.tag}`); }
 /// shared heap str must balance) AND `@drop` exactly once. Pre-fix: `@drop` 2x
 /// (RC balanced, no double-free) — the count is the regression, not memory.
 #[test]
-#[ignore = "BUG-05-006: heap-element collect runs @drop 2x (correct: 1x); RC balanced so no double-free"]
 fn drop_set_collect_heap_element_drops_once_no_double_free() {
     let source = r#"
 type Logged = { tag: str }
@@ -775,25 +769,15 @@ impl EventLog: Drop {
     );
 }
 
-/// NICHE enum payload field-drop panic → later-walked sibling payload field
-/// still dropped via the per-field cleanup pad. A 2-variant niche-encoded enum
-/// (`Option<Pair>` with `Pair` carrying a niche-bearing field) routes its data
-/// variant teardown through `emit_drop_enum_niche` (heap) / `emit_niche_enum_rc`
-/// (inline). Both now route through the canonical
-/// `dec_fields_may_unwind` SSOT, so a panicking payload field's `@drop` frees
-/// the later-walked sibling instead of leaking it.
-///
-/// IGNORED: niche-encoded codegen is feature-gated OFF
-/// (`NICHE_CODEGEN_READY = false` in `ori_repr/src/canonical/type_repr.rs`), so
-/// no user program reaches the niche dec paths today — a behavioral AOT cell
-/// cannot exercise them. The niche-dec SSOT routing is verified at the IR level
-/// (per-field `invoke @drop → fld.cont/fld.cleanup` + `landingpad` + `resume`,
-/// confirmed with the gate temporarily flipped). This cell activates when niche
-/// codegen ships under BUG-04-222 (niche/tagless `TagEncoding` codegen-consumer
-/// migration), at which point it must pass without modification.
+/// Option payload field-drop panic → later-walked sibling payload field still
+/// drops via the per-field cleanup pad. This behavioral contract is independent
+/// of the enum tag encoding: the current explicit-tag path and the gated niche
+/// path both route payload teardown through the canonical
+/// `dec_fields_may_unwind` SSOT. The niche-specific routing remains pinned at
+/// the IR level while `NICHE_CODEGEN_READY` is false; this AOT cell exercises
+/// the reachable explicit-tag path without pretending the gated encoding ran.
 #[test]
-#[ignore = "BUG-04-222: niche-encoded codegen gated off (NICHE_CODEGEN_READY=false); F2 niche dec SSOT routing verified at IR level, this behavioral cell activates when niche codegen ships"]
-fn drop_niche_enum_payload_panic_cleans_remaining_sibling() {
+fn drop_option_payload_panic_cleans_remaining_sibling() {
     let source = r#"
 type Loud = { tag: str }
 
@@ -822,15 +806,15 @@ type Pair = { first: Quiet, second: Loud }
     let (exit_code, stdout, stderr) = compile_and_run_capture(source);
     assert!(
         stdout.contains("loud-L"),
-        "panicking niche-payload field-drop must run; stdout:\n{stdout}"
+        "panicking option-payload field-drop must run; stdout:\n{stdout}"
     );
     assert!(
         stdout.contains("quiet-Q"),
-        "later-walked niche-payload sibling must still drop via the per-field cleanup pad; stdout:\n{stdout}"
+        "later-walked option-payload sibling must still drop via the per-field cleanup pad; stdout:\n{stdout}"
     );
     assert_eq!(
         exit_code, 1,
-        "niche-payload field-drop panic must unwind (1), not abort or leak (2); stderr:\n{stderr}"
+        "option-payload field-drop panic must unwind (1), not abort or leak (2); stderr:\n{stderr}"
     );
 }
 

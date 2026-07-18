@@ -54,6 +54,12 @@ pub struct TraitRegistry {
 pub(crate) enum RegisteredImplOrigin {
     /// Source or inherited-default body in a parsed impl block.
     Source { impl_index: usize },
+    /// Source body in an extension block. Extension owners occupy the
+    /// module-local index range immediately after parsed impl blocks.
+    Extension {
+        owner_index: usize,
+        target_name: Name,
+    },
     /// Compiler-generated accepted derive.
     Derived(ori_ir::DerivedImplId),
     /// Method templates imported from another producer module.
@@ -184,6 +190,10 @@ pub struct TraitMethodDef {
     /// Empty when the method has no where clause.
     pub where_clause_metadata: Vec<WhereConstraint>,
 
+    /// Fixed-list capacity expressions that depend on this method's const
+    /// binders, retained for concrete call-site validation.
+    pub fixed_list_capacity_constraints: Vec<crate::GenericConstExpr>,
+
     /// Source location.
     pub span: Span,
 }
@@ -291,6 +301,10 @@ pub struct ImplMethodDef {
     /// Empty when the method has no where clause.
     pub where_clause_metadata: Vec<WhereConstraint>,
 
+    /// Fixed-list capacity expressions that depend on this method's const
+    /// binders, retained for concrete call-site validation.
+    pub fixed_list_capacity_constraints: Vec<crate::GenericConstExpr>,
+
     /// Count of non-`self` parameters WITH a default value.
     /// A call is arity-valid when `arg_count` is in
     /// `[total_non_self - optional_param_count, total_non_self]`; omitted
@@ -341,7 +355,7 @@ pub struct GenericParamMeta {
 
     /// Default value of a const-generic parameter (e.g., `<$N: int = 42>`).
     /// Always `None` when `is_const == false`.
-    pub const_default_value: Option<Idx>,
+    pub const_default_value: Option<crate::GenericConstExpr>,
 
     /// Projection-bound constraints attached to this parameter
     /// (e.g., `T.Item: Eq` shape per associated-type clarification note).
@@ -375,6 +389,14 @@ pub enum MethodLookup<'a> {
         /// The method definition.
         method: &'a ImplMethodDef,
     },
+
+    /// Method from an extension block.
+    Extension {
+        /// Index of the registered extension provider.
+        impl_idx: usize,
+        /// The method definition.
+        method: &'a ImplMethodDef,
+    },
 }
 
 impl<'a> MethodLookup<'a> {
@@ -382,7 +404,9 @@ impl<'a> MethodLookup<'a> {
     #[inline]
     pub fn method(&self) -> &'a ImplMethodDef {
         match self {
-            Self::Inherent { method, .. } | Self::Trait { method, .. } => method,
+            Self::Inherent { method, .. }
+            | Self::Trait { method, .. }
+            | Self::Extension { method, .. } => method,
         }
     }
 
@@ -390,7 +414,9 @@ impl<'a> MethodLookup<'a> {
     #[inline]
     pub fn impl_idx(&self) -> usize {
         match self {
-            Self::Inherent { impl_idx, .. } | Self::Trait { impl_idx, .. } => *impl_idx,
+            Self::Inherent { impl_idx, .. }
+            | Self::Trait { impl_idx, .. }
+            | Self::Extension { impl_idx, .. } => *impl_idx,
         }
     }
 
@@ -404,7 +430,7 @@ impl<'a> MethodLookup<'a> {
     #[inline]
     pub fn trait_idx(&self) -> Option<Idx> {
         match self {
-            Self::Inherent { .. } => None,
+            Self::Inherent { .. } | Self::Extension { .. } => None,
             Self::Trait { trait_idx, .. } => Some(*trait_idx),
         }
     }

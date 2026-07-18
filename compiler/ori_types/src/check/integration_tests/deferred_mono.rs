@@ -232,3 +232,51 @@ fn deferred_mono_resolution_multi_param_forwarding() {
     );
     assert_eq!(g_str_int[0].concrete_return_type, Idx::INT);
 }
+
+#[test]
+fn deferred_mono_same_named_impl_callers_are_producer_qualified() {
+    let source = include_str!(
+        "../fixtures/integration/deferred_mono_same_named_impl_callers_are_producer_qualified.ori"
+    );
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "same-named generic impl methods should type-check: {:?}",
+        result.error_kinds()
+    );
+
+    let forwards = result.mono_instances_for("forward");
+    assert_eq!(
+        forwards.len(),
+        2,
+        "expected two method instances: {forwards:?}"
+    );
+    assert!(forwards.iter().all(|instance| {
+        matches!(
+            instance.method_producer,
+            Some(crate::MethodProducer::Impl(_))
+        )
+    }));
+    assert_ne!(
+        forwards[0].method_producer, forwards[1].method_producer,
+        "same-spelled methods must retain distinct source producers"
+    );
+
+    let left = result.mono_instances_for("left_id");
+    assert_eq!(left.len(), 1, "expected only left_id<int>: {left:?}");
+    assert_eq!(
+        left[0].generic_args,
+        vec![crate::GenericArg::Type(Idx::INT)]
+    );
+    assert_eq!(left[0].concrete_param_types, vec![Idx::INT]);
+    assert_eq!(left[0].concrete_return_type, Idx::INT);
+
+    let right = result.mono_instances_for("right_id");
+    assert_eq!(right.len(), 1, "expected only right_id<str>: {right:?}");
+    assert_eq!(
+        right[0].generic_args,
+        vec![crate::GenericArg::Type(Idx::STR)]
+    );
+    assert_eq!(right[0].concrete_param_types, vec![Idx::STR]);
+    assert_eq!(right[0].concrete_return_type, Idx::STR);
+}

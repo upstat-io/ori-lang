@@ -2,9 +2,9 @@
 
 use super::{
     select_producer, AcceptedDerivedImpl, CallPositions, DerivedCallPlan, DerivedCallPosition,
-    DerivedCallSelection, DerivedDirectCallSelection, DerivedTrait, Idx, MethodProducer, Name,
-    PlanSelectionSources, Pool, RegistryPreludeIdentity, SelectionOutcome, StringInterner, Tag,
-    TraitRegistry, TypeCheckError,
+    DerivedCallSelection, DerivedDirectCallSelection, DerivedTrait, FxHashMap, Idx, MethodProducer,
+    Name, PlanSelectionSources, Pool, RegistryPreludeIdentity, SelectionOutcome, StringInterner,
+    Tag, TraitRegistry, TypeCheckError,
 };
 
 pub(super) fn build_plan(
@@ -16,7 +16,8 @@ pub(super) fn build_plan(
     pool: &mut Pool,
     errors: &mut Vec<TypeCheckError>,
 ) -> Option<DerivedCallPlan> {
-    let positions = collect_call_positions(accepted, receiver, pool, errors)?;
+    let positions =
+        collect_call_positions(accepted, receiver, &binder_substitutions, pool, errors)?;
     build_plan_from_positions(
         accepted,
         receiver,
@@ -31,12 +32,28 @@ pub(super) fn build_plan(
 fn collect_call_positions(
     accepted: &AcceptedDerivedImpl,
     receiver: Idx,
-    pool: &Pool,
+    binder_substitutions: &[Idx],
+    pool: &mut Pool,
     errors: &mut Vec<TypeCheckError>,
 ) -> Option<CallPositions> {
     let mut method_positions = Vec::new();
     let mut direct_positions = Vec::new();
-    let resolved = pool.resolve_fully(receiver);
+    let resolved = if accepted.signature.type_params.is_empty() {
+        pool.resolve_fully(receiver)
+    } else {
+        if accepted.signature.type_params.len() != binder_substitutions.len() {
+            return None;
+        }
+        let substitutions: FxHashMap<_, _> = accepted
+            .signature
+            .type_params
+            .iter()
+            .copied()
+            .zip(binder_substitutions.iter().copied())
+            .collect();
+        let generic_body = pool.resolve_fully(accepted.owner_type);
+        crate::pool::substitute::substitute_named_in_pool(pool, generic_body, &substitutions)
+    };
     tracing::debug!(
         derived = ?accepted.id,
         trait_kind = ?accepted.trait_kind,
@@ -205,19 +222,22 @@ fn derived_trait_emits_method_call(trait_kind: DerivedTrait, receiver: Idx, pool
     let resolved = pool.resolve_fully(receiver);
     match trait_kind {
         DerivedTrait::Clone => false,
-        DerivedTrait::Eq => pool.builtin_type_tag(resolved).is_none(),
-        DerivedTrait::Default => !matches!(
-            pool.tag(resolved),
-            Tag::Int
-                | Tag::Byte
-                | Tag::Float
-                | Tag::Bool
-                | Tag::Str
-                | Tag::Char
-                | Tag::Unit
-                | Tag::Duration
-                | Tag::Size
-        ),
+        DerivedTrait::Eq => pool.builtin_method_type_tag(receiver).is_none(),
+        DerivedTrait::Default => {
+            pool.is_newtype_type(receiver)
+                || !matches!(
+                    pool.tag(resolved),
+                    Tag::Int
+                        | Tag::Byte
+                        | Tag::Float
+                        | Tag::Bool
+                        | Tag::Str
+                        | Tag::Char
+                        | Tag::Unit
+                        | Tag::Duration
+                        | Tag::Size
+                )
+        }
         DerivedTrait::Hashable | DerivedTrait::Comparable => pool.tag(resolved) != Tag::Unit,
         DerivedTrait::Printable | DerivedTrait::Debug => true,
     }

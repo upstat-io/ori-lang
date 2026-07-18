@@ -1,6 +1,6 @@
 //! Type-check result finalization and monomorphization dispatch normalization.
 
-use ori_ir::{Name, SparseSideTable};
+use ori_ir::{ExprArena, Name, SparseSideTable};
 
 use super::{derived_call_plans, exports, ModuleChecker};
 use crate::{FunctionSig, Idx, Pool, TypeCheckResult, TypedModule};
@@ -14,6 +14,7 @@ use crate::{FunctionSig, Idx, Pool, TypeCheckResult, TypedModule};
 type MonoIdentityKey = (
     Name,
     Vec<crate::GenericArg>,
+    Vec<Idx>,
     Vec<crate::GenericArg>,
     Vec<crate::GenericArg>,
     Vec<Idx>,
@@ -131,6 +132,7 @@ impl ModuleChecker<'_> {
         let assign_desugar_map = self.assign_desugars;
         let module_alias_call_map = self.module_alias_calls;
         let iter_route_map = self.iter_route_desugars;
+        let capability_call_map = self.capability_calls;
 
         // Resolve transitive mono calls (generic calling generic) before dedup.
         // The deferred resolver publishes dispatch entries into
@@ -148,18 +150,13 @@ impl ModuleChecker<'_> {
             );
         }
 
-        let mut accepted_derives = self.accepted_derives;
-        accepted_derives.sort_unstable_by_key(|accepted| accepted.id);
-        debug_assert!(
-            accepted_derives
-                .windows(2)
-                .all(|pair| pair[0].id != pair[1].id),
-            "accepted derived implementation identities must be unique"
-        );
+        let accepted_derives = sort_and_validate_accepted_derives(self.accepted_derives);
+        let source_method_demands = collect_source_method_demands(self.arena, &self.expr_types);
         let derived_call_plans = derived_call_plans::close_derived_call_plans(
             &mut pool,
             derived_call_plans::DerivedCallClosureSources {
                 generic_type_params: &generic_type_params,
+                source_method_demands: &source_method_demands,
                 traits: &self.traits,
                 functions: &functions,
                 impl_sigs: &self.impl_sigs,
@@ -192,24 +189,14 @@ impl ModuleChecker<'_> {
         let (mono_instances, mono_dispatch_map) =
             dedup_and_remap_mono_instances(mono_instances, self.mono_dispatch_pre_dedup);
 
-        // Generate portable type descriptors for all public function signatures.
-        // These enable cross-module type reconstruction without AST access.
-        let type_descriptors = exports::generate_export_descriptors(&pool, &functions);
-
-        // Generate exported type metadata for cross-module repr plan construction.
-        // Merges local types (repr/public) with forwarded imported metadata so that
-        // transitive chains (A→B→C) propagate correctly.
-        let exported_type_metadata =
-            exports::generate_exported_type_metadata(&types, &self.imported_type_metadata);
-
-        // Generate collection surface hashes for cross-module ABI protection.
-        // Walks public function signatures to find List/Set types, merges with
-        // imported surfaces for transitive forwarding.
-        let exported_collection_surfaces = exports::generate_exported_collection_surfaces(
-            &pool,
-            &functions,
-            &self.imported_collection_surfaces,
-        );
+        let (type_descriptors, exported_type_metadata, exported_collection_surfaces) =
+            generate_export_metadata(
+                &pool,
+                &functions,
+                &types,
+                &self.imported_type_metadata,
+                &self.imported_collection_surfaces,
+            );
 
         let typed = TypedModule {
             expr_types: self.expr_types,
@@ -233,6 +220,7 @@ impl ModuleChecker<'_> {
             // alongside eager-path instantiations. Both flow through the
             // same dedup-remap pipeline.
             mono_dispatch_map: SparseSideTable::from_unsorted(mono_dispatch_map),
+            capability_call_map: SparseSideTable::from_unsorted(capability_call_map),
             type_descriptors,
             exported_type_metadata,
             exported_collection_surfaces,
@@ -246,6 +234,82 @@ impl ModuleChecker<'_> {
 
         (TypeCheckResult::from_typed(typed), pool)
     }
+}
+
+/// Sort accepted derived-impl identities for deterministic output and assert
+/// the dedup invariant (`AcceptedDerivedImpl.id` unique) that
+/// `derived_call_plans::close_derived_call_plans` relies on.
+fn sort_and_validate_accepted_derives(
+    mut accepted_derives: Vec<crate::AcceptedDerivedImpl>,
+) -> Vec<crate::AcceptedDerivedImpl> {
+    accepted_derives.sort_unstable_by_key(|accepted| accepted.id);
+    debug_assert!(
+        accepted_derives
+            .windows(2)
+            .all(|pair| pair[0].id != pair[1].id),
+        "accepted derived implementation identities must be unique"
+    );
+    accepted_derives
+}
+
+/// Collect `(receiver_type, method_name)` demand pairs for every method-call
+/// expression in the arena, keyed to the receiver's already-inferred type.
+/// Feeds `derived_call_plans::close_derived_call_plans`'s demand-driven
+/// derived-method-call closure.
+fn collect_source_method_demands(arena: &ExprArena, expr_types: &[Idx]) -> Vec<(Idx, Name)> {
+    (0..arena.expr_count())
+        .filter_map(|raw| {
+            let id = ori_ir::ExprId::new(u32::try_from(raw).unwrap_or(u32::MAX));
+            let (receiver, method) = match arena.expr_kind(id) {
+                ori_ir::ExprKind::MethodCall {
+                    receiver, method, ..
+                }
+                | ori_ir::ExprKind::MethodCallNamed {
+                    receiver, method, ..
+                } => (*receiver, *method),
+                _ => return None,
+            };
+            expr_types
+                .get(receiver.index())
+                .copied()
+                .map(|receiver| (receiver, method))
+        })
+        .collect()
+}
+
+/// Generate the three export-facing metadata artifacts (portable type
+/// descriptors, cross-module repr-plan type metadata, and collection-surface
+/// ABI hashes) `finish_with_pool` folds into the returned `TypedModule`.
+///
+/// Type descriptors enable cross-module type reconstruction without AST
+/// access. Exported type metadata merges local types (repr/public) with
+/// forwarded imported metadata so transitive chains (A→B→C) propagate
+/// correctly. Collection surfaces walk public function signatures for
+/// List/Set types, merged with imported surfaces for transitive forwarding.
+fn generate_export_metadata(
+    pool: &Pool,
+    functions: &[FunctionSig],
+    types: &[crate::registry::TypeEntry],
+    imported_type_metadata: &[crate::output::ExportedTypeMetadata],
+    imported_collection_surfaces: &[u64],
+) -> (
+    Vec<(u64, crate::TypeDescriptor)>,
+    Vec<crate::output::ExportedTypeMetadata>,
+    Vec<u64>,
+) {
+    let type_descriptors = exports::generate_export_descriptors(pool, functions);
+    let exported_type_metadata =
+        exports::generate_exported_type_metadata(types, imported_type_metadata);
+    let exported_collection_surfaces = exports::generate_exported_collection_surfaces(
+        pool,
+        functions,
+        imported_collection_surfaces,
+    );
+    (
+        type_descriptors,
+        exported_type_metadata,
+        exported_collection_surfaces,
+    )
 }
 
 /// Dedup `mono_instances` by the full identity tuple, sort the survivors by
@@ -292,6 +356,7 @@ fn dedup_and_remap_mono_instances(
         let key: MonoIdentityKey = (
             inst.fn_name,
             inst.generic_args.clone(),
+            inst.capability_args.clone(),
             inst.impl_args.clone(),
             inst.method_args.clone(),
             inst.concrete_param_types.clone(),

@@ -4,17 +4,16 @@ source_filename = "wrap_nested"
 
 %ori.Error = type { { i64, i64, ptr }, { i64, i64, ptr } }
 
-; Function Attrs: nounwind uwtable
+; Function Attrs: nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable
 ; --- @main ---
 define noundef i64 @_ori_main() #0 {
 bb0:
-  call void @ori_rc_dec(i8 7, ptr @"_ori_drop$141")  ; RC-- T
   ret i64 7
 }
 
 ; Function Attrs: nounwind uwtable
 ; --- @Error_ctor ---
-define internal void @_ori_Error_ctor(ptr noalias sret(%ori.Error) %0, ptr noundef %1, ptr noundef nonnull dereferenceable(24) %2) #0 {
+define internal void @_ori_Error_ctor(ptr noalias sret(%ori.Error) %0, ptr noundef %1, ptr noundef nonnull dereferenceable(24) %2) #1 {
 entry:
   %dst_msg_ptr = getelementptr inbounds nuw %ori.Error, ptr %0, i32 0, i32 0
   %src = getelementptr inbounds nuw { i64, i64, ptr }, ptr %2, i32 0, i32 0
@@ -34,22 +33,8 @@ entry:
   ret void
 }
 
-; Function Attrs: cold nounwind uwtable
-; --- drop T ---
-define internal void @"_ori_drop$141"(ptr noundef %0) #1 {
-entry:
-  call void @ori_rc_free(ptr %0, i64 8, i64 8)
-  ret void
-}
-
-; Function Attrs: nounwind
-declare void @ori_rc_free(ptr, i64, i64) #2
-
-; Function Attrs: nounwind memory(inaccessiblemem: readwrite)
-declare void @ori_rc_dec(ptr, ptr) #3
-
 ; Function Attrs: nounwind uwtable
-define noundef i32 @main() #0 {
+define noundef i32 @main() #1 {
 entry:
   %ori_main_result = call i64 @_ori_main()
   %exit_code = trunc i64 %ori_main_result to i32
@@ -62,8 +47,7 @@ entry:
 ; Function Attrs: nounwind
 declare i32 @ori_check_leaks() #2
 
-attributes #0 = { nounwind uwtable }
-attributes #1 = { cold nounwind uwtable }
+attributes #0 = { nounwind memory(argmem: read, inaccessiblemem: read, errnomem: read) uwtable }
+attributes #1 = { nounwind uwtable }
 attributes #2 = { nounwind }
-attributes #3 = { nounwind memory(inaccessiblemem: readwrite) }
 === END LLVM IR ===

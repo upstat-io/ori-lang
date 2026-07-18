@@ -446,8 +446,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mut args = vec![env_ptr];
         let mut params = vec![ptr_ty];
 
-        let passing =
-            crate::codegen::abi::compute_param_passing(arg_ty, self.type_info, self.repr_plan);
+        let passing = crate::codegen::abi::compute_closure_param_passing(
+            arg_ty,
+            self.type_info,
+            self.repr_plan,
+            self.classifier,
+        );
         match passing {
             crate::codegen::abi::ParamPassing::Indirect { .. }
             | crate::codegen::abi::ParamPassing::Reference => {

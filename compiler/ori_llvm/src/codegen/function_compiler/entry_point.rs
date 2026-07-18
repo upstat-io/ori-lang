@@ -136,8 +136,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     args_cleanup.as_ref(),
                 ),
                 EhModel::Seh => {
-                    // SEH thunk requires args context. For no-args @main on
-                    // MSVC, use ori_try_call directly without a context struct.
                     if let Some(ref cleanup) = args_cleanup {
                         self.emit_main_call_with_seh_try(
                             c_main_id,
@@ -149,16 +147,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                             cleanup,
                         );
                     } else {
-                        // Fallback: direct call on MSVC without args.
-                        // ori_try_call still catches SEH exceptions from
-                        // _ori_main even without a context struct.
-                        self.emit_main_call_direct(
+                        self.emit_main_call_no_args_with_seh_try(
+                            c_main_id,
                             ori_main_id,
-                            &call_args,
                             abi.return_abi.passing,
                             returns_int,
                             i32_ty,
-                            None,
                         );
                     }
                 }
@@ -333,6 +327,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let catch_cleanup = self.builder.runtime_fn("ori_catch_cleanup");
             self.builder.call(catch_cleanup, &[exc_ptr], "");
         }
+        let report_panic = self.builder.runtime_fn("ori_report_uncaught_panic");
+        self.builder.call(report_panic, &[], "");
         if let Some(cleanup) = args_cleanup {
             self.builder
                 .call(cleanup.cleanup_fn, &[cleanup.data, cleanup.len], "");
@@ -343,9 +339,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
     /// Emit `_ori_main` call via direct `call` (no unwind handling needed).
     ///
-    /// Used when `_ori_main` is nounwind or has no args. When args exist
-    /// but the callee takes ownership (Indirect ABI), cleanup is skipped
-    /// to avoid double-freeing the args buffer.
+    /// Used when `_ori_main` is nounwind. When args exist but the callee takes
+    /// ownership (Indirect ABI), cleanup is skipped to avoid double-freeing
+    /// the args buffer.
     fn emit_main_call_direct(
         &mut self,
         ori_main_id: FunctionId,

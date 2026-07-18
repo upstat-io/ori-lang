@@ -32,6 +32,132 @@ impl Pool {
         }
     }
 
+    /// Return whether a type index denotes a registered nominal newtype.
+    ///
+    /// Newtypes share their underlying representation but do not inherit its
+    /// traits or methods (Spec: Clause 8.6.3). Method selection must therefore
+    /// preserve their nominal identity instead of dispatching through the
+    /// underlying builtin registry entry.
+    #[must_use]
+    pub fn is_newtype_type(&self, idx: Idx) -> bool {
+        if !self.is_valid_idx(idx) {
+            return false;
+        }
+        match self.tag(idx) {
+            Tag::Named => self.is_newtype_ctor(self.named_name(idx)),
+            Tag::Applied => self.is_newtype_ctor(self.applied_name(idx)),
+            _ => false,
+        }
+    }
+
+    /// Resolve the semantic receiver identity used for method dispatch.
+    ///
+    /// Representation aliases are followed, but resolution stops at the first
+    /// nominal newtype so method lookup cannot fall through to its payload.
+    #[must_use]
+    pub fn method_receiver_type(&self, receiver: Idx) -> Idx {
+        let mut current = self.chase_var_links(receiver);
+        for _ in 0..16 {
+            if !self.is_valid_idx(current) || self.is_newtype_type(current) {
+                return current;
+            }
+            let Some(next) = self.resolutions.get(&current).copied() else {
+                return self.resolve_fully(current);
+            };
+            if next == current {
+                return current;
+            }
+            current = self.chase_var_links(next);
+        }
+        current
+    }
+
+    /// Return the canonical semantic identity used to index a method target.
+    ///
+    /// Concrete generic structs, enums, and newtypes retain their nominal
+    /// `Applied(Name, args)` carrier so distinct instantiations cannot collapse
+    /// through their shared representation body. Equivalent carriers that were
+    /// interned before inference variables linked are folded to the lowest pool
+    /// index by recursively comparing their resolved arguments. Transparent
+    /// aliases keep the representation-resolving behavior of
+    /// [`Self::method_receiver_type`].
+    #[must_use]
+    pub fn method_receiver_key(&self, receiver: Idx) -> Idx {
+        let receiver = self.chase_var_links(receiver);
+        if !self.is_nominal_applied_receiver(receiver) {
+            return self.method_receiver_type(receiver);
+        }
+
+        let mut canonical = receiver;
+        for candidate in self.iter_indices() {
+            if candidate.raw() >= canonical.raw()
+                || !self.is_nominal_applied_receiver(candidate)
+                || !self.method_type_argument_eq(receiver, candidate, 0)
+            {
+                continue;
+            }
+            canonical = candidate;
+        }
+        canonical
+    }
+
+    fn is_nominal_applied_receiver(&self, receiver: Idx) -> bool {
+        if !self.is_valid_idx(receiver) || self.tag(receiver) != Tag::Applied {
+            return false;
+        }
+        if self.is_newtype_type(receiver) {
+            return true;
+        }
+        let name = self.applied_name(receiver);
+        let resolved = self.resolve_fully(receiver);
+        match self.tag(resolved) {
+            Tag::Struct => self.struct_name(resolved) == name,
+            Tag::Enum => self.enum_name(resolved) == name,
+            _ => false,
+        }
+    }
+
+    fn method_type_argument_eq(&self, left: Idx, right: Idx, depth: u8) -> bool {
+        if depth >= 32 {
+            return false;
+        }
+        let left = self.chase_var_links(left);
+        let right = self.chase_var_links(right);
+        if left == right {
+            return true;
+        }
+        if self.is_nominal_applied_receiver(left) && self.is_nominal_applied_receiver(right) {
+            if self.applied_name(left) != self.applied_name(right) {
+                return false;
+            }
+            let left_args = self.applied_args(left);
+            let right_args = self.applied_args(right);
+            return left_args.len() == right_args.len()
+                && left_args
+                    .iter()
+                    .zip(&right_args)
+                    .all(|(&left, &right)| self.method_type_argument_eq(left, right, depth + 1));
+        }
+        self.structural_eq(
+            self.method_receiver_type(left),
+            self.method_receiver_type(right),
+        )
+    }
+
+    /// Resolve the builtin registry receiver for method dispatch.
+    ///
+    /// Unlike a raw `resolve_fully` plus `builtin_type_tag` query, this keeps
+    /// newtypes nominal, including through aliases, so their explicit impl
+    /// wins over the underlying builtin's method table.
+    #[must_use]
+    pub fn builtin_method_type_tag(&self, receiver: Idx) -> Option<ori_registry::TypeTag> {
+        let receiver = self.method_receiver_type(receiver);
+        if !self.is_valid_idx(receiver) || self.is_newtype_type(receiver) {
+            return None;
+        }
+        self.builtin_type_tag(receiver)
+    }
+
     /// Get the item for a type index.
     #[inline]
     pub fn item(&self, idx: Idx) -> Item {

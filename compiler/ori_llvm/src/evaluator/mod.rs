@@ -158,6 +158,7 @@ impl CompiledTestModule<'_> {
             // Windows: no landingpad wrapper — use jit_run_protected
             let raw_fn: unsafe extern "C" fn() = unsafe { test_fn.as_raw() };
             if let Err(msg) = unsafe { runtime::jit_run_protected(raw_fn) } {
+                runtime::ori_report_uncaught_panic();
                 return Err(LLVMEvalError::new(msg));
             }
         }

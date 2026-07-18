@@ -1,0 +1,7 @@
+let $BOOL_CAPACITY = true;
+
+@invalid_capacity_expressions (items: [int]) -> void = {
+    let bool_literal: [int, max true] = items;
+    let bool_binding: [int, max BOOL_CAPACITY] = items;
+    let unsupported_operator: [int, max 4 div 2] = items;
+}

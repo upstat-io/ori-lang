@@ -22,6 +22,9 @@ pub(crate) fn infer_assign(
     // recorded here to synthesize the pure-reassignment form.
     if let ExprKind::AssignTarget { root, steps } = arena.get_expr(target).kind {
         let elem_ty = infer_assign_target(engine, arena, target, root, steps);
+        // This direct helper path bypasses `infer_expr`, so store the node's
+        // semantic type explicitly while retaining `elem_ty` for RHS checking.
+        engine.store_type(target.raw() as usize, Idx::UNIT);
         let value_ty = infer_expr(engine, arena, value);
         // The assigned value must be assignable to the value-position element
         // type of the chain (`xs[i] = v` requires `v: elem(xs)`). An `Idx::ERROR`

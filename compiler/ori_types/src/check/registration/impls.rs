@@ -9,7 +9,8 @@ mod imported;
 mod local;
 mod methods;
 
-pub use extensions::register_builtin_extensions;
+pub use extensions::register_extensions;
+pub(crate) use extensions::{extension_method_has_self, extension_type_params};
 pub(crate) use imported::register_imported_impls;
 
 use crate::check::bodies::allocate_rigid_var_map;

@@ -23,6 +23,17 @@ pub(super) fn validate_function_metadata(
             });
         }
         validate_call_ownership(function, &function_symbol)?;
+        if let Some(fact) = function.operator_call_facts.first() {
+            return Err(RealizationError::InvalidGeneratedCallProvenance {
+                function: function.name,
+                function_symbol,
+                details: format!(
+                    "unresolved operator {:?} remains at register {:?}",
+                    fact.operation, fact.destination
+                )
+                .into_boxed_str(),
+            });
+        }
         validate_method_call_facts(function, pool, &function_symbol)?;
         validate_direct_call_facts(function, &function_symbol)?;
         if let Err(errors) = ori_arc::validate_primitive_facts(function, &classifier) {

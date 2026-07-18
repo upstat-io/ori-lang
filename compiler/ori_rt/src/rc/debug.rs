@@ -320,6 +320,21 @@ pub(crate) fn rt_debug_check_not_freed(data_ptr: *const u8, op: &str) {
     }
 }
 
+/// Register a pointer as live after allocation.
+///
+/// Allocators may legitimately reuse an address that appeared in the freed
+/// set. The new allocation starts a distinct lifetime, so stale tombstone
+/// membership must be cleared before any RC operation validates the pointer.
+#[cfg(debug_assertions)]
+pub(crate) fn rt_debug_register_allocated(data_ptr: *const u8) {
+    if !rt_debug_enabled() {
+        return;
+    }
+    if let Ok(mut set) = freed_set().lock() {
+        set.remove(&(data_ptr as usize));
+    }
+}
+
 /// Register a pointer as freed, aborting on double-free.
 ///
 /// Called from `ori_rc_free`. If the pointer was already in the freed set,

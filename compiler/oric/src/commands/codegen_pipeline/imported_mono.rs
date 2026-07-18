@@ -60,6 +60,8 @@ pub(crate) struct PoolReinternState<'a> {
 pub(crate) struct ImportedSurfaces<'a> {
     /// One exact source owner per unique imported mono instance.
     pub(crate) imported_mono_fns: &'a [ImportedMonoFn],
+    /// Generic source templates retained before any concrete demand exists.
+    pub(crate) generic_templates: &'a [crate::realization::ImportedGenericTemplate],
     /// Per-imported-module canons re-interned into merged-pool coordinates;
     /// indexed by `imported_mono_fns[i].module_index`.
     pub(crate) re_interned_canons: &'a [ori_ir::canon::CanonResult],
@@ -94,6 +96,10 @@ pub(crate) fn build_imported_mono_functions(
             .chain(instance.impl_args.iter())
             .chain(instance.method_args.iter())
             .any(|a| matches!(a, GenericArg::Type(t) if !merged_pool.flags(*t).is_recordable()))
+            || instance
+                .capability_args
+                .iter()
+                .any(|ty| !merged_pool.flags(*ty).is_recordable())
         {
             continue;
         }
@@ -104,15 +110,8 @@ pub(crate) fn build_imported_mono_functions(
             continue;
         };
 
-        let base_mangled = ori_repr::monomorphize::mangle_mono_name(
-            instance.fn_name,
-            &instance.generic_args,
-            &instance.impl_args,
-            &instance.method_args,
-            instance.receiver_type,
-            interner,
-            merged_pool,
-        );
+        let base_mangled =
+            ori_repr::monomorphize::mangle_mono_instance_name(instance, interner, merged_pool);
         let mangled =
             imported_mangled_name(base_mangled, instance.method_producer.as_ref(), interner);
         if let Some(&existing) = name_to_index.get(&mangled) {
@@ -312,7 +311,7 @@ pub(crate) fn register_prelude_generic_sigs(
         let Some(sig) = source.typed.functions.iter().find(|s| s.name == func.name) else {
             continue;
         };
-        if !sig.is_generic() {
+        if !sig.requires_specialization() {
             continue;
         }
         // INVARIANT: explicit imports retain precedence over prelude signatures.
@@ -351,6 +350,19 @@ fn build_body_type_map(
             var_subst.insert(var_id, *concrete);
         }
     }
+    let provider_var_ids: Vec<_> = generic_sig
+        .capability_params
+        .iter()
+        .filter_map(|param| match param {
+            ori_types::CapabilityParam::Value {
+                provider_var_id, ..
+            } => Some(*provider_var_id),
+            ori_types::CapabilityParam::Marker { .. } => None,
+        })
+        .collect();
+    for (&var_id, &concrete) in provider_var_ids.iter().zip(&instance.capability_args) {
+        var_subst.insert(var_id, concrete);
+    }
 
     // Why: `Pool::next_var_id` is the SSOT for the var_id watermark; re-deriving
     // via cache scan would scatter the lookup. `ensure_var_capacity` is idempotent
@@ -358,11 +370,13 @@ fn build_body_type_map(
     let watermark = merged_pool.next_var_id();
     merged_pool.ensure_var_capacity(watermark);
 
-    ori_types::extend_var_subst_with_roots(
-        merged_pool,
-        &generic_sig.scheme_var_ids,
-        &mut var_subst,
-    );
+    let retained_var_ids: Vec<_> = generic_sig
+        .scheme_var_ids
+        .iter()
+        .copied()
+        .chain(provider_var_ids)
+        .collect();
+    ori_types::extend_var_subst_with_roots(merged_pool, &retained_var_ids, &mut var_subst);
 
     let mut body_type_map: FxHashMap<Idx, Idx> = FxHashMap::default();
     ori_types::build_mono_body_type_map(merged_pool, &var_subst, &mut body_type_map);

@@ -120,23 +120,31 @@ pub(super) fn infer_function_signature_from(
     infer_function_signature_with_arena(checker, func, foreign_arena)
 }
 
-/// Shared implementation for inferring a function signature from any arena.
-///
-/// Returns the signature and the var IDs of generic type parameters.
-fn infer_function_signature_with_arena(
+/// Generic type/const-param collection results: declared type-param names,
+/// declared const-param metadata, the name→fresh-var substitution map, and
+/// the var ids parallel to `type_params` (NOT `FxHashMap` iteration order —
+/// `scheme_var_ids[i]` must correspond to `type_params[i]` and
+/// `generic_param_mapping[i]` for monomorphization substitution).
+struct GenericParamCollection {
+    type_params: Vec<Name>,
+    const_params: Vec<ConstParamInfo>,
+    type_param_vars: FxHashMap<Name, Idx>,
+    var_ids: Vec<u32>,
+}
+
+/// Collect a function's generic type + const params (filtering const params
+/// out of the type-param list — they are values, not types) and bind each
+/// type param to a fresh unification variable.
+fn collect_generic_params(
     checker: &mut ModuleChecker<'_>,
-    func: &Function,
-    arena: &ExprArena,
-) -> (FunctionSig, Vec<u32>) {
-    // Collect generic parameter names (filter out const params — they are values, not types)
-    let generic_params = arena.get_generic_params(func.generics);
+    generic_params: &[ori_ir::GenericParam],
+) -> GenericParamCollection {
     let type_params: Vec<Name> = generic_params
         .iter()
         .filter(|p| !p.is_const)
         .map(|p| p.name)
         .collect();
 
-    // Collect const generic parameters (e.g., `$N: int`)
     let const_params: Vec<ConstParamInfo> = generic_params
         .iter()
         .filter(|p| p.is_const)
@@ -150,7 +158,6 @@ fn infer_function_signature_with_arena(
         })
         .collect();
 
-    // Create a mapping from generic param names to fresh type variables
     let type_param_vars: FxHashMap<Name, Idx> = type_params
         .iter()
         .map(|&name| {
@@ -159,13 +166,101 @@ fn infer_function_signature_with_arena(
         })
         .collect();
 
-    // Collect var IDs parallel to type_params (NOT HashMap iteration order).
-    // This ensures scheme_var_ids[i] corresponds to type_params[i] and
-    // generic_param_mapping[i] — needed for monomorphization substitution.
     let var_ids: Vec<u32> = type_params
         .iter()
         .map(|name| checker.pool().data(type_param_vars[name]))
         .collect();
+
+    GenericParamCollection {
+        type_params,
+        const_params,
+        type_param_vars,
+        var_ids,
+    }
+}
+
+/// Extract a function's declared capabilities and, for each non-marker
+/// capability, allocate a fresh provider-type variable retaining the ordered
+/// provider schema in Pass 1, before any caller or body is checked.
+fn collect_capability_params(
+    checker: &mut ModuleChecker<'_>,
+    func: &Function,
+) -> (Vec<Name>, Vec<crate::CapabilityParam>) {
+    let capabilities: Vec<Name> = func.capabilities.iter().map(|c| c.name).collect();
+    let capability_params: Vec<crate::CapabilityParam> = capabilities
+        .iter()
+        .map(|&capability| {
+            if crate::is_marker_capability(capability, checker.interner()) {
+                crate::CapabilityParam::Marker { capability }
+            } else {
+                let provider_type = checker.pool_mut().fresh_named_var(capability);
+                crate::CapabilityParam::Value {
+                    capability,
+                    provider_type,
+                    provider_var_id: checker.pool().data(provider_type),
+                }
+            }
+        })
+        .collect();
+    (capabilities, capability_params)
+}
+
+/// Collect per-type-param trait bounds, the function's where-clauses (type
+/// bounds only; const bounds are deferred), and the map from each generic
+/// type param to the function param that directly uses it.
+fn collect_bounds_and_mapping(
+    func: &Function,
+    generic_params: &[ori_ir::GenericParam],
+    type_params: &[Name],
+    type_param_vars: &FxHashMap<Name, Idx>,
+    param_types: &[Idx],
+) -> (Vec<Vec<Name>>, Vec<FnWhereClause>, Vec<Option<usize>>) {
+    let type_param_bounds: Vec<Vec<Name>> = generic_params
+        .iter()
+        .filter(|p| !p.is_const)
+        .map(|p| p.bounds.iter().map(ori_ir::TraitBound::name).collect())
+        .collect();
+
+    let where_clauses: Vec<FnWhereClause> = func
+        .where_clauses
+        .iter()
+        .filter_map(|wc| {
+            let (param, projection, bounds, span) = wc.as_type_bound()?;
+            Some(FnWhereClause {
+                param,
+                projection,
+                bounds: bounds.iter().map(ori_ir::TraitBound::name).collect(),
+                span,
+            })
+        })
+        .collect();
+
+    let generic_param_mapping: Vec<Option<usize>> = type_params
+        .iter()
+        .map(|tp_name| {
+            let var_idx = type_param_vars[tp_name];
+            param_types.iter().position(|&ty| ty == var_idx)
+        })
+        .collect();
+
+    (type_param_bounds, where_clauses, generic_param_mapping)
+}
+
+/// Shared implementation for inferring a function signature from any arena.
+///
+/// Returns the signature and the var IDs of generic type parameters.
+fn infer_function_signature_with_arena(
+    checker: &mut ModuleChecker<'_>,
+    func: &Function,
+    arena: &ExprArena,
+) -> (FunctionSig, Vec<u32>) {
+    let generic_params = arena.get_generic_params(func.generics);
+    let GenericParamCollection {
+        type_params,
+        const_params,
+        type_param_vars,
+        var_ids,
+    } = collect_generic_params(checker, generic_params);
 
     let (param_names, param_types, param_defaults, required_params) =
         resolve_function_params(checker, func, arena, &type_param_vars);
@@ -191,39 +286,15 @@ fn infer_function_signature_with_arena(
         .as_ref()
         .and_then(|rt| detect_type_param_projection(rt, &type_params, arena));
 
-    // Extract capabilities
-    let capabilities: Vec<Name> = func.capabilities.iter().map(|c| c.name).collect();
+    let (capabilities, capability_params) = collect_capability_params(checker, func);
 
-    // Collect trait bounds for each generic type parameter (matching type_params order)
-    let type_param_bounds: Vec<Vec<Name>> = generic_params
-        .iter()
-        .filter(|p| !p.is_const)
-        .map(|p| p.bounds.iter().map(ori_ir::TraitBound::name).collect())
-        .collect();
-
-    // Collect where-clauses (only type bounds; const bounds are deferred)
-    let where_clauses: Vec<FnWhereClause> = func
-        .where_clauses
-        .iter()
-        .filter_map(|wc| {
-            let (param, projection, bounds, span) = wc.as_type_bound()?;
-            Some(FnWhereClause {
-                param,
-                projection,
-                bounds: bounds.iter().map(ori_ir::TraitBound::name).collect(),
-                span,
-            })
-        })
-        .collect();
-
-    // Map each generic type param to the function param that directly uses it
-    let generic_param_mapping: Vec<Option<usize>> = type_params
-        .iter()
-        .map(|tp_name| {
-            let var_idx = type_param_vars[tp_name];
-            param_types.iter().position(|&ty| ty == var_idx)
-        })
-        .collect();
+    let (type_param_bounds, where_clauses, generic_param_mapping) = collect_bounds_and_mapping(
+        func,
+        generic_params,
+        &type_params,
+        &type_param_vars,
+        &param_types,
+    );
 
     // Check for special function attributes
     let is_main = {
@@ -246,6 +317,7 @@ fn infer_function_signature_with_arena(
         param_types,
         return_type,
         capabilities,
+        capability_params,
         is_public: func.visibility == IrVisibility::Public,
         is_test: false,
         is_main,
@@ -365,7 +437,8 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
         param_types,
         return_type,
         capabilities: Vec::new(), // Tests don't declare capabilities
-        is_public: false,         // Tests are never public
+        capability_params: Vec::new(),
+        is_public: false, // Tests are never public
         is_test: true,
         is_main: false,
         is_fbip: false, // Tests can't be fbip

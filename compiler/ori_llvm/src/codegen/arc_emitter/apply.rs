@@ -285,10 +285,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     // Indirect-call emission helpers
 
-    /// Marshal indirect-call arguments per parameter ABI: the environment
-    /// pointer leads, indirect/reference params pass through a temporary
-    /// alloca, void params vanish, and direct params pass by value.
-    fn marshal_indirect_call_args(
+    /// Marshal explicit closure arguments under the uniform borrowed ABI.
+    pub(super) fn marshal_indirect_call_args(
         &mut self,
         env_ptr: ValueId,
         args: &[ArcVarId],
@@ -302,8 +300,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         for &a in args {
             let arg_ty = func.var_type(a);
-            let passing =
-                crate::codegen::abi::compute_param_passing(arg_ty, self.type_info, self.repr_plan);
+            let passing = crate::codegen::abi::compute_closure_param_passing(
+                arg_ty,
+                self.type_info,
+                self.repr_plan,
+                self.classifier,
+            );
             match passing {
                 crate::codegen::abi::ParamPassing::Indirect { .. }
                 | crate::codegen::abi::ParamPassing::Reference => {

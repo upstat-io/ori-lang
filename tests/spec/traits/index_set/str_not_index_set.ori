@@ -1,0 +1,7 @@
+// Spec: 13-variables.md §13.6.2 — str implements Index, not IndexSet.
+
+#[compile_fail(code: "E2003", message: "no method")]
+@test_str_updated_does_not_resolve tests _ () -> void = {
+    let s = "x".updated(key: 0, value: "H");
+    ()
+}

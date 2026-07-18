@@ -182,7 +182,7 @@ fn kind_display_matches_message() {
         undefined_function("main"),
         undefined_const("PI"),
         not_callable("int"),
-        index_out_of_bounds(5),
+        index_out_of_bounds(5, 3),
         key_not_found("name"),
         no_field_on_struct("age"),
         non_exhaustive_match(),

@@ -1,0 +1,10 @@
+let $BASE_CAPACITY = 2;
+let $POSITIVE_CAPACITY = $BASE_CAPACITY * 2;
+let $ZERO_CAPACITY = $BASE_CAPACITY - 2;
+let $NEGATIVE_CAPACITY = $ZERO_CAPACITY - 1;
+
+@module_capacity_values (items: [int]) -> void = {
+    let positive: [int, max POSITIVE_CAPACITY] = items;
+    let zero: [int, max ZERO_CAPACITY] = items;
+    let negative: [int, max NEGATIVE_CAPACITY] = items;
+}

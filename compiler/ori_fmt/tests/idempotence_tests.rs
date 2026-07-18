@@ -175,6 +175,23 @@ fn constants_round_trip_with_complete_declaration_syntax() {
 }
 
 #[test]
+fn block_let_type_annotations_round_trip() {
+    let source = r"@main () -> void = {
+    let values: Set<int> = [1, 2, 3].iter().collect();
+    ()
+}";
+
+    let first = parse_and_format_with_comments(source).expect("source should parse and format");
+    assert!(
+        first.contains("let values: Set<int> ="),
+        "formatter must preserve the type-directed Set target:\n{first}"
+    );
+
+    let second = parse_and_format_with_comments(&first).expect("formatted output should re-parse");
+    assert_eq!(normalize_whitespace(&first), normalize_whitespace(&second));
+}
+
+#[test]
 fn trait_associated_type_defaults_round_trip() {
     let source = fixture_without_trailing_newline(include_str!(
         "fixtures/idempotence/trait_associated_type_defaults_round_trip.ori"

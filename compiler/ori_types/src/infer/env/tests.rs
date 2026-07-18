@@ -46,6 +46,31 @@ fn test_child_sees_parent_bindings() {
 }
 
 #[test]
+fn immutable_const_value_follows_lexical_lookup() {
+    let mut parent = TypeEnv::new();
+    parent.bind_with_mutability(name(1), Idx::INT, ori_ir::Mutability::Immutable);
+    assert!(parent.record_local_const_value(name(1), ConstValue::Int(5)));
+
+    let child = parent.child();
+
+    assert_eq!(child.lookup_const_value(name(1)), Some(ConstValue::Int(5)));
+}
+
+#[test]
+fn local_binding_shadows_parent_const_value() {
+    let mut parent = TypeEnv::new();
+    parent.bind_with_mutability(name(1), Idx::INT, ori_ir::Mutability::Immutable);
+    assert!(parent.record_local_const_value(name(1), ConstValue::Int(5)));
+
+    let mut child = parent.child();
+    child.bind_with_mutability(name(1), Idx::INT, ori_ir::Mutability::Mutable);
+
+    assert_eq!(child.lookup_const_value(name(1)), None);
+    assert!(!child.record_local_const_value(name(1), ConstValue::Int(8)));
+    assert_eq!(parent.lookup_const_value(name(1)), Some(ConstValue::Int(5)));
+}
+
+#[test]
 fn test_is_bound_locally() {
     let mut parent = TypeEnv::new();
     parent.bind(name(1), Idx::INT);

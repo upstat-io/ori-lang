@@ -143,7 +143,7 @@ pub enum RuntimeCall {
     Protocol(ori_ir::builtin_constants::protocol::ProtocolBuiltin),
     /// Execute one typed compiler-authored service.
     Compiler(CompilerOperation),
-    /// Print a string.
+    /// Print one lowered primitive or string value.
     Print,
     /// Raise an Ori panic.
     Panic,
@@ -284,7 +284,9 @@ impl RuntimeCall {
                 FormatRuntime::Char,
             ))),
             "to_str" | "str" => Some(Self::ToString),
-            "ori_print" => Some(Self::Print),
+            "ori_print" | "ori_print_int" | "ori_print_float" | "ori_print_bool" => {
+                Some(Self::Print)
+            }
             "ori_panic" | "ori_panic_cstr" => Some(Self::Panic),
             _ => None,
         }

@@ -4,7 +4,7 @@ mod collections;
 mod iterators;
 mod strings;
 
-use ori_repr::executable::RuntimeCall;
+use ori_repr::executable::{CompilerOperation, RuntimeCall};
 
 use crate::ExecutionError;
 
@@ -60,6 +60,9 @@ impl Interpreter<'_> {
             RuntimeCall::StringUppercase => self.runtime_string_uppercase(site, operand_cursor),
             RuntimeCall::StringLowercase => self.runtime_string_lowercase(site, operand_cursor),
             RuntimeCall::StringSplit => self.runtime_string_split(site, operand_cursor),
+            RuntimeCall::Compiler(CompilerOperation::CatchRecover) => {
+                self.runtime_catch_recover(site, operand_cursor)
+            }
             RuntimeCall::RegisteredMethod(_)
             | RuntimeCall::RegistryMethod(_)
             | RuntimeCall::RegistryPrelude(_)
@@ -68,5 +71,14 @@ impl Interpreter<'_> {
             RuntimeCall::Print => self.runtime_print(site, operand_cursor),
             RuntimeCall::Panic => self.runtime_panic(site, operand_cursor),
         }
+    }
+
+    fn runtime_catch_recover(
+        &mut self,
+        site: RuntimeSite,
+        operands: &mut impl OperandAccess,
+    ) -> Result<VmValue, ExecutionError> {
+        let [] = self.runtime_values::<0>(site.frame, site.operands, site.call, operands)?;
+        self.catch_recover()
     }
 }

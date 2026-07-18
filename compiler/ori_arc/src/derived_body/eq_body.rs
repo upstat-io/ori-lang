@@ -427,8 +427,7 @@ fn emit_field_eq(
     method_name: ori_ir::Name,
     pool: &Pool,
 ) -> ArcVarId {
-    let resolved = pool.resolve_fully(field_type);
-    if pool.builtin_type_tag(resolved).is_some() {
+    if pool.builtin_method_type_tag(field_type).is_some() {
         return emit_primitive_eq(builder, receiver, other);
     }
 

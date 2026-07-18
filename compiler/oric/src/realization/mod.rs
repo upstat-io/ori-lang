@@ -3,6 +3,8 @@
 mod arc_batch;
 mod callable_census;
 mod derived_mono_closure;
+mod generic_mono_closure;
+mod generic_mono_discovery;
 mod mono_inventory;
 mod program;
 mod repr;
@@ -17,7 +19,13 @@ pub(crate) use arc_batch::{
     ArcBatchPreparationError, ArcFunctionGroup, LoweredArcBatch, PreparedArcBatch,
 };
 pub(crate) use callable_census::{CallableCensusBuilder, CallableCensusError};
-pub(crate) use derived_mono_closure::lower_mono_functions_for_analysis;
+pub(crate) use derived_mono_closure::{
+    lower_mono_functions_for_analysis, lower_new_mono_functions_for_analysis,
+};
+pub(crate) use generic_mono_closure::{
+    close_generic_mono_targets, generic_type_param_map, GenericMonoClosureError,
+    GenericMonoClosureInput, ImportedGenericTemplate,
+};
 pub(crate) use mono_inventory::{MonoFunctionInventory, MonoFunctionInventoryError};
 
 pub(crate) use repr::{

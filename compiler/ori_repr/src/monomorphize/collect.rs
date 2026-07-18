@@ -10,8 +10,8 @@ use ori_types::{
 };
 
 use super::{
-    concrete_sig_for_instance, mangle_mono_name, nominal_type_name, ImportSig, MonoFunction,
-    MonoFunctionIdentity, MonoFunctionOrigin,
+    concrete_sig_for_instance, mangle_mono_instance_name, nominal_type_name, ImportSig,
+    MonoFunction, MonoFunctionIdentity, MonoFunctionOrigin,
 };
 
 #[derive(Clone, Copy)]
@@ -125,7 +125,22 @@ fn build_mono_function(
     mangled_name: Name,
     pool: &Pool,
 ) -> MonoFunction {
-    let concrete_sig = concrete_sig_for_instance(instance, resolved.signature, pool, mangled_name);
+    let has_self_receiver =
+        instance.concrete_param_types.len() + 1 == resolved.signature.param_types.len();
+    let mut concrete_sig =
+        concrete_sig_for_instance(instance, resolved.signature, pool, mangled_name);
+    if matches!(resolved.origin, MonoFunctionOrigin::Derived(_)) {
+        if let Some(receiver) = instance.receiver_type {
+            let physical_receiver = pool.method_receiver_type(receiver);
+            if has_self_receiver {
+                concrete_sig.param_types[0] = physical_receiver;
+            }
+            if concrete_sig.return_type == receiver {
+                concrete_sig.return_type = physical_receiver;
+            }
+            concrete_sig.populate_hashes(pool);
+        }
+    }
 
     let receiver_type_name = instance
         .receiver_type
@@ -134,8 +149,6 @@ fn build_mono_function(
     // A method with `self` maps its generic receiver to the concrete layout;
     // the one-slot arity difference identifies that receiver. No-`self`
     // associated functions derive body types only from `body_type_map`.
-    let has_self_receiver =
-        instance.concrete_param_types.len() + 1 == resolved.signature.param_types.len();
     if let (Some(receiver), true, Some(&self_generic)) = (
         instance.receiver_type,
         has_self_receiver,
@@ -207,15 +220,7 @@ pub fn collect_mono_functions(
             continue;
         };
 
-        let mangled_name = mangle_mono_name(
-            instance.fn_name,
-            &instance.generic_args,
-            &instance.impl_args,
-            &instance.method_args,
-            instance.receiver_type,
-            interner,
-            pool,
-        );
+        let mangled_name = mangle_mono_instance_name(instance, interner, pool);
 
         // Why: colliding instances append their id so the abstract-index
         // dispatch table maps every contributing instance to the survivor.

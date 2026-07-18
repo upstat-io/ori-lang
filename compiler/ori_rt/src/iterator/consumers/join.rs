@@ -2,7 +2,7 @@
 
 use std::ptr;
 
-use super::super::state::assert_elem_size;
+use super::super::state::{assert_elem_size, YieldGuard};
 use super::super::ElemBuf;
 use super::take_iter;
 
@@ -18,12 +18,8 @@ use super::take_iter;
 /// layout for `OriStr`). This is SSO-safe because the runtime reconstructs the
 /// full `OriStr` union from the raw fields.
 ///
-/// `elem_dec_fn` releases each CONSUMED element after its bytes are copied
-/// into the result. Codegen passes it non-null only when it proves every
-/// element reaching join is adapter-produced (consumer-owned, RC 1,
-/// owned-by-nobody-else); it stays null for source-borrowed chains, whose
-/// elements the source buffer's own cleanup releases. The runtime never
-/// infers ownership — it only honors the verdict it was handed.
+/// Each successful input yield is released through the iterator state's
+/// dynamic provenance after its bytes have been copied into the result.
 ///
 /// Writes the resulting `OriStr` to `out_ptr` (sret pattern, 24 bytes).
 #[no_mangle]
@@ -35,7 +31,6 @@ pub extern "C-unwind" fn ori_iter_join(
     to_str_fn: Option<extern "C" fn(*mut u8, *const u8, *mut u8)>,
     to_str_env: *mut u8,
     elem_size: i64,
-    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     use crate::string::OriStr;
@@ -85,6 +80,7 @@ pub extern "C-unwind" fn ori_iter_join(
     // SAFETY: `state` is live, `elem_buf` exceeds OriStr alignment, and the
     // checked element size bounds every `next` write.
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
+        let _yield = YieldGuard::new(&mut state, elem_buf.as_mut_ptr());
         if !first {
             result.push_str(sep);
         }
@@ -117,11 +113,6 @@ pub extern "C-unwind" fn ori_iter_join(
                     Some(crate::rc::ori_str_drop_buffer),
                 );
             }
-            // Input-element release is separate from produced-string release;
-            // codegen provides a type-matched thunk only for managed elements.
-            if let Some(dec) = elem_dec_fn {
-                (dec)(elem_buf.as_mut_ptr());
-            }
         } else {
             // SAFETY: A string-element chain writes a complete Copy OriStr;
             // unaligned read supports the scratch-buffer layout.
@@ -129,11 +120,6 @@ pub extern "C-unwind" fn ori_iter_join(
             // SAFETY: `s` is a valid OriStr; its bytes are copied out by
             // push_str before the buffer is reused.
             result.push_str(unsafe { s.as_str() });
-            // Only adapter-produced chains supply a release thunk; source-
-            // borrowed elements remain owned by source-buffer cleanup.
-            if let Some(dec) = elem_dec_fn {
-                (dec)(elem_buf.as_mut_ptr());
-            }
         }
 
         first = false;

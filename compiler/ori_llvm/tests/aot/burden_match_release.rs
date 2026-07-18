@@ -111,7 +111,6 @@ fn test_match_every_arm_stores_fresh_local_no_leak() {
 /// green). Recorded honestly: ignored on that distinct root.
 /// Interpreter prints a=5 b=13.
 #[test]
-#[ignore = "BUG-04-181: struct partial-move + post-move borrow read over-releases in AOT (straight-line repro; distinct root from the dead-merge-param family)"]
 fn test_match_struct_partial_move_no_double_free() {
     assert_cell_output(
         r#"
@@ -185,7 +184,6 @@ fn test_match_unchanged_local_post_merge_read_no_leak() {
 /// `dead_param_single_feeding_rep_fractures_across_loop_back_edge`) —
 /// the RL-5 scans cannot resolve it. Interpreter prints a=6 b=13.
 #[test]
-#[ignore = "BUG-04-180: loop lowering threads the loop-invariant heap local into a dead loop-exit block-param the RL-5 dead-param scans cannot resolve (rep fractures across the Jump-arg hop)"]
 fn test_match_arm_loop_per_iteration_store_no_leak() {
     assert_cell_output(
         r#"
@@ -307,7 +305,6 @@ type Holder = { kept: [int] }
 /// over-fire here would double-free (crash), never leak. Interpreter
 /// prints a=5 b=13.
 #[test]
-#[ignore = "BUG-04-183: genuinely-diverging struct binding threaded into a dead multi-rep match-merge block-param has no RL-5 surface; alt-consumed mode correctly declines (struct fence + multi-rep phi)"]
 fn test_match_diverging_struct_partial_consume_no_double_free() {
     assert_cell_output(
         r#"

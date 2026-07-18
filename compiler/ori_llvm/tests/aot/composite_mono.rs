@@ -24,7 +24,6 @@ fn unannotated_generic_struct_heap_field_drops_clean() {
 // value bug (interp len==3 vs AOT wrong len) — reproduces with a plain
 // `type E = L([int]) | R(int)`, so it is not the generic-materialization fix.
 #[test]
-#[ignore = "BUG-04-214: AOT enum heap (list) payload mis-extraction (value bug, non-generic) — match L(xs) -> len(xs) returns wrong length under ori build vs interp"]
 fn generic_enum_heap_payload_drops_clean() {
     assert_aot_success(
         include_str!("fixtures/composite_mono/enum_heap_payload_drop.ori"),

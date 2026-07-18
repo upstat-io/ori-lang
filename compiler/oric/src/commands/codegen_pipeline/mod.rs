@@ -234,13 +234,44 @@ fn prepare_analysis_products(
     )
     .map_err(|problems| lowering_problem("monomorphized method target census", &problems))?;
 
-    let mut lowered = crate::realization::LoweredArcBatch::try_from_groups(groups, interner)
+    let mut groups = groups;
+    groups.extend(impl_groups);
+    groups.extend(derived_groups);
+    crate::realization::CallableCensusBuilder::new(interner)
+        .close_builtin_targets(&mut groups, pool)
         .map_err(|error| error.to_string())?;
-    for group in impl_groups.into_iter().chain(derived_groups) {
-        lowered
-            .insert(group, interner)
-            .map_err(|error| error.to_string())?;
-    }
+    let local_generic_type_params =
+        crate::realization::generic_type_param_map(&input.typed.typed.types);
+    let closed = crate::realization::close_generic_mono_targets(
+        crate::realization::GenericMonoClosureInput {
+            groups,
+            mono_functions,
+            mono_instances: &input.typed.typed.mono_instances,
+            function_sigs,
+            local_generic_type_params: &local_generic_type_params,
+            impl_sigs: &input.typed.typed.impl_sigs,
+            accepted_derives: &input.typed.typed.accepted_derives,
+            derived_call_plans: &input.typed.typed.derived_call_plans,
+            import_sigs: input.import_sigs,
+            imported_generic_templates: input.imported.generic_templates,
+            re_interned_canons: input.imported.re_interned_canons,
+            canon: input.canon,
+            interner,
+            pool,
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    let groups = closed.groups;
+    let mono_functions = closed.mono_functions;
+    crate::realization::extend_mono_method_targets(
+        &mut method_targets,
+        &mono_functions,
+        interner,
+        pool,
+    )
+    .map_err(|problems| lowering_problem("final monomorphized method target census", &problems))?;
+    let lowered = crate::realization::LoweredArcBatch::try_from_groups(groups, interner)
+        .map_err(|error| error.to_string())?;
     let prepared = lowered
         .prepare(&mono_functions, &method_targets, pool, interner)
         .map_err(|error| error.to_string())?;
@@ -362,25 +393,18 @@ fn emit_all_functions<'a, 'scx: 'ctx, 'ctx, 'tcx>(
         .copied()
         .collect::<Vec<_>>();
     let artifact_remainder = compiler.declare_artifact_remainder(&deferred_parents);
-    if !input.parse.module.impls.is_empty() {
+    if !input.parse.module.impls.is_empty() || !input.parse.module.extends.is_empty() {
         compiler.compile_impls_from_artifact(
             &input.parse.module.impls,
+            &input.parse.module.extends,
             &input.typed.typed.impl_sigs,
             input.canon,
             &input.parse.module.traits,
             &realized.impl_emission_names,
         );
     }
+    compiler.bind_executable_method_targets();
     compiler.bind_user_drop_targets();
-    if input
-        .parse
-        .module
-        .types
-        .iter()
-        .any(|type_def| !type_def.derives.is_empty())
-    {
-        compiler.compile_derives(&input.parse.module, &input.typed.typed.types);
-    }
 
     let mut prepared =
         compiler.prepare_all_from_artifact(&input.parse.module.functions, &realized.function_sigs);

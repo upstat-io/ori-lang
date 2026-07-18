@@ -6,6 +6,8 @@
 #[path = "state_lifecycle.rs"]
 mod lifecycle;
 
+use core::{mem::size_of, ptr};
+
 pub(super) use lifecycle::empty_range;
 pub(crate) use lifecycle::YieldGuard;
 
@@ -83,10 +85,83 @@ pub(crate) type ForEachFn = extern "C-unwind" fn(*mut u8, *const u8);
 /// Trampoline signature for fold: `(env, acc_ptr, elem_ptr, out_ptr) -> void`
 pub(crate) type FoldFn = extern "C-unwind" fn(*mut u8, *const u8, *const u8, *mut u8);
 
-/// Releases the RC children owned by one adapter-produced element.
+/// Releases the RC children owned by one byte-copied value.
 ///
-/// Null at the ABI boundary means the mapped result has no RC children.
+/// Null at the ABI boundary means the value has no RC children.
 pub(crate) type ElemDecFn = extern "C" fn(*mut u8);
+
+/// Retains the RC children of one byte-copied value.
+///
+/// Selection consumers use this before discharging a dynamic source yield;
+/// lazy adapters use it to own their copied callback closure pair.
+pub(crate) type ElemIncFn = extern "C" fn(*mut u8);
+
+/// Closure trampoline environment retained for a lazy adapter's lifetime.
+#[derive(Debug)]
+pub(crate) enum CallbackEnv {
+    /// Test and embedding callers may provide a stable opaque environment with
+    /// no ownership hooks.
+    Borrowed(*mut u8),
+    /// Generated code passes a pointer to a `{fn_ptr, env_ptr}` closure pair.
+    /// The copied pair owns one retained reference to the captured environment.
+    Owned {
+        words: [*mut u8; 2],
+        dec_fn: ElemDecFn,
+    },
+}
+
+impl CallbackEnv {
+    /// Preserve an opaque environment, or copy and retain a generated closure pair.
+    ///
+    /// # Safety
+    ///
+    /// When ownership hooks are present, `source` must point to two initialized
+    /// pointer-sized closure fields accepted by both hooks.
+    pub(crate) unsafe fn new(
+        source: *mut u8,
+        inc_fn: Option<ElemIncFn>,
+        dec_fn: Option<ElemDecFn>,
+    ) -> Self {
+        match (inc_fn, dec_fn) {
+            (None, None) => Self::Borrowed(source),
+            (Some(inc), Some(dec)) => {
+                assert!(
+                    !source.is_null(),
+                    "owned callback environment must be non-null"
+                );
+                let mut words: [*mut u8; 2] = [ptr::null_mut(); 2];
+                // SAFETY: upheld by this function's caller contract; both
+                // regions hold exactly one generated closure pair and do not
+                // overlap.
+                unsafe {
+                    ptr::copy_nonoverlapping(
+                        source.cast_const(),
+                        words.as_mut_ptr().cast::<u8>(),
+                        size_of::<[*mut u8; 2]>(),
+                    );
+                }
+                inc(words.as_mut_ptr().cast());
+                Self::Owned { words, dec_fn: dec }
+            }
+            _ => panic!("callback environment retain and release hooks must be paired"),
+        }
+    }
+
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut u8 {
+        match self {
+            Self::Borrowed(ptr) => *ptr,
+            Self::Owned { words, .. } => words.as_mut_ptr().cast(),
+        }
+    }
+}
+
+impl Drop for CallbackEnv {
+    fn drop(&mut self) {
+        if let Self::Owned { words, dec_fn } = self {
+            dec_fn(words.as_mut_ptr().cast());
+        }
+    }
+}
 
 /// Source phase for a cycling iterator.
 ///
@@ -140,7 +215,7 @@ pub(crate) enum IterState {
     Mapped {
         source: Box<IterState>,
         transform_fn: TransformFn,
-        transform_env: *mut u8,
+        transform_env: CallbackEnv,
         in_size: i64,
         /// Releases a yielded map result when another adapter consumes or
         /// discards it instead of forwarding it to the terminal consumer.
@@ -151,7 +226,7 @@ pub(crate) enum IterState {
     Filtered {
         source: Box<IterState>,
         predicate_fn: PredicateFn,
-        predicate_env: *mut u8,
+        predicate_env: CallbackEnv,
         elem_size: i64,
     },
 
@@ -211,8 +286,8 @@ pub(crate) enum IterState {
         buffer: Vec<u8>,
         buf_pos: usize,
         elem_size: i64,
-        elem_inc_fn: Option<extern "C" fn(*mut u8)>,
-        elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+        elem_inc_fn: Option<ElemIncFn>,
+        elem_dec_fn: Option<ElemDecFn>,
     },
 
     /// Reverses iteration by collecting all elements then iterating backward.
@@ -233,7 +308,7 @@ pub(crate) enum IterState {
         pos: i64,
         front: i64,
         elem_size: i64,
-        elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+        elem_dec_fn: Option<ElemDecFn>,
     },
 
     /// Iterates over a UTF-8 string, yielding Unicode codepoints (i32/char).
@@ -281,7 +356,7 @@ pub(crate) enum IterState {
     Repeat {
         value: Vec<u8>,
         elem_size: i64,
-        elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+        elem_dec_fn: Option<ElemDecFn>,
     },
 }
 

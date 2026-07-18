@@ -16,7 +16,6 @@ impl<T> Vec<T> {
 
 type Pick = Small | Large;
 
-#skip("BUG-02-023: const-generic method inside match-arm body — awaits canon side-table propagation through arm lowering")
 @test_const_in_match_arm tests _ () -> void = {
     let v = Vec { items: [1, 2, 3, 4, 5, 6] };
     let pick = Small;

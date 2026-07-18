@@ -11,6 +11,7 @@ use super::type_resolution::{
     build_method_generic_metadata, collect_generic_params, parsed_type_contains_self,
     resolve_type_with_params,
 };
+use crate::const_eval::collect_method_capacity_constraints;
 use crate::{
     Idx, ModuleChecker, ObjectSafetyViolation, TraitAssocTypeDef, TraitEntry, TraitMethodDef,
 };
@@ -283,6 +284,14 @@ fn build_trait_method_sig(
     let has_self = params
         .first()
         .is_some_and(|p| p.name == checker.well_known().self_kw);
+    let const_params: Vec<Name> = arena
+        .get_generic_params(sig.generics)
+        .iter()
+        .filter(|param| param.is_const)
+        .map(|param| param.name)
+        .collect();
+    let fixed_list_capacity_constraints =
+        collect_method_capacity_constraints(arena, &const_params, &params, &sig.return_ty, None);
 
     TraitMethodDef {
         name: sig.name,
@@ -293,6 +302,7 @@ fn build_trait_method_sig(
         scheme_var_ids,
         generic_param_metadata,
         where_clause_metadata,
+        fixed_list_capacity_constraints,
         span: sig.span,
     }
 }
@@ -336,6 +346,19 @@ fn build_trait_default_method(
     let has_self = params
         .first()
         .is_some_and(|p| p.name == checker.well_known().self_kw);
+    let const_params: Vec<Name> = arena
+        .get_generic_params(method.generics)
+        .iter()
+        .filter(|param| param.is_const)
+        .map(|param| param.name)
+        .collect();
+    let fixed_list_capacity_constraints = collect_method_capacity_constraints(
+        arena,
+        &const_params,
+        &params,
+        &method.return_ty,
+        Some(method.body),
+    );
 
     TraitMethodDef {
         name: method.name,
@@ -346,6 +369,7 @@ fn build_trait_default_method(
         scheme_var_ids,
         generic_param_metadata,
         where_clause_metadata,
+        fixed_list_capacity_constraints,
         span: method.span,
     }
 }

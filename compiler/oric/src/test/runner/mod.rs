@@ -7,6 +7,8 @@ mod arc_lowering;
 mod config;
 mod file_run;
 #[cfg(feature = "llvm")]
+mod imported_call_closure;
+#[cfg(feature = "llvm")]
 mod imported_mono;
 #[cfg(feature = "llvm")]
 mod incremental;

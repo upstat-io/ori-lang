@@ -210,6 +210,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
         let func_id = self.builder.runtime_fn("ori_iter_find");
 
@@ -227,7 +228,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.emit_rt_call(
             func_id,
-            &[iter_ptr, tramp_fn, closure_env, elem_size_val, out_ptr],
+            &[
+                iter_ptr,
+                tramp_fn,
+                closure_env,
+                elem_size_val,
+                elem_inc_fn,
+                out_ptr,
+            ],
             "",
         );
 
@@ -238,8 +246,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         iter_ptr: ValueId,
         arg_vals: &[ValueId],
-        _args: &[ArcVarId],
-        _arc_func: &ArcFunction,
+        args: &[ArcVarId],
+        arc_func: &ArcFunction,
         elem_ty: Idx,
     ) -> Option<ValueId> {
         if arg_vals.len() < 2 {
@@ -247,8 +255,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let closure = arg_vals[1];
 
+        let result_ty = self.closure_return_ty(args, arc_func);
         let (tramp_fn, closure_env) =
-            self.build_trampoline(closure, elem_ty, TrampolineKind::ForEach, None);
+            self.build_trampoline(closure, elem_ty, TrampolineKind::ForEach, result_ty);
 
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);

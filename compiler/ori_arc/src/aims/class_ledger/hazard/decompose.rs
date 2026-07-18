@@ -49,6 +49,42 @@ fn func_has_cycle_touching_view_or_container(
         .any(|op| inputs.regions.is_in_cycle(op.slot.block()))
 }
 
+/// Extraction sites that first expose a constructless container field on
+/// each path. The call-result boundary contributes one field credit along a
+/// path; a later dominated extraction is a duplicate and must retain its
+/// ordinary increment.
+fn constructless_boundary_credit_sites(
+    inputs: &HazardCureInputs<'_>,
+    state: &mut HazardCureState<'_>,
+    hazard: &FieldViewHazard,
+    authority: &SkipAuthority,
+) -> Vec<(usize, usize)> {
+    let ctx = SumArmContext::build(
+        inputs.func,
+        state.partition,
+        hazard.view,
+        hazard.container,
+        authority.variant_ordinal(),
+    );
+    let dom = crate::graph::DominatorTree::build(inputs.func);
+    ctx.extractions
+        .iter()
+        .copied()
+        .filter(|&(block, index)| {
+            !ctx.extractions.iter().any(|&(prior_block, prior_index)| {
+                if prior_block == block {
+                    prior_index < index
+                } else {
+                    dom.dominates(
+                        inputs.func.blocks[prior_block].id,
+                        inputs.func.blocks[block].id,
+                    )
+                }
+            })
+        })
+        .collect()
+}
+
 /// The per-SITE decomposition attempt (`FD_site_uniform_projection`):
 /// classify every container release site (Skip = extraction-dominated or
 /// tag-excluded; Whole = untouched by every extraction; None = MIXED —
@@ -159,13 +195,96 @@ fn apply_container_skip_conversion(
     true
 }
 
+/// Gate: is `hazard` skip-derivable at all? Declines (with a diagnostic
+/// trace naming which precondition failed) any view that is not
+/// consume-marked, sits on a nested path, has its container transferred out,
+/// is constructless with no type-derived variant authority, or already
+/// carries empty `skip_fields`.
+fn is_skip_derivable(
+    state: &HazardCureState<'_>,
+    hazard: &FieldViewHazard,
+    authority: Option<&SkipAuthority>,
+) -> bool {
+    let derivable = hazard.is_consume_marked()
+        && !hazard.is_nested_path()
+        // A transferred container still owns its field, so extraction needs a
+        // separate credit rather than re-booking the original move-in.
+        && !hazard.is_container_transferred_out()
+        // Only type-derived variant authority admits constructless containers.
+        && (!hazard.construct_sites.is_empty() || authority.is_some())
+        && !hazard.skip_fields.is_empty();
+    if !derivable {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?state.partition.node_key(hazard.view),
+            consume_marked = hazard.is_consume_marked(),
+            nested_path = hazard.is_nested_path(),
+            container_transferred_out = hazard.is_container_transferred_out(),
+            sum_container = hazard.is_sum_container(),
+            constructless = hazard.construct_sites.is_empty(),
+            skip_fields = ?hazard.skip_fields,
+            "field-decomposition cure declined: view not skip-derivable"
+        );
+    }
+    derivable
+}
+
+/// When per-site decomposition did not run (`all_sites_safe`), rebook or
+/// extraction-credit the view and commit the re-planned cure. Returns
+/// `false` (decline the cure) on any step's failure.
+fn rebook_or_credit_and_commit(
+    inputs: &HazardCureInputs<'_>,
+    state: &mut HazardCureState<'_>,
+    hazard: &FieldViewHazard,
+    authority: Option<&SkipAuthority>,
+) -> bool {
+    let rebooked = if hazard.construct_sites.is_empty() {
+        let Some(authority) = authority else {
+            return false;
+        };
+        let credit_sites = constructless_boundary_credit_sites(inputs, state, hazard, authority);
+        if credit_sites.is_empty() {
+            return false;
+        }
+        events::extract_class_events_with_extraction_credits(
+            inputs.func,
+            inputs.classification,
+            state.partition,
+            hazard.view,
+            &credit_sites,
+            false,
+        )
+    } else {
+        events::extract_class_events_rebooked(
+            inputs.func,
+            inputs.classification,
+            state.partition,
+            hazard.view,
+            &hazard.construct_sites,
+        )
+    };
+    let Some(outcome) = plan_and_verify_cure(
+        inputs,
+        state,
+        hazard.view,
+        "field-decomposition",
+        &rebooked,
+        &[],
+    ) else {
+        return false;
+    };
+    commit_cured_view(state, hazard.view, outcome)
+}
+
 /// Cure one consume-marked endangered view by decomposing the container's
 /// release per named owned field: the container's planned `Dec`s become
-/// `DecPartial(skip = the view's field indices)` and the view's events are
-/// RE-BOOKED with the move-in store non-consuming (ownership never enters
-/// the container's release path), then re-planned + re-verified. The skip
-/// set derives solely from the partition's consume marks — the UNIQUE
-/// clause-preserving skip set per `FD_skipset_sound`
+/// `DecPartial(skip = the view's field indices)`. A construct-bearing view is
+/// RE-BOOKED with the move-in store non-consuming; a constructless call-result
+/// view receives the container-held field credit at the first extraction on
+/// each path. Both forms transfer the same existing ownership without a
+/// synthetic increment, then re-plan + re-verify. The skip set derives solely
+/// from the partition's consume marks — the UNIQUE clause-preserving skip set
+/// per `FD_skipset_sound`
 /// (`AimsProof.FieldDecomposition`; Spec: Annex E §AIMS §12). A merely-read
 /// view is never consume-marked, never skipped (over-skip = leak).
 pub(super) fn cure_view_with_field_decomposition(
@@ -183,26 +302,7 @@ pub(super) fn cure_view_with_field_decomposition(
         return false;
     };
 
-    if !hazard.is_consume_marked()
-        || hazard.is_nested_path()
-        // A transferred container still owns its field, so extraction needs a
-        // separate credit rather than re-booking the original move-in.
-        || hazard.is_container_transferred_out()
-        // Only type-derived variant authority admits constructless containers.
-        || (hazard.construct_sites.is_empty() && authority.is_none())
-        || hazard.skip_fields.is_empty()
-    {
-        tracing::trace!(
-            target: "ori_arc::aims::class_ledger",
-            view = ?state.partition.node_key(hazard.view),
-            consume_marked = hazard.is_consume_marked(),
-            nested_path = hazard.is_nested_path(),
-            container_transferred_out = hazard.is_container_transferred_out(),
-            sum_container = hazard.is_sum_container(),
-            constructless = hazard.construct_sites.is_empty(),
-            skip_fields = ?hazard.skip_fields,
-            "field-decomposition cure declined: view not skip-derivable"
-        );
+    if !is_skip_derivable(state, hazard, authority.as_ref()) {
         return false;
     }
     let container = hazard.container;
@@ -236,27 +336,10 @@ pub(super) fn cure_view_with_field_decomposition(
         }
     };
 
-    if per_site_verdicts.is_none() {
-        let rebooked = events::extract_class_events_rebooked(
-            inputs.func,
-            inputs.classification,
-            state.partition,
-            hazard.view,
-            &hazard.construct_sites,
-        );
-        let Some(outcome) = plan_and_verify_cure(
-            inputs,
-            state,
-            hazard.view,
-            "field-decomposition",
-            &rebooked,
-            &[],
-        ) else {
-            return false;
-        };
-        if !commit_cured_view(state, hazard.view, outcome) {
-            return false;
-        }
+    if per_site_verdicts.is_none()
+        && !rebook_or_credit_and_commit(inputs, state, hazard, authority.as_ref())
+    {
+        return false;
     }
     if !apply_container_skip_conversion(
         state,

@@ -36,6 +36,7 @@ fn register_and_lookup_trait() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             span: test_span(),
         },
     );
@@ -99,6 +100,7 @@ fn register_and_lookup_impl() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             optional_param_count: 0,
             span: test_span(),
         },
@@ -153,6 +155,7 @@ fn inherent_impl() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             optional_param_count: 0,
             span: test_span(),
         },
@@ -215,6 +218,7 @@ fn method_lookup_priority() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             optional_param_count: 0,
             span: test_span(),
         },
@@ -245,6 +249,7 @@ fn method_lookup_priority() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             optional_param_count: 0,
             span: test_span(),
         },
@@ -451,6 +456,7 @@ fn collected_methods_deduplication() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             span: test_span(),
         },
     );
@@ -471,6 +477,7 @@ fn collected_methods_deduplication() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             span: test_span(),
         },
     );
@@ -485,6 +492,7 @@ fn collected_methods_deduplication() {
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             span: test_span(),
         },
     );
@@ -525,6 +533,7 @@ fn mk_trait_method(name: Name, sig: u32) -> TraitMethodDef {
         scheme_var_ids: Vec::new(),
         generic_param_metadata: Vec::new(),
         where_clause_metadata: Vec::new(),
+        fixed_list_capacity_constraints: Vec::new(),
         span: test_span(),
     }
 }

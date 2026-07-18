@@ -8,8 +8,8 @@
 use rustc_hash::FxHashMap;
 
 use ori_types::{
-    ConcreteMethodMono, FunctionSig, GenericArg, Idx, MethodProducer, MonoInstance, Pool,
-    TypeCheckResult, TypedModule,
+    CapabilityParam, ConcreteMethodMono, FunctionSig, GenericArg, Idx, MethodProducer,
+    MonoInstance, Pool, TypeCheckResult, TypedModule,
 };
 
 use super::{
@@ -31,6 +31,7 @@ fn make_generic_sig(interner: &StringInterner) -> FunctionSig {
         param_types: vec![generic_placeholder],
         return_type: generic_placeholder,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: true,
         is_test: false,
         is_main: false,
@@ -237,6 +238,61 @@ fn build_imported_mono_functions_constructs_imported_entry() {
     assert!(mono_fn.is_imported);
     assert_eq!(entry.module_index, 5usize);
     assert_eq!(entry.body, ImportedMonoBody::Function(source_name));
+}
+
+#[test]
+fn imported_capability_provider_substitutes_source_body_binder() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let function_name = interner.intern("use_counter");
+    let capability = interner.intern("Counter");
+    let provider_type = pool.fresh_named_var(capability);
+    let provider_var_id = pool.data(provider_type);
+    let concrete_provider = pool.struct_type(interner.intern("MockCounter"), &[]);
+
+    let mut signature = FunctionSig::simple(function_name, Vec::new(), Idx::INT);
+    signature.capabilities.push(capability);
+    signature.capability_params.push(CapabilityParam::Value {
+        capability,
+        provider_type,
+        provider_var_id,
+    });
+    let instance = MonoInstance::new_top_level_with_capabilities(
+        function_name,
+        Vec::new(),
+        vec![concrete_provider],
+        Vec::new(),
+        Idx::INT,
+        Vec::new(),
+    );
+    let mut typed_module = TypedModule::default();
+    typed_module.mono_instances.push(instance);
+    let mut imported_generic_sigs = FxHashMap::default();
+    imported_generic_sigs.insert(function_name, (signature, 0, function_name));
+
+    let result = build_imported_mono_functions(
+        &TypeCheckResult::ok(typed_module),
+        &imported_generic_sigs,
+        &[],
+        &[],
+        &mut pool,
+        &interner,
+    );
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(
+        result[0].function.body_type_map.get(&provider_type),
+        Some(&concrete_provider),
+        "the imported source body must see the call-site provider type"
+    );
+    assert_eq!(
+        result[0]
+            .function
+            .body_type_map
+            .get(&pool.bound_var(provider_var_id)),
+        Some(&concrete_provider),
+        "post-normalization capability binders must share the substitution"
+    );
 }
 
 #[test]

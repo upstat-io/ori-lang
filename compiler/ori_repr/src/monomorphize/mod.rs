@@ -25,7 +25,7 @@ use crate::executable::{
 
 pub use collect::collect_mono_functions;
 pub use derived_mono::{materialize_derived_mono_for_receiver, DerivedMonoMaterializationError};
-pub use mangle::mangle_mono_name;
+pub use mangle::{mangle_mono_instance_name, mangle_mono_name};
 pub use targets::{callee_shadows_builtin_method, rewrite_apply_targets_for_monos, MonoTargetMaps};
 
 // ImportSig
@@ -104,6 +104,7 @@ pub struct MonoFunctionIdentity {
     original_name: Name,
     method_producer: Option<MethodProducer>,
     method_args: Vec<GenericArg>,
+    capability_args: Vec<Idx>,
     const_bindings: Vec<MonoConstBinding>,
     instance_ids: Vec<MonoInstanceId>,
     receiver_type: Option<Idx>,
@@ -127,6 +128,7 @@ impl MonoFunctionIdentity {
             original_name: instance.fn_name,
             method_producer: instance.method_producer.clone(),
             method_args: instance.method_args.clone(),
+            capability_args: instance.capability_args.clone(),
             const_bindings: instance.const_bindings.clone(),
             instance_ids,
             receiver_type: instance.receiver_type,
@@ -149,6 +151,12 @@ impl MonoFunctionIdentity {
     #[must_use]
     pub fn method_args(&self) -> &[GenericArg] {
         &self.method_args
+    }
+
+    /// Ordered concrete provider types distinguishing this specialization.
+    #[must_use]
+    pub fn capability_args(&self) -> &[Idx] {
+        &self.capability_args
     }
 
     /// Named const values injected while lowering the specialized body.
@@ -270,7 +278,7 @@ pub fn concrete_sig_for_instance(
     let receiver_self = instance
         .receiver_type
         .filter(|_| instance.concrete_param_types.len() + 1 == generic_sig.param_types.len());
-    let param_types: Vec<Idx> = match receiver_self {
+    let mut param_types: Vec<Idx> = match receiver_self {
         Some(recv) => {
             let mut pt = Vec::with_capacity(instance.concrete_param_types.len() + 1);
             pt.push(recv);
@@ -279,6 +287,22 @@ pub fn concrete_sig_for_instance(
         }
         None => instance.concrete_param_types.clone(),
     };
+    let value_capabilities: Vec<_> = generic_sig
+        .capability_params
+        .iter()
+        .copied()
+        .filter_map(|param| match param {
+            ori_types::CapabilityParam::Value { capability, .. } => Some(capability),
+            ori_types::CapabilityParam::Marker { .. } => None,
+        })
+        .collect();
+    assert_eq!(
+        value_capabilities.len(),
+        instance.capability_args.len(),
+        "capability specialization for {:?} must carry one provider type per value capability",
+        generic_sig.name,
+    );
+    param_types.extend_from_slice(&instance.capability_args);
     let param_hashes: Vec<u64> = param_types.iter().map(|&idx| pool.hash(idx)).collect();
     let return_hash = pool.hash(instance.concrete_return_type);
 
@@ -286,10 +310,21 @@ pub fn concrete_sig_for_instance(
         name: mangled_name,
         type_params: vec![],
         const_params: vec![],
-        param_names: generic_sig.param_names.clone(),
+        param_names: generic_sig
+            .param_names
+            .iter()
+            .copied()
+            .chain(value_capabilities)
+            .collect(),
         param_types,
         return_type: instance.concrete_return_type,
         capabilities: generic_sig.capabilities.clone(),
+        capability_params: generic_sig
+            .capability_params
+            .iter()
+            .copied()
+            .filter(|param| matches!(param, ori_types::CapabilityParam::Marker { .. }))
+            .collect(),
         is_public: false, // mono specializations are internal
         is_test: false,
         is_main: false,
@@ -298,8 +333,13 @@ pub fn concrete_sig_for_instance(
         where_clauses: vec![],
         generic_param_mapping: vec![],
         scheme_var_ids: vec![],
-        required_params: generic_sig.required_params,
-        param_defaults: generic_sig.param_defaults.clone(),
+        required_params: generic_sig.required_params + instance.capability_args.len(),
+        param_defaults: generic_sig
+            .param_defaults
+            .iter()
+            .copied()
+            .chain(std::iter::repeat_n(None, instance.capability_args.len()))
+            .collect(),
         param_hashes,
         return_hash,
         return_projection: None,

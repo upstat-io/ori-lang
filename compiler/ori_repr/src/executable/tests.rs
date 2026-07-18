@@ -3,8 +3,8 @@ use ori_arc::uniqueness::{CowAnnotations, DropHints};
 use ori_arc::{
     prove_param_disjointness, ArcBlock, ArcBlockId, ArcClassifier, ArcFunction, ArcInstr, ArcParam,
     ArcTerminator, ArcValue, ArcVarId, ArgOwnership, EffectSummary, LitValue, MemoryAccessClass,
-    MemoryContract, MethodCallFact, MethodCallForm, Ownership, PrimOp, RcStrategy, RetainPlanTable,
-    ValueRepr, VariableMetadataState,
+    MemoryContract, MethodCallFact, MethodCallForm, OperatorCallFact, Ownership, PrimOp,
+    RcStrategy, RetainPlanTable, ValueRepr, VariableMetadataState,
 };
 use ori_ir::{BinaryOp, SharedInterner, Span};
 use ori_types::burden::UserBurdenSpec;
@@ -48,6 +48,7 @@ fn empty_function(name: ori_ir::Name) -> ArcFunction {
         reassign_deaths: Vec::new(),
         catch_scoped_checked_ops: Vec::new(),
         method_call_facts: Vec::new(),
+        operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
         class_ledger_emission: false,
     }
@@ -86,10 +87,59 @@ fn parts(symbols: &SharedInterner) -> ExecutableProgramParts {
         roots: vec![main],
         cli_entry: Some(main),
         externals: Vec::new(),
+        method_targets: FxHashMap::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
         type_registry: TypeRegistry::new(),
     }
+}
+
+#[test]
+fn freezes_receiver_qualified_method_targets_to_stable_callable_identity() {
+    let symbols = SharedInterner::new();
+    let main = symbols.intern("main");
+    let make = symbols.intern("make");
+    let mut input = parts(&symbols);
+    input.method_targets.insert((Idx::UNIT, make), main);
+
+    let program = ExecutableProgram::validate(input)
+        .unwrap_or_else(|error| panic!("method target should validate: {error}"));
+    let main_id = program
+        .function_id(main)
+        .unwrap_or_else(|| panic!("main must have a stable identity"));
+
+    assert_eq!(
+        program.method_target(Idx::UNIT, make),
+        Some(CallableTarget::Function(main_id))
+    );
+}
+
+#[test]
+fn rejects_invalid_or_unavailable_method_targets() {
+    let symbols = SharedInterner::new();
+    let debug = symbols.intern("debug");
+    let main = symbols.intern("main");
+    let mut invalid_receiver = parts(&symbols);
+    let invalid = Idx::from_raw(u32::MAX);
+    invalid_receiver
+        .method_targets
+        .insert((invalid, debug), main);
+    assert!(matches!(
+        ExecutableProgram::validate(invalid_receiver),
+        Err(RealizationError::InvalidMethodTargetReceiver { receiver, method })
+            if receiver == invalid && method == debug
+    ));
+
+    let missing = symbols.intern("missing.debug");
+    let mut unavailable = parts(&symbols);
+    unavailable
+        .method_targets
+        .insert((Idx::INT, debug), missing);
+    assert!(matches!(
+        ExecutableProgram::validate(unavailable),
+        Err(RealizationError::MissingMethodTarget { receiver, method, target })
+            if receiver == Idx::INT && method == debug && target == missing
+    ));
 }
 
 fn user_drop_parts(
@@ -1168,6 +1218,29 @@ fn unresolved_callable_message_names_cause_and_fix() {
 }
 
 #[test]
+fn rejects_unresolved_operator_fact_before_backend_selection() {
+    let symbols = SharedInterner::new();
+    let mut input = parts(&symbols);
+    input.functions[0].operator_call_facts = vec![OperatorCallFact {
+        destination: ArcVarId::new(0),
+        receiver: ArcVarId::new(0),
+        operation: PrimOp::Binary(BinaryOp::Eq),
+        span: Some(Span::DUMMY),
+    }];
+
+    let error = ExecutableProgram::validate(input)
+        .err()
+        .unwrap_or_else(|| panic!("closed executable accepted unresolved operator provenance"));
+
+    assert!(matches!(
+        &error,
+        RealizationError::InvalidGeneratedCallProvenance { function, details, .. }
+            if *function == symbols.intern("main")
+                && details.contains("unresolved operator")
+    ));
+}
+
+#[test]
 fn rejects_call_ownership_that_does_not_cover_every_argument() {
     let symbols = SharedInterner::new();
     let mut input = parts(&symbols);
@@ -1244,6 +1317,68 @@ fn resolves_list_set_before_backend_selection() {
         program.call_target(CallSite::new(entry, block, position)),
         Some(CallableTarget::Runtime(RuntimeCall::ListSet))
     );
+}
+
+#[test]
+fn resolves_registered_error_method_before_backend_selection() {
+    let symbols = SharedInterner::new();
+    let mut input = parts(&symbols);
+    let trace_entries = symbols.intern("trace_entries");
+    let error_name = symbols.intern("Error");
+    let message_name = symbols.intern("message");
+    let trace_name = symbols.intern("trace");
+    let mut pool = Pool::new();
+    let error = pool.named(error_name);
+    let trace_list = pool.list(Idx::UNIT);
+    let error_struct = pool.struct_type(
+        error_name,
+        &[(message_name, Idx::STR), (trace_name, trace_list)],
+    );
+    pool.set_resolution(error, error_struct);
+    pool.set_error_struct_idx(error);
+
+    input.functions[0].return_type = trace_list;
+    input.functions[0].var_types = vec![error, trace_list];
+    input.functions[0].blocks[0].body.push(ArcInstr::Apply {
+        dst: ArcVarId::new(1),
+        ty: trace_list,
+        func: trace_entries,
+        args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![ArgOwnership::Borrowed],
+        mono_instance_id: None,
+    });
+    input.functions[0].blocks[0].terminator = ArcTerminator::Return {
+        value: ArcVarId::new(1),
+    };
+    input.functions[0].method_call_facts = vec![MethodCallFact {
+        destination: ArcVarId::new(1),
+        receiver_type: error,
+        form: MethodCallForm::Instance,
+        producer: None,
+        derived_position: None,
+    }];
+    populate_metadata(&mut input.functions[0], &pool);
+    input.pool = pool;
+    input.callable_facts = ori_arc::freeze_function_callable_facts(&input.functions, &input.pool);
+
+    let program = ExecutableProgram::validate(input).unwrap_or_else(|error| {
+        panic!("Error.trace_entries should resolve before backend selection: {error}")
+    });
+    let entry = program
+        .cli_entry()
+        .unwrap_or_else(|| panic!("fixture must have a CLI entry"));
+    let function = program.functions()[entry.index()].name;
+    let block = BlockIndex::new(0, function)
+        .unwrap_or_else(|error| panic!("test block should be representable: {error}"));
+    let position = CallPosition::instruction(0, function)
+        .unwrap_or_else(|error| panic!("test instruction should be representable: {error}"));
+    let target = program
+        .call_target(CallSite::new(entry, block, position))
+        .unwrap_or_else(|| panic!("Error.trace_entries must have a callable target"));
+    let CallableTarget::Runtime(RuntimeCall::RegistryMethod(method)) = target else {
+        panic!("Error.trace_entries must retain its registry method identity, got {target:?}");
+    };
+    assert_eq!(method.receiver(), ori_registry::TypeTag::Error);
 }
 
 #[test]

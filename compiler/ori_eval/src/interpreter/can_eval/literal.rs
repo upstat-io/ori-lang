@@ -1,5 +1,5 @@
 use ori_ir::canon::ConstValue;
-use ori_ir::{DurationUnit, SizeUnit, StringInterner};
+use ori_ir::{builtin_constants::size, DurationUnit, SizeUnit, StringInterner};
 use ori_patterns::{EvalResult, Value};
 
 use crate::errors::integer_overflow;
@@ -14,6 +14,7 @@ pub(super) fn eval_can_duration(value: u64, unit: DurationUnit) -> EvalResult {
 pub(super) fn eval_can_size(value: u64, unit: SizeUnit) -> EvalResult {
     Ok(Value::Size(
         unit.to_bytes(value)
+            .filter(|bytes| *bytes <= size::MAX_BYTES)
             .ok_or_else(|| integer_overflow("size literal"))?,
     ))
 }

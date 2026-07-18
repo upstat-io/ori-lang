@@ -163,22 +163,26 @@ fn emit_default_field(
     pool: &Pool,
 ) -> ArcVarId {
     let resolved = pool.resolve_fully(field_type);
-    let literal = match pool.tag(resolved) {
-        Tag::Int | Tag::Byte => Some(LitValue::Int(0)),
-        Tag::Float => Some(LitValue::Float(0.0f64.to_bits())),
-        Tag::Bool => Some(LitValue::Bool(false)),
-        Tag::Str => Some(LitValue::String(empty_string)),
-        Tag::Char => Some(LitValue::Char('\0')),
-        Tag::Unit => Some(LitValue::Unit),
-        Tag::Duration => Some(LitValue::Duration {
-            value: 0,
-            unit: DurationUnit::Nanoseconds,
-        }),
-        Tag::Size => Some(LitValue::Size {
-            value: 0,
-            unit: SizeUnit::Bytes,
-        }),
-        _ => None,
+    let literal = if pool.is_newtype_type(field_type) {
+        None
+    } else {
+        match pool.tag(resolved) {
+            Tag::Int | Tag::Byte => Some(LitValue::Int(0)),
+            Tag::Float => Some(LitValue::Float(0.0f64.to_bits())),
+            Tag::Bool => Some(LitValue::Bool(false)),
+            Tag::Str => Some(LitValue::String(empty_string)),
+            Tag::Char => Some(LitValue::Char('\0')),
+            Tag::Unit => Some(LitValue::Unit),
+            Tag::Duration => Some(LitValue::Duration {
+                value: 0,
+                unit: DurationUnit::Nanoseconds,
+            }),
+            Tag::Size => Some(LitValue::Size {
+                value: 0,
+                unit: SizeUnit::Bytes,
+            }),
+            _ => None,
+        }
     };
     if let Some(literal) = literal {
         return builder.emit_let(field_type, ArcValue::Literal(literal), None);

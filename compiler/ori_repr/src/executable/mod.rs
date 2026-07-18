@@ -10,6 +10,7 @@ mod external;
 mod external_identities;
 mod function_contracts;
 mod function_families;
+mod method_targets;
 mod parameter_facts;
 mod program_freeze;
 mod return_facts;
@@ -37,7 +38,7 @@ pub use function_families::FunctionFamilyTopology;
 pub use runtime::{CompilerOperation, FormatRuntime, IteratorSource, RuntimeCall};
 
 /// Schema version for the in-memory executable-program contract.
-pub const EXECUTABLE_PROGRAM_VERSION: u32 = 9;
+pub const EXECUTABLE_PROGRAM_VERSION: u32 = 10;
 
 /// Stable index of a realized function in an [`ExecutableProgram`].
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -161,6 +162,8 @@ pub struct ExecutableProgramParts {
     pub cli_entry: Option<Name>,
     /// Producer-authored facts for callable bodies linked from other units.
     pub externals: Vec<ExternalCallable>,
+    /// Exact semantic receiver/method targets selected before ARC preparation.
+    pub method_targets: FxHashMap<(ori_types::Idx, Name), Name>,
     /// Exact logical-to-callable bindings for every user-defined drop burden.
     pub user_drop_bindings: Vec<UserDropBinding>,
     /// Transitional compiled-shaped representation plan. Production artifact
@@ -192,6 +195,7 @@ pub struct ExecutableProgram {
     cli_entry: Option<FunctionId>,
     external_functions: Box<[ExternalCallable]>,
     external_ids: FxHashMap<Name, ExternalFunctionId>,
+    method_targets: FxHashMap<(ori_types::Idx, Name), CallableTarget>,
     user_drop_plan: ExecutableDropPlan,
     repr_plan: ReprPlan,
     type_registry: TypeRegistry,
@@ -381,6 +385,21 @@ impl ExecutableProgram {
     #[must_use]
     pub fn external_function_id(&self, name: Name) -> Option<ExternalFunctionId> {
         self.external_ids.get(&name).copied()
+    }
+
+    /// Resolve the exact callable selected for one semantic receiver/method pair.
+    #[must_use]
+    pub fn method_target(&self, receiver: ori_types::Idx, method: Name) -> Option<CallableTarget> {
+        self.method_targets.get(&(receiver, method)).copied()
+    }
+
+    /// Iterate every frozen semantic receiver/method target.
+    pub fn method_targets(
+        &self,
+    ) -> impl Iterator<Item = (ori_types::Idx, Name, CallableTarget)> + '_ {
+        self.method_targets
+            .iter()
+            .map(|(&(receiver, method), &target)| (receiver, method, target))
     }
 
     /// Return the complete stable user-drop plan.

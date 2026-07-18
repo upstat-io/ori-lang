@@ -4,7 +4,7 @@
 //! `to_uppercase`, `to_lowercase`, `replace`, `repeat`, `push_char`,
 //! and `next_char`.
 
-use crate::io::ori_panic_cstr;
+use crate::io::panic_index_out_of_bounds;
 use crate::next_capacity;
 use crate::rc::{ori_rc_alloc, ori_rc_inc, ori_rc_is_unique, ori_rc_realloc};
 use crate::slice_encoding::{is_slice_cap, make_slice_cap, slice_byte_offset};
@@ -105,19 +105,25 @@ pub extern "C" fn ori_str_substring(s: *const OriStr, start: i64, end: i64) -> O
 /// - `index`: codepoint position (0-based)
 #[no_mangle]
 pub extern "C-unwind" fn ori_str_index(s: *const OriStr, index: i64) -> OriStr {
-    if s.is_null() || index < 0 {
-        ori_panic_cstr(c"index out of bounds".as_ptr());
+    if s.is_null() {
+        panic_index_out_of_bounds(index, 0);
         return OriStr::EMPTY;
     }
     // SAFETY: s validated non-null above; pointer from LLVM codegen is valid per runtime protocol.
     let s_ref = unsafe { &*s };
     // SAFETY: OriStr's byte content is always valid UTF-8 per the runtime's string invariant.
     let s_str = unsafe { s_ref.as_str() };
+    if index < 0 {
+        let length = i64::try_from(s_str.chars().count()).unwrap_or(i64::MAX);
+        panic_index_out_of_bounds(index, length);
+        return OriStr::EMPTY;
+    }
     if let Some(ch) = s_str.chars().nth(index as usize) {
         let mut buf = [0u8; 4];
         OriStr::from_bytes(ch.encode_utf8(&mut buf).as_bytes())
     } else {
-        ori_panic_cstr(c"index out of bounds".as_ptr());
+        let length = i64::try_from(s_str.chars().count()).unwrap_or(i64::MAX);
+        panic_index_out_of_bounds(index, length);
         OriStr::EMPTY
     }
 }

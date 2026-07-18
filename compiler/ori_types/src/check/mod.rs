@@ -131,6 +131,9 @@ pub struct ModuleChecker<'a> {
     provided_capabilities: FxHashSet<Name>,
     /// Constant types.
     const_types: FxHashMap<Name, Idx>,
+    /// Concrete value evidence for module constants in the supported const
+    /// expression subset. Missing entries remain fail-closed in capacity use.
+    const_values: FxHashMap<Name, crate::ConstValue>,
     /// Builtin-type extension methods keyed by `TypeTag`, from `module.extends`.
     /// Set on each inference engine so an `extend <builtin> { @m }` method is not
     /// false-rejected as unknown.
@@ -178,6 +181,9 @@ pub struct ModuleChecker<'a> {
 
     /// Module-wide iterable routes, sorted for [`crate::TypedModule::iter_route_map`].
     iter_route_desugars: Vec<(ExprId, crate::IterMethodRoute)>,
+
+    /// Module-wide capability-provider call selections.
+    capability_calls: Vec<(ExprId, crate::CapabilityCallSite)>,
 
     // Impl Method Signatures
     /// Accumulated impl method signatures for codegen.
@@ -277,6 +283,7 @@ impl<'a> ModuleChecker<'a> {
             current_capabilities: FxHashSet::default(),
             provided_capabilities: FxHashSet::default(),
             const_types: FxHashMap::default(),
+            const_values: FxHashMap::default(),
             builtin_extensions: FxHashMap::default(),
             impl_rigid_var_maps: Vec::new(),
             method_rigid_var_maps: FxHashMap::default(),
@@ -286,6 +293,7 @@ impl<'a> ModuleChecker<'a> {
             assign_desugars: Vec::new(),
             module_alias_calls: Vec::new(),
             iter_route_desugars: Vec::new(),
+            capability_calls: Vec::new(),
             impl_sigs: Vec::new(),
             imported_impl_sigs: Vec::new(),
             accepted_derives: Vec::new(),

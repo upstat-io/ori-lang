@@ -31,12 +31,18 @@ pub(super) fn is_boxed_enum_field(pool: &Pool, owner_type: Idx, field_type: Idx)
 
 // Callee interception detection
 
-/// Builtin method names whose intercepted emission may unwind.
+/// Builtin callee names whose intercepted emission may unwind for at least
+/// one concrete input/result type pair.
 ///
 /// The set includes inline panic paths, scaled unit factories, and iterator
-/// operations that may execute a stored user closure. Names are unqualified,
-/// so receiver-specific nounwind cases are classified conservatively.
+/// operations that may execute a stored user closure. Names are unqualified;
+/// [`intercepted_emission_invokes_unwind`] supplies the type-directed verdict.
 pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] = &[
+    "__cast",
+    "abs",
+    "byte",
+    "int",
+    "to_int",
     "unwrap",
     "unwrap_err",
     "expect",
@@ -149,29 +155,46 @@ pub(crate) fn is_callee_intercepted(
 /// orphan landing pads and invokes targeting omitted cleanup blocks.
 pub(crate) fn intercepted_emission_invokes_unwind(
     method_name: &str,
-    receiver_tag: ori_types::Tag,
+    receiver_tag: Option<ori_types::Tag>,
+    result_tag: Option<ori_types::Tag>,
 ) -> bool {
     use ori_types::Tag;
+    if !MAY_UNWIND_INTERCEPTED_METHODS.contains(&method_name) {
+        return false;
+    }
     match method_name {
-        "updated" => matches!(receiver_tag, Tag::List),
-        "__index" => matches!(receiver_tag, Tag::List | Tag::Str),
-        "unwrap" | "expect" => matches!(receiver_tag, Tag::Option | Tag::Result),
-        "unwrap_err" | "expect_err" => matches!(receiver_tag, Tag::Result),
+        // Inline checked conversions call `ori_panic_cstr` only for these
+        // concrete source/result pairs. Keeping the effect type-directed
+        // avoids pessimizing lossless scalar conversions.
+        "__cast" => {
+            matches!(receiver_tag, Some(Tag::Int))
+                && matches!(result_tag, Some(Tag::Byte | Tag::Char))
+        }
+        "int" | "to_int" => matches!(receiver_tag, Some(Tag::Float)),
+        "byte" => matches!(receiver_tag, Some(Tag::Int | Tag::Char)),
+        "abs" => matches!(receiver_tag, Some(Tag::Int)),
+        "updated" => matches!(receiver_tag, Some(Tag::List)),
+        "__index" => matches!(receiver_tag, Some(Tag::List | Tag::Str)),
+        "unwrap" | "expect" => matches!(receiver_tag, Some(Tag::Option | Tag::Result)),
+        "unwrap_err" | "expect_err" => matches!(receiver_tag, Some(Tag::Result)),
         "__iter_next" | "__collect_set" | "next" | "next_back" | "rev" | "collect" | "count"
         | "any" | "all" | "find" | "for_each" | "fold" | "last" | "rfind" | "rfold" | "join" => {
-            matches!(receiver_tag, Tag::Iterator | Tag::DoubleEndedIterator)
+            matches!(receiver_tag, Some(Tag::Iterator | Tag::DoubleEndedIterator))
         }
-        _ => false,
+        // New inventory entries fail closed until they receive a narrower
+        // type-directed arm above.
+        _ => true,
     }
 }
 
-/// Check whether an intercepted callee is guaranteed to be nounwind.
+/// Check whether an intercepted callee is guaranteed to be nounwind for the
+/// concrete receiver/result types at this call site.
 ///
 /// Called by the nounwind analyzer when [`is_callee_intercepted`] returned
 /// `true` to decide whether the intercept may unwind. The default is
-/// `true` (nounwind) — the exceptional cases in
-/// [`MAY_UNWIND_INTERCEPTED_METHODS`] return `false` because they either emit
-/// an inline panic path or call an unwind-capable iterator runtime function.
+/// `true` (nounwind). Candidate names in
+/// [`MAY_UNWIND_INTERCEPTED_METHODS`] are then classified by the same
+/// type-directed predicate used to retain their LLVM unwind edges.
 ///
 /// Matching is by unqualified method name (the callee `Name` already
 /// strips the type prefix, e.g., `expect` not `Option.expect`), because
@@ -179,8 +202,12 @@ pub(crate) fn intercepted_emission_invokes_unwind(
 /// type — `Option.expect` and `Result.expect` both panic via the same
 /// emission helper.
 #[must_use]
-pub(crate) fn intercepted_is_nounwind(callee_name: &str) -> bool {
-    !MAY_UNWIND_INTERCEPTED_METHODS.contains(&callee_name)
+pub(crate) fn intercepted_is_nounwind(
+    callee_name: &str,
+    receiver_tag: Option<ori_types::Tag>,
+    result_tag: Option<ori_types::Tag>,
+) -> bool {
+    !intercepted_emission_invokes_unwind(callee_name, receiver_tag, result_tag)
 }
 
 /// Tagged LLVM value carrying its memory representation.
@@ -262,6 +289,12 @@ pub struct CodegenContext {
     pub executable_external_names: Vec<Name>,
     /// Type-qualified method lookup: `(type_name, method_name)` → (`FunctionId`, ABI).
     pub method_functions: FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
+    /// Closed semantic receiver/method lookup projected from `ExecutableProgram`.
+    ///
+    /// This table is authoritative whenever executable facts are bound. It also
+    /// covers backend-synthesized calls inside compound builtins, which have no
+    /// ARC result register through which to consult `executable_call_targets`.
+    pub exact_method_functions: FxHashMap<(Idx, Name), (FunctionId, FunctionAbi)>,
     /// Artifact-bound user-drop operations keyed by their exact semantic type.
     /// Production drop emission and nounwind analysis consult only this table;
     /// the general method map is retained for unbound unit-test fixtures.

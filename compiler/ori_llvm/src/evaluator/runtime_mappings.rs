@@ -124,6 +124,7 @@ fn lookup_misc_address(name: &str) -> usize {
         // Catch recovery (Itanium EH)
         "ori_catch_cleanup" => runtime::ori_catch_cleanup as *const () as usize,
         "ori_catch_recover" => runtime::ori_catch_recover as *const () as usize,
+        "ori_report_uncaught_panic" => runtime::ori_report_uncaught_panic as *const () as usize,
         // Error Traceable runtime functions
         "_ori_inject_trace_entry" => runtime::_ori_inject_trace_entry as *const () as usize,
         "_ori_format_error_trace" => runtime::_ori_format_error_trace as *const () as usize,

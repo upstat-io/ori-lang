@@ -81,6 +81,17 @@ pub fn eval_source(source: &str) -> EvalResult {
     let canon_result =
         ori_canon::lower_module(&parsed.module, &parsed.arena, &type_result, &pool, interner);
 
+    if let Some(problem) = canon_result.const_problems.first() {
+        let diagnostic =
+            crate::problem::semantic::const_eval_problem_to_diagnostic(problem, interner);
+        return Err(EvalError::new(format!(
+            "{}: {}",
+            diagnostic.code.as_str(),
+            diagnostic.message
+        ))
+        .into());
+    }
+
     // Surface pattern exhaustiveness errors as eval failures.
     if let Some(problem) = canon_result.problems.first() {
         let msg = match problem {

@@ -80,7 +80,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         dst: ArcVarId,
         op: PrimOp,
         arg_vals: &[ValueId],
-        _ty: Idx,
+        ty: Idx,
         func: &ArcFunction,
         arc_args: &[ArcVarId],
     ) -> ValueId {
@@ -92,7 +92,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let lhs = arg_vals[0];
                 let rhs = arg_vals[1];
                 let lhs_ty = func.var_type(arc_args[0]);
-                self.emit_binary_op(bin_op, lhs, rhs, lhs_ty, fact.strategy, func)
+                let rhs_ty = func.var_type(arc_args[1]);
+                self.emit_binary_op(bin_op, lhs, rhs, lhs_ty, rhs_ty, ty, fact.strategy, func)
             }
             PrimOp::Unary(un_op) => {
                 let operand = arg_vals[0];

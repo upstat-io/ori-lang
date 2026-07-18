@@ -212,6 +212,26 @@ pub enum RealizationError {
     /// An external callable name is absent from immutable symbol storage.
     #[error("external callable name {name:?} is absent from the executable symbol table")]
     UnknownExternalName { name: Name },
+    /// A method-target receiver refers outside the artifact-local type pool.
+    #[error("method target for {method:?} refers to invalid receiver type {receiver:?}")]
+    InvalidMethodTargetReceiver { receiver: Idx, method: Name },
+    /// A method identity is absent from immutable symbol storage.
+    #[error("method target name {method:?} is absent from the executable symbol table")]
+    UnknownMethodTargetName { method: Name },
+    /// A receiver/method target names neither a realized body nor an external callable.
+    #[error("method target for receiver {receiver:?} and method {method:?} names unavailable callable {target:?}")]
+    MissingMethodTarget {
+        receiver: Idx,
+        method: Name,
+        target: Name,
+    },
+    /// A semantic method cannot target a nested lambda body.
+    #[error("method target for receiver {receiver:?} and method {method:?} names nested lambda {target:?}")]
+    MethodTargetIsLambda {
+        receiver: Idx,
+        method: Name,
+        target: Name,
+    },
     /// A local body and an external declaration claim the same callable name.
     #[error("callable {name:?} is declared as both a realized body and an external function")]
     ExternalFunctionBodyCollision { name: Name },

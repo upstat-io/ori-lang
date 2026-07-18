@@ -17,10 +17,11 @@ use super::super::imported_mono::{
 
 mod modules;
 
+pub(super) use modules::LoadError;
 use modules::LoadedModules;
 
 pub(super) struct PreparedImports {
-    pub(super) resolved: Arc<crate::imports::ResolvedImports>,
+    pub(super) modules: Vec<crate::imports::ResolvedImportedModule>,
     pub(super) type_results: Vec<TypeCheckResult>,
     pub(super) pool: Pool,
     pub(super) canons: Vec<ori_ir::canon::CanonResult>,
@@ -28,19 +29,26 @@ pub(super) struct PreparedImports {
     pub(super) signatures: Vec<FunctionSig>,
     pub(super) renamed_functions: Vec<Option<crate::ir::Function>>,
     pub(super) mono_functions: Vec<ImportedMonoFn>,
+    pub(super) generic_templates: Vec<crate::realization::ImportedGenericTemplate>,
+    pub(super) target_maps: Vec<FxHashMap<crate::ir::Name, crate::ir::Name>>,
+    pub(super) root_targets: FxHashMap<crate::ir::Name, crate::ir::Name>,
 }
 
 pub(super) struct FunctionRef {
-    func_index: usize,
-    module_index: usize,
-    local_name: crate::ir::Name,
-    original_name: crate::ir::Name,
+    pub(super) func_index: usize,
+    pub(super) module_index: usize,
+    pub(super) local_name: crate::ir::Name,
+    pub(super) original_name: crate::ir::Name,
 }
 
 struct ImportSources<'a> {
     resolved: &'a crate::imports::ResolvedImports,
+    modules: &'a [crate::imports::ResolvedImportedModule],
     type_results: &'a [TypeCheckResult],
     pools: &'a [Arc<Pool>],
+    target_maps: &'a [FxHashMap<crate::ir::Name, crate::ir::Name>],
+    explicit_len: usize,
+    prelude_index: Option<usize>,
 }
 
 struct ReinternState<'a> {
@@ -52,7 +60,7 @@ struct ReinternState<'a> {
 struct FunctionInventory<'a> {
     signatures: &'a mut Vec<FunctionSig>,
     references: &'a mut Vec<FunctionRef>,
-    declared: &'a mut FxHashSet<(PathBuf, usize, crate::ir::Name)>,
+    declared: &'a mut FxHashSet<(PathBuf, crate::ir::Name)>,
 }
 
 pub(super) fn prepare(
@@ -62,13 +70,18 @@ pub(super) fn prepare(
     typed: &TypeCheckResult,
     pool: &Pool,
     interner: &crate::ir::StringInterner,
-) -> PreparedImports {
+) -> Result<PreparedImports, LoadError> {
     let resolved = crate::imports::resolve_imports(db, parse, file_path);
     let LoadedModules {
+        modules,
         type_results,
         canons,
         pools,
-    } = modules::load(db, &resolved);
+        target_maps,
+        root_targets,
+        explicit_len,
+        prelude_index,
+    } = modules::load(db, parse, &resolved, interner)?;
 
     let mut merged_pool = pool.clone();
     let mut caches = vec![FxHashMap::default(); pools.len()];
@@ -83,8 +96,12 @@ pub(super) fn prepare(
 
     let sources = ImportSources {
         resolved: &resolved,
+        modules: &modules,
         type_results: &type_results,
         pools: &pools,
+        target_maps: &target_maps,
+        explicit_len,
+        prelude_index,
     };
     let mut state = ReinternState {
         pool: &mut merged_pool,
@@ -100,8 +117,7 @@ pub(super) fn prepare(
         declared: &mut declared,
     };
 
-    collect_direct_functions(parse, &sources, &mut state, &mut inventory);
-    collect_module_alias_internals(&sources, &mut state, &mut inventory);
+    collect_module_functions(&sources, &mut state, &mut inventory);
 
     let mut generic_signatures = collect_generic_signatures(&sources, &mut state);
     register_prelude(&sources, &mut state, &mut generic_signatures);
@@ -114,11 +130,26 @@ pub(super) fn prepare(
         state.pool,
         interner,
     );
+    let mut generic_templates: Vec<_> = generic_signatures
+        .iter()
+        .map(|(&local_name, (signature, module_index, source_name))| {
+            crate::realization::ImportedGenericTemplate {
+                local_name,
+                signature: signature.clone(),
+                module_index: *module_index,
+                source_name: *source_name,
+                generic_type_params: crate::realization::generic_type_param_map(
+                    &type_results[*module_index].typed.types,
+                ),
+            }
+        })
+        .collect();
+    generic_templates.sort_by_key(|template| template.local_name.raw());
     let renamed_functions =
-        rename_aliased_functions(&resolved, &function_refs, &mut re_interned_canons);
+        rename_aliased_functions(&modules, &function_refs, &mut re_interned_canons);
 
-    PreparedImports {
-        resolved,
+    Ok(PreparedImports {
+        modules,
         type_results,
         pool: merged_pool,
         canons: re_interned_canons,
@@ -126,90 +157,23 @@ pub(super) fn prepare(
         signatures,
         renamed_functions,
         mono_functions,
-    }
+        generic_templates,
+        target_maps,
+        root_targets,
+    })
 }
 
-fn collect_direct_functions(
-    parse: &crate::parser::ParseOutput,
+fn collect_module_functions(
     sources: &ImportSources<'_>,
     state: &mut ReinternState<'_>,
     inventory: &mut FunctionInventory<'_>,
 ) {
-    for imported in &sources.resolved.imported_functions {
-        if imported.is_module_alias
-            || parse
-                .module
-                .functions
-                .iter()
-                .any(|function| function.name == imported.local_name)
-        {
-            continue;
-        }
-        let module = &sources.resolved.modules[imported.module_index];
-        let Some((func_index, _)) = module
-            .parse_output
-            .module
-            .functions
-            .iter()
-            .enumerate()
-            .find(|(_, function)| function.name == imported.original_name)
-        else {
-            continue;
-        };
-        if !inventory
-            .declared
-            .insert((module.module_path.clone(), func_index, imported.local_name))
-        {
-            continue;
-        }
-        let Some(signature) = sources.type_results[imported.module_index]
-            .typed
-            .functions
-            .iter()
-            .find(|signature| signature.name == imported.original_name)
-        else {
-            continue;
-        };
-        if signature.is_generic() {
-            continue;
-        }
-
-        let mut re_interned = ori_types::re_intern_sig_with_var_remap(
-            signature,
-            &sources.pools[imported.module_index],
-            state.pool,
-            &mut state.caches[imported.module_index],
-            &mut state.var_remaps[imported.module_index],
-        );
-        re_interned.name = imported.local_name;
-        inventory.signatures.push(re_interned);
-        inventory.references.push(FunctionRef {
-            func_index,
-            module_index: imported.module_index,
-            local_name: imported.local_name,
-            original_name: imported.original_name,
-        });
-    }
-}
-
-/// Module-alias bodies call same-module functions by their original names, so
-/// codegen needs declarations beyond the importer-facing `alias.function` set.
-fn collect_module_alias_internals(
-    sources: &ImportSources<'_>,
-    state: &mut ReinternState<'_>,
-    inventory: &mut FunctionInventory<'_>,
-) {
-    for imported in &sources.resolved.imported_functions {
-        if !imported.is_module_alias {
-            continue;
-        }
-        let module_index = imported.module_index;
-        let module = &sources.resolved.modules[module_index];
+    for (module_index, module) in sources.modules[..sources.explicit_len].iter().enumerate() {
         let typed = &sources.type_results[module_index];
         for (func_index, function) in module.parse_output.module.functions.iter().enumerate() {
             if !inventory
                 .declared
-                .insert((module.module_path.clone(), func_index, function.name))
+                .insert((module.module_path.clone(), function.name))
             {
                 continue;
             }
@@ -221,21 +185,25 @@ fn collect_module_alias_internals(
             else {
                 continue;
             };
-            if signature.is_generic() {
+            if signature.requires_specialization() {
                 continue;
             }
-            let signature = ori_types::re_intern_sig_with_var_remap(
+            let mut signature = ori_types::re_intern_sig_with_var_remap(
                 signature,
                 &sources.pools[module_index],
                 state.pool,
                 &mut state.caches[module_index],
                 &mut state.var_remaps[module_index],
             );
+            let Some(&target) = sources.target_maps[module_index].get(&function.name) else {
+                continue;
+            };
+            signature.name = target;
             inventory.signatures.push(signature);
             inventory.references.push(FunctionRef {
                 func_index,
                 module_index,
-                local_name: function.name,
+                local_name: target,
                 original_name: function.name,
             });
         }
@@ -247,34 +215,71 @@ fn collect_generic_signatures(
     state: &mut ReinternState<'_>,
 ) -> FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)> {
     let mut signatures = FxHashMap::default();
+    for (module_index, module) in sources.modules[..sources.explicit_len].iter().enumerate() {
+        for function in &module.parse_output.module.functions {
+            let Some(signature) = sources.type_results[module_index]
+                .typed
+                .functions
+                .iter()
+                .find(|signature| signature.name == function.name)
+            else {
+                continue;
+            };
+            if !signature.requires_specialization() {
+                continue;
+            }
+            let mut re_interned = ori_types::re_intern_sig_with_var_remap(
+                signature,
+                &sources.pools[module_index],
+                state.pool,
+                &mut state.caches[module_index],
+                &mut state.var_remaps[module_index],
+            );
+            let Some(&target) = sources.target_maps[module_index].get(&function.name) else {
+                continue;
+            };
+            re_interned.name = target;
+            signatures.insert(target, (re_interned, module_index, function.name));
+        }
+    }
+
+    // Root mono instances retain the importer-facing spelling until ARC target
+    // closure rewrites their call sites. Keep that spelling as a lookup alias
+    // so existing direct imported generic demands still materialize eagerly.
     for imported in &sources.resolved.imported_functions {
         if imported.is_module_alias {
             continue;
         }
-        let Some(signature) = sources.type_results[imported.module_index]
-            .typed
-            .functions
-            .iter()
-            .find(|signature| signature.name == imported.original_name)
-        else {
+        let Some(module_index) = flattened_module_index(sources, imported.module_index) else {
             continue;
         };
-        if !signature.is_generic() {
+        let Some(&target) = sources.target_maps[module_index].get(&imported.original_name) else {
             continue;
-        }
-        let re_interned = ori_types::re_intern_sig_with_var_remap(
-            signature,
-            &sources.pools[imported.module_index],
-            state.pool,
-            &mut state.caches[imported.module_index],
-            &mut state.var_remaps[imported.module_index],
-        );
-        signatures.insert(
-            imported.local_name,
-            (re_interned, imported.module_index, imported.original_name),
-        );
+        };
+        let Some((signature, _, source_name)) = signatures.get(&target).cloned() else {
+            continue;
+        };
+        signatures
+            .entry(imported.local_name)
+            .or_insert((signature, module_index, source_name));
     }
     signatures
+}
+
+fn flattened_module_index(
+    sources: &ImportSources<'_>,
+    direct_module_index: usize,
+) -> Option<usize> {
+    let path = crate::imports::normalize_path(
+        &sources
+            .resolved
+            .modules
+            .get(direct_module_index)?
+            .module_path,
+    );
+    sources.modules[..sources.explicit_len]
+        .iter()
+        .position(|module| crate::imports::normalize_path(&module.module_path) == path)
 }
 
 fn register_prelude(
@@ -282,10 +287,11 @@ fn register_prelude(
     state: &mut ReinternState<'_>,
     signatures: &mut FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)>,
 ) {
-    let Some(prelude) = sources.resolved.prelude.as_ref() else {
+    let (Some(prelude), Some(module_index)) =
+        (sources.resolved.prelude.as_ref(), sources.prelude_index)
+    else {
         return;
     };
-    let module_index = sources.resolved.modules.len();
     let source_pool = Arc::clone(&sources.pools[module_index]);
     register_prelude_generic_sigs(
         signatures,
@@ -301,6 +307,20 @@ fn register_prelude(
             var_remap: &mut state.var_remaps[module_index],
         },
     );
+    for function in &prelude.parse_output.module.functions {
+        let Some(&target) = sources.target_maps[module_index].get(&function.name) else {
+            continue;
+        };
+        let Some((mut signature, source_index, source_name)) =
+            signatures.get(&function.name).cloned()
+        else {
+            continue;
+        };
+        signature.name = target;
+        signatures
+            .entry(target)
+            .or_insert((signature, source_index, source_name));
+    }
 }
 
 fn collect_impl_templates(
@@ -309,7 +329,7 @@ fn collect_impl_templates(
     interner: &crate::ir::StringInterner,
 ) -> Vec<crate::commands::ImportedImplTemplate> {
     let mut templates = Vec::new();
-    for (module_index, module) in sources.resolved.modules.iter().enumerate() {
+    for (module_index, module) in sources.modules[..sources.explicit_len].iter().enumerate() {
         let source_pool = Arc::clone(&sources.pools[module_index]);
         templates.extend(crate::commands::collect_imported_impl_templates(
             crate::commands::ImportedImplTemplateSource {
@@ -329,7 +349,7 @@ fn collect_impl_templates(
 }
 
 fn rename_aliased_functions(
-    resolved: &crate::imports::ResolvedImports,
+    modules: &[crate::imports::ResolvedImportedModule],
     references: &[FunctionRef],
     canons: &mut [ori_ir::canon::CanonResult],
 ) -> Vec<Option<crate::ir::Function>> {
@@ -351,7 +371,7 @@ fn rename_aliased_functions(
                     canon.roots.push(root);
                 }
             }
-            let mut function = resolved.modules[reference.module_index]
+            let mut function = modules[reference.module_index]
                 .parse_output
                 .module
                 .functions[reference.func_index]
@@ -363,7 +383,7 @@ fn rename_aliased_functions(
 }
 
 pub(super) fn for_codegen<'a>(
-    resolved: &'a crate::imports::ResolvedImports,
+    modules: &'a [crate::imports::ResolvedImportedModule],
     references: &[FunctionRef],
     renamed_functions: &'a [Option<crate::ir::Function>],
     signatures: &[FunctionSig],
@@ -373,7 +393,7 @@ pub(super) fn for_codegen<'a>(
         .iter()
         .enumerate()
         .map(|(signature_index, reference)| {
-            let parse = &resolved.modules[reference.module_index].parse_output;
+            let parse = &modules[reference.module_index].parse_output;
             let function = renamed_functions[signature_index]
                 .as_ref()
                 .unwrap_or(&parse.module.functions[reference.func_index]);

@@ -18,7 +18,7 @@ mod set_rc;
 #[cfg(all(test, debug_assertions))]
 pub(crate) use debug::{
     alloc_registry_insert, alloc_registry_query, alloc_registry_remove, alloc_registry_update,
-    freed_set, RT_DEBUG_FORCE,
+    freed_set, rt_debug_register_allocated, RT_DEBUG_FORCE,
 };
 #[cfg(debug_assertions)]
 pub(crate) use debug::{alloc_registry_report, rt_debug_check_not_freed};

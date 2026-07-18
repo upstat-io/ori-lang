@@ -243,8 +243,8 @@ pub struct ParamContract {
     /// fact) AS the lineage's LAST use in the body. The callee's COW-inc edge
     /// release then nets -1 on the caller's allocation (the realization
     /// convention treats the call as an effective consume), so the CALLER
-    /// funds one reference per call site — the owned-call-arg duplication-inc
-    /// admission (`compute_genuine_dup_call_arg_aliases`) consumes this fact.
+    /// funds one reference per call site — the class-ledger borrowed-boundary
+    /// classification consumes this fact and freezes the duplication credit.
     /// An aggregate-STORE of the borrowed param (`Inner { items: xs }`) does
     /// NOT set it (the borrowed-store dup inc + container drop net 0); a
     /// live-past COW consume does NOT set it (the callee's edge release

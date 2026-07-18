@@ -57,7 +57,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
-use super::value_id::{BlockId, FunctionId, TokenId, ValueId};
+use super::value_id::{BlockId, FunctionId, LLVMTypeId, TokenId, ValueId};
 
 /// Return ABI used by a binary string runtime helper.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -280,12 +280,13 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// is in this map, it returns the tag (field 0) or loads from scratch
     /// (field 1) directly without materializing a `{i64, T}` wrapper struct.
     iter_next_decomposed: FxHashMap<ArcVarId, (ValueId, ValueId, super::value_id::LLVMTypeId)>,
-    /// The function's sret pointer (parameter 0 when return uses `Sret`).
-    /// Used by `call_with_sret` to forward the destination directly to a
-    /// runtime function, avoiding an intermediate alloca+load+store.
-    /// `take`-semantics: consumed on first use to prevent multiple calls
-    /// from writing to the same sret pointer.
-    current_sret_ptr: Option<ValueId>,
+    /// The function's sret destination and exact LLVM pointee type.
+    /// Used by `call_with_sret` to forward the destination only when the
+    /// nested callee writes the same physical type. A mismatched aggregate
+    /// must use its own alloca or it can overwrite the caller's result slot.
+    /// A compatible destination is consumed on first use to prevent multiple
+    /// calls from writing to the same sret pointer.
+    current_sret: Option<(ValueId, LLVMTypeId)>,
 
     /// The `ValueId` of the result loaded from a forwarded sret pointer.
     /// When set, the `Return + Sret` terminator can skip the identity store
@@ -409,7 +410,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             borrowed_param_ptrs: FxHashMap::default(),
             pointer_only_params: FxHashSet::default(),
             iter_next_decomposed: FxHashMap::default(),
-            current_sret_ptr: None,
+            current_sret: None,
             sret_forwarded_result: None,
             narrowed_vars: FxHashMap::default(),
             repr_plan: type_resolver.repr_plan(),
