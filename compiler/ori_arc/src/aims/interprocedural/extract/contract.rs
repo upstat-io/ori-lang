@@ -244,9 +244,10 @@ fn param_contract_for(i: usize, state: &AimsState, facts: &ParamFacts) -> ParamC
         // MUTATOR-only refinement (excludes the builtin `iter`) — the
         // borrowed-`Invoke` lineage gate (c3) declines on it.
         borrowed_cow_mutated: facts.borrowed_cow_mutated.contains(&i),
-        // RL-2 field-grained iter-consume record — the per-field refinement of
-        // `iter_consumes` for the aggregate-field iter-consume caller scan.
-        iter_consumes_projected_field: facts.iter_consumes_projected_field.get(&i).copied(),
+        // A borrowed Project -> @iter -> iter_drop path funds itself with a
+        // callee-local retain; it does not transfer the aggregate's field
+        // credit across the call boundary.
+        iter_consumes_projected_field: None,
     }
 }
 

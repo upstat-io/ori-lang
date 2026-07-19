@@ -1995,8 +1995,9 @@
       "proof_path": "proofs/12-provenance/T6-per-field-decomposition.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.FieldDecomposition",
-      "lean_theorem": "FD_skipset_sound",
+      "lean_theorem": "FD_authority_union_skipset_sound",
       "parity_tokens": [
+        "fieldhasmoveauthority",
         "payloadevents",
         "threeclauses"
       ],

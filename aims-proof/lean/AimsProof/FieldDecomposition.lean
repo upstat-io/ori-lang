@@ -3,11 +3,13 @@ AIMS per-field release-decomposition module — kernel-checked Lean proof of the
 T6 skip-set derivation theorem over the committed T2 per-class CFG-ledger
 carrier: a container release decomposed per named owned field (the
 `BurdenDecPartial skip_fields` shape) preserves every payload class's clause-1
-exactly-once ownership IFF the skip set equals the partition's consume marks.
+exactly-once ownership IFF the skip set equals the union of typed local and
+validated boundary-contract field-move authorities.
 
 Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean):
-  rules: PV-6 (per-field release decomposition — the skip set derived from the
-    partition's consume marks is the UNIQUE clause-preserving skip set) |
+  rules: PV-6 (per-field release decomposition — the skip set derived from
+    typed local-extraction and validated boundary-contract field-move
+    authorities is the UNIQUE clause-preserving skip set) |
   spec: IA-category posture per the IA-MF1 precedent — implementer-internal;
     Annex E §AIMS carries prose only, never PV/IA rule ids |
   .proof: aims-proof/proofs/12-provenance/T6-per-field-decomposition.proof |
@@ -17,12 +19,13 @@ Correspondence: governs the class-ledger planner's per-field aggregate
 decomposition (`compiler/ori_arc/src/aims/class_ledger/` DecPartial planning):
 a by-value aggregate container C holds named owned heap fields; payload P is
 born (+1 on P's class) and stored into C (the Construct's owned arg — the
-STORE-consume, -1: ownership enters C's recursive-release books). A payload
-later extracted (Project view) and MOVED OUT (a transferring terminal use per
-the committed RL-2 table — the CONSUME MARK) is double-freed by C's whole-var
-release (net -1: the endangered field-view class the planner declines today).
-The decomposed release `DecPartial(skip S)` walks no skipped field, so the
-plan RE-BOOKS the store as non-consuming for skipped fields. The four cells:
+STORE-consume, -1: ownership enters C's recursive-release books). A field move
+is authorized either by a local Project view with a transferring terminal use
+from the committed RL-2 table, or by an exact projected-field owner demand
+that survived the PV-4 frozen-contract conflict check. A moved payload is
+double-freed by C's whole-var release (net -1). The decomposed release
+`DecPartial(skip S)` walks no skipped field, so the plan RE-BOOKS the store as
+non-consuming for skipped fields. The four cells:
 
   moved=F skipped=F : birth, store           -> net  0  (glue frees it)
   moved=T skipped=F : birth, store, move-out -> net -1  DOUBLE-FREE (reject)
@@ -44,8 +47,68 @@ AimsProof.Realization (rl2_use_transfers_ownership — the consume mark
 classifies through the committed twelve-kind table, never free input).
 -/
 import AimsProof.Ledger
+import AimsProof.ContractBoundary
 
 namespace AimsProof
+
+/-! ## §T6 — typed field-move authority -/
+
+/-- The two semantic sources that may authorize suppressing one named field
+    from a container release. A boundary authority is never manufactured from
+    an aggregate READ; it is emitted only by `validatedBoundaryFieldMove`
+    after the frozen PV-4 contract selects an exact projected-field demand. -/
+inductive FieldMoveAuthorityKind
+  | localExtraction
+  | boundaryContract
+deriving Repr, DecidableEq
+
+/-- One field-grained transfer fact consumed by the release decomposer. -/
+structure AuthorizedFieldMove where
+  field : Nat
+  kind : FieldMoveAuthorityKind
+deriving Repr, DecidableEq
+
+/-- The local Project/RL-2 adapter into the shared typed authority carrier. -/
+def localFieldMoveAuthority (field : Nat) : AuthorizedFieldMove :=
+  ⟨field, .localExtraction⟩
+
+/-- The PV-4 boundary adapter. It first freezes the exact owner demand, so a
+    whole-value/projected-field contradiction produces no authority. Only an
+    exact `projectedField` demand becomes a field skip fact; Borrow and
+    whole-value transfer remain outside per-field decomposition. -/
+def validatedBoundaryFieldMove
+    (identity : TargetOwnershipFactIdentity) (contract : BoundaryContract)
+    (borrowedCowConsumed : Bool) (projectedField : Option Nat) :
+    Option AuthorizedFieldMove :=
+  match FrozenTargetOwnershipFact.freeze identity contract borrowedCowConsumed projectedField with
+  | some fact =>
+      match fact.demand with
+      | .projectedField field => some ⟨field, .boundaryContract⟩
+      | .borrow | .wholeValue => none
+  | none => none
+
+/-- Membership in the union of typed field-move authorities. Duplicate local
+    and boundary evidence is intentionally idempotent at the semantic level. -/
+def fieldHasMoveAuthority (authorities : List AuthorizedFieldMove)
+    (field : Nat) : Bool :=
+  authorities.any fun authority => authority.field == field
+
+/-- A valid borrowed projected-field contract creates exactly its named
+    boundary authority. -/
+theorem FD_boundary_authority_exact (identity : TargetOwnershipFactIdentity)
+    (field : Nat) :
+    validatedBoundaryFieldMove identity ⟨AccessClass.Borrowed, false, false, false⟩
+        false (some field) =
+      some ⟨field, .boundaryContract⟩ := by
+  rfl
+
+/-- A contradictory whole-value plus projected-field demand fails closed and
+    cannot authorize either release shape. -/
+theorem FD_boundary_authority_conflict_rejected
+    (identity : TargetOwnershipFactIdentity) (field : Nat) :
+    validatedBoundaryFieldMove identity ⟨AccessClass.Owned, false, false, false⟩
+        false (some field) = none := by
+  rfl
 
 /-! ## §T6 — the four-cell payload lifecycle -/
 
@@ -98,6 +161,24 @@ theorem FD_skipset_sound {F : Type} (fields : List F) (marked skip : F → Bool)
   · intro h f hf
     rw [FD_cell_balanced_iff, h f hf]
     simp
+
+/-- §T6 typed-authority refinement: the unique sound skip set is the union
+    of local extraction and validated boundary-contract field moves. This is
+    the production-facing theorem: neither an aggregate READ nor an invalid
+    boundary contract can enter `boundaryAuthorities`. -/
+theorem FD_authority_union_skipset_sound (fields : List Nat)
+    (localAuthorities boundaryAuthorities : List AuthorizedFieldMove)
+    (skip : Nat → Bool) :
+    (∀ f ∈ fields,
+      threeClauses
+        (payloadEvents
+          (fieldHasMoveAuthority (localAuthorities ++ boundaryAuthorities) f)
+          (skip f)) = true)
+      ↔ (∀ f ∈ fields,
+          skip f =
+            fieldHasMoveAuthority (localAuthorities ++ boundaryAuthorities) f) := by
+  exact FD_skipset_sound fields
+    (fieldHasMoveAuthority (localAuthorities ++ boundaryAuthorities)) skip
 
 /-! ## §T6 — the expansion frame over the committed instruction carrier -/
 
@@ -196,5 +277,22 @@ theorem FD_site_uniform_projection {P S : Type} (paths : List P)
   intro p hp
   rw [FD_cell_balanced_iff, uniform p hp]
   simp
+
+/-- §T6 typed-authority per-site refinement. Boundary authority is present
+    only on paths that cross the transferring call (and on both successors of
+    an Invoke); a bypass path carries no such authority. A site may therefore
+    skip exactly when the union-derived move mark is uniform for every path
+    through that release site. -/
+theorem FD_authority_union_site_uniform_projection {P S : Type}
+    (paths : List P) (authorities : P → List AuthorizedFieldMove)
+    (field : Nat) (siteOf : P → S) (skipAt : S → Bool)
+    (uniform : ∀ p ∈ paths,
+      skipAt (siteOf p) = fieldHasMoveAuthority (authorities p) field) :
+    ∀ p ∈ paths,
+      threeClauses
+        (payloadEvents (fieldHasMoveAuthority (authorities p) field)
+          (skipAt (siteOf p))) = true := by
+  exact FD_site_uniform_projection paths
+    (fun p => fieldHasMoveAuthority (authorities p) field) siteOf skipAt uniform
 
 end AimsProof

@@ -15,39 +15,9 @@
 //! the param (no pruning) — over-collection reproduces the unpruned
 //! behavior; only a provably-absent assignment prunes.
 
-use std::sync::LazyLock;
-
 use ori_ir::canon::{CanArena, CanExpr, CanId, CanonResult, DecisionTree};
 use ori_ir::Name;
 use rustc_hash::FxHashSet;
-
-/// `ORI_DISABLE_MATCH_PARAM_PRUNING=1` disables merge-param pruning:
-/// `lower_match` threads every in-scope mutable binding into the merge block
-/// parameters. The toggle isolates merge pruning from RL-5 dead-parameter
-/// release behavior (Spec: Annex E §AIMS RL-4 + RL-5).
-// Env: ORI_DISABLE_MATCH_PARAM_PRUNING - disables match merge-param pruning, debug-only.
-static MATCH_PARAM_PRUNING_DISABLED: LazyLock<bool> = LazyLock::new(|| {
-    report_match_param_pruning_toggle(
-        std::env::var("ORI_DISABLE_MATCH_PARAM_PRUNING").as_deref() == Ok("1"),
-    )
-});
-
-fn report_match_param_pruning_toggle(disabled: bool) -> bool {
-    if disabled {
-        tracing::info!(
-            toggle = "ORI_DISABLE_MATCH_PARAM_PRUNING",
-            effect = "thread every in-scope mutable binding through match merges",
-            "ablation toggle fired"
-        );
-    }
-    disabled
-}
-
-/// Whether the `lower_match` merge-param pruning is disabled
-/// (`ORI_DISABLE_MATCH_PARAM_PRUNING=1`).
-pub(super) fn match_param_pruning_disabled() -> bool {
-    *MATCH_PARAM_PRUNING_DISABLED
-}
 
 /// Collect every name a `CanExpr::Assign` under the match's arm bodies (or
 /// decision-tree guard expressions, including nested matches' guards) could
@@ -277,14 +247,4 @@ fn push_tree_guards(tree: &DecisionTree, stack: &mut Vec<CanId>) {
             DecisionTree::Leaf { .. } | DecisionTree::Fail => {}
         }
     }
-}
-
-#[cfg(test)]
-mod toggle_tests {
-    crate::test_helpers::ablation_env_event_test!(
-        match_param_pruning_toggle_reports_effect,
-        "ORI_DISABLE_MATCH_PARAM_PRUNING",
-        "thread every in-scope mutable binding through match merges",
-        super::match_param_pruning_disabled,
-    );
 }

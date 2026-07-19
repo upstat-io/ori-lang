@@ -13,9 +13,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Immutable context for pattern flattening.
 ///
-/// Groups the three constant parameters (`arena`, `pool`, `interner`) that are
-/// threaded unchanged through every recursive conversion. This avoids
-/// passing 5 parameters at each of the 7+ recursive call sites.
+/// Groups the immutable context threaded through recursive pattern conversion.
 pub(in crate::patterns) struct FlattenCtx<'a> {
     arena: &'a ExprArena,
     pool: &'a ori_types::Pool,
@@ -116,17 +114,18 @@ impl<'a> FlattenCtx<'a> {
         patterns: ori_ir::MatchPatternRange,
     ) -> FlatPattern {
         let (variant_index, field_types) = self.resolve_variant(scrutinee_ty, name);
-        let fields = self
-            .arena
-            .get_match_pattern_list(patterns)
+        let patterns = self.arena.get_match_pattern_list(patterns);
+        assert_eq!(
+            patterns.len(),
+            field_types.len(),
+            "typed variant pattern must have the resolved variant's field arity"
+        );
+        let fields = patterns
             .iter()
             .enumerate()
             .map(|(index, &pattern)| {
                 let pattern = self.arena.get_match_pattern(pattern);
-                let field_ty = field_types
-                    .get(index)
-                    .copied()
-                    .unwrap_or(ori_types::Idx::UNIT);
+                let field_ty = field_types[index];
                 self.to_flat_pattern(pattern, field_ty)
             })
             .collect();
@@ -142,15 +141,27 @@ impl<'a> FlattenCtx<'a> {
         scrutinee_ty: ori_types::Idx,
         patterns: ori_ir::MatchPatternRange,
     ) -> FlatPattern {
-        let elements = self
-            .arena
-            .get_match_pattern_list(patterns)
+        use ori_types::Tag;
+
+        let resolved = self.pool.resolve_fully(scrutinee_ty);
+        assert_eq!(
+            self.pool.tag(resolved),
+            Tag::Tuple,
+            "typed tuple pattern must have a tuple scrutinee type"
+        );
+        let patterns = self.arena.get_match_pattern_list(patterns);
+        assert_eq!(
+            patterns.len(),
+            self.pool.tuple_elem_count(resolved),
+            "typed tuple pattern must have the resolved tuple's arity"
+        );
+        let elements = patterns
             .iter()
             .enumerate()
             .map(|(index, &pattern)| {
                 self.to_flat_pattern(
                     self.arena.get_match_pattern(pattern),
-                    self.resolve_tuple_elem_ty(scrutinee_ty, index),
+                    self.pool.tuple_elem(resolved, index),
                 )
             })
             .collect();
@@ -167,11 +178,9 @@ impl<'a> FlattenCtx<'a> {
         let mut flat_fields: Vec<(Name, FlatPattern)> = fields
             .iter()
             .map(|(field_name, pattern)| {
-                let field_ty = field_types
-                    .as_ref()
-                    .and_then(|types| types.get(field_name))
-                    .copied()
-                    .unwrap_or(ori_types::Idx::UNIT);
+                let field_ty = field_types.get(field_name).copied().unwrap_or_else(|| {
+                    panic!("typed struct pattern field must belong to the resolved struct")
+                });
 
                 let pattern = pattern.map_or(FlatPattern::Binding(*field_name), |pattern| {
                     self.to_flat_pattern(self.arena.get_match_pattern(pattern), field_ty)
@@ -181,16 +190,14 @@ impl<'a> FlattenCtx<'a> {
             .collect();
 
         if has_rest {
-            if let Some(field_types) = field_types {
-                let explicit_fields: FxHashSet<Name> =
-                    flat_fields.iter().map(|(name, _)| *name).collect();
-                flat_fields.extend(
-                    field_types
-                        .into_iter()
-                        .filter(|(name, _)| !explicit_fields.contains(name))
-                        .map(|(name, _)| (name, FlatPattern::Wildcard)),
-                );
-            }
+            let explicit_fields: FxHashSet<Name> =
+                flat_fields.iter().map(|(name, _)| *name).collect();
+            flat_fields.extend(
+                field_types
+                    .into_iter()
+                    .filter(|(name, _)| !explicit_fields.contains(name))
+                    .map(|(name, _)| (name, FlatPattern::Wildcard)),
+            );
         }
 
         // Stable field ordering aligns matrix columns while named paths let
@@ -244,13 +251,9 @@ impl<'a> FlattenCtx<'a> {
             ExprKind::Bool(v) => FlatPattern::LitBool(*v),
             ExprKind::String(name) => FlatPattern::LitStr(*name),
             ExprKind::Char(v) => FlatPattern::LitChar(*v),
-            _ => {
-                tracing::debug!(
-                    ?expr_id,
-                    "non-literal in pattern position, treating as wildcard"
-                );
-                FlatPattern::Wildcard
-            }
+            unexpected => panic!(
+                "typed literal pattern must reference a literal expression, got {unexpected:?} at {expr_id:?}"
+            ),
         }
     }
 
@@ -263,10 +266,9 @@ impl<'a> FlattenCtx<'a> {
         match &expr.kind {
             ExprKind::Int(v) => *v,
             ExprKind::Char(c) => i64::from(u32::from(*c)),
-            _ => {
-                tracing::debug!(?expr_id, "non-int/char literal in range pattern");
-                0
-            }
+            unexpected => panic!(
+                "typed range bound must be an integer or character literal, got {unexpected:?} at {expr_id:?}"
+            ),
         }
     }
 
@@ -346,26 +348,19 @@ impl<'a> FlattenCtx<'a> {
         )
     }
 
-    /// Get the type of a tuple element.
-    fn resolve_tuple_elem_ty(&self, tuple_ty: ori_types::Idx, index: usize) -> ori_types::Idx {
-        use ori_types::Tag;
-        let resolved = self.pool.resolve_fully(tuple_ty);
-        if self.pool.tag(resolved) == Tag::Tuple && index < self.pool.tuple_elem_count(resolved) {
-            self.pool.tuple_elem(resolved, index)
-        } else {
-            ori_types::Idx::UNIT
-        }
-    }
-
     /// Get every struct field type by name in one pool traversal.
     fn resolve_struct_field_types(
         &self,
         struct_ty: ori_types::Idx,
-    ) -> Option<FxHashMap<Name, ori_types::Idx>> {
+    ) -> FxHashMap<Name, ori_types::Idx> {
         use ori_types::Tag;
         let resolved = self.pool.resolve_fully(struct_ty);
-        (self.pool.tag(resolved) == Tag::Struct)
-            .then(|| self.pool.struct_fields(resolved).into_iter().collect())
+        assert_eq!(
+            self.pool.tag(resolved),
+            Tag::Struct,
+            "typed struct pattern must have a struct scrutinee type"
+        );
+        self.pool.struct_fields(resolved).into_iter().collect()
     }
 
     /// Get the element type of a list.
@@ -375,7 +370,7 @@ impl<'a> FlattenCtx<'a> {
         if self.pool.tag(resolved) == Tag::List {
             self.pool.list_elem(resolved)
         } else {
-            ori_types::Idx::UNIT
+            panic!("typed list pattern must have a list scrutinee type")
         }
     }
 }

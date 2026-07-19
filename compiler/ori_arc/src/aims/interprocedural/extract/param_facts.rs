@@ -21,7 +21,7 @@ mod ownership_credit;
 pub(super) use borrowed_facts::find_borrowed_read_only_params;
 pub(crate) use borrowed_facts::{find_borrowed_cow_consumed_params, CowConsumeScope};
 pub(crate) use iter_consume::find_iter_consume_call_args;
-pub(super) use iter_consume::{find_aggregate_iter_consume_fields, find_iter_consume_params};
+pub(super) use iter_consume::find_iter_consume_params;
 pub(super) use ownership_credit::find_borrowed_root_credit_params;
 
 /// Structural facts used to construct one contract per parameter.
@@ -34,7 +34,6 @@ pub(super) struct ParamFacts {
     pub(super) borrowed_read_only: FxHashSet<usize>,
     pub(super) borrowed_cow_consumed: FxHashSet<usize>,
     pub(super) borrowed_cow_mutated: FxHashSet<usize>,
-    pub(super) iter_consumes_projected_field: FxHashMap<usize, u32>,
     pub(super) owner_credit: FxHashSet<usize>,
 }
 
@@ -74,8 +73,6 @@ pub(super) fn detect_param_facts(
         interner,
         CowConsumeScope::MutatorOnly,
     );
-    let mut iter_consumes_projected_field = find_aggregate_iter_consume_fields(func, interner);
-    iter_consumes_projected_field.retain(|pi, _| !iter_consume.contains(pi));
     let owner_credit = find_borrowed_root_credit_params(
         func,
         sigs,
@@ -94,7 +91,6 @@ pub(super) fn detect_param_facts(
         borrowed_read_only,
         borrowed_cow_consumed,
         borrowed_cow_mutated,
-        iter_consumes_projected_field,
         owner_credit,
     }
 }

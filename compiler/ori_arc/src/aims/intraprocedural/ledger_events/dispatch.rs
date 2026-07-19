@@ -367,6 +367,8 @@ impl Classifier<'_> {
             let iter_consume = facts.is_some_and(|f| f.iter_consume_transfer(position));
             let borrowed_cow_funding =
                 facts.is_some_and(|f| f.borrowed_cow_consume_funding(position));
+            let projected_field = facts.and_then(|f| f.projected_field_owner_demand(position));
+            let owner_demand_conflict = facts.is_some_and(|f| f.owner_demand_conflict(position));
             let owned = arg_ownership
                 .get(position)
                 .map_or(default_owned, |o| *o == ArgOwnership::Owned);
@@ -379,7 +381,13 @@ impl Classifier<'_> {
                 self.read(stream, arg);
                 continue;
             }
-            if iter_consume || owned {
+            if owner_demand_conflict || projected_field.is_some() {
+                // This borrowed boundary needs a field-specific owner credit.
+                // The current event vocabulary can fund only a whole class;
+                // skipping the caller's field release would leak its owner.
+                self.out.boundary_owner_demand_unrepresentable = true;
+                self.read(stream, arg);
+            } else if iter_consume || owned {
                 self.consume(stream, arg);
             } else if borrowed_cow_funding {
                 // The borrowed call boundary retains the caller's original

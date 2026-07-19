@@ -255,41 +255,21 @@ pub struct ParamContract {
     /// Default: `false` (conservative — no funding obligation claimed).
     pub borrowed_cow_consumed: bool,
 
-    /// MUTATOR-only refinement of `borrowed_cow_consumed`: the consuming
-    /// position is a genuine COW MUTATOR (`push`/`insert`/`set`/... — the
-    /// consuming-receiver set MINUS the builtin `iter`, whose consumption is
-    /// iterator machinery, not a COW mutation), or transitively a callee param
-    /// carrying THIS fact. Consumed by the borrowed-`Invoke` lineage gate (c3):
-    /// a lineage member borrowed into a COW-mutating callee needs its per-call
-    /// RL-1 funding inc kept (the callee nets -1), while an iter-consuming
-    /// callee's accounting stays with the iter-consume machinery.
-    ///
-    /// IC-3 join: OR (a mutating path obligates the caller's funding).
-    ///
-    /// Default: `false` (conservative — no mutator claim).
+    /// COW-mutator refinement of `borrowed_cow_consumed`, set directly by a
+    /// consuming mutator (`push`/`insert`/`set`/...) or transitively by a
+    /// callee carrying this fact. The builtin `iter` is excluded because its
+    /// ownership uses iterator accounting. The borrowed-`Invoke` lineage gate
+    /// keeps the per-call RL-1 funding increment for this demand.
+    /// IC-3 join: OR. Default: `false` (no mutator claim).
     pub borrowed_cow_mutated: bool,
 
-    /// Field-grained iter-consume record (RL-2 iter-consume inward-transfer,
-    /// the per-field refinement of `iter_consumes`).
-    ///
-    /// `Some(field)` when this BORROWED aggregate param has its `Project
-    /// param.field` projection iter-consumed (`@iter [own]` → `ori_iter_drop`
-    /// frees the projected collection INSIDE the callee), while the param itself
-    /// is NOT directly iter-consumed (the whole-param `iter_consumes` covers the
-    /// param-IS-the-collection case; this covers the field-IS-the-collection
-    /// case). Exactly one consumed field; multiple distinct consumed fields, or a
-    /// field also read past the consume, poison to `None`.
-    ///
-    /// At a call where a fresh/dead OWNED aggregate is passed at this borrowed
-    /// argument position, the callee transfers ownership of `field` inward
-    /// (RL-2). Any caller-side aggregate release must therefore skip that field,
-    /// releasing the shell and its other owned fields without double-freeing the
-    /// iter-consumed field.
-    ///
-    /// IC-3 join: equal `Some` survives; disagreement (different field index)
-    /// poisons to `None`. A single callee computes this once intraprocedurally.
-    ///
-    /// Default: `None` (conservative — no field-grained iter-consume claim).
+    /// Exact projected-field owner demand at a borrowed boundary.
+    /// `Some(field)` requires independent evidence that the callee needs one
+    /// credit for that field. A borrowed Project passed to `@iter` does not
+    /// qualify: iterator drop consumes the callee's retained projection, not
+    /// the aggregate's original field credit. The caller must fund a proven
+    /// demand separately and preserve its aggregate owner. IC-3 keeps equal
+    /// `Some` values and poisons disagreement to `None`; default is `None`.
     pub iter_consumes_projected_field: Option<u32>,
 }
 
@@ -300,9 +280,9 @@ impl ParamContract {
     /// This is the single semantic oracle for closure adapters. Ordinary Owned
     /// access, borrowed COW consumption, and plain RL-2 iterator consumption
     /// require a whole-value credit. Field-grained iterator consumption needs
-    /// only that field's credit; retaining every field would leak. Return alias
-    /// and return containment facts have their own result accounting and do not
-    /// add a pre-entry credit here.
+    /// one independent credit for only that field; retaining every field would
+    /// leak. Return alias and return containment facts have their own result
+    /// accounting and do not add a pre-entry credit here.
     pub fn callee_owner_demand(&self) -> Result<CalleeOwnerDemand, CalleeOwnerDemandConflict> {
         let whole_value = self.access == AccessClass::Owned
             || self.borrowed_cow_consumed
@@ -329,10 +309,8 @@ impl ParamContract {
         // promotes to `true` only when extract_contract proves the
         // param flows to Return.
         transfers_through_return: false,
-        // Conservative default: no aliasing claim — caller's Apply dst is
-        // treated as a fresh allocation, not aliased to any consumed arg.
-        // Promoted by extract_contract when the param flows to Return
-        // (Direct) or to a Project that flows to Return (Project).
+        // No alias claim: Apply dst is fresh until extraction proves the param
+        // or one of its projections flows to Return.
         return_alias: None,
         // Conservative default: no containment claim. Promoted by
         // extract_contract when the param flows into a transitive-drop
@@ -383,10 +361,8 @@ impl ParamContract {
         // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
         // any path's iter-consume-and-free fact fires.
         iter_consumes: false,
-        // IC-2 starts most-optimistic at the AND-join TOP (`true` — assume
-        // read-only). Join (AND) demotes to `false` when any path uses the param
-        // at an owned position. `extract_contract` overrides per-param from the
-        // body scan; OPTIMISTIC is the fixpoint seed only.
+        // IC-2 AND-join TOP; owned use demotes to false. Extraction replaces
+        // this fixpoint seed with the body-derived per-param fact.
         borrowed_read_only: true,
         // IC-2 starts most-optimistic at the OR-join bottom (`false`). Join
         // (OR) promotes when a path's COW-consume-at-death fact fires.

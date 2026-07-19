@@ -6,7 +6,7 @@
 
 use rustc_hash::FxHashMap;
 
-use crate::aims::contract::MemoryContract;
+use crate::aims::contract::{CalleeOwnerDemand, MemoryContract};
 use crate::ir::ArcVarId;
 
 use super::super::birth_site_partition::NodeIdx;
@@ -156,6 +156,12 @@ pub(crate) struct BoundaryFacts {
     /// Per-param: the callee iter-consumes this argument (RL-2 inward
     /// transfer despite a Borrowed annotation).
     pub(crate) param_iter_consumes: Vec<bool>,
+    /// Per-param: the borrowed callee needs one independent credit for exactly
+    /// one projected field while the caller retains the aggregate owner.
+    pub(crate) param_iter_consumes_projected_field: Vec<Option<u32>>,
+    /// Per-param: the final contract simultaneously demanded whole-value and
+    /// projected-field ownership. Such a boundary has no valid fallback.
+    pub(crate) param_owner_demand_conflict: Vec<bool>,
     /// Per-param: a borrowed callee boundary still requires one independent
     /// whole-value owner credit because the callee consumes the lineage at a
     /// COW-taking edge. The caller retains its original borrowed-boundary
@@ -180,8 +186,21 @@ impl BoundaryFacts {
     /// `MemoryContract` (the production adapter; PV-4's
     /// `BoundaryContract.ofParamContract` composed per param).
     pub(crate) fn from_contract(contract: &MemoryContract) -> Self {
+        let owner_demands: Vec<_> = contract
+            .params
+            .iter()
+            .map(|param| param.callee_owner_demand())
+            .collect();
         Self {
             param_iter_consumes: contract.params.iter().map(|p| p.iter_consumes).collect(),
+            param_iter_consumes_projected_field: owner_demands
+                .iter()
+                .map(|demand| match demand {
+                    Ok(CalleeOwnerDemand::ProjectedField(field)) => Some(*field),
+                    Ok(CalleeOwnerDemand::Borrow | CalleeOwnerDemand::WholeValue) | Err(_) => None,
+                })
+                .collect(),
+            param_owner_demand_conflict: owner_demands.iter().map(Result::is_err).collect(),
             param_borrowed_cow_consumed: contract
                 .params
                 .iter()
@@ -231,6 +250,22 @@ impl BoundaryFacts {
     pub(super) fn incoming_whole_value_credit(&self, position: usize) -> bool {
         self.iter_consume_transfer(position) || self.borrowed_cow_consume_funding(position)
     }
+
+    /// The exact projected field credit required at this parameter boundary.
+    pub(super) fn projected_field_owner_demand(&self, position: usize) -> Option<u32> {
+        self.param_iter_consumes_projected_field
+            .get(position)
+            .copied()
+            .flatten()
+    }
+
+    /// Whether the parameter's final owner-demand facts are contradictory.
+    pub(super) fn owner_demand_conflict(&self, position: usize) -> bool {
+        self.param_owner_demand_conflict
+            .get(position)
+            .copied()
+            .unwrap_or(false)
+    }
 }
 
 /// Classifier output: per-block class-instruction streams (block order mirrors
@@ -244,6 +279,10 @@ pub(crate) struct LedgerClassification {
     pub(crate) sites: Vec<Vec<EventSite>>,
     /// Class representative -> origin kind.
     pub(crate) class_origins: FxHashMap<NodeIdx, ClassOrigin>,
+    /// A direct boundary requires an owner-credit shape the current class
+    /// ledger cannot represent. Replacement must decline instead of changing
+    /// the caller's release obligation.
+    pub(crate) boundary_owner_demand_unrepresentable: bool,
     /// A non-excluded HEAP arg was handed through an indirect call
     /// (`ApplyIndirect` / `InvokeIndirect` arg position, receiver excluded).
     /// Call-site `arg_ownership` is populated during realization — AFTER

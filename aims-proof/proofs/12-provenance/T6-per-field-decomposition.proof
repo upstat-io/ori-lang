@@ -1,4 +1,4 @@
-Theorem IA-T6: Per-field release decomposition — skip-set derivation soundness
+Theorem IA-T6: Per-field release decomposition — typed-authority union soundness
 
   Preconditions:
     - The T2 CFG-ledger model is the substrate: per-partition-class event
@@ -9,19 +9,24 @@ Theorem IA-T6: Per-field release decomposition — skip-set derivation soundness
       ordinals). Each payload P is born (+1 on P's partition class) and
       stored into C by C's Construct (the STORE-consume, -1: ownership enters
       C's recursive-release books).
-    - A CONSUME MARK on a field is a transferring terminal use of the
-      extracted field view AFTER the container's Construct, classified
-      through the COMMITTED RL-2 twelve-kind table
-      (rl2_use_transfers_ownership), never free input. A merely-read
-      (borrow-view) field is NEVER consume-marked.
+    - A typed field-move authority is admitted from exactly two sources:
+      (a) a transferring terminal use of an extracted local field view AFTER
+      the container's Construct, classified through the COMMITTED RL-2
+      twelve-kind table (rl2_use_transfers_ownership); or (b) a PV-4 frozen
+      target contract whose validated inward-owner demand is exactly
+      ProjectedField(field). The boundary aggregate remains a READ. A
+      contradictory whole-value/projected-field demand freezes to none and
+      creates no authority. A merely-read field without that exact boundary
+      demand is NEVER move-authorized.
     - The decomposed release DecPartial(skip S) walks no field in S; the
       plan RE-BOOKS the store as non-consuming for skipped fields (ownership
       never enters the container's release path). The container's own class
       books the SAME single whole-var consume as the whole-var Dec.
 
   Soundness property:
-    The skip set derived from the partition's consume marks is the UNIQUE
-    clause-preserving skip set. Per (moved, skipped) cell the payload-class
+    The skip set derived from the union of typed local and boundary field-move
+    authorities is the UNIQUE clause-preserving skip set. Duplicate evidence
+    is idempotent. Per (moved, skipped) cell the payload-class
     ledger is birth :: (store-consume unless skipped) :: (move-out consume
     iff moved), and the T2 three clauses hold EXACTLY when skipped = moved:
       moved=F skipped=F : net  0 (the container glue frees it)   ACCEPT
@@ -29,7 +34,8 @@ Theorem IA-T6: Per-field release decomposition — skip-set derivation soundness
       moved=T skipped=T : net  0 (the transferee owns it)        ACCEPT
       moved=F skipped=T : net +1 (leak)                          REJECT
     Over any named-field set, pointwise clause satisfaction on every payload
-    class holds IFF skip = marked pointwise (FD_skipset_sound). Both
+    class holds IFF skip = the authority union pointwise
+    (FD_authority_union_skipset_sound). Both
     balanced cells are safe end-to-end through the committed
     clauses<->safety bridge. Frame: the container's class derives the
     verbatim [consume] from DecPartial exactly as from Dec; every class
@@ -42,7 +48,12 @@ Theorem IA-T6: Per-field release decomposition — skip-set derivation soundness
     Compiled Lean: AimsProof.FieldDecomposition (lake build clean).
       payloadEvents (the four-cell carrier)
       FD_cell_balanced_iff (P1 core: threeClauses = (skipped == moved))
-      FD_skipset_sound (P1 THE derivation-uniqueness iff over any field set)
+      FieldMoveAuthorityKind, AuthorizedFieldMove (typed authority carrier)
+      validatedBoundaryFieldMove (PV-4 frozen-contract adapter)
+      FD_boundary_authority_exact (valid projected demand is admitted)
+      FD_boundary_authority_conflict_rejected (contradiction fails closed)
+      FD_authority_union_skipset_sound (P1 THE derivation-uniqueness iff over
+        the local + boundary authority union for any named field set)
       FD_under_skip_double_free, FD_over_skip_leak (named negative witnesses)
       FD_balanced_cells_safe (committed clauses<->safety bridge applied)
       FD_container_class_verbatim, FD_untouched_class_verbatim (P2 frame)
@@ -61,6 +72,10 @@ Theorem IA-T6: Per-field release decomposition — skip-set derivation soundness
         sites extraction-dominated, whole-var sites extraction-free - the
         per-site assignment matching each site's uniform mark balances
         every path)
+      FD_authority_union_site_uniform_projection (P5 typed site refinement:
+        authority starts at a transferring call, crosses both Invoke exits,
+        and is absent from bypass/pre-call paths; mixed sites do not satisfy
+        the uniformity premise)
     Bridged committed theorems and carriers consumed: LedgerEvent,
       LedgerInstr, deriveLedger, runLedger, threeClauses, ledgerSafe,
       three_clauses_iff_ledger_safe (AimsProof.Ledger);
@@ -76,4 +91,4 @@ Theorem IA-T6: Per-field release decomposition — skip-set derivation soundness
 
   Expected:
     status: unimplemented_engine_shape
-    reason: IA per-field-decomposition shape outside the rule-numbered IA verifier inventory (the IA dischargers serve numbered IA suffixes only). The authoritative machine-check is the compiled Lean AimsProof.FieldDecomposition (lake build clean): FD_skipset_sound discharges the derivation-uniqueness iff (skip = consume marks is the sole clause-preserving skip set), FD_cell_balanced_iff the four-cell balance verdict with both named negative witnesses (under-skip double free, over-skip leak), FD_container_class_verbatim + FD_untouched_class_verbatim the release frame, and the P4 instantiation the cured-vs-buggy struct_list_field composition, with the consume mark classified through the committed RL-2 twelve-kind table.
+    reason: IA per-field-decomposition shape outside the rule-numbered IA verifier inventory (the IA dischargers serve numbered IA suffixes only). The authoritative machine-check is the compiled Lean AimsProof.FieldDecomposition (lake build clean): FD_authority_union_skipset_sound proves that the typed local/boundary authority union is the sole clause-preserving skip set; FD_boundary_authority_exact and FD_boundary_authority_conflict_rejected pin the PV-4 validation boundary; FD_cell_balanced_iff supplies the four-cell balance verdict with both named negative witnesses; FD_container_class_verbatim + FD_untouched_class_verbatim supply the release frame; and FD_authority_union_site_uniform_projection supplies the per-release-site path obligation.

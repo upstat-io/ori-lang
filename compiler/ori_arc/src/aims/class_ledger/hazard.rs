@@ -18,6 +18,8 @@ mod skip_derive;
 mod sum_arm;
 
 pub(crate) use detect::field_view_hazard_classes;
+#[cfg(test)]
+pub(crate) use sum_arm::{SiteVerdict, TransferFlowContext};
 
 use super::emit::{self, ClassOutcome, PlannedOp};
 use super::events;

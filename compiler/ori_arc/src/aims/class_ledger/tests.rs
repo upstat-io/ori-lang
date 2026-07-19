@@ -9,6 +9,7 @@ use crate::aims::intraprocedural::ledger_events::{
     classify_function, BoundaryFacts, ClassOrigin, EventSite,
 };
 use crate::aims::intraprocedural::AimsStateMap;
+use crate::aims::lattice::AccessClass;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
     ArgOwnership, CtorKind,
@@ -270,11 +271,11 @@ fn unconditional_emitter_produces_plan() {
     assert!(!analysis.plan.classes.is_empty());
 }
 
-/// A borrowed direct call can consume one aggregate field without a caller-
-/// local `Project`. The contract fact must still decompose the later shell
-/// release so the callee-owned field is not released twice.
+/// A projected-field demand needs a field-specific retain before a borrowed
+/// direct call. Until the class ledger can represent that retain, replacement
+/// must decline instead of skipping the caller's original field release.
 #[test]
-fn boundary_field_consume_without_local_project_plans_partial_release() {
+fn projected_field_owner_demand_declines_class_ledger_replacement() {
     let callee = Name::from_raw(19);
     let func = one_block_func(
         2,
@@ -287,6 +288,7 @@ fn boundary_field_consume_without_local_project_plans_partial_release() {
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_permanent_scalar(v(1));
     let mut contract = MemoryContract::conservative(1);
+    contract.params[0].access = AccessClass::Borrowed;
     contract.params[0].iter_consumes_projected_field = Some(3);
     let contracts = FxHashMap::from_iter([(callee, contract)]);
     let mut partition = compute_birth_site_partition(&func, &state_map);
@@ -305,25 +307,45 @@ fn boundary_field_consume_without_local_project_plans_partial_release() {
         &interner,
     );
 
-    let container = class_rep(&mut partition, 0);
-    let ops = ops_for(&analysis, container);
-    assert!(
-        ops.iter().any(|op| {
-            matches!(
-                &op.kind,
-                PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![3]
-            )
-        }),
-        "post-call release must skip the transferred field: {ops:?}"
-    );
-    assert!(analysis.readiness.all_classes_clean);
+    assert!(analysis.boundary_owner_demand_unrepresentable);
+    assert!(!analysis.readiness.all_classes_clean);
 }
 
-/// A branch that bypasses the consuming call still owns the field. The
-/// transfer-dominated release skips it, while the bypass release remains a
-/// whole-value `Dec`.
+/// A contradictory whole-value plus projected-field contract is not a valid
+/// boundary authority. The class-ledger path must decline rather than choose
+/// either transfer granularity and risk a leak or double release.
 #[test]
-fn boundary_field_consume_is_path_sensitive_across_bypass_branch() {
+fn projected_field_conflict_declines_class_ledger_replacement() {
+    let callee = Name::from_raw(22);
+    let func = one_block_func(
+        2,
+        vec![
+            construct(0, vec![]),
+            apply_to(1, callee, vec![(0, ArgOwnership::Borrowed)]),
+        ],
+        ret(1),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    let mut contract = MemoryContract::conservative(1);
+    contract.params[0].iter_consumes_projected_field = Some(3);
+    let contracts = FxHashMap::from_iter([(callee, contract)]);
+    let analysis = analyze_from_state_map(
+        &func,
+        &state_map,
+        &contracts,
+        &ori_types::TypeRegistry::default(),
+        &test_interner(),
+    );
+
+    assert!(analysis.boundary_owner_demand_unrepresentable);
+    assert!(!analysis.readiness.all_classes_clean);
+}
+
+/// A branch-local projected-field demand still declines replacement for the
+/// whole function; no path may reinterpret the caller's owner as transferred.
+#[test]
+fn projected_field_demand_in_branch_declines_replacement() {
     let callee = Name::from_raw(20);
     let func = func_with_blocks(
         5,
@@ -343,6 +365,7 @@ fn boundary_field_consume_is_path_sensitive_across_bypass_branch() {
         state_map.set_permanent_scalar(v(scalar));
     }
     let mut contract = MemoryContract::conservative(1);
+    contract.params[0].access = AccessClass::Borrowed;
     contract.params[0].iter_consumes_projected_field = Some(2);
     let facts = FxHashMap::from_iter([(callee, BoundaryFacts::from_contract(&contract))]);
     let mut partition = compute_birth_site_partition(&func, &state_map);
@@ -356,31 +379,15 @@ fn boundary_field_consume_is_path_sensitive_across_bypass_branch() {
         &interner,
     );
 
-    let container = class_rep(&mut partition, 0);
-    let ops = ops_for(&analysis, container);
-    assert!(
-        ops.iter().any(|op| {
-            op.slot.block() == 1
-                && matches!(
-                    &op.kind,
-                    PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![2]
-                )
-        }),
-        "the call-dominated release must skip field 2: {ops:?}"
-    );
-    assert!(
-        ops.iter()
-            .any(|op| op.slot.block() == 2 && op.kind == PlannedOpKind::Dec),
-        "the bypass release must retain the whole recursive drop: {ops:?}"
-    );
-    assert!(analysis.readiness.all_classes_clean);
+    assert!(analysis.boundary_owner_demand_unrepresentable);
+    assert!(!analysis.readiness.all_classes_clean);
 }
 
-/// A local moved-out field and a boundary-consumed field share the one
-/// canonical partial-release representation. Neither authority may replace
-/// the other, and duplicate indices are normalized once.
+/// A local moved-out field cannot make an unrelated projected-field call
+/// demand representable. The direct-call boundary still requires an exact
+/// field retain and therefore declines replacement.
 #[test]
-fn boundary_and_local_field_skips_are_unioned_once() {
+fn local_field_move_does_not_mask_projected_field_demand() {
     let callee = Name::from_raw(21);
     let func = one_block_func(
         7,
@@ -405,6 +412,7 @@ fn boundary_and_local_field_skips_are_unioned_once() {
         state_map.set_permanent_scalar(v(scalar));
     }
     let mut contract = MemoryContract::conservative(1);
+    contract.params[0].access = AccessClass::Borrowed;
     contract.params[0].iter_consumes_projected_field = Some(1);
     let facts = FxHashMap::from_iter([(callee, BoundaryFacts::from_contract(&contract))]);
     let mut partition = compute_birth_site_partition(&func, &state_map);
@@ -418,25 +426,15 @@ fn boundary_and_local_field_skips_are_unioned_once() {
         &interner,
     );
 
-    let container = class_rep(&mut partition, 2);
-    let ops = ops_for(&analysis, container);
-    assert!(
-        ops.iter().any(|op| {
-            matches!(
-                &op.kind,
-                PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![0, 1]
-            )
-        }),
-        "local and boundary skip authorities must union: {ops:?}"
-    );
-    assert!(analysis.readiness.all_classes_clean);
+    assert!(analysis.boundary_owner_demand_unrepresentable);
+    assert!(!analysis.readiness.all_classes_clean);
 }
 
 /// Transfer sites and release slots in one block use instruction ordering,
 /// not block-level dominance alone.
 #[test]
 fn boundary_field_consume_respects_same_block_ordering() {
-    use super::hazard::sum_arm::{SiteVerdict, TransferFlowContext};
+    use super::hazard::{SiteVerdict, TransferFlowContext};
 
     let func = one_block_func(1, vec![construct(0, vec![])], ret(0));
     let ctx = TransferFlowContext::from_transfer_sites(&func, &[(0, EventSite::Body(0))]);
@@ -451,8 +449,8 @@ fn boundary_field_consume_respects_same_block_ordering() {
         var: v(0),
     };
 
-    assert_eq!(ctx.classify(&func, &before), Some(SiteVerdict::Whole));
-    assert_eq!(ctx.classify(&func, &after), Some(SiteVerdict::Skip));
+    assert_eq!(ctx.classify(&before), Some(SiteVerdict::Whole));
+    assert_eq!(ctx.classify(&after), Some(SiteVerdict::Skip));
 }
 
 /// A release before a loop-local transfer is reached both before any
@@ -460,7 +458,7 @@ fn boundary_field_consume_respects_same_block_ordering() {
 /// and cannot safely take either a uniform skip or whole verdict.
 #[test]
 fn boundary_field_consume_in_cycle_declines_when_not_uniform() {
-    use super::hazard::sum_arm::TransferFlowContext;
+    use super::hazard::TransferFlowContext;
 
     let func = func_with_blocks(
         2,
@@ -477,14 +475,14 @@ fn boundary_field_consume_in_cycle_declines_when_not_uniform() {
         var: v(0),
     };
 
-    assert_eq!(ctx.classify(&func, &release), None);
+    assert_eq!(ctx.classify(&release), None);
 }
 
 /// `Invoke` transfers ownership before either successor executes. Normal and
 /// unwind release sites therefore share the boundary skip verdict.
 #[test]
 fn boundary_field_consume_invoke_covers_normal_and_unwind() {
-    use super::hazard::sum_arm::{SiteVerdict, TransferFlowContext};
+    use super::hazard::{SiteVerdict, TransferFlowContext};
 
     let func = func_with_blocks(
         2,
@@ -506,7 +504,7 @@ fn boundary_field_consume_invoke_covers_normal_and_unwind() {
             kind: PlannedOpKind::Dec,
             var: v(0),
         };
-        assert_eq!(ctx.classify(&func, &release), Some(SiteVerdict::Skip));
+        assert_eq!(ctx.classify(&release), Some(SiteVerdict::Skip));
     }
 }
 
@@ -514,7 +512,7 @@ fn boundary_field_consume_invoke_covers_normal_and_unwind() {
 /// independent verdict rather than inheriting a class-global skip.
 #[test]
 fn boundary_field_consume_classifies_each_release_site() {
-    use super::hazard::sum_arm::{SiteVerdict, TransferFlowContext};
+    use super::hazard::{SiteVerdict, TransferFlowContext};
 
     let func = func_with_blocks(
         2,
@@ -531,7 +529,7 @@ fn boundary_field_consume_classifies_each_release_site() {
             kind: PlannedOpKind::Dec,
             var: v(0),
         };
-        assert_eq!(ctx.classify(&func, &release), Some(SiteVerdict::Skip));
+        assert_eq!(ctx.classify(&release), Some(SiteVerdict::Skip));
     }
 }
 
@@ -539,7 +537,7 @@ fn boundary_field_consume_classifies_each_release_site() {
 /// is mixed. A class-global skip would leak the bypass-owned field.
 #[test]
 fn boundary_field_consume_mixed_join_declines() {
-    use super::hazard::sum_arm::TransferFlowContext;
+    use super::hazard::TransferFlowContext;
 
     let func = func_with_blocks(
         2,
@@ -557,7 +555,7 @@ fn boundary_field_consume_mixed_join_declines() {
         var: v(0),
     };
 
-    assert_eq!(ctx.classify(&func, &release), None);
+    assert_eq!(ctx.classify(&release), None);
 }
 
 /// A borrowed user-call boundary whose callee consumes a COW owner needs two

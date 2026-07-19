@@ -28,10 +28,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let receiver = arg_vals[0];
 
-        if let Some(encoding) = self.get_niche_encoding(receiver_ty) {
-            return self.emit_result_monadic_niche(
-                method, receiver, arg_vals, &encoding, arc_args, arc_func,
-            );
+        if self.get_niche_encoding(receiver_ty).is_some() {
+            return None;
         }
 
         let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
@@ -386,21 +384,5 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             SharedPayloadArm::First => ok_llvm,
             SharedPayloadArm::Second => err_llvm,
         }
-    }
-
-    #[expect(
-        clippy::unused_self,
-        reason = "dispatch compatibility requires an emitter method, but fallback delegation reads no emitter state"
-    )]
-    fn emit_result_monadic_niche(
-        &mut self,
-        _method: &str,
-        _receiver: ValueId,
-        _arg_vals: &[ValueId],
-        _encoding: &crate::codegen::arc_emitter::tag_access::TagEncoding,
-        _arc_args: &[ArcVarId],
-        _arc_func: &ArcFunction,
-    ) -> Option<ValueId> {
-        None
     }
 }

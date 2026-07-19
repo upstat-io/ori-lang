@@ -371,6 +371,78 @@ fn extract_contract_iter_consume_propagates_through_forwarding_wrapper() {
 }
 
 #[test]
+fn borrowed_projected_iteration_does_not_transfer_aggregate_field_credit() {
+    use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
+
+    let interner = ori_ir::StringInterner::new();
+    let iter = interner.intern(ProtocolBuiltin::Iter.name());
+    let iter_drop = interner.intern(ProtocolBuiltin::IterDrop.name());
+    let func = ArcFunction {
+        name: name(9),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(4),
+        var_types: vec![ty(0), ty(1), ty(2), ty(3), ty(4)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Apply {
+                    dst: var(2),
+                    ty: ty(2),
+                    func: iter,
+                    args: vec![var(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Apply {
+                    dst: var(3),
+                    ty: ty(3),
+                    func: iter_drop,
+                    args: vec![var(2)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Let {
+                    dst: var(4),
+                    ty: ty(4),
+                    value: ArcValue::Literal(LitValue::Int(0)),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(4) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(5).with_scalar(3).with_scalar(4);
+    let sigs = FxHashMap::default();
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &interner,
+    );
+
+    assert_eq!(
+        contract.params[0].iter_consumes_projected_field, None,
+        "iterator drop consumes the callee's retain, not the aggregate's original field credit"
+    );
+}
+
+#[test]
 fn extract_contract_project_return_alias_propagates_through_forwarder() {
     // INVARIANT: A forwarder preserves the callee's projected return alias so
     // callers retain the owning box through the view's last use.

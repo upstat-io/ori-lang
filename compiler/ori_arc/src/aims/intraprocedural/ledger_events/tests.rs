@@ -6,6 +6,7 @@ use rustc_hash::FxHashMap;
 use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition;
 use crate::aims::intraprocedural::state_map::ApplyAliasSource;
+use crate::aims::lattice::AccessClass;
 use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcParam, ArcValue, ArgOwnership, CtorKind};
 
 use super::*;
@@ -146,33 +147,38 @@ fn terminal_use_table_matches_committed_rl2_grid() {
 /// contract facts (PV-4 `BoundaryContract.ofParamContract` composed).
 #[test]
 fn boundary_facts_project_the_contract() {
-    let mut contract = MemoryContract::conservative(2);
+    let mut contract = MemoryContract::conservative(3);
     contract.params[0].iter_consumes = true;
-    contract.params[0].iter_consumes_projected_field = Some(3);
-    contract.params[1].transfers_through_return = true;
-    contract.params[1].borrowed_cow_consumed = true;
+    contract.params[1].access = AccessClass::Borrowed;
+    contract.params[1].iter_consumes_projected_field = Some(3);
+    contract.params[2].transfers_through_return = true;
+    contract.params[2].borrowed_cow_consumed = true;
     contract.return_info.returns_sharing_view = true;
     contract.return_info.preserves_freshness = false;
 
     let facts = BoundaryFacts::from_contract(&contract);
-    assert_eq!(facts.param_iter_consumes, vec![true, false]);
+    assert_eq!(facts.param_iter_consumes, vec![true, false, false]);
     assert_eq!(
         facts.param_iter_consumes_projected_field,
-        vec![Some(3), None]
+        vec![None, Some(3), None]
     );
-    assert_eq!(facts.param_borrowed_cow_consumed, vec![false, true]);
-    assert_eq!(facts.param_transfers_through_return, vec![false, true]);
+    assert_eq!(facts.param_borrowed_cow_consumed, vec![false, false, true]);
+    assert_eq!(
+        facts.param_transfers_through_return,
+        vec![false, false, true]
+    );
     assert!(facts.returns_sharing_view);
     assert!(!facts.returns_owned_fresh);
     assert!(facts.iter_consume_transfer(0));
-    assert!(facts.borrowed_cow_consume_funding(1));
+    assert!(facts.borrowed_cow_consume_funding(2));
     assert!(facts.incoming_whole_value_credit(0));
-    assert!(facts.incoming_whole_value_credit(1));
+    assert!(facts.incoming_whole_value_credit(2));
     assert!(!facts.iter_consume_transfer(1));
     assert!(!facts.iter_consume_transfer(9));
-    assert_eq!(facts.projected_field_transfer(0), Some(3));
-    assert_eq!(facts.projected_field_transfer(1), None);
-    assert_eq!(facts.projected_field_transfer(9), None);
+    assert_eq!(facts.projected_field_owner_demand(0), None);
+    assert_eq!(facts.projected_field_owner_demand(1), Some(3));
+    assert_eq!(facts.projected_field_owner_demand(2), None);
+    assert_eq!(facts.projected_field_owner_demand(9), None);
 }
 
 // derive_ledger — the pure mirror of AimsProof.Ledger::deriveLedger
@@ -653,11 +659,11 @@ fn iter_consume_fact_overrides_borrowed_to_consume() {
     );
 }
 
-/// A projected-field transfer is not a whole-value transfer. The caller keeps
-/// the aggregate shell as a READ and exports a site-aware field transfer for
-/// the release planner even when the caller has no local `Project` node.
+/// A projected-field demand is not a whole-value transfer. The caller keeps
+/// the aggregate shell as a READ, while replacement declines until the event
+/// vocabulary can fund the exact field credit.
 #[test]
-fn projected_field_consume_records_boundary_transfer_without_whole_consume() {
+fn projected_field_demand_is_read_and_marks_boundary_unrepresentable() {
     let callee = Name::from_raw(11);
     let func = one_block_func(
         2,
@@ -691,12 +697,7 @@ fn projected_field_consume_records_boundary_transfer_without_whole_consume() {
         vec![LedgerEvent::Birth, LedgerEvent::Read],
         "field transfer must retain the aggregate shell"
     );
-    assert_eq!(classification.boundary_field_transfers.len(), 1);
-    let transfer = classification.boundary_field_transfers[0];
-    assert_eq!(partition.rep_of(transfer.container), arg);
-    assert_eq!(transfer.field, 3);
-    assert_eq!(transfer.block, 0);
-    assert_eq!(transfer.site, EventSite::Body(1));
+    assert!(classification.boundary_owner_demand_unrepresentable);
 }
 
 /// Whole-value and projected-field owner demands are mutually exclusive.
@@ -820,6 +821,8 @@ fn sharing_view_producer_credits_the_result() {
         callee,
         BoundaryFacts {
             param_iter_consumes: vec![false],
+            param_iter_consumes_projected_field: vec![None],
+            param_owner_demand_conflict: vec![false],
             param_borrowed_cow_consumed: vec![false],
             param_transfers_through_return: vec![false],
             param_cardinality_absent: vec![false],
@@ -1967,6 +1970,8 @@ fn absent_owned_param_books_no_events() {
         func.name,
         BoundaryFacts {
             param_iter_consumes: vec![false],
+            param_iter_consumes_projected_field: vec![None],
+            param_owner_demand_conflict: vec![false],
             param_borrowed_cow_consumed: vec![false],
             param_transfers_through_return: vec![false],
             param_cardinality_absent: vec![true],
@@ -1998,6 +2003,8 @@ fn absent_owned_param_books_no_events() {
         func.name,
         BoundaryFacts {
             param_iter_consumes: vec![false],
+            param_iter_consumes_projected_field: vec![None],
+            param_owner_demand_conflict: vec![false],
             param_borrowed_cow_consumed: vec![false],
             param_transfers_through_return: vec![false],
             param_cardinality_absent: vec![false],

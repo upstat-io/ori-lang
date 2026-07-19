@@ -1,6 +1,6 @@
 //! Central expression-kind dispatch.
 
-use ori_ir::{ExprArena, ExprId, ExprKind, Span};
+use ori_ir::{ExprArena, ExprId, ExprKind};
 use ori_stack::ensure_sufficient_stack;
 
 use crate::Idx;
@@ -39,14 +39,11 @@ pub(in crate::infer) fn infer_optional_or_unit(
     }
 }
 
-fn infer_lit_ident_op_call(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    expr_id: ExprId,
-    kind: &ExprKind,
-    span: Span,
-) -> Idx {
-    match kind {
+fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx {
+    let expr = arena.get_expr(expr_id);
+    let span = expr.span;
+
+    let ty = match &expr.kind {
         ExprKind::Int(_) | ExprKind::HashLength => Idx::INT,
         ExprKind::Float(_) => Idx::FLOAT,
         ExprKind::Bool(_) => Idx::BOOL,
@@ -87,53 +84,6 @@ fn infer_lit_ident_op_call(
             MethodCallSite::new(expr_id, *receiver, *method, span, None),
             *args,
         ),
-        unexpected @ (ExprKind::If { .. }
-        | ExprKind::Match { .. }
-        | ExprKind::For { .. }
-        | ExprKind::Loop { .. }
-        | ExprKind::While { .. }
-        | ExprKind::Block { .. }
-        | ExprKind::Let { .. }
-        | ExprKind::Lambda { .. }
-        | ExprKind::List(_)
-        | ExprKind::ListWithSpread(_)
-        | ExprKind::Tuple(_)
-        | ExprKind::Map(_)
-        | ExprKind::MapWithSpread(_)
-        | ExprKind::Range { .. }
-        | ExprKind::Struct { .. }
-        | ExprKind::StructWithSpread { .. }
-        | ExprKind::Ok(_)
-        | ExprKind::Err(_)
-        | ExprKind::Some(_)
-        | ExprKind::None
-        | ExprKind::Field { .. }
-        | ExprKind::Index { .. }
-        | ExprKind::Break { .. }
-        | ExprKind::Continue { .. }
-        | ExprKind::Unsafe(_)
-        | ExprKind::Try(_)
-        | ExprKind::Await(_)
-        | ExprKind::Cast { .. }
-        | ExprKind::Assign { .. }
-        | ExprKind::AssignTarget { .. }
-        | ExprKind::WithCapability { .. }
-        | ExprKind::FunctionSeq(_)
-        | ExprKind::FunctionExp(_)
-        | ExprKind::TemplateLiteral { .. }
-        | ExprKind::Error) => unreachable!(
-            "expression kind routed to literal/operator/call inference: {unexpected:?}"
-        ),
-    }
-}
-
-fn infer_control_block_lambda(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    kind: &ExprKind,
-    span: Span,
-) -> Idx {
-    match kind {
         ExprKind::If {
             cond,
             then_branch,
@@ -161,80 +111,14 @@ fn infer_control_block_lambda(
             init,
             mutable,
         } => infer_let(engine, arena, *pattern, *ty, *init, *mutable, span),
-
         ExprKind::Lambda {
             params,
             ret_ty,
             body,
         } => {
-            let ret_ty_ref = if ret_ty.is_valid() {
-                Some(arena.get_parsed_type(*ret_ty))
-            } else {
-                None
-            };
-            infer_lambda(engine, arena, *params, ret_ty_ref, *body, span)
+            let return_type = ret_ty.is_valid().then(|| arena.get_parsed_type(*ret_ty));
+            infer_lambda(engine, arena, *params, return_type, *body, span)
         }
-
-        unexpected @ (ExprKind::Int(_)
-        | ExprKind::HashLength
-        | ExprKind::Float(_)
-        | ExprKind::Bool(_)
-        | ExprKind::String(_)
-        | ExprKind::TemplateFull(_)
-        | ExprKind::Char(_)
-        | ExprKind::Duration { .. }
-        | ExprKind::Size { .. }
-        | ExprKind::Unit
-        | ExprKind::Ident(_)
-        | ExprKind::FunctionRef(_)
-        | ExprKind::SelfRef
-        | ExprKind::Const(_)
-        | ExprKind::Binary { .. }
-        | ExprKind::Unary { .. }
-        | ExprKind::Call { .. }
-        | ExprKind::CallNamed { .. }
-        | ExprKind::MethodCall { .. }
-        | ExprKind::MethodCallNamed { .. }
-        | ExprKind::List(_)
-        | ExprKind::ListWithSpread(_)
-        | ExprKind::Tuple(_)
-        | ExprKind::Map(_)
-        | ExprKind::MapWithSpread(_)
-        | ExprKind::Range { .. }
-        | ExprKind::Struct { .. }
-        | ExprKind::StructWithSpread { .. }
-        | ExprKind::Ok(_)
-        | ExprKind::Err(_)
-        | ExprKind::Some(_)
-        | ExprKind::None
-        | ExprKind::Field { .. }
-        | ExprKind::Index { .. }
-        | ExprKind::Break { .. }
-        | ExprKind::Continue { .. }
-        | ExprKind::Unsafe(_)
-        | ExprKind::Try(_)
-        | ExprKind::Await(_)
-        | ExprKind::Cast { .. }
-        | ExprKind::Assign { .. }
-        | ExprKind::AssignTarget { .. }
-        | ExprKind::WithCapability { .. }
-        | ExprKind::FunctionSeq(_)
-        | ExprKind::FunctionExp(_)
-        | ExprKind::TemplateLiteral { .. }
-        | ExprKind::Error) => {
-            unreachable!("expression kind routed to control-flow inference: {unexpected:?}")
-        }
-    }
-}
-
-fn infer_collection_struct_misc(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    expr_id: ExprId,
-    kind: &ExprKind,
-    span: Span,
-) -> Idx {
-    match kind {
         ExprKind::List(elements) => infer_list(engine, arena, *elements, span),
         ExprKind::ListWithSpread(elements) => infer_list_spread(engine, arena, *elements, span),
         ExprKind::Tuple(elements) => infer_tuple(engine, arena, *elements, span),
@@ -258,106 +142,6 @@ fn infer_collection_struct_misc(
         ExprKind::Index { receiver, index } => {
             infer_index(engine, arena, expr_id, *receiver, *index, span)
         }
-        unexpected @ (ExprKind::Int(_)
-        | ExprKind::HashLength
-        | ExprKind::Float(_)
-        | ExprKind::Bool(_)
-        | ExprKind::String(_)
-        | ExprKind::TemplateFull(_)
-        | ExprKind::Char(_)
-        | ExprKind::Duration { .. }
-        | ExprKind::Size { .. }
-        | ExprKind::Unit
-        | ExprKind::Ident(_)
-        | ExprKind::FunctionRef(_)
-        | ExprKind::SelfRef
-        | ExprKind::Const(_)
-        | ExprKind::Binary { .. }
-        | ExprKind::Unary { .. }
-        | ExprKind::Call { .. }
-        | ExprKind::CallNamed { .. }
-        | ExprKind::MethodCall { .. }
-        | ExprKind::MethodCallNamed { .. }
-        | ExprKind::If { .. }
-        | ExprKind::Match { .. }
-        | ExprKind::For { .. }
-        | ExprKind::Loop { .. }
-        | ExprKind::While { .. }
-        | ExprKind::Block { .. }
-        | ExprKind::Let { .. }
-        | ExprKind::Lambda { .. }
-        | ExprKind::Break { .. }
-        | ExprKind::Continue { .. }
-        | ExprKind::Unsafe(_)
-        | ExprKind::Try(_)
-        | ExprKind::Await(_)
-        | ExprKind::Cast { .. }
-        | ExprKind::Assign { .. }
-        | ExprKind::AssignTarget { .. }
-        | ExprKind::WithCapability { .. }
-        | ExprKind::FunctionSeq(_)
-        | ExprKind::FunctionExp(_)
-        | ExprKind::TemplateLiteral { .. }
-        | ExprKind::Error) => {
-            unreachable!("expression kind routed to collection/struct inference: {unexpected:?}")
-        }
-    }
-}
-
-fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx {
-    let expr = arena.get_expr(expr_id);
-    let span = expr.span;
-
-    let ty = match &expr.kind {
-        ExprKind::Int(_)
-        | ExprKind::HashLength
-        | ExprKind::Float(_)
-        | ExprKind::Bool(_)
-        | ExprKind::String(_)
-        | ExprKind::TemplateFull(_)
-        | ExprKind::Char(_)
-        | ExprKind::Duration { .. }
-        | ExprKind::Size { .. }
-        | ExprKind::Unit
-        | ExprKind::Ident(_)
-        | ExprKind::FunctionRef(_)
-        | ExprKind::SelfRef
-        | ExprKind::Const(_)
-        | ExprKind::Binary { .. }
-        | ExprKind::Unary { .. }
-        | ExprKind::Call { .. }
-        | ExprKind::CallNamed { .. }
-        | ExprKind::MethodCall { .. }
-        | ExprKind::MethodCallNamed { .. } => {
-            infer_lit_ident_op_call(engine, arena, expr_id, &expr.kind, span)
-        }
-
-        ExprKind::If { .. }
-        | ExprKind::Match { .. }
-        | ExprKind::For { .. }
-        | ExprKind::Loop { .. }
-        | ExprKind::While { .. }
-        | ExprKind::Block { .. }
-        | ExprKind::Let { .. }
-        | ExprKind::Lambda { .. } => infer_control_block_lambda(engine, arena, &expr.kind, span),
-
-        ExprKind::List(_)
-        | ExprKind::ListWithSpread(_)
-        | ExprKind::Tuple(_)
-        | ExprKind::Map(_)
-        | ExprKind::MapWithSpread(_)
-        | ExprKind::Range { .. }
-        | ExprKind::Struct { .. }
-        | ExprKind::StructWithSpread { .. }
-        | ExprKind::Ok(_)
-        | ExprKind::Err(_)
-        | ExprKind::Some(_)
-        | ExprKind::None
-        | ExprKind::Field { .. }
-        | ExprKind::Index { .. } => {
-            infer_collection_struct_misc(engine, arena, expr_id, &expr.kind, span)
-        }
-
         ExprKind::Break { label, value } => infer_break(engine, arena, *label, *value, span),
         ExprKind::Continue { label, value } => infer_continue(engine, arena, *label, *value, span),
         ExprKind::Unsafe(inner) => infer_expr(engine, arena, *inner),

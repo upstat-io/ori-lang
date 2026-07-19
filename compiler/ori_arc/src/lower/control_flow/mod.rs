@@ -338,19 +338,13 @@ impl ArcLowerer<'_> {
         // INVARIANT: Only bindings an arm can reassign become match merge params;
         // threading unchanged owners would create unreleased dead params.
         let pre_scope = self.scope.clone();
-        let reassigned = if reassign_scan::match_param_pruning_disabled() {
-            None
-        } else {
-            Some(reassign_scan::collect_reassigned_mutable_names(
-                self.arena, self.canon, &arm_ids, &tree,
-            ))
-        };
+        let reassigned = reassign_scan::collect_reassigned_mutable_names(
+            self.arena, self.canon, &arm_ids, &tree,
+        );
         let mut mutable_var_merge: Vec<(Name, ArcVarId)> = Vec::new();
         for (name, var) in pre_scope.mutable_bindings() {
-            if let Some(reassigned) = &reassigned {
-                if !reassigned.contains(&name) {
-                    continue;
-                }
+            if !reassigned.contains(&name) {
+                continue;
             }
             let var_ty = self.builder.var_type(var);
             let merge_var = self.builder.add_block_param(merge_block, var_ty);
